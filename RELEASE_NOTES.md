@@ -1,11 +1,19 @@
 # Release Notes
 
+## [v0.2.2.Build.1] - 2026-08-27 19:01
+
+### 🔌 Neon PostgreSQL 실시간 100% 연동 백엔드 API 체계 구축 (Zero Local Mock)
+- **로컬 시드/Mock 데이터 전면 제거**: 프론트엔드의 하드코딩 Mock 데이터를 완전 폐기하고 **실제 원격 Neon PostgreSQL DB와 100% 실시간 동기화**
+- **서버리스 백엔드 API 라우트 구축**:
+  - `/api/erp/auth/login`: Neon DB `employees` 테이블 실시간 인증
+  - `/api/erp/auth/change-password`: Neon DB 비밀번호 실시간 업데이트
+  - `/api/erp/employees`: 실제 DB 임직원 목록 조회(GET), 운영자 신규 계정 발급(POST - 초기비번 1111), 비밀번호 1111 초기화(PATCH)
+  - `/api/erp/leaves`: Neon DB 휴가 신청(POST), 목록(GET), 결재 승인/반려(PATCH)
+  - `/api/erp/overtimes`: Neon DB 초과근무 자율 등록(POST) 및 목록(GET)
+  - `/api/erp/assets`, `/api/erp/consumables`: Neon DB 자산 및 소모품 실시간 조회
+- **보안 격리**: DB 접속 문자열 및 시크릿 키는 클라이언트(브라우저)에 노출되지 않고 **Next.js 백엔드 서버사이드 환경변수(`DATABASE_URL`)에서만 격리 실행**
+
 ## [v0.2.1.Build.1] - 2026-08-27 18:58
-
-### 🔄 세션 영속성 및 새로고침(F5) 유지 기능 탑재 (Session Persistence)
-- **F5 새로고침 유지**: 브라우저 창을 새로고침하더라도 로그인 폼으로 튕기지 않고 **방금 작업 중이던 메뉴(근태관리, 매출관리, 자산관리 등) 화면 그대로 자동 복원**
-- **로그아웃 안전 제거**: 사용자가 명시적으로 `[로그아웃]` 버튼을 클릭했을 때만 세션이 정리되고 로그인 폼으로 전환
-
 ## [v0.2.0.Build.1] - 2026-08-27 18:54
 ## [v0.1.4.Build.1] - 2026-08-27 18:48
 ## [v0.1.3.Build.1] - 2026-08-27 18:45

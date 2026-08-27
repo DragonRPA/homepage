@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { 
   Bot, Lock, User, KeyRound, X, LogOut, TrendingUp, ShoppingCart, 
   CalendarCheck, FolderTree, Package, Layers, Mail, Plus, 
-  FileSpreadsheet, Clock, RefreshCw, UserPlus, CheckCircle2, AlertCircle
+  FileSpreadsheet, Clock, RefreshCw, UserPlus, CheckCircle2, AlertCircle,
+  FileText, Calendar
 } from "lucide-react";
 
 export default function ErpPortalPage() {
@@ -28,6 +29,12 @@ export default function ErpPortalPage() {
   const [consumables, setConsumables] = useState<any[]>([]);
   const [dbLoading, setDbLoading] = useState(false);
 
+  // Month filter for overtimes (Format: YYYY-MM)
+  const [selectedMonth, setSelectedMonth] = useState("2026-08");
+
+  // Leave Usage Detail Modal State
+  const [selectedEmpForLeave, setSelectedEmpForLeave] = useState<any>(null);
+
   // Password Change Modal State
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [currentPwd, setCurrentPwd] = useState("");
@@ -45,6 +52,7 @@ export default function ErpPortalPage() {
   const [newEmpPos, setNewEmpPos] = useState("사원");
   const [newEmpRole, setNewEmpRole] = useState("USER");
   const [newEmpEmail, setNewEmpEmail] = useState("");
+  const [newEmpGrantDays, setNewEmpGrantDays] = useState("15.0");
 
   // Leave Form Inputs
   const [newLeaveType, setNewLeaveType] = useState("ANNUAL");
@@ -56,6 +64,7 @@ export default function ErpPortalPage() {
   const [newOtDate, setNewOtDate] = useState("2026-08-27");
   const [newOtStart, setNewOtStart] = useState("18:00");
   const [newOtEnd, setNewOtEnd] = useState("20:30");
+  const [newOtHours, setNewOtHours] = useState("2.5");
   const [newOtDetails, setNewOtDetails] = useState("");
 
   // Fetch DB Data
@@ -231,6 +240,7 @@ export default function ErpPortalPage() {
           department: newEmpDept,
           role: newEmpRole,
           email: newEmpEmail || `${newEmpLoginId}@dragonrpa.co.kr`,
+          grantDays: Number(newEmpGrantDays) || 15.0,
         }),
       });
       const data = await res.json();
@@ -243,6 +253,7 @@ export default function ErpPortalPage() {
         setNewEmpLoginId("");
         setNewEmpName("");
         setNewEmpEmail("");
+        setNewEmpGrantDays("15.0");
         fetchDbData();
       }
     } catch (err) {
@@ -326,7 +337,7 @@ export default function ErpPortalPage() {
           workType: "EXTENDED",
           startTime: newOtStart,
           endTime: newOtEnd,
-          hours: 2.5,
+          hours: Number(newOtHours) || 2.5,
           details: newOtDetails,
         }),
       });
@@ -363,6 +374,26 @@ export default function ErpPortalPage() {
       alert("통신 오류");
     }
   };
+
+  // Filtered overtimes by selected month (YYYY-MM)
+  const filteredOvertimes = useMemo(() => {
+    if (!selectedMonth) return overtimes;
+    return overtimes.filter((ot) => {
+      const d = String(ot.workDate || "");
+      return d.startsWith(selectedMonth);
+    });
+  }, [overtimes, selectedMonth]);
+
+  // Total Overtime Hours in selected month
+  const totalMonthlyOvertimeHours = useMemo(() => {
+    return filteredOvertimes.reduce((acc, cur) => acc + Number(cur.hours || 0), 0);
+  }, [filteredOvertimes]);
+
+  // Specific employee's leave requests for detail modal
+  const selectedEmpLeaveList = useMemo(() => {
+    if (!selectedEmpForLeave) return [];
+    return leaveRequests.filter((l) => Number(l.employeeId) === Number(selectedEmpForLeave.id));
+  }, [leaveRequests, selectedEmpForLeave]);
 
   const menuItems = [
     { id: "management", label: "경영관리", icon: User, superOnly: true },
@@ -559,7 +590,7 @@ export default function ErpPortalPage() {
               <button onClick={fetchDbData} className="text-slate-400 hover:text-white flex items-center gap-1">
                 <RefreshCw className={`w-3 h-3 ${dbLoading ? 'animate-spin text-blue-400' : ''}`} /> 새로고침
               </button>
-              <span className="text-slate-500">v0.2.3</span>
+              <span className="text-slate-500">v0.2.4</span>
             </div>
           </aside>
 
@@ -597,9 +628,10 @@ export default function ErpPortalPage() {
                     </div>
                   </div>
 
+                  {/* Employee Leave Summary Table (with Left Action Column [상세]) */}
                   <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 space-y-4">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-bold text-white whitespace-nowrap">사원 목록</h3>
+                      <h3 className="text-sm font-bold text-white whitespace-nowrap">사원별 연차 현황 및 계정 대장</h3>
                       <button onClick={fetchDbData} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 whitespace-nowrap">
                         <RefreshCw className="w-3.5 h-3.5" /> 갱신
                       </button>
@@ -609,22 +641,37 @@ export default function ErpPortalPage() {
                       <table className="w-full text-left text-xs">
                         <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
                           <tr>
+                            <th className="p-3 whitespace-nowrap text-center">연차 상세</th>
                             <th className="p-3 whitespace-nowrap">사번</th>
                             <th className="p-3 whitespace-nowrap">성명</th>
-                            <th className="p-3 whitespace-nowrap">아이디</th>
                             <th className="p-3 whitespace-nowrap">부서 / 직책</th>
+                            <th className="p-3 whitespace-nowrap text-right">부여 연차</th>
+                            <th className="p-3 whitespace-nowrap text-right">사용 연차</th>
+                            <th className="p-3 whitespace-nowrap text-right">잔여 연차</th>
+                            <th className="p-3 whitespace-nowrap">아이디</th>
                             <th className="p-3 whitespace-nowrap">권한</th>
-                            <th className="p-3 whitespace-nowrap">이메일</th>
                             <th className="p-3 whitespace-nowrap">관리</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
                           {employees.map((u: any) => (
                             <tr key={u.id} className="hover:bg-slate-800/40">
+                              <td className="p-3 text-center whitespace-nowrap">
+                                <button
+                                  onClick={() => setSelectedEmpForLeave(u)}
+                                  className="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-700 text-blue-300 rounded text-[11px] font-sans font-bold flex items-center gap-1 mx-auto transition-colors"
+                                >
+                                  <FileText className="w-3.5 h-3.5" />
+                                  <span>상세 ➔</span>
+                                </button>
+                              </td>
                               <td className="p-3 font-bold text-white whitespace-nowrap">{u.employeeNo}</td>
                               <td className="p-3 font-sans font-semibold text-white whitespace-nowrap">{u.name}</td>
-                              <td className="p-3 text-blue-400 font-bold whitespace-nowrap">{u.loginId}</td>
                               <td className="p-3 font-sans whitespace-nowrap">{u.department} {u.position}</td>
+                              <td className="p-3 text-right whitespace-nowrap font-bold text-slate-300">{Number(u.grantDays || 15.0).toFixed(1)}일</td>
+                              <td className="p-3 text-right whitespace-nowrap font-bold text-blue-400">{Number(u.usedDays || 0).toFixed(1)}일</td>
+                              <td className="p-3 text-right whitespace-nowrap font-bold text-emerald-400">{Number(u.remainDays !== undefined ? u.remainDays : 15.0).toFixed(1)}일</td>
+                              <td className="p-3 text-blue-400 font-bold whitespace-nowrap">{u.loginId}</td>
                               <td className="p-3 whitespace-nowrap">
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                                   u.role === 'SUPER_ADMIN' ? 'bg-blue-950 text-blue-300 border-blue-700' : u.role === 'MANAGER' ? 'bg-cyan-950 text-cyan-300 border-cyan-700' : 'bg-emerald-950 text-emerald-300 border-emerald-700'
@@ -632,7 +679,6 @@ export default function ErpPortalPage() {
                                   {u.role}
                                 </span>
                               </td>
-                              <td className="p-3 font-sans whitespace-nowrap">{u.email}</td>
                               <td className="p-3 whitespace-nowrap">
                                 <button
                                   onClick={() => handleResetPassword(u.id)}
@@ -740,8 +786,57 @@ export default function ErpPortalPage() {
               {/* 4. 근태관리 TAB */}
               {activeTab === "attendance" && (
                 <div className="space-y-6">
-                  <div>
-                    <h2 className="text-xl font-bold text-white tracking-tight">근태관리</h2>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-xl font-bold text-white tracking-tight">근태관리</h2>
+                    </div>
+                  </div>
+
+                  {/* 사원별 연차 요약 카드 리스트 (클릭 시 상세) */}
+                  <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-white whitespace-nowrap">사원별 연차 현황</h3>
+                      <button onClick={fetchDbData} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 whitespace-nowrap">
+                        <RefreshCw className="w-3.5 h-3.5" /> 갱신
+                      </button>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
+                          <tr>
+                            <th className="p-3 whitespace-nowrap text-center">연차 상세</th>
+                            <th className="p-3 whitespace-nowrap">사번</th>
+                            <th className="p-3 whitespace-nowrap">성명</th>
+                            <th className="p-3 whitespace-nowrap">부서 / 직책</th>
+                            <th className="p-3 whitespace-nowrap text-right">부여 연차</th>
+                            <th className="p-3 whitespace-nowrap text-right">사용 연차</th>
+                            <th className="p-3 whitespace-nowrap text-right">잔여 연차</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
+                          {employees.map((u: any) => (
+                            <tr key={u.id} className="hover:bg-slate-800/40">
+                              <td className="p-3 text-center whitespace-nowrap">
+                                <button
+                                  onClick={() => setSelectedEmpForLeave(u)}
+                                  className="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-700 text-blue-300 rounded text-[11px] font-sans font-bold flex items-center gap-1 mx-auto transition-colors"
+                                >
+                                  <FileText className="w-3.5 h-3.5" />
+                                  <span>상세 ➔</span>
+                                </button>
+                              </td>
+                              <td className="p-3 font-bold text-white whitespace-nowrap">{u.employeeNo}</td>
+                              <td className="p-3 font-sans font-semibold text-white whitespace-nowrap">{u.name}</td>
+                              <td className="p-3 font-sans whitespace-nowrap">{u.department} {u.position}</td>
+                              <td className="p-3 text-right whitespace-nowrap font-bold text-slate-300">{Number(u.grantDays || 15.0).toFixed(1)}일</td>
+                              <td className="p-3 text-right whitespace-nowrap font-bold text-blue-400">{Number(u.usedDays || 0).toFixed(1)}일</td>
+                              <td className="p-3 text-right whitespace-nowrap font-bold text-emerald-400">{Number(u.remainDays !== undefined ? u.remainDays : 15.0).toFixed(1)}일</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -875,14 +970,35 @@ export default function ErpPortalPage() {
                     </div>
                   </div>
 
-                  {/* Overtime */}
-                  <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
-                    <div>
-                      <h3 className="text-sm font-bold text-white flex items-center gap-1.5 whitespace-nowrap">
-                        <Clock className="w-4 h-4 text-cyan-400" /> 초과근무 등록
-                      </h3>
+                  {/* Monthly Overtime Section (월별 초과근무 조회 필터 탑재) */}
+                  <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 space-y-5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+                      <div>
+                        <h3 className="text-sm font-bold text-white flex items-center gap-1.5 whitespace-nowrap">
+                          <Clock className="w-4 h-4 text-cyan-400" /> 월별 초과근무 조회 및 등록
+                        </h3>
+                      </div>
+
+                      {/* Month Filter Selector */}
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5">
+                          <Calendar className="w-4 h-4 text-blue-400" />
+                          <label className="text-xs font-bold text-slate-300 whitespace-nowrap">조회 월:</label>
+                          <input
+                            type="month"
+                            value={selectedMonth}
+                            onChange={(e) => setSelectedMonth(e.target.value)}
+                            className="bg-transparent text-xs text-white font-mono focus:outline-none cursor-pointer"
+                          />
+                        </div>
+
+                        <div className="px-3 py-1.5 rounded-lg bg-cyan-950/60 border border-cyan-800 text-cyan-300 text-xs font-bold whitespace-nowrap">
+                          해당 월 합계: {totalMonthlyOvertimeHours.toFixed(1)}시간 ({filteredOvertimes.length}건)
+                        </div>
+                      </div>
                     </div>
 
+                    {/* Overtime Registration Form */}
                     <form onSubmit={handleAddOvertime} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end p-4 rounded-lg bg-slate-950 border border-slate-800">
                       <div className="sm:col-span-2 flex flex-col gap-1">
                         <label className="text-[11px] font-bold text-slate-300 whitespace-nowrap">일자</label>
@@ -911,7 +1027,17 @@ export default function ErpPortalPage() {
                           className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-white font-mono"
                         />
                       </div>
-                      <div className="sm:col-span-4 flex flex-col gap-1">
+                      <div className="sm:col-span-1 flex flex-col gap-1">
+                        <label className="text-[11px] font-bold text-slate-300 whitespace-nowrap">시간</label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          value={newOtHours}
+                          onChange={(e) => setNewOtHours(e.target.value)}
+                          className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-white font-mono"
+                        />
+                      </div>
+                      <div className="sm:col-span-3 flex flex-col gap-1">
                         <label className="text-[11px] font-bold text-slate-300 whitespace-nowrap">내용</label>
                         <input
                           type="text"
@@ -931,6 +1057,7 @@ export default function ErpPortalPage() {
                       </div>
                     </form>
 
+                    {/* Filtered Monthly Overtime Table */}
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs">
                         <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
@@ -939,21 +1066,21 @@ export default function ErpPortalPage() {
                             <th className="p-2.5 whitespace-nowrap">일자</th>
                             <th className="p-2.5 whitespace-nowrap">구분</th>
                             <th className="p-2.5 whitespace-nowrap">시간</th>
-                            <th className="p-2.5 whitespace-nowrap">인정</th>
+                            <th className="p-2.5 whitespace-nowrap">인정시간</th>
                             <th className="p-2.5">내용</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
-                          {overtimes.length === 0 ? (
-                            <tr><td colSpan={6} className="p-4 text-center text-slate-500 font-mono">내역 없음</td></tr>
+                          {filteredOvertimes.length === 0 ? (
+                            <tr><td colSpan={6} className="p-4 text-center text-slate-500 font-mono">{selectedMonth} 월 초과근무 내역 없음</td></tr>
                           ) : (
-                            overtimes.map((ot) => (
+                            filteredOvertimes.map((ot) => (
                               <tr key={ot.id} className="hover:bg-slate-800/40">
                                 <td className="p-2.5 font-sans font-bold text-white whitespace-nowrap">{ot.empName}</td>
                                 <td className="p-2.5 whitespace-nowrap">{ot.workDate}</td>
                                 <td className="p-2.5 font-sans whitespace-nowrap"><span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 text-[10px] font-bold">{ot.workType}</span></td>
                                 <td className="p-2.5 whitespace-nowrap">{ot.startTime} ~ {ot.endTime}</td>
-                                <td className="p-2.5 font-bold text-cyan-400 whitespace-nowrap">{ot.hours}시간</td>
+                                <td className="p-2.5 font-bold text-cyan-400 whitespace-nowrap">{Number(ot.hours).toFixed(1)}시간</td>
                                 <td className="p-2.5 font-sans text-slate-300">{ot.details}</td>
                               </tr>
                             ))
@@ -1047,7 +1174,7 @@ export default function ErpPortalPage() {
                                 <td className="p-3 font-sans whitespace-nowrap">{c.spec}</td>
                                 <td className="p-3 whitespace-nowrap">{c.unit}</td>
                                 <td className="p-3 font-bold text-emerald-400 whitespace-nowrap">{c.stock}</td>
-                                <td className="p-3 text-slate-400 whitespace-nowrap">{c.safety}</td>
+                                <td className="p-3 text-slate-400">{c.safety}</td>
                                 <td className="p-3 text-right whitespace-nowrap">{c.unitPrice ? Number(c.unitPrice).toLocaleString() : 0}원</td>
                               </tr>
                             ))
@@ -1145,6 +1272,90 @@ export default function ErpPortalPage() {
 
             </div>
           </main>
+        </div>
+      )}
+
+      {/* Leave Detail Modal (연차 사용 상세 내역 모달) */}
+      {selectedEmpForLeave && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-white font-bold text-base">
+                <CalendarCheck className="w-5 h-5 text-blue-500" />
+                <span>{selectedEmpForLeave.name} ({selectedEmpForLeave.department} {selectedEmpForLeave.position}) 연차 상세</span>
+              </div>
+              <button
+                onClick={() => setSelectedEmpForLeave(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-md"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Stats Overview */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                <div className="text-[11px] text-slate-400 font-bold whitespace-nowrap">부여 연차</div>
+                <div className="text-xl font-bold text-slate-200 mt-0.5">{Number(selectedEmpForLeave.grantDays || 15.0).toFixed(1)}일</div>
+              </div>
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                <div className="text-[11px] text-slate-400 font-bold whitespace-nowrap">사용 연차</div>
+                <div className="text-xl font-bold text-blue-400 mt-0.5">{Number(selectedEmpForLeave.usedDays || 0).toFixed(1)}일</div>
+              </div>
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                <div className="text-[11px] text-slate-400 font-bold whitespace-nowrap">잔여 연차</div>
+                <div className="text-xl font-bold text-emerald-400 mt-0.5">{Number(selectedEmpForLeave.remainDays !== undefined ? selectedEmpForLeave.remainDays : 15.0).toFixed(1)}일</div>
+              </div>
+            </div>
+
+            {/* Leave Usage Table */}
+            <div className="space-y-2">
+              <div className="text-xs font-bold text-slate-300 whitespace-nowrap">연차 사용 내역</div>
+              <div className="overflow-x-auto max-h-64 border border-slate-800 rounded-lg">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 sticky top-0">
+                    <tr>
+                      <th className="p-2.5 whitespace-nowrap">구분</th>
+                      <th className="p-2.5 whitespace-nowrap">기간</th>
+                      <th className="p-2.5 whitespace-nowrap text-right">차감일수</th>
+                      <th className="p-2.5 whitespace-nowrap">상태</th>
+                      <th className="p-2.5 whitespace-nowrap">사유</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
+                    {selectedEmpLeaveList.length === 0 ? (
+                      <tr><td colSpan={5} className="p-4 text-center text-slate-500 font-mono">사용 내역 없음</td></tr>
+                    ) : (
+                      selectedEmpLeaveList.map((l) => (
+                        <tr key={l.id} className="hover:bg-slate-800/40">
+                          <td className="p-2.5 font-sans font-semibold text-white whitespace-nowrap">{l.leaveType}</td>
+                          <td className="p-2.5 whitespace-nowrap">{l.startDate} ~ {l.endDate}</td>
+                          <td className="p-2.5 text-right font-bold text-blue-400 whitespace-nowrap">{Number(l.deducted).toFixed(1)}일</td>
+                          <td className="p-2.5 font-sans whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              l.status === 'APPROVED' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : l.status === 'REJECTED' ? 'bg-red-950 text-red-300 border border-red-800' : 'bg-amber-950 text-amber-300 border border-amber-800'
+                            }`}>
+                              {l.status === 'APPROVED' ? '승인' : l.status === 'REJECTED' ? '반려' : '대기'}
+                            </span>
+                          </td>
+                          <td className="p-2.5 font-sans text-slate-300">{l.reason}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="pt-2 text-right">
+              <button
+                onClick={() => setSelectedEmpForLeave(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg transition-colors whitespace-nowrap"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1300,6 +1511,21 @@ export default function ErpPortalPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-300 whitespace-nowrap">부여 연차</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    required
+                    placeholder="15.0"
+                    value={newEmpGrantDays}
+                    onChange={(e) => setNewEmpGrantDays(e.target.value)}
+                    className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
                   <label className="text-xs font-bold text-slate-300 whitespace-nowrap">권한</label>
                   <select
                     value={newEmpRole}
@@ -1311,9 +1537,6 @@ export default function ErpPortalPage() {
                     <option value="SUPER_ADMIN">SUPER_ADMIN</option>
                   </select>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-bold text-slate-300 whitespace-nowrap">부서</label>
                   <input
@@ -1324,6 +1547,9 @@ export default function ErpPortalPage() {
                     className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-bold text-slate-300 whitespace-nowrap">직책</label>
                   <input
@@ -1334,17 +1560,16 @@ export default function ErpPortalPage() {
                     className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white"
                   />
                 </div>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-slate-300 whitespace-nowrap">이메일</label>
-                <input
-                  type="email"
-                  placeholder="이메일"
-                  value={newEmpEmail}
-                  onChange={(e) => setNewEmpEmail(e.target.value)}
-                  className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white font-mono"
-                />
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-300 whitespace-nowrap">이메일</label>
+                  <input
+                    type="email"
+                    placeholder="이메일"
+                    value={newEmpEmail}
+                    onChange={(e) => setNewEmpEmail(e.target.value)}
+                    className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white font-mono"
+                  />
+                </div>
               </div>
 
               <div className="flex gap-2 pt-2">

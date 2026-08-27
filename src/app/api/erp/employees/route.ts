@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 
-// GET: List all employees directly from Neon DB
+// GET: List all employees with leave stats directly from Neon DB
 export async function GET() {
   try {
     const rows = await sql`
@@ -15,11 +15,16 @@ export async function GET() {
         e.role, 
         e.email, 
         e.phone, 
+        e.annual_leave_grant as "grantDays",
+        COALESCE(SUM(CASE WHEN l.status = 'APPROVED' THEN l.deducted_annual_days ELSE 0 END), 0) as "usedDays",
+        (e.annual_leave_grant - COALESCE(SUM(CASE WHEN l.status = 'APPROVED' THEN l.deducted_annual_days ELSE 0 END), 0)) as "remainDays",
         e.must_change_password as "mustChangePassword",
         e.created_at as "createdAt",
         m.name as "managerName"
       FROM employees e
+      LEFT JOIN leave_requests l ON e.id = l.employee_id
       LEFT JOIN employees m ON e.manager_id = m.id
+      GROUP BY e.id, m.name
       ORDER BY e.id ASC
     `;
 
@@ -27,7 +32,7 @@ export async function GET() {
   } catch (error: any) {
     console.error("GET Employees Error:", error);
     return NextResponse.json(
-      { error: "임직원 목록 조회 오류" },
+      { error: "사원 목록 조회 실패" },
       { status: 500 }
     );
   }
@@ -36,25 +41,26 @@ export async function GET() {
 // POST: Super Admin creates a new employee account (Default Pwd: 1111)
 export async function POST(request: Request) {
   try {
-    const { employeeNo, loginId, name, position, department, role, email, phone, managerId } = await request.json();
+    const { employeeNo, loginId, name, position, department, role, email, phone, managerId, grantDays } = await request.json();
 
     if (!employeeNo || !loginId || !name || !role) {
       return NextResponse.json(
-        { error: "사번, 아이디, 성명, 권한 역할은 필수 항목입니다." },
+        { error: "사번, 아이디, 성명, 권한은 필수 항목입니다." },
         { status: 400 }
       );
     }
 
     const cleanId = loginId.trim().toLowerCase();
+    const annualGrant = Number(grantDays) || 15.0;
 
     await sql`
       INSERT INTO employees (
         employee_no, login_id, name, position, department, role, email, phone, 
-        manager_id, password_hash, must_change_password
+        manager_id, password_hash, must_change_password, annual_leave_grant
       ) VALUES (
         ${employeeNo}, ${cleanId}, ${name}, ${position || "사원"}, ${department || "기술개발부"}, 
         ${role}, ${email || `${cleanId}@dragonrpa.co.kr`}, ${phone || null}, 
-        ${managerId ? Number(managerId) : null}, '1111', TRUE
+        ${managerId ? Number(managerId) : null}, '1111', TRUE, ${annualGrant}
       )
     `;
 
@@ -62,7 +68,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error("POST Employee Error:", error);
     return NextResponse.json(
-      { error: error.message || "계정 생성 중 오류가 발생했습니다." },
+      { error: error.message || "사원 등록 실패" },
       { status: 500 }
     );
   }
@@ -74,7 +80,7 @@ export async function PATCH(request: Request) {
     const { employeeId } = await request.json();
 
     if (!employeeId) {
-      return NextResponse.json({ error: "직원 ID가 필요합니다." }, { status: 400 });
+      return NextResponse.json({ error: "사원 ID가 필요합니다." }, { status: 400 });
     }
 
     await sql`

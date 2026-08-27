@@ -2,10 +2,9 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { 
-  Bot, Lock, User, ShieldCheck, ArrowRight, CheckCircle2, AlertCircle, 
-  KeyRound, X, LogOut, TrendingUp, ShoppingCart, 
+  Bot, Lock, User, KeyRound, X, LogOut, TrendingUp, ShoppingCart, 
   CalendarCheck, FolderTree, Package, Layers, Mail, Plus, 
-  Download, FileSpreadsheet, Clock, RefreshCw, UserPlus
+  FileSpreadsheet, Clock, RefreshCw, UserPlus, CheckCircle2, AlertCircle
 } from "lucide-react";
 
 export default function ErpPortalPage() {
@@ -37,7 +36,7 @@ export default function ErpPortalPage() {
   const [pwdChangeError, setPwdChangeError] = useState("");
   const [pwdChangeSuccess, setPwdChangeSuccess] = useState(false);
 
-  // New Employee Modal State (Super Admin)
+  // New Employee Modal State
   const [showNewEmpModal, setShowNewEmpModal] = useState(false);
   const [newEmpNo, setNewEmpNo] = useState("");
   const [newEmpLoginId, setNewEmpLoginId] = useState("");
@@ -47,81 +46,67 @@ export default function ErpPortalPage() {
   const [newEmpRole, setNewEmpRole] = useState("USER");
   const [newEmpEmail, setNewEmpEmail] = useState("");
 
-  // Form Inputs for Leave Application
+  // Leave Form Inputs
   const [newLeaveType, setNewLeaveType] = useState("ANNUAL");
   const [newLeaveStart, setNewLeaveStart] = useState("2026-09-01");
   const [newLeaveEnd, setNewLeaveEnd] = useState("2026-09-01");
   const [newLeaveReason, setNewLeaveReason] = useState("");
 
-  // Form Inputs for Overtime
+  // Overtime Form Inputs
   const [newOtDate, setNewOtDate] = useState("2026-08-27");
   const [newOtStart, setNewOtStart] = useState("18:00");
   const [newOtEnd, setNewOtEnd] = useState("20:30");
   const [newOtDetails, setNewOtDetails] = useState("");
 
-  // Fetch Real DB Data
+  // Fetch DB Data
   const fetchDbData = useCallback(async () => {
     setDbLoading(true);
     try {
-      // 1. Employees
       const empRes = await fetch("/api/erp/employees");
       const empData = await empRes.json();
       if (empData.success) setEmployees(empData.employees);
 
-      // 2. Leaves
       const leaveRes = await fetch("/api/erp/leaves");
       const leaveData = await leaveRes.json();
       if (leaveData.success) setLeaveRequests(leaveData.leaves);
 
-      // 3. Overtimes
       const otRes = await fetch("/api/erp/overtimes");
       const otData = await otRes.json();
       if (otData.success) setOvertimes(otData.overtimes);
 
-      // 4. Assets
       const astRes = await fetch("/api/erp/assets");
       const astData = await astRes.json();
       if (astData.success) setAssets(astData.assets);
 
-      // 5. Consumables
       const conRes = await fetch("/api/erp/consumables");
       const conData = await conRes.json();
       if (conData.success) setConsumables(conData.consumables);
-
     } catch (err) {
-      console.error("DB Fetch Error:", err);
+      console.error(err);
     } finally {
       setDbLoading(false);
     }
   }, []);
 
-  // Restore Session on Page Load (F5 Refresh Survival)
+  // Restore Session on Page Load
   useEffect(() => {
     try {
       const savedUser = localStorage.getItem("dragonrpa_erp_user");
       const savedTab = localStorage.getItem("dragonrpa_erp_tab");
-
-      if (savedUser) {
-        setLoggedInUser(JSON.parse(savedUser));
-      }
-      if (savedTab) {
-        setActiveTab(savedTab as any);
-      }
+      if (savedUser) setLoggedInUser(JSON.parse(savedUser));
+      if (savedTab) setActiveTab(savedTab as any);
     } catch (e) {
-      console.error("Session restore error", e);
     } finally {
       setIsInitialized(true);
     }
   }, []);
 
-  // When Logged-In, load real Neon DB data
   useEffect(() => {
     if (loggedInUser) {
       fetchDbData();
     }
   }, [loggedInUser, fetchDbData]);
 
-  // Tab Change Handler
   const handleTabChange = (tab: any) => {
     setActiveTab(tab);
     try {
@@ -129,11 +114,10 @@ export default function ErpPortalPage() {
     } catch (e) {}
   };
 
-  // Real DB Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginId || !password) {
-      setErrorMsg("아이디와 비밀번호를 모두 입력해 주십시오.");
+      setErrorMsg("아이디와 비밀번호를 입력하십시오.");
       return;
     }
 
@@ -149,15 +133,15 @@ export default function ErpPortalPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setErrorMsg(data.error || "로그인에 실패했습니다.");
+        setErrorMsg(data.error || "로그인 실패");
       } else {
         setLoggedInUser(data.user);
         try {
           localStorage.setItem("dragonrpa_erp_user", JSON.stringify(data.user));
         } catch (e) {}
       }
-    } catch (err: any) {
-      setErrorMsg("서버 통신 오류가 발생했습니다.");
+    } catch (err) {
+      setErrorMsg("통신 오류");
     } finally {
       setLoading(false);
     }
@@ -174,24 +158,23 @@ export default function ErpPortalPage() {
     } catch (e) {}
   };
 
-  // Real DB Password Change
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     setPwdChangeError("");
     setPwdChangeSuccess(false);
 
     if (!currentPwd || !newPwd || !confirmPwd) {
-      setPwdChangeError("모든 비밀번호 항목을 입력해 주십시오.");
+      setPwdChangeError("비밀번호 항목을 입력하십시오.");
       return;
     }
 
     if (newPwd.length < 4) {
-      setPwdChangeError("새 비밀번호는 최소 4자리 이상이어야 합니다.");
+      setPwdChangeError("비밀번호는 4자리 이상이어야 합니다.");
       return;
     }
 
     if (newPwd !== confirmPwd) {
-      setPwdChangeError("새 비밀번호와 확인 비밀번호가 일치하지 않습니다.");
+      setPwdChangeError("비밀번호 확인이 일치하지 않습니다.");
       return;
     }
 
@@ -208,7 +191,7 @@ export default function ErpPortalPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setPwdChangeError(data.error || "비밀번호 변경에 실패했습니다.");
+        setPwdChangeError(data.error || "비밀번호 변경 실패");
       } else {
         setPwdChangeSuccess(true);
         const updatedUser = { ...loggedInUser, mustChangePassword: false };
@@ -222,18 +205,17 @@ export default function ErpPortalPage() {
         setTimeout(() => {
           setShowPasswordModal(false);
           setPwdChangeSuccess(false);
-        }, 1200);
+        }, 1000);
       }
     } catch (err) {
-      setPwdChangeError("서버 통신 오류가 발생했습니다.");
+      setPwdChangeError("통신 오류");
     }
   };
 
-  // Create New Employee in Neon DB
   const handleCreateEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEmpNo || !newEmpLoginId || !newEmpName) {
-      alert("사번, 아이디, 성명을 모두 입력해 주십시오.");
+      alert("필수 항목을 입력하십시오.");
       return;
     }
 
@@ -254,9 +236,8 @@ export default function ErpPortalPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        alert(data.error || "계정 생성 실패");
+        alert(data.error || "등록 실패");
       } else {
-        alert(`계정이 성공적으로 발급되었습니다. (초기 비밀번호: 1111)`);
         setShowNewEmpModal(false);
         setNewEmpNo("");
         setNewEmpLoginId("");
@@ -265,13 +246,12 @@ export default function ErpPortalPage() {
         fetchDbData();
       }
     } catch (err) {
-      alert("서버 통신 오류가 발생했습니다.");
+      alert("통신 오류");
     }
   };
 
-  // Reset Password to '1111' in Neon DB
-  const handleResetPassword = async (empId: number, empName: string) => {
-    if (!confirm(`${empName} 님의 비밀번호를 초기값 '1111'로 초기화하시겠습니까?`)) return;
+  const handleResetPassword = async (empId: number) => {
+    if (!confirm("비밀번호를 초기화하시겠습니까?")) return;
 
     try {
       const res = await fetch("/api/erp/employees", {
@@ -281,7 +261,6 @@ export default function ErpPortalPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(`${empName} 님의 비밀번호가 1111로 초기화되었습니다.`);
         fetchDbData();
       } else {
         alert(data.error || "초기화 실패");
@@ -291,11 +270,10 @@ export default function ErpPortalPage() {
     }
   };
 
-  // Submit Leave in Neon DB
   const handleAddLeave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLeaveReason) {
-      alert("휴가 사유를 입력해 주십시오.");
+      alert("휴가 사유를 입력하십시오.");
       return;
     }
 
@@ -321,7 +299,6 @@ export default function ErpPortalPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert("휴가 신청이 Neon DB에 정상 등록되었습니다 (결재 대기).");
         setNewLeaveReason("");
         fetchDbData();
       } else {
@@ -332,11 +309,10 @@ export default function ErpPortalPage() {
     }
   };
 
-  // Submit Overtime in Neon DB
   const handleAddOvertime = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newOtDetails) {
-      alert("업무 내용을 입력해 주십시오.");
+      alert("업무 내용을 입력하십시오.");
       return;
     }
 
@@ -356,7 +332,6 @@ export default function ErpPortalPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert("초과근무가 Neon DB에 자율 등록되었습니다.");
         setNewOtDetails("");
         fetchDbData();
       } else {
@@ -367,7 +342,6 @@ export default function ErpPortalPage() {
     }
   };
 
-  // Approve / Reject Leave in Neon DB
   const handleUpdateLeaveStatus = async (leaveId: number, status: "APPROVED" | "REJECTED") => {
     try {
       const res = await fetch("/api/erp/leaves", {
@@ -390,9 +364,8 @@ export default function ErpPortalPage() {
     }
   };
 
-  // Sidebar Menu Definitions
   const menuItems = [
-    { id: "management", label: "경영관리", icon: ShieldCheck, superOnly: true },
+    { id: "management", label: "경영관리", icon: User, superOnly: true },
     { id: "sales", label: "매출관리", icon: TrendingUp },
     { id: "purchase", label: "매입관리", icon: ShoppingCart },
     { id: "attendance", label: "근태관리", icon: CalendarCheck },
@@ -403,7 +376,7 @@ export default function ErpPortalPage() {
   ];
 
   if (!isInitialized) {
-    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-xs font-mono">로딩 중...</div>;
+    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-xs font-mono">로딩</div>;
   }
 
   return (
@@ -412,41 +385,38 @@ export default function ErpPortalPage() {
         <div className="min-h-screen flex flex-col justify-between p-6 sm:p-10">
           <header className="max-w-6xl mx-auto w-full flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-600/30">
+              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md">
                 <Bot className="w-6 h-6" />
               </div>
               <div className="flex flex-col">
                 <span className="font-bold text-lg text-white tracking-tight leading-none">
-                  Dragon<span className="text-blue-500">ERP</span>
+                  DragonERP
                 </span>
                 <span className="text-[11px] text-slate-400 font-medium mt-1">
-                  사내 통합 기간계 포털 (Neon PostgreSQL 실시간 연동)
+                  통합 관리 시스템
                 </span>
               </div>
             </div>
-            <div className="text-xs text-slate-400 font-mono">
-              https://www.dragonrpa.co.kr/erp
+            <div className="text-xs text-slate-500 font-mono">
+              /erp
             </div>
           </header>
 
           <main className="flex-1 flex items-center justify-center py-12">
             <div className="w-full max-w-md p-8 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-6">
               <div className="text-center space-y-2">
-                <div className="w-12 h-12 rounded-xl bg-blue-950/80 border border-blue-800 text-blue-400 flex items-center justify-center mx-auto mb-3">
+                <div className="w-12 h-12 rounded-xl bg-blue-950 border border-blue-800 text-blue-400 flex items-center justify-center mx-auto mb-3">
                   <Lock className="w-6 h-6" />
                 </div>
                 <h1 className="text-xl font-bold text-white tracking-tight">
-                  임직원 로그인
+                  로그인
                 </h1>
-                <p className="text-xs text-slate-400">
-                  초기 비밀번호는 <strong className="text-blue-400">1111</strong> 입니다.
-                </p>
               </div>
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-bold text-slate-300 whitespace-nowrap">
-                    로그인 ID
+                    아이디
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
@@ -456,7 +426,7 @@ export default function ErpPortalPage() {
                       type="text"
                       value={loginId}
                       onChange={(e) => setLoginId(e.target.value)}
-                      placeholder="아이디 입력 (admin)"
+                      placeholder="아이디"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 font-mono"
                     />
                   </div>
@@ -464,7 +434,7 @@ export default function ErpPortalPage() {
 
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-bold text-slate-300 whitespace-nowrap">
-                    비밀번호 (초기값: 1111)
+                    비밀번호
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
@@ -474,7 +444,7 @@ export default function ErpPortalPage() {
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="비밀번호 입력"
+                      placeholder="비밀번호"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 font-mono"
                     />
                   </div>
@@ -490,20 +460,16 @@ export default function ErpPortalPage() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                  className="w-full py-3 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold shadow-md flex items-center justify-center transition-all disabled:opacity-50"
                 >
-                  {loading ? <span>DB 보안 인증 중...</span> : <><span>시스템 로그인</span><ArrowRight className="w-4 h-4" /></>}
+                  {loading ? <span>인증 중</span> : <span>로그인</span>}
                 </button>
               </form>
-
-              <div className="pt-4 border-t border-slate-800 text-[11px] text-slate-400 space-y-1.5 font-mono text-center">
-                <span>Neon PostgreSQL 실시간 데이터베이스 연동됨</span>
-              </div>
             </div>
           </main>
 
-          <footer className="max-w-6xl mx-auto w-full text-center text-xs text-slate-400 border-t border-slate-900 pt-6">
-            <p>Copyright © 2026 DragonRPA Co., Ltd. All rights reserved.</p>
+          <footer className="max-w-6xl mx-auto w-full text-center text-xs text-slate-500 border-t border-slate-900 pt-6">
+            <p>© DragonRPA Co., Ltd.</p>
           </footer>
         </div>
       ) : (
@@ -518,26 +484,26 @@ export default function ErpPortalPage() {
                 </div>
                 <div className="flex flex-col">
                   <span className="font-bold text-base text-white tracking-tight leading-none">
-                    Dragon<span className="text-blue-500">ERP</span>
+                    DragonERP
                   </span>
-                  <span className="text-[10px] text-slate-400 mt-0.5">사내 통합 시스템</span>
+                  <span className="text-[10px] text-slate-400 mt-0.5">사내 포털</span>
                 </div>
               </div>
 
               <div className="p-4 mx-3 my-3 rounded-xl bg-slate-950 border border-slate-800/80 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-xs text-white">{loggedInUser.name}</span>
-                    <span className="text-[10px] text-slate-400">{loggedInUser.position}</span>
+                    <span className="font-bold text-xs text-white whitespace-nowrap">{loggedInUser.name}</span>
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">{loggedInUser.position}</span>
                   </div>
-                  <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full border ${
+                  <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full border whitespace-nowrap ${
                     loggedInUser.role === "SUPER_ADMIN" 
                       ? "bg-blue-950 text-blue-300 border-blue-700" 
                       : loggedInUser.role === "MANAGER"
                       ? "bg-cyan-950 text-cyan-300 border-cyan-700"
                       : "bg-emerald-950 text-emerald-300 border-emerald-700"
                   }`}>
-                    {loggedInUser.role === "SUPER_ADMIN" ? "운영자" : loggedInUser.role === "MANAGER" ? "관리자" : "일반유저"}
+                    {loggedInUser.role}
                   </span>
                 </div>
                 <div className="text-[10px] text-slate-400 font-mono truncate">
@@ -546,14 +512,14 @@ export default function ErpPortalPage() {
                 <div className="flex gap-2 pt-1 border-t border-slate-800/80">
                   <button
                     onClick={() => setShowPasswordModal(true)}
-                    className="flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-medium flex items-center justify-center gap-1 transition-colors"
+                    className="flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-medium flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
                   >
                     <KeyRound className="w-3 h-3 text-blue-400" />
-                    <span>비번변경</span>
+                    <span>비밀번호 변경</span>
                   </button>
                   <button
                     onClick={handleLogout}
-                    className="flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-medium flex items-center justify-center gap-1 transition-colors"
+                    className="flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-medium flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
                   >
                     <LogOut className="w-3 h-3 text-red-400" />
                     <span>로그아웃</span>
@@ -563,7 +529,7 @@ export default function ErpPortalPage() {
 
               <nav className="px-3 space-y-1">
                 <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  업무 메뉴
+                  메뉴
                 </div>
                 {menuItems.map((item) => {
                   if (item.superOnly && loggedInUser.role !== "SUPER_ADMIN") {
@@ -575,9 +541,9 @@ export default function ErpPortalPage() {
                     <button
                       key={item.id}
                       onClick={() => handleTabChange(item.id)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all text-left whitespace-nowrap ${
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left whitespace-nowrap ${
                         isActive
-                          ? "bg-blue-600 text-white shadow-md shadow-blue-600/20 font-bold"
+                          ? "bg-blue-600 text-white font-bold"
                           : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/60"
                       }`}
                     >
@@ -591,72 +557,51 @@ export default function ErpPortalPage() {
 
             <div className="p-4 border-t border-slate-800 text-[10px] text-slate-400 flex items-center justify-between">
               <button onClick={fetchDbData} className="text-slate-400 hover:text-white flex items-center gap-1">
-                <RefreshCw className={`w-3 h-3 ${dbLoading ? 'animate-spin text-blue-400' : ''}`} /> DB 동기화
+                <RefreshCw className={`w-3 h-3 ${dbLoading ? 'animate-spin text-blue-400' : ''}`} /> 새로고침
               </button>
-              <span className="text-emerald-400 flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3" /> Neon Live
-              </span>
+              <span className="text-slate-500">v0.2.3</span>
             </div>
           </aside>
 
           {/* RIGHT WORKSPACE AREA */}
           <main className="flex-1 bg-slate-950 overflow-y-auto flex flex-col">
-            {loggedInUser.mustChangePassword && (
-              <div className="bg-amber-950/80 border-b border-amber-800 text-amber-200 px-6 py-2.5 text-xs flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="w-4 h-4 text-amber-400" />
-                  <span>초기 비밀번호(1111)를 사용 중입니다. 사내 보안을 위해 비밀번호를 변경해 주십시오.</span>
-                </div>
-                <button
-                  onClick={() => setShowPasswordModal(true)}
-                  className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded text-xs transition-colors"
-                >
-                  지금 변경
-                </button>
-              </div>
-            )}
-
             <div className="p-8 max-w-7xl w-full mx-auto space-y-6">
 
-              {/* 1. 경영관리 TAB (운영자 전용 - Neon DB 실시간 연동) */}
+              {/* 1. 경영관리 TAB */}
               {activeTab === "management" && (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h2 className="text-xl font-bold text-white tracking-tight">경영관리 (운영자 전용)</h2>
-                      <p className="text-xs text-slate-400 mt-1">Neon DB 실시간 연동: 임직원 계정 발급, 비밀번호 1111 초기화 및 전사 통제</p>
+                      <h2 className="text-xl font-bold text-white tracking-tight">경영관리</h2>
                     </div>
                     <button
                       onClick={() => setShowNewEmpModal(true)}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-md"
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 whitespace-nowrap"
                     >
-                      <UserPlus className="w-4 h-4" /> 임직원 계정 신규 발급
+                      <UserPlus className="w-4 h-4" /> 사원 등록
                     </button>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-                      <div className="text-xs text-slate-400 font-bold">실제 DB 등록 임직원</div>
+                      <div className="text-xs text-slate-400 font-bold whitespace-nowrap">사원 수</div>
                       <div className="text-2xl font-bold text-white">{employees.length}명</div>
-                      <div className="text-[11px] text-blue-400">Neon PostgreSQL 실시간 조회됨</div>
                     </div>
                     <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-                      <div className="text-xs text-slate-400 font-bold">결재 대기 건수</div>
+                      <div className="text-xs text-slate-400 font-bold whitespace-nowrap">결재 대기</div>
                       <div className="text-2xl font-bold text-amber-400">{leaveRequests.filter(l => l.status === 'PENDING').length}건</div>
-                      <div className="text-[11px] text-slate-400">실시간 상신 대기</div>
                     </div>
                     <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-                      <div className="text-xs text-slate-400 font-bold">DB 스토리지 상태</div>
-                      <div className="text-2xl font-bold text-emerald-400">Neon Live Connected</div>
-                      <div className="text-[11px] text-slate-400">Zero Local Seed (100% DB)</div>
+                      <div className="text-xs text-slate-400 font-bold whitespace-nowrap">자산 수</div>
+                      <div className="text-2xl font-bold text-white">{assets.length}대</div>
                     </div>
                   </div>
 
                   <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 space-y-4">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-bold text-white">Neon DB 임직원 계정 대장 (실시간)</h3>
-                      <button onClick={fetchDbData} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
-                        <RefreshCw className="w-3.5 h-3.5" /> 새로고침
+                      <h3 className="text-sm font-bold text-white whitespace-nowrap">사원 목록</h3>
+                      <button onClick={fetchDbData} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 whitespace-nowrap">
+                        <RefreshCw className="w-3.5 h-3.5" /> 갱신
                       </button>
                     </div>
 
@@ -665,35 +610,35 @@ export default function ErpPortalPage() {
                         <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
                           <tr>
                             <th className="p-3 whitespace-nowrap">사번</th>
-                            <th className="p-3 whitespace-nowrap">이름</th>
-                            <th className="p-3 whitespace-nowrap">로그인 ID</th>
+                            <th className="p-3 whitespace-nowrap">성명</th>
+                            <th className="p-3 whitespace-nowrap">아이디</th>
                             <th className="p-3 whitespace-nowrap">부서 / 직책</th>
-                            <th className="p-3 whitespace-nowrap">역할 권한</th>
+                            <th className="p-3 whitespace-nowrap">권한</th>
                             <th className="p-3 whitespace-nowrap">이메일</th>
-                            <th className="p-3 whitespace-nowrap">비밀번호 관리</th>
+                            <th className="p-3 whitespace-nowrap">관리</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
                           {employees.map((u: any) => (
                             <tr key={u.id} className="hover:bg-slate-800/40">
-                              <td className="p-3 font-bold text-white">{u.employeeNo}</td>
-                              <td className="p-3 font-sans font-semibold text-white">{u.name}</td>
-                              <td className="p-3 text-blue-400 font-bold">{u.loginId}</td>
-                              <td className="p-3 font-sans">{u.department} ({u.position})</td>
-                              <td className="p-3">
+                              <td className="p-3 font-bold text-white whitespace-nowrap">{u.employeeNo}</td>
+                              <td className="p-3 font-sans font-semibold text-white whitespace-nowrap">{u.name}</td>
+                              <td className="p-3 text-blue-400 font-bold whitespace-nowrap">{u.loginId}</td>
+                              <td className="p-3 font-sans whitespace-nowrap">{u.department} {u.position}</td>
+                              <td className="p-3 whitespace-nowrap">
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                                   u.role === 'SUPER_ADMIN' ? 'bg-blue-950 text-blue-300 border-blue-700' : u.role === 'MANAGER' ? 'bg-cyan-950 text-cyan-300 border-cyan-700' : 'bg-emerald-950 text-emerald-300 border-emerald-700'
                                 }`}>
                                   {u.role}
                                 </span>
                               </td>
-                              <td className="p-3 font-sans">{u.email}</td>
-                              <td className="p-3">
+                              <td className="p-3 font-sans whitespace-nowrap">{u.email}</td>
+                              <td className="p-3 whitespace-nowrap">
                                 <button
-                                  onClick={() => handleResetPassword(u.id, u.name)}
+                                  onClick={() => handleResetPassword(u.id)}
                                   className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded text-[11px] font-sans transition-colors"
                                 >
-                                  1111로 초기화
+                                  비밀번호 초기화
                                 </button>
                               </td>
                             </tr>
@@ -711,15 +656,14 @@ export default function ErpPortalPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h2 className="text-xl font-bold text-white tracking-tight">매출관리</h2>
-                      <p className="text-xs text-slate-400 mt-1">렌탈 계약 매출, 자산별 정밀 일할 정산 및 홈택스 표준 엑셀 일괄발급을 지원합니다.</p>
                     </div>
-                    <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-md">
-                      <FileSpreadsheet className="w-4 h-4" /> 국세청 세금계산서 엑셀 다운로드
+                    <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 whitespace-nowrap">
+                      <FileSpreadsheet className="w-4 h-4" /> 세금계산서 엑셀 다운로드
                     </button>
                   </div>
 
                   <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 space-y-4">
-                    <h3 className="text-sm font-bold text-white">매출 전표 대장</h3>
+                    <h3 className="text-sm font-bold text-white whitespace-nowrap">매출 전표 목록</h3>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs">
                         <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
@@ -729,21 +673,21 @@ export default function ErpPortalPage() {
                             <th className="p-3 whitespace-nowrap">사업자번호</th>
                             <th className="p-3 whitespace-nowrap">발행일자</th>
                             <th className="p-3 whitespace-nowrap">공급가액</th>
-                            <th className="p-3 whitespace-nowrap">세액 (10%)</th>
+                            <th className="p-3 whitespace-nowrap">세액</th>
                             <th className="p-3 whitespace-nowrap">합계금액</th>
-                            <th className="p-3 whitespace-nowrap">세금계산서 상태</th>
+                            <th className="p-3 whitespace-nowrap">상태</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
                           <tr className="hover:bg-slate-800/40">
-                            <td className="p-3 font-bold text-blue-400">INV-2026-001</td>
-                            <td className="p-3 font-sans font-semibold text-white">(주)대한건설</td>
-                            <td className="p-3">105-86-12345</td>
-                            <td className="p-3">2026-08-25</td>
-                            <td className="p-3 text-right">3,500,000원</td>
-                            <td className="p-3 text-right">350,000원</td>
-                            <td className="p-3 text-right font-bold text-white">3,850,000원</td>
-                            <td className="p-3 font-sans"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800">발행대기</span></td>
+                            <td className="p-3 font-bold text-blue-400 whitespace-nowrap">INV-2026-001</td>
+                            <td className="p-3 font-sans font-semibold text-white whitespace-nowrap">(주)대한건설</td>
+                            <td className="p-3 whitespace-nowrap">105-86-12345</td>
+                            <td className="p-3 whitespace-nowrap">2026-08-25</td>
+                            <td className="p-3 text-right whitespace-nowrap">3,500,000원</td>
+                            <td className="p-3 text-right whitespace-nowrap">350,000원</td>
+                            <td className="p-3 text-right font-bold text-white whitespace-nowrap">3,850,000원</td>
+                            <td className="p-3 font-sans whitespace-nowrap"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800">발행대기</span></td>
                           </tr>
                         </tbody>
                       </table>
@@ -757,11 +701,10 @@ export default function ErpPortalPage() {
                 <div className="space-y-6">
                   <div>
                     <h2 className="text-xl font-bold text-white tracking-tight">매입관리</h2>
-                    <p className="text-xs text-slate-400 mt-1">장비 매입, 부품 구매 및 지출 전표 내역을 관리합니다.</p>
                   </div>
 
                   <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 space-y-4">
-                    <h3 className="text-sm font-bold text-white">매입 전표 대장</h3>
+                    <h3 className="text-sm font-bold text-white whitespace-nowrap">매입 전표 목록</h3>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs">
                         <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
@@ -778,14 +721,14 @@ export default function ErpPortalPage() {
                         </thead>
                         <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
                           <tr className="hover:bg-slate-800/40">
-                            <td className="p-3 font-bold text-cyan-400">PUR-2026-001</td>
-                            <td className="p-3 font-sans font-semibold text-white">(주)한국유압</td>
-                            <td className="p-3 font-sans">고소작업대 부품 세트</td>
-                            <td className="p-3">2026-08-20</td>
-                            <td className="p-3 text-right">1,200,000원</td>
-                            <td className="p-3 text-right">120,000원</td>
-                            <td className="p-3 text-right font-bold text-white">1,320,000원</td>
-                            <td className="p-3 font-sans"><span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 text-[10px] font-bold border border-emerald-800">지급완료</span></td>
+                            <td className="p-3 font-bold text-cyan-400 whitespace-nowrap">PUR-2026-001</td>
+                            <td className="p-3 font-sans font-semibold text-white whitespace-nowrap">(주)한국유압</td>
+                            <td className="p-3 font-sans whitespace-nowrap">부품 세트</td>
+                            <td className="p-3 whitespace-nowrap">2026-08-20</td>
+                            <td className="p-3 text-right whitespace-nowrap">1,200,000원</td>
+                            <td className="p-3 text-right whitespace-nowrap">120,000원</td>
+                            <td className="p-3 text-right font-bold text-white whitespace-nowrap">1,320,000원</td>
+                            <td className="p-3 font-sans whitespace-nowrap"><span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 text-[10px] font-bold border border-emerald-800">지급완료</span></td>
                           </tr>
                         </tbody>
                       </table>
@@ -794,37 +737,36 @@ export default function ErpPortalPage() {
                 </div>
               )}
 
-              {/* 4. 근태관리 TAB (Neon DB 실시간 연동) */}
+              {/* 4. 근태관리 TAB */}
               {activeTab === "attendance" && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="text-xl font-bold text-white tracking-tight">근태관리 (휴가결재 & 초과근무)</h2>
-                    <p className="text-xs text-slate-400 mt-1">Neon DB 실시간 연동: 근로기준법 12대 휴가 신청(주말/공휴일 자동공제 2단계 결재선) & 자율 초과근무 대장</p>
+                    <h2 className="text-xl font-bold text-white tracking-tight">근태관리</h2>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     <div className="lg:col-span-5 p-6 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
-                      <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                        <CalendarCheck className="w-4 h-4 text-blue-400" /> 휴가 신청서 작성 (결재 상신)
+                      <h3 className="text-sm font-bold text-white flex items-center gap-1.5 whitespace-nowrap">
+                        <CalendarCheck className="w-4 h-4 text-blue-400" /> 휴가 신청
                       </h3>
 
                       <form onSubmit={handleAddLeave} className="space-y-3">
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs font-bold text-slate-300 whitespace-nowrap">휴가 종류 (근로기준법)</label>
+                          <label className="text-xs font-bold text-slate-300 whitespace-nowrap">휴가 구분</label>
                           <select
                             value={newLeaveType}
                             onChange={(e) => setNewLeaveType(e.target.value)}
                             className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
                           >
-                            <option value="ANNUAL">연차 (전일 - 1.0일 차감)</option>
-                            <option value="AM_HALF">오전반차 (0.5일 차감)</option>
-                            <option value="PM_HALF">오후반차 (0.5일 차감)</option>
-                            <option value="QUARTER">반반차 (2시간 - 0.25일 차감)</option>
-                            <option value="SICK">병가 (연차 미차감)</option>
-                            <option value="RESERVE">예비군 / 민방위 공가 (연차 미차감)</option>
-                            <option value="CONGRAT_CONDOLENCE">경조사 휴가 (연차 미차감)</option>
-                            <option value="MATERNITY">출산 / 배우자 출산휴가 (연차 미차감)</option>
-                            <option value="OTHER">기타 특별 공가 (연차 미차감)</option>
+                            <option value="ANNUAL">연차 (1.0일)</option>
+                            <option value="AM_HALF">오전반차 (0.5일)</option>
+                            <option value="PM_HALF">오후반차 (0.5일)</option>
+                            <option value="QUARTER">반반차 (0.25일)</option>
+                            <option value="SICK">병가</option>
+                            <option value="RESERVE">공가</option>
+                            <option value="CONGRAT_CONDOLENCE">경조사</option>
+                            <option value="MATERNITY">출산휴가</option>
+                            <option value="OTHER">기타</option>
                           </select>
                         </div>
 
@@ -849,34 +791,30 @@ export default function ErpPortalPage() {
                           </div>
                         </div>
 
-                        <div className="p-2.5 rounded bg-slate-950 border border-slate-800 text-[11px] text-slate-400">
-                          ℹ️ 기간 중 주말 및 법정 공휴일은 차감 일수에서 자동 공제됩니다.
-                        </div>
-
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs font-bold text-slate-300 whitespace-nowrap">신청 사유</label>
+                          <label className="text-xs font-bold text-slate-300 whitespace-nowrap">사유</label>
                           <textarea
                             rows={2}
                             value={newLeaveReason}
                             onChange={(e) => setNewLeaveReason(e.target.value)}
-                            placeholder="휴가 사유를 입력하십시오."
+                            placeholder="사유"
                             className="bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500"
                           />
                         </div>
 
                         <button
                           type="submit"
-                          className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors"
+                          className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition-colors whitespace-nowrap"
                         >
-                          Neon DB에 결재 상신하기
+                          신청
                         </button>
                       </form>
                     </div>
 
                     <div className="lg:col-span-7 p-6 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
                       <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-bold text-white">휴가 결재 및 승인 내역 (Neon DB 실시간)</h3>
-                        <span className="text-xs text-slate-400">총 {leaveRequests.length}건</span>
+                        <h3 className="text-sm font-bold text-white whitespace-nowrap">휴가 신청 목록</h3>
+                        <span className="text-xs text-slate-400 whitespace-nowrap">총 {leaveRequests.length}건</span>
                       </div>
 
                       <div className="overflow-x-auto">
@@ -884,16 +822,16 @@ export default function ErpPortalPage() {
                           <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
                             <tr>
                               <th className="p-2.5 whitespace-nowrap">신청자</th>
-                              <th className="p-2.5 whitespace-nowrap">휴가종류</th>
+                              <th className="p-2.5 whitespace-nowrap">구분</th>
                               <th className="p-2.5 whitespace-nowrap">기간</th>
                               <th className="p-2.5 whitespace-nowrap">차감</th>
                               <th className="p-2.5 whitespace-nowrap">상태</th>
-                              <th className="p-2.5 whitespace-nowrap">결재 액션</th>
+                              <th className="p-2.5 whitespace-nowrap">결재</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-800 text-slate-300">
                             {leaveRequests.length === 0 ? (
-                              <tr><td colSpan={6} className="p-4 text-center text-slate-500 font-mono">등록된 휴가 신청 내역이 없습니다.</td></tr>
+                              <tr><td colSpan={6} className="p-4 text-center text-slate-500 font-mono">내역 없음</td></tr>
                             ) : (
                               leaveRequests.map((req) => (
                                 <tr key={req.id} className="hover:bg-slate-800/40">
@@ -905,7 +843,7 @@ export default function ErpPortalPage() {
                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                                       req.status === 'APPROVED' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : req.status === 'REJECTED' ? 'bg-red-950 text-red-300 border border-red-800' : 'bg-amber-950 text-amber-300 border border-amber-800'
                                     }`}>
-                                      {req.status === 'APPROVED' ? '승인완료' : req.status === 'REJECTED' ? '반려됨' : '결재대기'}
+                                      {req.status === 'APPROVED' ? '승인' : req.status === 'REJECTED' ? '반려' : '대기'}
                                     </span>
                                   </td>
                                   <td className="p-2.5 whitespace-nowrap">
@@ -937,18 +875,17 @@ export default function ErpPortalPage() {
                     </div>
                   </div>
 
-                  {/* Overtime Self Entry Section */}
+                  {/* Overtime */}
                   <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
                     <div>
-                      <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                        <Clock className="w-4 h-4 text-cyan-400" /> 자율 초과근무 기록 대장 (결재 불필요 - Neon DB 실시간)
+                      <h3 className="text-sm font-bold text-white flex items-center gap-1.5 whitespace-nowrap">
+                        <Clock className="w-4 h-4 text-cyan-400" /> 초과근무 등록
                       </h3>
-                      <p className="text-[11px] text-slate-400 mt-0.5">승인 절차 없이 임직원 스스로 연장/야간 근무 내역을 자유롭게 입력합니다.</p>
                     </div>
 
                     <form onSubmit={handleAddOvertime} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end p-4 rounded-lg bg-slate-950 border border-slate-800">
                       <div className="sm:col-span-2 flex flex-col gap-1">
-                        <label className="text-[11px] font-bold text-slate-300 whitespace-nowrap">근무일자</label>
+                        <label className="text-[11px] font-bold text-slate-300 whitespace-nowrap">일자</label>
                         <input
                           type="date"
                           value={newOtDate}
@@ -957,7 +894,7 @@ export default function ErpPortalPage() {
                         />
                       </div>
                       <div className="sm:col-span-2 flex flex-col gap-1">
-                        <label className="text-[11px] font-bold text-slate-300 whitespace-nowrap">시작시간</label>
+                        <label className="text-[11px] font-bold text-slate-300 whitespace-nowrap">시작</label>
                         <input
                           type="time"
                           value={newOtStart}
@@ -966,7 +903,7 @@ export default function ErpPortalPage() {
                         />
                       </div>
                       <div className="sm:col-span-2 flex flex-col gap-1">
-                        <label className="text-[11px] font-bold text-slate-300 whitespace-nowrap">종료시간</label>
+                        <label className="text-[11px] font-bold text-slate-300 whitespace-nowrap">종료</label>
                         <input
                           type="time"
                           value={newOtEnd}
@@ -975,21 +912,21 @@ export default function ErpPortalPage() {
                         />
                       </div>
                       <div className="sm:col-span-4 flex flex-col gap-1">
-                        <label className="text-[11px] font-bold text-slate-300 whitespace-nowrap">수행 업무 내용</label>
+                        <label className="text-[11px] font-bold text-slate-300 whitespace-nowrap">내용</label>
                         <input
                           type="text"
                           value={newOtDetails}
                           onChange={(e) => setNewOtDetails(e.target.value)}
-                          placeholder="야간/연장 업무 내용을 간략히 입력"
+                          placeholder="내용 입력"
                           className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white"
                         />
                       </div>
                       <div className="sm:col-span-2">
                         <button
                           type="submit"
-                          className="w-full py-1.5 bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-bold rounded shadow transition-colors"
+                          className="w-full py-1.5 bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-bold rounded transition-colors whitespace-nowrap"
                         >
-                          DB 자율 등록
+                          등록
                         </button>
                       </div>
                     </form>
@@ -999,24 +936,24 @@ export default function ErpPortalPage() {
                         <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
                           <tr>
                             <th className="p-2.5 whitespace-nowrap">성명</th>
-                            <th className="p-2.5 whitespace-nowrap">근무일자</th>
+                            <th className="p-2.5 whitespace-nowrap">일자</th>
                             <th className="p-2.5 whitespace-nowrap">구분</th>
-                            <th className="p-2.5 whitespace-nowrap">근무시간</th>
-                            <th className="p-2.5 whitespace-nowrap">인정시간</th>
-                            <th className="p-2.5">업무 상세 내용</th>
+                            <th className="p-2.5 whitespace-nowrap">시간</th>
+                            <th className="p-2.5 whitespace-nowrap">인정</th>
+                            <th className="p-2.5">내용</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
                           {overtimes.length === 0 ? (
-                            <tr><td colSpan={6} className="p-4 text-center text-slate-500 font-mono">등록된 초과근무 내역이 없습니다.</td></tr>
+                            <tr><td colSpan={6} className="p-4 text-center text-slate-500 font-mono">내역 없음</td></tr>
                           ) : (
                             overtimes.map((ot) => (
                               <tr key={ot.id} className="hover:bg-slate-800/40">
-                                <td className="p-2.5 font-sans font-bold text-white">{ot.empName}</td>
-                                <td className="p-2.5">{ot.workDate}</td>
-                                <td className="p-2.5 font-sans"><span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 text-[10px] font-bold">{ot.workType}</span></td>
-                                <td className="p-2.5">{ot.startTime} ~ {ot.endTime}</td>
-                                <td className="p-2.5 font-bold text-cyan-400">{ot.hours}시간</td>
+                                <td className="p-2.5 font-sans font-bold text-white whitespace-nowrap">{ot.empName}</td>
+                                <td className="p-2.5 whitespace-nowrap">{ot.workDate}</td>
+                                <td className="p-2.5 font-sans whitespace-nowrap"><span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 text-[10px] font-bold">{ot.workType}</span></td>
+                                <td className="p-2.5 whitespace-nowrap">{ot.startTime} ~ {ot.endTime}</td>
+                                <td className="p-2.5 font-bold text-cyan-400 whitespace-nowrap">{ot.hours}시간</td>
                                 <td className="p-2.5 font-sans text-slate-300">{ot.details}</td>
                               </tr>
                             ))
@@ -1028,48 +965,45 @@ export default function ErpPortalPage() {
                 </div>
               )}
 
-              {/* 5. 자산재고관리 TAB (Neon DB 실시간) */}
+              {/* 5. 자산재고관리 TAB */}
               {activeTab === "assets" && (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-xl font-bold text-white tracking-tight">자산재고관리 (렌탈 자산 & 배차)</h2>
-                      <p className="text-xs text-slate-400 mt-1">Neon DB 실시간 연동: 출고 검수 승인 시 RENTED(대여중) 자동 전환 및 단일 EXCHANGE 배차</p>
-                    </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-white tracking-tight">자산재고관리</h2>
                   </div>
 
                   <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 space-y-4">
-                    <h3 className="text-sm font-bold text-white">Neon DB 보유 렌탈 자산 마스터</h3>
+                    <h3 className="text-sm font-bold text-white whitespace-nowrap">자산 목록</h3>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs">
                         <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
                           <tr>
                             <th className="p-3 whitespace-nowrap">자산번호</th>
-                            <th className="p-3 whitespace-nowrap">장비명</th>
+                            <th className="p-3 whitespace-nowrap">품명</th>
                             <th className="p-3 whitespace-nowrap">모델명</th>
                             <th className="p-3 whitespace-nowrap">상태</th>
-                            <th className="p-3 whitespace-nowrap">현재 위치</th>
-                            <th className="p-3 whitespace-nowrap">취득가액</th>
+                            <th className="p-3 whitespace-nowrap">위치</th>
+                            <th className="p-3 whitespace-nowrap">취득가</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
                           {assets.length === 0 ? (
-                            <tr><td colSpan={6} className="p-4 text-center text-slate-500 font-mono">등록된 자산이 없습니다.</td></tr>
+                            <tr><td colSpan={6} className="p-4 text-center text-slate-500 font-mono">내역 없음</td></tr>
                           ) : (
                             assets.map((ast) => (
                               <tr key={ast.code} className="hover:bg-slate-800/40">
-                                <td className="p-3 font-bold text-blue-400">{ast.code}</td>
-                                <td className="p-3 font-sans font-semibold text-white">{ast.name}</td>
-                                <td className="p-3">{ast.model}</td>
-                                <td className="p-3 font-sans">
+                                <td className="p-3 font-bold text-blue-400 whitespace-nowrap">{ast.code}</td>
+                                <td className="p-3 font-sans font-semibold text-white whitespace-nowrap">{ast.name}</td>
+                                <td className="p-3 whitespace-nowrap">{ast.model}</td>
+                                <td className="p-3 font-sans whitespace-nowrap">
                                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                                     ast.status === 'AVAILABLE' ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : ast.status === 'RENTED' ? 'bg-blue-950 text-blue-300 border-blue-800' : ast.status === 'PENDING_OUT' ? 'bg-amber-950 text-amber-300 border-amber-800' : 'bg-red-950 text-red-300 border-red-800'
                                   }`}>
                                     {ast.status}
                                   </span>
                                 </td>
-                                <td className="p-3 font-sans text-slate-300">{ast.location}</td>
-                                <td className="p-3 text-right">{ast.price ? Number(ast.price).toLocaleString() : 0}원</td>
+                                <td className="p-3 font-sans text-slate-300 whitespace-nowrap">{ast.location}</td>
+                                <td className="p-3 text-right whitespace-nowrap">{ast.price ? Number(ast.price).toLocaleString() : 0}원</td>
                               </tr>
                             ))
                           )}
@@ -1080,42 +1014,41 @@ export default function ErpPortalPage() {
                 </div>
               )}
 
-              {/* 6. 소모품재고관리 TAB (Neon DB 실시간) */}
+              {/* 6. 소모품재고관리 TAB */}
               {activeTab === "consumables" && (
                 <div className="space-y-6">
                   <div>
                     <h2 className="text-xl font-bold text-white tracking-tight">소모품재고관리</h2>
-                    <p className="text-xs text-slate-400 mt-1">Neon DB 실시간 연동: 부품/소모품 입출고 및 적정 안전재고 관리</p>
                   </div>
 
                   <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 space-y-4">
-                    <h3 className="text-sm font-bold text-white">Neon DB 소모품 품목 대장</h3>
+                    <h3 className="text-sm font-bold text-white whitespace-nowrap">소모품 목록</h3>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs">
                         <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
                           <tr>
                             <th className="p-3 whitespace-nowrap">품목코드</th>
-                            <th className="p-3 whitespace-nowrap">품목명</th>
+                            <th className="p-3 whitespace-nowrap">품명</th>
                             <th className="p-3 whitespace-nowrap">규격</th>
                             <th className="p-3 whitespace-nowrap">단위</th>
-                            <th className="p-3 whitespace-nowrap">현재고</th>
+                            <th className="p-3 whitespace-nowrap">재고</th>
                             <th className="p-3 whitespace-nowrap">안전재고</th>
-                            <th className="p-3 whitespace-nowrap">기본단가</th>
+                            <th className="p-3 whitespace-nowrap">단가</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
                           {consumables.length === 0 ? (
-                            <tr><td colSpan={7} className="p-4 text-center text-slate-500 font-mono">등록된 소모품이 없습니다.</td></tr>
+                            <tr><td colSpan={7} className="p-4 text-center text-slate-500 font-mono">내역 없음</td></tr>
                           ) : (
                             consumables.map((c) => (
                               <tr key={c.code} className="hover:bg-slate-800/40">
-                                <td className="p-3 font-bold text-cyan-400">{c.code}</td>
-                                <td className="p-3 font-sans font-semibold text-white">{c.name}</td>
-                                <td className="p-3 font-sans">{c.spec}</td>
-                                <td className="p-3">{c.unit}</td>
-                                <td className="p-3 font-bold text-emerald-400">{c.stock}</td>
-                                <td className="p-3 text-slate-400">{c.safety}</td>
-                                <td className="p-3 text-right">{c.unitPrice ? Number(c.unitPrice).toLocaleString() : 0}원</td>
+                                <td className="p-3 font-bold text-cyan-400 whitespace-nowrap">{c.code}</td>
+                                <td className="p-3 font-sans font-semibold text-white whitespace-nowrap">{c.name}</td>
+                                <td className="p-3 font-sans whitespace-nowrap">{c.spec}</td>
+                                <td className="p-3 whitespace-nowrap">{c.unit}</td>
+                                <td className="p-3 font-bold text-emerald-400 whitespace-nowrap">{c.stock}</td>
+                                <td className="p-3 text-slate-400 whitespace-nowrap">{c.safety}</td>
+                                <td className="p-3 text-right whitespace-nowrap">{c.unitPrice ? Number(c.unitPrice).toLocaleString() : 0}원</td>
                               </tr>
                             ))
                           )}
@@ -1130,57 +1063,46 @@ export default function ErpPortalPage() {
               {activeTab === "files" && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="text-xl font-bold text-white tracking-tight">파일관리 (사내문서함 EDMS)</h2>
-                    <p className="text-xs text-slate-400 mt-1">Cloudflare R2 버킷(`dragonrpa-erp`) 기반 트리형 표준 사내 문서함입니다.</p>
+                    <h2 className="text-xl font-bold text-white tracking-tight">파일관리</h2>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                     <div className="md:col-span-4 p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
-                      <div className="text-xs font-bold text-slate-400 uppercase">폴더 트리 구조</div>
+                      <div className="text-xs font-bold text-slate-400 uppercase whitespace-nowrap">폴더</div>
                       <div className="space-y-1 text-xs font-sans">
-                        <div className="p-2 rounded bg-slate-800 text-blue-400 font-bold flex items-center gap-2 cursor-pointer">
-                          <FolderTree className="w-4 h-4" /> 01. 사규 및 회사 규정
+                        <div className="p-2 rounded bg-slate-800 text-blue-400 font-bold flex items-center gap-2 cursor-pointer whitespace-nowrap">
+                          <FolderTree className="w-4 h-4" /> 사규
                         </div>
-                        <div className="p-2 hover:bg-slate-800/60 text-slate-300 rounded flex items-center gap-2 cursor-pointer">
-                          <FolderTree className="w-4 h-4 text-slate-400" /> 02. 표준 서식 및 기안 양식
+                        <div className="p-2 hover:bg-slate-800/60 text-slate-300 rounded flex items-center gap-2 cursor-pointer whitespace-nowrap">
+                          <FolderTree className="w-4 h-4 text-slate-400" /> 서식
                         </div>
-                        <div className="p-2 hover:bg-slate-800/60 text-slate-300 rounded flex items-center gap-2 cursor-pointer">
-                          <FolderTree className="w-4 h-4 text-slate-400" /> 03. 계약서 및 거래처 서류
+                        <div className="p-2 hover:bg-slate-800/60 text-slate-300 rounded flex items-center gap-2 cursor-pointer whitespace-nowrap">
+                          <FolderTree className="w-4 h-4 text-slate-400" /> 계약서
                         </div>
-                        <div className="p-2 hover:bg-slate-800/60 text-slate-300 rounded flex items-center gap-2 cursor-pointer">
-                          <FolderTree className="w-4 h-4 text-slate-400" /> 04. 기술 및 RPA 매뉴얼
+                        <div className="p-2 hover:bg-slate-800/60 text-slate-300 rounded flex items-center gap-2 cursor-pointer whitespace-nowrap">
+                          <FolderTree className="w-4 h-4 text-slate-400" /> 매뉴얼
                         </div>
                       </div>
                     </div>
 
                     <div className="md:col-span-8 p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-bold text-white">01. 사규 및 회사 규정</h3>
-                        <span className="text-xs text-slate-400">R2 버킷: dragonrpa-erp</span>
-                      </div>
-
+                      <h3 className="text-sm font-bold text-white whitespace-nowrap">문서 목록</h3>
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs">
                           <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
                             <tr>
-                              <th className="p-2.5">문서명</th>
-                              <th className="p-2.5">파일명</th>
-                              <th className="p-2.5">버전</th>
-                              <th className="p-2.5">등록자</th>
-                              <th className="p-2.5 text-center">다운로드</th>
+                              <th className="p-2.5 whitespace-nowrap">문서명</th>
+                              <th className="p-2.5 whitespace-nowrap">파일명</th>
+                              <th className="p-2.5 whitespace-nowrap">버전</th>
+                              <th className="p-2.5 whitespace-nowrap">등록자</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-800 text-slate-300">
                             <tr className="hover:bg-slate-800/40">
-                              <td className="p-2.5 font-bold text-white">2026년도 취업규칙 및 근태관리지침</td>
-                              <td className="p-2.5 font-mono text-slate-400">company_rule_2026.pdf</td>
-                              <td className="p-2.5 font-mono text-blue-400">v1.2</td>
-                              <td className="p-2.5">이정용 대표</td>
-                              <td className="p-2.5 text-center">
-                                <button className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">
-                                  <Download className="w-3.5 h-3.5" />
-                                </button>
-                              </td>
+                              <td className="p-2.5 font-bold text-white whitespace-nowrap">취업규칙</td>
+                              <td className="p-2.5 font-mono text-slate-400 whitespace-nowrap">company_rule_2026.pdf</td>
+                              <td className="p-2.5 font-mono text-blue-400 whitespace-nowrap">v1.0</td>
+                              <td className="p-2.5 whitespace-nowrap">이정용</td>
                             </tr>
                           </tbody>
                         </table>
@@ -1194,8 +1116,7 @@ export default function ErpPortalPage() {
               {activeTab === "email" && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="text-xl font-bold text-white tracking-tight">이메일 (`@dragonrpa.co.kr`)</h2>
-                    <p className="text-xs text-slate-400 mt-1">임직원 전용 회사 이메일 계정 및 라우팅 상태를 확인합니다.</p>
+                    <h2 className="text-xl font-bold text-white tracking-tight">이메일</h2>
                   </div>
 
                   <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
@@ -1204,8 +1125,7 @@ export default function ErpPortalPage() {
                         <Mail className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className="font-bold text-white text-sm">회사 이메일 계정: {loggedInUser.email}</div>
-                        <div className="text-xs text-slate-400">도메인 보안 인증 (SPF, DKIM, DMARC) PASS</div>
+                        <div className="font-bold text-white text-sm">{loggedInUser.email}</div>
                       </div>
                     </div>
 
@@ -1214,10 +1134,9 @@ export default function ErpPortalPage() {
                         href="https://mail.google.com"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5"
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg whitespace-nowrap"
                       >
-                        <span>웹메일 접속 바로가기</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
+                        웹메일 이동
                       </a>
                     </div>
                   </div>
@@ -1251,21 +1170,20 @@ export default function ErpPortalPage() {
                 <div className="w-12 h-12 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center justify-center mx-auto">
                   <CheckCircle2 className="w-6 h-6" />
                 </div>
-                <h3 className="text-base font-bold text-white">비밀번호가 성공적으로 변경되었습니다</h3>
-                <p className="text-xs text-slate-400">Neon DB에 안전하게 반영되었습니다.</p>
+                <h3 className="text-base font-bold text-white">변경 완료</h3>
               </div>
             ) : (
               <form onSubmit={handlePasswordChange} className="space-y-4">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-bold text-slate-300 whitespace-nowrap">
-                    현재 비밀번호 <span className="text-slate-500 font-normal">(초기값: 1111)</span>
+                    현재 비밀번호
                   </label>
                   <input
                     type="password"
                     value={currentPwd}
                     onChange={(e) => setCurrentPwd(e.target.value)}
                     required
-                    placeholder="현재 비밀번호 입력"
+                    placeholder="현재 비밀번호"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 font-mono"
                   />
                 </div>
@@ -1279,7 +1197,7 @@ export default function ErpPortalPage() {
                     value={newPwd}
                     onChange={(e) => setNewPwd(e.target.value)}
                     required
-                    placeholder="새로운 비밀번호 입력 (4자리 이상)"
+                    placeholder="새 비밀번호"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 font-mono"
                   />
                 </div>
@@ -1293,7 +1211,7 @@ export default function ErpPortalPage() {
                     value={confirmPwd}
                     onChange={(e) => setConfirmPwd(e.target.value)}
                     required
-                    placeholder="새로운 비밀번호 다시 입력"
+                    placeholder="새 비밀번호 확인"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 font-mono"
                   />
                 </div>
@@ -1309,15 +1227,15 @@ export default function ErpPortalPage() {
                   <button
                     type="button"
                     onClick={() => setShowPasswordModal(false)}
-                    className="flex-1 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors"
+                    className="flex-1 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors whitespace-nowrap"
                   >
                     취소
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-600/30 transition-colors"
+                    className="flex-1 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition-colors whitespace-nowrap"
                   >
-                    저장 및 변경
+                    변경
                   </button>
                 </div>
               </form>
@@ -1326,14 +1244,14 @@ export default function ErpPortalPage() {
         </div>
       )}
 
-      {/* New Employee Modal (Super Admin Only) */}
+      {/* New Employee Modal */}
       {showNewEmpModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2 text-white font-bold text-base">
                 <UserPlus className="w-5 h-5 text-blue-500" />
-                <span>임직원 계정 신규 발급</span>
+                <span>사원 등록</span>
               </div>
               <button
                 onClick={() => setShowNewEmpModal(false)}
@@ -1350,18 +1268,18 @@ export default function ErpPortalPage() {
                   <input
                     type="text"
                     required
-                    placeholder="예: DR-002"
+                    placeholder="사번"
                     value={newEmpNo}
                     onChange={(e) => setNewEmpNo(e.target.value)}
                     className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white font-mono"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-300 whitespace-nowrap">로그인 ID</label>
+                  <label className="text-xs font-bold text-slate-300 whitespace-nowrap">아이디</label>
                   <input
                     type="text"
                     required
-                    placeholder="예: sales_mgr"
+                    placeholder="아이디"
                     value={newEmpLoginId}
                     onChange={(e) => setNewEmpLoginId(e.target.value)}
                     className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white font-mono"
@@ -1375,22 +1293,22 @@ export default function ErpPortalPage() {
                   <input
                     type="text"
                     required
-                    placeholder="예: 홍길동"
+                    placeholder="성명"
                     value={newEmpName}
                     onChange={(e) => setNewEmpName(e.target.value)}
                     className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-300 whitespace-nowrap">역할 권한</label>
+                  <label className="text-xs font-bold text-slate-300 whitespace-nowrap">권한</label>
                   <select
                     value={newEmpRole}
                     onChange={(e) => setNewEmpRole(e.target.value)}
                     className="bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-white"
                   >
-                    <option value="USER">일반 사용자 (USER)</option>
-                    <option value="MANAGER">부서 관리자 (MANAGER)</option>
-                    <option value="SUPER_ADMIN">최고 운영자 (SUPER_ADMIN)</option>
+                    <option value="USER">USER</option>
+                    <option value="MANAGER">MANAGER</option>
+                    <option value="SUPER_ADMIN">SUPER_ADMIN</option>
                   </select>
                 </div>
               </div>
@@ -1400,7 +1318,7 @@ export default function ErpPortalPage() {
                   <label className="text-xs font-bold text-slate-300 whitespace-nowrap">부서</label>
                   <input
                     type="text"
-                    placeholder="예: 영업부"
+                    placeholder="부서"
                     value={newEmpDept}
                     onChange={(e) => setNewEmpDept(e.target.value)}
                     className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white"
@@ -1410,7 +1328,7 @@ export default function ErpPortalPage() {
                   <label className="text-xs font-bold text-slate-300 whitespace-nowrap">직책</label>
                   <input
                     type="text"
-                    placeholder="예: 팀장"
+                    placeholder="직책"
                     value={newEmpPos}
                     onChange={(e) => setNewEmpPos(e.target.value)}
                     className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white"
@@ -1422,30 +1340,26 @@ export default function ErpPortalPage() {
                 <label className="text-xs font-bold text-slate-300 whitespace-nowrap">이메일</label>
                 <input
                   type="email"
-                  placeholder="미입력 시 [ID]@dragonrpa.co.kr 자동 부여"
+                  placeholder="이메일"
                   value={newEmpEmail}
                   onChange={(e) => setNewEmpEmail(e.target.value)}
                   className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white font-mono"
                 />
               </div>
 
-              <div className="p-2.5 rounded bg-slate-950 border border-slate-800 text-[11px] text-blue-400">
-                🔒 신규 계정 발급 시 초기 비밀번호는 <strong>1111</strong> 로 자동 설정됩니다.
-              </div>
-
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowNewEmpModal(false)}
-                  className="flex-1 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors"
+                  className="flex-1 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors whitespace-nowrap"
                 >
                   취소
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-600/30 transition-colors"
+                  className="flex-1 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition-colors whitespace-nowrap"
                 >
-                  계정 발급 및 DB 저장
+                  등록
                 </button>
               </div>
             </form>

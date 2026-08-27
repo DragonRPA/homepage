@@ -1,18 +1,15 @@
 # Release Notes
 
+## [v0.2.3.Build.1] - 2026-08-27 19:07
+
+### 🏛️ 전사 헌장 3.1 무수식어 건조 명사·동사 단일 표준화 전면 적용 (Zero-Adjective Dry Standard)
+- **수식어 및 형용사 전면 배제**: 감성적이거나 과장된 수식어, 형용사, 부사 전면 삭제
+- **인프라/기술 명칭 노출 제거**: Neon DB, Cloudflare, R2, Live, SSOT 등 시스템 내부 기술 용어 전면 제거
+- **설명/안내 문장 전면 제거**: 전문가 도구 표준에 맞춰 자명한 도움말/안내 문구 삭제 및 극도의 정보 밀도 확보
+- **건조한 명사·동사 구조 단일화**:
+  - `로그인`, `아이디`, `비밀번호`, `사원 목록`, `사원 등록`, `휴가 신청`, `초과근무 등록`, `자산 목록`, `소모품 목록`, `문서 목록`, `이메일`
+
 ## [v0.2.2.Build.1] - 2026-08-27 19:01
-
-### 🔌 Neon PostgreSQL 실시간 100% 연동 백엔드 API 체계 구축 (Zero Local Mock)
-- **로컬 시드/Mock 데이터 전면 제거**: 프론트엔드의 하드코딩 Mock 데이터를 완전 폐기하고 **실제 원격 Neon PostgreSQL DB와 100% 실시간 동기화**
-- **서버리스 백엔드 API 라우트 구축**:
-  - `/api/erp/auth/login`: Neon DB `employees` 테이블 실시간 인증
-  - `/api/erp/auth/change-password`: Neon DB 비밀번호 실시간 업데이트
-  - `/api/erp/employees`: 실제 DB 임직원 목록 조회(GET), 운영자 신규 계정 발급(POST - 초기비번 1111), 비밀번호 1111 초기화(PATCH)
-  - `/api/erp/leaves`: Neon DB 휴가 신청(POST), 목록(GET), 결재 승인/반려(PATCH)
-  - `/api/erp/overtimes`: Neon DB 초과근무 자율 등록(POST) 및 목록(GET)
-  - `/api/erp/assets`, `/api/erp/consumables`: Neon DB 자산 및 소모품 실시간 조회
-- **보안 격리**: DB 접속 문자열 및 시크릿 키는 클라이언트(브라우저)에 노출되지 않고 **Next.js 백엔드 서버사이드 환경변수(`DATABASE_URL`)에서만 격리 실행**
-
 ## [v0.2.1.Build.1] - 2026-08-27 18:58
 ## [v0.2.0.Build.1] - 2026-08-27 18:54
 ## [v0.1.4.Build.1] - 2026-08-27 18:48

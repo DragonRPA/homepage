@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   Bot, Lock, User, ShieldCheck, ArrowRight, CheckCircle2, AlertCircle, 
   KeyRound, X, LogOut, LayoutDashboard, TrendingUp, ShoppingCart, 
@@ -14,6 +14,7 @@ export default function ErpPortalPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [loggedInUser, setLoggedInUser] = useState<any>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // Active Sidebar Menu Tab
   const [activeTab, setActiveTab] = useState<
@@ -124,7 +125,7 @@ export default function ErpPortalPage() {
     },
   ]);
 
-  // Mock State: Overtimes (Self Entry)
+  // Mock State: Overtimes
   const [overtimes, setOvertimes] = useState<any[]>([
     {
       id: 1,
@@ -172,6 +173,39 @@ export default function ErpPortalPage() {
   const [newOtEnd, setNewOtEnd] = useState("20:30");
   const [newOtDetails, setNewOtDetails] = useState("");
 
+  // Restore Session & Active Tab on Page Load (F5 Refresh Survival)
+  useEffect(() => {
+    try {
+      const savedUser = localStorage.getItem("dragonrpa_erp_user");
+      const savedTab = localStorage.getItem("dragonrpa_erp_tab");
+      const savedStore = localStorage.getItem("dragonrpa_erp_store");
+
+      if (savedStore) {
+        setUserStore(JSON.parse(savedStore));
+      }
+
+      if (savedUser) {
+        setLoggedInUser(JSON.parse(savedUser));
+      }
+
+      if (savedTab) {
+        setActiveTab(savedTab as any);
+      }
+    } catch (e) {
+      console.error("Session restore error", e);
+    } finally {
+      setIsInitialized(true);
+    }
+  }, []);
+
+  // Save Tab change to localStorage
+  const handleTabChange = (tab: any) => {
+    setActiveTab(tab);
+    try {
+      localStorage.setItem("dragonrpa_erp_tab", tab);
+    } catch (e) {}
+  };
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginId || !password) {
@@ -188,11 +222,15 @@ export default function ErpPortalPage() {
       const user = userStore[cleanId];
 
       if (user && user.password === password) {
-        setLoggedInUser({ ...user, loginId: cleanId });
+        const fullUser = { ...user, loginId: cleanId };
+        setLoggedInUser(fullUser);
+        try {
+          localStorage.setItem("dragonrpa_erp_user", JSON.stringify(fullUser));
+        } catch (e) {}
       } else {
         setErrorMsg("등록되지 않은 ID이거나 비밀번호가 일치하지 않습니다. (초기 비밀번호: 1111)");
       }
-    }, 400);
+    }, 300);
   };
 
   const handleLogout = () => {
@@ -200,6 +238,10 @@ export default function ErpPortalPage() {
     setLoginId("");
     setPassword("");
     setShowPasswordModal(false);
+    try {
+      localStorage.removeItem("dragonrpa_erp_user");
+      localStorage.removeItem("dragonrpa_erp_tab");
+    } catch (e) {}
   };
 
   const handlePasswordChange = (e: React.FormEvent) => {
@@ -227,20 +269,28 @@ export default function ErpPortalPage() {
       return;
     }
 
-    setUserStore((prev) => ({
-      ...prev,
+    const updatedStore = {
+      ...userStore,
       [loggedInUser.loginId]: {
-        ...prev[loggedInUser.loginId],
+        ...userStore[loggedInUser.loginId],
         password: newPwd,
         mustChangePassword: false,
       },
-    }));
+    };
 
-    setLoggedInUser((prev: any) => ({
-      ...prev,
+    const updatedUser = {
+      ...loggedInUser,
       password: newPwd,
       mustChangePassword: false,
-    }));
+    };
+
+    setUserStore(updatedStore);
+    setLoggedInUser(updatedUser);
+
+    try {
+      localStorage.setItem("dragonrpa_erp_store", JSON.stringify(updatedStore));
+      localStorage.setItem("dragonrpa_erp_user", JSON.stringify(updatedUser));
+    } catch (e) {}
 
     setPwdChangeSuccess(true);
     setCurrentPwd("");
@@ -337,6 +387,10 @@ export default function ErpPortalPage() {
     { id: "files", label: "파일관리", icon: FolderTree },
     { id: "email", label: "이메일", icon: Mail },
   ];
+
+  if (!isInitialized) {
+    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-xs font-mono">로딩 중...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-600 selection:text-white">
@@ -509,7 +563,7 @@ export default function ErpPortalPage() {
                   return (
                     <button
                       key={item.id}
-                      onClick={() => setActiveTab(item.id as any)}
+                      onClick={() => handleTabChange(item.id)}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all text-left whitespace-nowrap ${
                         isActive
                           ? "bg-blue-600 text-white shadow-md shadow-blue-600/20 font-bold"
@@ -525,7 +579,7 @@ export default function ErpPortalPage() {
             </div>
 
             <div className="p-4 border-t border-slate-800 text-[10px] text-slate-400 flex items-center justify-between">
-              <span>SSOT v1.4</span>
+              <span>SSOT v1.5 (F5 복원됨)</span>
               <span className="text-emerald-400 flex items-center gap-1">
                 <ShieldCheck className="w-3 h-3" /> Neon DB 연결됨
               </span>

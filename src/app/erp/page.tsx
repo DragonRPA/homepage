@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Bot, Lock, User, ShieldCheck, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react";
+import { Bot, Lock, User, ShieldCheck, ArrowRight, CheckCircle2, AlertCircle, KeyRound, X, RefreshCw } from "lucide-react";
 
 export default function ErpLoginPage() {
   const [loginId, setLoginId] = useState("");
@@ -9,6 +9,78 @@ export default function ErpLoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [loggedInUser, setLoggedInUser] = useState<any>(null);
+
+  // Password Change Modal State
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPwd, setCurrentPwd] = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [pwdChangeError, setPwdChangeError] = useState("");
+  const [pwdChangeSuccess, setPwdChangeSuccess] = useState(false);
+
+  // In-memory mock database store for current session
+  const [userStore, setUserStore] = useState<Record<string, any>>({
+    admin: {
+      id: 1,
+      name: "이정용",
+      employeeNo: "DR-001",
+      position: "대표이사",
+      department: "경영총괄",
+      role: "SUPER_ADMIN",
+      roleTitle: "운영자 (최고결재권자)",
+      email: "contact@dragonrpa.co.kr",
+      password: "1111",
+      mustChangePassword: true,
+    },
+    sales_mgr: {
+      id: 2,
+      name: "김영업",
+      employeeNo: "DR-002",
+      position: "팀장",
+      department: "영업부",
+      role: "MANAGER",
+      roleTitle: "관리자 (영업 결재권자)",
+      email: "sales@dragonrpa.co.kr",
+      password: "1111",
+      mustChangePassword: true,
+    },
+    asset_mgr: {
+      id: 3,
+      name: "박출고자산",
+      employeeNo: "DR-003",
+      position: "과장",
+      department: "자산출고부",
+      role: "MANAGER",
+      roleTitle: "관리자 (자산/출고 결재권자)",
+      email: "asset@dragonrpa.co.kr",
+      password: "1111",
+      mustChangePassword: true,
+    },
+    dev_user: {
+      id: 4,
+      name: "최개발",
+      employeeNo: "DR-004",
+      position: "선임연구원",
+      department: "기술개발부",
+      role: "USER",
+      roleTitle: "일반 사용자",
+      email: "dev@dragonrpa.co.kr",
+      password: "1111",
+      mustChangePassword: true,
+    },
+    admin_user: {
+      id: 5,
+      name: "정관리",
+      employeeNo: "DR-005",
+      position: "대리",
+      department: "경영지원부",
+      role: "USER",
+      roleTitle: "일반 사용자",
+      email: "admin@dragonrpa.co.kr",
+      password: "1111",
+      mustChangePassword: true,
+    },
+  });
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,72 +92,76 @@ export default function ErpLoginPage() {
     setLoading(true);
     setErrorMsg("");
 
-    // Mock Authentication Logic (SSOT Role Mapping)
     setTimeout(() => {
       setLoading(false);
       const cleanId = loginId.trim().toLowerCase();
-      if (cleanId === "admin") {
-        setLoggedInUser({
-          id: 1,
-          name: "이정용",
-          employeeNo: "DR-001",
-          position: "대표이사",
-          department: "경영총괄",
-          role: "SUPER_ADMIN",
-          roleTitle: "운영자 (최고결재권자)",
-          email: "contact@dragonrpa.co.kr",
-          canManageUsers: true,
-          canApproveManagers: true,
-        });
-      } else if (cleanId === "sales_mgr") {
-        setLoggedInUser({
-          id: 2,
-          name: "김영업",
-          employeeNo: "DR-002",
-          position: "팀장",
-          department: "영업부",
-          role: "MANAGER",
-          roleTitle: "관리자 (영업 결재권자)",
-          email: "sales@dragonrpa.co.kr",
-          canManageUsers: false,
-          canApproveManagers: false,
-        });
-      } else if (cleanId === "asset_mgr") {
-        setLoggedInUser({
-          id: 3,
-          name: "박출고자산",
-          employeeNo: "DR-003",
-          position: "과장",
-          department: "자산출고부",
-          role: "MANAGER",
-          roleTitle: "관리자 (자산/출고 결재권자)",
-          email: "asset@dragonrpa.co.kr",
-          canManageUsers: false,
-          canApproveManagers: false,
-        });
-      } else if (cleanId === "dev_user" || cleanId === "admin_user" || cleanId === "user") {
-        setLoggedInUser({
-          id: 4,
-          name: "최개발",
-          employeeNo: "DR-004",
-          position: "선임연구원",
-          department: "기술개발부",
-          role: "USER",
-          roleTitle: "일반 사용자",
-          email: "dev@dragonrpa.co.kr",
-          canManageUsers: false,
-          canApproveManagers: false,
-        });
+      const user = userStore[cleanId];
+
+      if (user && user.password === password) {
+        setLoggedInUser({ ...user, loginId: cleanId });
       } else {
-        setErrorMsg("등록되지 않은 ID이거나 비밀번호가 일치하지 않습니다. (운영자 발급 ID 필요)");
+        setErrorMsg("등록되지 않은 ID이거나 비밀번호가 일치하지 않습니다. (초기 비밀번호: 1111)");
       }
-    }, 600);
+    }, 400);
   };
 
   const handleLogout = () => {
     setLoggedInUser(null);
     setLoginId("");
     setPassword("");
+    setShowPasswordModal(false);
+  };
+
+  const handlePasswordChange = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwdChangeError("");
+    setPwdChangeSuccess(false);
+
+    if (!currentPwd || !newPwd || !confirmPwd) {
+      setPwdChangeError("모든 비밀번호 항목을 입력해 주십시오.");
+      return;
+    }
+
+    if (currentPwd !== loggedInUser.password) {
+      setPwdChangeError("현재 비밀번호가 일치하지 않습니다.");
+      return;
+    }
+
+    if (newPwd.length < 4) {
+      setPwdChangeError("새 비밀번호는 최소 4자리 이상이어야 합니다.");
+      return;
+    }
+
+    if (newPwd !== confirmPwd) {
+      setPwdChangeError("새 비밀번호와 확인 비밀번호가 일치하지 않습니다.");
+      return;
+    }
+
+    // Update in-memory userStore
+    setUserStore((prev) => ({
+      ...prev,
+      [loggedInUser.loginId]: {
+        ...prev[loggedInUser.loginId],
+        password: newPwd,
+        mustChangePassword: false,
+      },
+    }));
+
+    setLoggedInUser((prev: any) => ({
+      ...prev,
+      password: newPwd,
+      mustChangePassword: false,
+    }));
+
+    setPwdChangeSuccess(true);
+    setCurrentPwd("");
+    setNewPwd("");
+    setConfirmPwd("");
+
+    setTimeout(() => {
+      setShowPasswordModal(false);
+      setPwdChangeSuccess(false);
+    }, 1200);
   };
 
   return (
@@ -101,7 +177,7 @@ export default function ErpLoginPage() {
               Dragon<span className="text-blue-500">ERP</span>
             </span>
             <span className="text-[11px] text-slate-400 font-medium mt-1">
-              사내 통합 기간계 시스템 (5인 올인원)
+              사내 통합 기간계 시스템 (초기 비밀번호: 1111)
             </span>
           </div>
         </div>
@@ -124,7 +200,7 @@ export default function ErpLoginPage() {
                 임직원 통합 로그인
               </h1>
               <p className="text-xs text-slate-400">
-                운영자(대표)가 발급한 계정 정보로 로그인하십시오.
+                초기 비밀번호는 <strong className="text-blue-400">1111</strong> 이며, 로그인 후 자유롭게 변경 가능합니다.
               </p>
             </div>
 
@@ -151,7 +227,7 @@ export default function ErpLoginPage() {
               {/* Password */}
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-bold text-slate-300 whitespace-nowrap">
-                  비밀번호
+                  비밀번호 (초기값: 1111)
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
@@ -162,7 +238,7 @@ export default function ErpLoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="비밀번호 입력"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors font-mono"
                   />
                 </div>
               </div>
@@ -193,10 +269,10 @@ export default function ErpLoginPage() {
             {/* Test Accounts Hint */}
             <div className="pt-4 border-t border-slate-800 text-[11px] text-slate-400 space-y-1.5 font-mono">
               <div className="font-bold text-slate-400 uppercase tracking-wider">
-                3단계 권한 매핑 체계:
+                발급 계정 목록 (초기 비번: 1111):
               </div>
               <div className="flex justify-between">
-                <span>• 운영자 (최고결재):</span>
+                <span>• 운영자 (대표):</span>
                 <span className="text-blue-400 font-bold">admin</span>
               </div>
               <div className="flex justify-between">
@@ -212,6 +288,23 @@ export default function ErpLoginPage() {
         ) : (
           /* Logged-In User Gateway View */
           <div className="w-full max-w-3xl p-8 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-6">
+            
+            {/* Must Change Password Alert Banner */}
+            {loggedInUser.mustChangePassword && (
+              <div className="p-4 rounded-xl bg-amber-950/60 border border-amber-800 text-amber-200 text-xs flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>초기 비밀번호(1111)를 사용 중입니다. 안전한 사내 보안을 위해 비밀번호를 변경해 주십시오.</span>
+                </div>
+                <button
+                  onClick={() => setShowPasswordModal(true)}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-md shrink-0 transition-colors"
+                >
+                  지금 변경
+                </button>
+              </div>
+            )}
+
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-6 border-b border-slate-800 gap-4">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-lg">
@@ -226,17 +319,26 @@ export default function ErpLoginPage() {
                     </span>
                   </div>
                   <div className="text-xs text-slate-400 font-mono mt-0.5">
-                    {loggedInUser.email} | 사번: {loggedInUser.employeeNo}
+                    {loggedInUser.email} | 사번: {loggedInUser.employeeNo} | ID: {loggedInUser.loginId}
                   </div>
                 </div>
               </div>
 
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
-              >
-                로그아웃
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowPasswordModal(true)}
+                  className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 flex items-center gap-1.5 transition-colors"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-blue-400" />
+                  <span>비밀번호 변경</span>
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
+                >
+                  로그아웃
+                </button>
+              </div>
             </div>
 
             {/* Role-Specific Capabilities */}
@@ -273,7 +375,7 @@ export default function ErpLoginPage() {
                 <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
                   <div className="text-slate-400 font-bold">🔐 계정/문서함 관리</div>
                   {loggedInUser.role === "SUPER_ADMIN" ? (
-                    <p className="text-emerald-400 font-bold">운영자 전용: 매니저 및 유저 로그인 ID/PW 신규 발급</p>
+                    <p className="text-emerald-400 font-bold">운영자 전용: 매니저 및 유저 로그인 ID 발급 (초기 비번 1111 자동 부여)</p>
                   ) : (
                     <p className="text-slate-400">사내문서함 (EDMS dragonrpa-erp R2 버킷) 열람 및 등록</p>
                   )}
@@ -286,11 +388,111 @@ export default function ErpLoginPage() {
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
                 <span>Neon PostgreSQL & Cloudflare R2 버킷(`dragonrpa-erp`) 연결 완료</span>
               </div>
-              <span className="text-slate-400 font-mono text-[11px]">SSOT v1.3</span>
+              <span className="text-slate-400 font-mono text-[11px]">SSOT v1.4</span>
             </div>
           </div>
         )}
       </main>
+
+      {/* Password Change Modal (Vertical Header-Label Layout Standard) */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-white font-bold text-base">
+                <KeyRound className="w-5 h-5 text-blue-500" />
+                <span>비밀번호 변경</span>
+              </div>
+              <button
+                onClick={() => setShowPasswordModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-md"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {pwdChangeSuccess ? (
+              <div className="py-8 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-bold text-white">비밀번호가 성공적으로 변경되었습니다</h3>
+                <p className="text-xs text-slate-400">다음 로그인부터 새로운 비밀번호를 사용해 주십시오.</p>
+              </div>
+            ) : (
+              <form onSubmit={handlePasswordChange} className="space-y-4">
+                {/* Current Password */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-300 whitespace-nowrap">
+                    현재 비밀번호 <span className="text-slate-500 font-normal">(초기값: 1111)</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={currentPwd}
+                    onChange={(e) => setCurrentPwd(e.target.value)}
+                    required
+                    placeholder="현재 비밀번호 입력"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+
+                {/* New Password */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-300 whitespace-nowrap">
+                    새 비밀번호
+                  </label>
+                  <input
+                    type="password"
+                    value={newPwd}
+                    onChange={(e) => setNewPwd(e.target.value)}
+                    required
+                    placeholder="새로운 비밀번호 입력 (4자리 이상)"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+
+                {/* Confirm Password */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-300 whitespace-nowrap">
+                    새 비밀번호 확인
+                  </label>
+                  <input
+                    type="password"
+                    value={confirmPwd}
+                    onChange={(e) => setConfirmPwd(e.target.value)}
+                    required
+                    placeholder="새로운 비밀번호 다시 입력"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+
+                {pwdChangeError && (
+                  <div className="p-3 rounded-lg bg-red-950/60 border border-red-800 text-red-300 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{pwdChangeError}</span>
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordModal(false)}
+                    className="flex-1 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-600/30 transition-colors"
+                  >
+                    저장 및 변경
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="max-w-6xl mx-auto w-full text-center text-xs text-slate-400 border-t border-slate-900 pt-6">

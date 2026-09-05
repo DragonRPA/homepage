@@ -1,0 +1,18 @@
+{
+  "name": "DragonRPA 프로젝트 포트폴리오",
+  "short_name": "DragonRPA",
+  "description": "DragonRPA 프로젝트 포트폴리오 및 쇼케이스 웹앱",
+  "start_url": "/portfolio",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#2563eb",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

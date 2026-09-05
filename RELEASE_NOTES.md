@@ -1,13 +1,13 @@
 # Release Notes
 
+## [v0.3.2.Build.1] - 2026-09-05 21:40
+
+### 📲 포트폴리오 상단 웹앱(PWA) 바로가기 등록 버튼 및 설치 가이드 모달 탑재
+- **상단 웹앱 등록 버튼**: 페이지 상단 헤더에 `[📲 앱으로 등록]` 버튼을 배치하여 모바일 홈 화면이나 PC 바탕화면에 독립 웹앱으로 1초 만에 설치 가능
+- **PWA Manifest & SVG 아이콘 구축**: `public/manifest.json`, `public/icon.svg` 및 Apple Touch Icon 메타 태그 완비
+- **디바이스별 스마트 설치 가이드 모달**: iOS Safari, Android Chrome, PC Desktop 등 환경별 원클릭 홈 화면 추가 방법 상세 가이드 팝업 제공
+
 ## [v0.3.1.Build.1] - 2026-09-05 21:37
-
-### ⚡ 배포 프로젝트 제목 하단 밝은 노란색 원클릭 라이브 링크 탑재
-- **밝은 노란색(Bright Yellow) 직통 링크 버튼**: 배포된 프로젝트(`e-Bro`, `DragonERP`, `AutoLog Tax`, `Label Print Station` 등) 제목 바로 아래에 선명한 노란색(`bg-yellow-400 text-slate-950 font-extrabold`) 바로가기 바 탑재
-- **원클릭 새 탭 즉시 연결**: 클릭 시 `target="_blank"`로 해당 라이브 서비스 웹사이트로 즉시 전환
-- **프로젝트 목록 트리 라이브 뱃지**: 좌측 목록 카드에도 `⚡ 라이브` 노란색 배지 부착으로 배포 여부 한눈에 식별
-- **프로젝트 메타데이터 확장**: `Git & Vercel Manager`, `Remove AD` 등 13개 전체 프로젝트 저장소/문서 메타데이터 보강
-
 ## [v0.3.0.Build.1] - 2026-09-05 21:09
 ## [v0.2.4.Build.1] - 2026-08-27 19:14
 ## [v0.2.3.Build.1] - 2026-08-27 19:07

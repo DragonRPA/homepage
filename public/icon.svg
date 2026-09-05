@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="128" fill="#2563eb" />
+  <g fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" transform="translate(64, 64) scale(0.75)">
+    <path d="M12 8V4H8" />
+    <rect width="16" height="12" x="4" y="8" rx="2" />
+    <path d="M2 14h2" />
+    <path d="M20 14h2" />
+    <path d="M15 13v2" />
+    <path d="M9 13v2" />
+  </g>
+  <!-- Custom Modern Robot Icon Path -->
+  <path d="M256 120 V80" stroke="#ffffff" stroke-width="24" stroke-linecap="round" />
+  <circle cx="256" cy="70" r="14" fill="#ffffff" />
+  <rect x="136" y="120" width="240" height="190" rx="40" fill="#1e293b" stroke="#ffffff" stroke-width="20" />
+  <rect x="176" y="165" width="160" height="80" rx="20" fill="#0f172a" />
+  <circle cx="216" cy="205" r="18" fill="#60a5fa" />
+  <circle cx="296" cy="205" r="18" fill="#60a5fa" />
+  <path d="M206 270 Q256 295 306 270" stroke="#60a5fa" stroke-width="14" stroke-linecap="round" fill="none" />
+  <rect x="96" y="180" width="24" height="60" rx="12" fill="#ffffff" />
+  <rect x="392" y="180" width="24" height="60" rx="12" fill="#ffffff" />
+  <path d="M176 310 L150 400 H362 L336 310" fill="#1e293b" stroke="#ffffff" stroke-width="20" stroke-linejoin="round" />
+  <line x1="256" y1="330" x2="256" y2="380" stroke="#60a5fa" stroke-width="16" stroke-linecap="round" />
+</svg>

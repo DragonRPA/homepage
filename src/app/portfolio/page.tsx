@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { 
   Bot, Layers, ArrowLeft, Search, ExternalLink, 
   Calendar, CheckCircle2, ChevronRight, Image as ImageIcon,
-  FileCode, Terminal, Sparkles, Folder, Eye, Tag, Github, Zap
+  FileCode, Terminal, Sparkles, Folder, Eye, Tag, Github, Zap,
+  Smartphone, Download, X, Share, PlusSquare, Monitor, HelpCircle
 } from "lucide-react";
 import { 
   PORTFOLIO_PROJECTS, 
@@ -17,6 +18,57 @@ export default function PortfolioPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(PORTFOLIO_PROJECTS[0].id);
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
+
+  // PWA Web App Install Prompt State
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+  const [showInstallGuideModal, setShowInstallGuideModal] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(false);
+
+  useEffect(() => {
+    // Check if already in standalone mode
+    if (window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone === true) {
+      setIsInstalled(true);
+    }
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setIsInstallable(false);
+      setDeferredPrompt(null);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      try {
+        deferredPrompt.prompt();
+        const choiceResult = await deferredPrompt.userChoice;
+        if (choiceResult.outcome === "accepted") {
+          setIsInstalled(true);
+        }
+        setDeferredPrompt(null);
+      } catch (err) {
+        setShowInstallGuideModal(true);
+      }
+    } else {
+      // Show manual install guide for iOS Safari, Chrome Desktop, etc.
+      setShowInstallGuideModal(true);
+    }
+  };
 
   // Filter projects by category and search query
   const filteredProjects = useMemo(() => {
@@ -44,8 +96,8 @@ export default function PortfolioPage() {
       
       {/* Top Global Header */}
       <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
             <Link href="/" className="flex items-center gap-2.5 text-slate-300 hover:text-white transition-colors">
               <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-600/20">
                 <Bot className="w-5 h-5" />
@@ -80,10 +132,21 @@ export default function PortfolioPage() {
             ))}
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* Top Actions: Install WebApp + ERP */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* 📲 WEB APP INSTALL BUTTON (상단 웹앱 등록 버튼) */}
+            <button
+              onClick={handleInstallClick}
+              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 flex items-center gap-1.5 transition-all transform active:scale-95 whitespace-nowrap"
+              title="스마트폰 홈화면이나 바탕화면에 바로가기 웹앱으로 등록"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>{isInstalled ? "앱 설치됨" : "앱으로 등록"}</span>
+            </button>
+
             <Link
               href="/erp"
-              className="text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors whitespace-nowrap"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors whitespace-nowrap hidden sm:inline-flex"
             >
               사내 ERP ➔
             </Link>
@@ -395,6 +458,74 @@ export default function PortfolioPage() {
 
         </main>
       </div>
+
+      {/* Web App Installation Guide Modal */}
+      {showInstallGuideModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-white font-bold text-base">
+                <Smartphone className="w-5 h-5 text-blue-500" />
+                <span>홈 화면 바로가기 웹앱(PWA) 등록 방법</span>
+              </div>
+              <button
+                onClick={() => setShowInstallGuideModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-md"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              본 포트폴리오를 스마트폰 홈 화면이나 PC 바탕화면에 독립 앱으로 등록하면, 브라우저 주소창 없이 네이티브 앱처럼 0초 만에 바로 실행하실 수 있습니다.
+            </p>
+
+            <div className="space-y-3 text-xs">
+              {/* iPhone / iPad Safari Guide */}
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <div className="font-bold text-white flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-md bg-slate-800 text-blue-400 flex items-center justify-center text-[10px] font-bold">1</span>
+                  <span>아이폰 / 아이패드 (Safari)</span>
+                </div>
+                <p className="text-slate-400 pl-6.5 leading-relaxed">
+                  하단 도구 모음의 <strong className="text-blue-400">공유 버튼(사각형에 위 화살표)</strong>을 누른 후, 메뉴에서 <strong className="text-emerald-400">[홈 화면에 추가]</strong>를 누르시면 완료됩니다.
+                </p>
+              </div>
+
+              {/* Android Chrome / Samsung Guide */}
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <div className="font-bold text-white flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-md bg-slate-800 text-blue-400 flex items-center justify-center text-[10px] font-bold">2</span>
+                  <span>안드로이드 (Chrome / 삼성 인터넷)</span>
+                </div>
+                <p className="text-slate-400 pl-6.5 leading-relaxed">
+                  우측 상단 <strong className="text-blue-400">메뉴(점 3개 또는 선 3개)</strong>를 누른 후 <strong className="text-emerald-400">[앱 설치]</strong> 또는 <strong className="text-emerald-400">[홈 화면에 추가]</strong>를 누르시면 완료됩니다.
+                </p>
+              </div>
+
+              {/* PC Desktop Chrome / Edge Guide */}
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <div className="font-bold text-white flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-md bg-slate-800 text-blue-400 flex items-center justify-center text-[10px] font-bold">3</span>
+                  <span>PC 컴퓨터 (Chrome / Edge)</span>
+                </div>
+                <p className="text-slate-400 pl-6.5 leading-relaxed">
+                  브라우저 주소창 우측 끝의 <strong className="text-blue-400">[설치 (⊕)] 아이콘</strong>을 누르시거나, 브라우저 메뉴 ➔ <strong className="text-emerald-400">[DragonRPA 앱 설치]</strong>를 클릭하시면 바탕화면에 생성됩니다.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 text-right">
+              <button
+                onClick={() => setShowInstallGuideModal(false)}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition-colors"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Global Footer */}
       <footer className="bg-slate-900 border-t border-slate-800 py-6 mt-12 text-center text-xs text-slate-500">

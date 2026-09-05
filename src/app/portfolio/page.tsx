@@ -6,7 +6,7 @@ import {
   Bot, Layers, ArrowLeft, Search, ExternalLink, 
   Calendar, CheckCircle2, ChevronRight, Image as ImageIcon,
   FileCode, Terminal, Sparkles, Folder, Eye, Tag, Github, Zap,
-  Smartphone, Download, X, Share, PlusSquare, Monitor, HelpCircle
+  Smartphone, Download, X, Share, PlusSquare, Monitor, HelpCircle, Copy
 } from "lucide-react";
 import { 
   PORTFOLIO_PROJECTS, 
@@ -18,6 +18,19 @@ export default function PortfolioPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(PORTFOLIO_PROJECTS[0].id);
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+
+  const handleCopyUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedUrl(url);
+      setTimeout(() => {
+        setCopiedUrl(null);
+      }, 2000);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // PWA Web App Install Prompt State
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -316,14 +329,14 @@ export default function PortfolioPage() {
               </p>
             </div>
 
-            {/* 🌟 BRIGHT YELLOW DIRECT ACCESS LINK (제목 하단 노란색 바로가기 링크) 🌟 */}
+            {/* 🌟 BRIGHT YELLOW DIRECT ACCESS LINK & URL COPY BUTTON (배포 링크 및 우측 URL 복사 버튼) 🌟 */}
             {currentProject.liveUrl && (
-              <div className="pt-2">
+              <div className="pt-2 flex flex-wrap items-center gap-2">
                 <a
                   href={currentProject.liveUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full sm:w-auto inline-flex items-center justify-between sm:justify-start gap-3 px-5 py-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-extrabold text-xs sm:text-sm shadow-xl shadow-yellow-400/20 hover:shadow-yellow-400/30 transition-all transform active:scale-[0.98] group cursor-pointer"
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-between sm:justify-start gap-3 px-5 py-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-extrabold text-xs sm:text-sm shadow-xl shadow-yellow-400/20 hover:shadow-yellow-400/30 transition-all transform active:scale-[0.98] group cursor-pointer"
                 >
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded-lg bg-slate-950 text-yellow-400 flex items-center justify-center font-black text-xs">
@@ -336,6 +349,30 @@ export default function PortfolioPage() {
                   </div>
                   <ExternalLink className="w-4 h-4 text-slate-950 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform shrink-0" />
                 </a>
+
+                {/* 📋 URL COPY BUTTON (우측 URL 복사 버튼) */}
+                <button
+                  type="button"
+                  onClick={() => handleCopyUrl(currentProject.liveUrl!)}
+                  className={`px-4 py-3 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all transform active:scale-95 whitespace-nowrap shadow-md border ${
+                    copiedUrl === currentProject.liveUrl
+                      ? "bg-emerald-950 text-emerald-300 border-emerald-700 shadow-emerald-900/30"
+                      : "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700 hover:text-white"
+                  }`}
+                  title="URL 클립보드에 복사"
+                >
+                  {copiedUrl === currentProject.liveUrl ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      <span>복사 완료</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4 text-slate-400" />
+                      <span>URL 복사</span>
+                    </>
+                  )}
+                </button>
               </div>
             )}
 

@@ -99,9 +99,12 @@ export default function PortfolioPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link href="/" className="flex items-center gap-2.5 text-slate-300 hover:text-white transition-colors">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-600/20">
-                <Bot className="w-5 h-5" />
-              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/symbol-192.png"
+                alt="DragonRPA CI"
+                className="w-8 h-8 rounded-lg bg-white p-0.5 object-contain shadow-md shadow-blue-600/20"
+              />
               <div className="flex flex-col">
                 <span className="font-bold text-base text-white tracking-tight leading-none">
                   Dragon<span className="text-blue-500">RPA</span>
@@ -465,8 +468,13 @@ export default function PortfolioPage() {
           <div className="w-full max-w-lg p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2 text-white font-bold text-base">
-                <Smartphone className="w-5 h-5 text-blue-500" />
-                <span>홈 화면 바로가기 웹앱(PWA) 등록 방법</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/symbol-192.png"
+                  alt="DragonRPA CI"
+                  className="w-6 h-6 rounded-md bg-white p-0.5 object-contain"
+                />
+                <span>DragonRPA 앱(PWA) 등록 방법</span>
               </div>
               <button
                 onClick={() => setShowInstallGuideModal(false)}

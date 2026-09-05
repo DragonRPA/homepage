@@ -416,9 +416,12 @@ export default function ErpPortalPage() {
         <div className="min-h-screen flex flex-col justify-between p-6 sm:p-10">
           <header className="max-w-6xl mx-auto w-full flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md">
-                <Bot className="w-6 h-6" />
-              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/symbol-192.png"
+                alt="DragonRPA CI"
+                className="w-10 h-10 rounded-xl bg-white p-1 object-contain shadow-md"
+              />
               <div className="flex flex-col">
                 <span className="font-bold text-lg text-white tracking-tight leading-none">
                   DragonERP
@@ -510,9 +513,12 @@ export default function ErpPortalPage() {
           <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0">
             <div>
               <div className="p-5 border-b border-slate-800 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold shadow-md">
-                  <Bot className="w-5 h-5" />
-                </div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/symbol-192.png"
+                  alt="DragonRPA CI"
+                  className="w-9 h-9 rounded-lg bg-white p-1 object-contain shadow-md"
+                />
                 <div className="flex flex-col">
                   <span className="font-bold text-base text-white tracking-tight leading-none">
                     DragonERP

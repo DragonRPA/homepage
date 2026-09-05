@@ -9,9 +9,15 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://www.dragonrpa.co.kr"),
   title: "DragonRPA | 업무 자동화 및 프로젝트 포트폴리오",
   description: "B2B 업무 프로세스 자동화(RPA), 렌탈 자산 관리 ERP, 국가 공공데이터포털 API 데이터 파이프라인 전문 기업 (주)드래곤알피에이",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/favicon.png",
+    shortcut: "/favicon.png",
+    apple: "/apple-touch-icon.png",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -24,6 +30,14 @@ export const metadata: Metadata = {
     description: "B2B 업무 프로세스 자동화, 렌탈 자산 ERP, 공공데이터포털 API 데이터 파이프라인",
     url: "https://www.dragonrpa.co.kr",
     siteName: "DragonRPA",
+    images: [
+      {
+        url: "/logo.png",
+        width: 286,
+        height: 278,
+        alt: "DragonRPA CI Logo",
+      },
+    ],
     locale: "ko_KR",
     type: "website",
   },
@@ -37,8 +51,8 @@ export default function RootLayout({
   return (
     <html lang="ko" className="scroll-smooth">
       <head>
-        <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/icon.svg" />
+        <link rel="icon" href="/favicon.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
       <body className="min-h-screen flex flex-col bg-slate-950 text-slate-100 antialiased selection:bg-blue-600 selection:text-white">
         {children}

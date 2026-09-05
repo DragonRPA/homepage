@@ -1,12 +1,13 @@
 # Release Notes
 
+## [v0.3.3.Build.1] - 2026-09-05 21:42
+
+### 🎨 DragonRPA 공식 CI 이미지 전사 적용 및 웹앱(PWA) 아이콘/파비콘 등록
+- **공식 CI 웹 자산 생성**: 업로드된 공식 CI 이미지를 바탕으로 `logo.png`, `icon.png`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `favicon.png`, `symbol-192.png` 등 규격별 고화질 자산 일괄 생성
+- **PWA 웹앱 아이콘 등록**: `manifest.json` 및 `layout.tsx`에 공식 CI 아이콘을 연결하여 스마트폰/PC 설치 시 공식 CI 로고가 앱 아이콘으로 표시
+- **전사 화면 CI 적용**: 메인 랜딩 페이지, 포트폴리오 헤더 및 모달, 사내 ERP 로그인/사이드바 전체에 공식 CI 심볼 마크 및 로고 렌더링
+
 ## [v0.3.2.Build.1] - 2026-09-05 21:40
-
-### 📲 포트폴리오 상단 웹앱(PWA) 바로가기 등록 버튼 및 설치 가이드 모달 탑재
-- **상단 웹앱 등록 버튼**: 페이지 상단 헤더에 `[📲 앱으로 등록]` 버튼을 배치하여 모바일 홈 화면이나 PC 바탕화면에 독립 웹앱으로 1초 만에 설치 가능
-- **PWA Manifest & SVG 아이콘 구축**: `public/manifest.json`, `public/icon.svg` 및 Apple Touch Icon 메타 태그 완비
-- **디바이스별 스마트 설치 가이드 모달**: iOS Safari, Android Chrome, PC Desktop 등 환경별 원클릭 홈 화면 추가 방법 상세 가이드 팝업 제공
-
 ## [v0.3.1.Build.1] - 2026-09-05 21:37
 ## [v0.3.0.Build.1] - 2026-09-05 21:09
 ## [v0.2.4.Build.1] - 2026-08-27 19:14

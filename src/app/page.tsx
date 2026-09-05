@@ -1,6 +1,6 @@
 import React from "react";
 import Link from "next/link";
-import { Bot, Layers } from "lucide-react";
+import { Layers } from "lucide-react";
 
 export default function Home() {
   return (
@@ -8,9 +8,12 @@ export default function Home() {
       {/* 1. Top Navigation Bar */}
       <header className="max-w-7xl mx-auto w-full flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-600/30">
-            <Bot className="w-6 h-6" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/symbol-192.png"
+            alt="DragonRPA CI"
+            className="w-10 h-10 rounded-xl bg-white p-1 object-contain shadow-lg shadow-blue-600/20"
+          />
           <div className="flex flex-col">
             <span className="font-bold text-lg text-white tracking-tight leading-none">
               Dragon<span className="text-blue-500">RPA</span>
@@ -24,7 +27,7 @@ export default function Home() {
         <div className="flex items-center gap-3">
           <Link
             href="/portfolio"
-            className="text-xs font-semibold px-4 py-2 rounded-lg bg-blue-600/90 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition-all flex items-center gap-1.5"
+            className="text-xs font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition-all flex items-center gap-1.5"
           >
             <Layers className="w-3.5 h-3.5" />
             <span>포트폴리오</span>
@@ -34,12 +37,22 @@ export default function Home() {
 
       {/* 2. Main Content Area */}
       <main className="flex-1 flex items-center justify-center py-20">
-        <div className="text-center space-y-4">
-          <div className="w-16 h-16 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center justify-center text-slate-400 mx-auto shadow-inner">
-            <Bot className="w-8 h-8" />
+        <div className="text-center space-y-5">
+          <div className="w-24 h-24 rounded-3xl bg-white p-3 flex items-center justify-center mx-auto shadow-2xl shadow-blue-600/10 border border-slate-800">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.png"
+              alt="DragonRPA Logo"
+              className="w-full h-full object-contain"
+            />
           </div>
-          <div className="text-slate-400 text-xs tracking-widest uppercase font-mono">
-            dragonrpa.co.kr
+          <div className="space-y-1">
+            <h1 className="text-lg font-extrabold text-white tracking-tight">
+              (주)드래곤알피에이
+            </h1>
+            <p className="text-slate-400 text-xs tracking-widest uppercase font-mono">
+              dragonrpa.co.kr
+            </p>
           </div>
         </div>
       </main>

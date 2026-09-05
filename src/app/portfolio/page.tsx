@@ -5,7 +5,7 @@ import Link from "next/link";
 import { 
   Bot, Layers, ArrowLeft, Search, ExternalLink, 
   Calendar, CheckCircle2, ChevronRight, Image as ImageIcon,
-  FileCode, Terminal, Sparkles, Folder, Eye, Tag
+  FileCode, Terminal, Sparkles, Folder, Eye, Tag, Github, Zap
 } from "lucide-react";
 import { 
   PORTFOLIO_PROJECTS, 
@@ -17,7 +17,6 @@ export default function PortfolioPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(PORTFOLIO_PROJECTS[0].id);
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [activeImageModal, setActiveImageModal] = useState<string | null>(null);
 
   // Filter projects by category and search query
   const filteredProjects = useMemo(() => {
@@ -51,13 +50,16 @@ export default function PortfolioPage() {
               <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-600/20">
                 <Bot className="w-5 h-5" />
               </div>
-              <span className="font-bold text-base text-white tracking-tight leading-none">
-                Dragon<span className="text-blue-500">RPA</span>
-              </span>
+              <div className="flex flex-col">
+                <span className="font-bold text-base text-white tracking-tight leading-none">
+                  Dragon<span className="text-blue-500">RPA</span>
+                </span>
+                <span className="text-[10px] text-slate-400 mt-0.5">포트폴리오</span>
+              </div>
             </Link>
             <div className="h-4 w-px bg-slate-800 hidden sm:block" />
             <span className="text-xs font-semibold text-slate-400 hidden sm:block whitespace-nowrap">
-              프로젝트 포트폴리오
+              프로젝트 쇼케이스
             </span>
           </div>
 
@@ -81,7 +83,7 @@ export default function PortfolioPage() {
           <div className="flex items-center gap-3">
             <Link
               href="/erp"
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors whitespace-nowrap"
+              className="text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors whitespace-nowrap"
             >
               사내 ERP ➔
             </Link>
@@ -104,7 +106,7 @@ export default function PortfolioPage() {
                   프로젝트 트리 ({filteredProjects.length})
                 </span>
               </div>
-              <span className="text-[11px] text-slate-400 font-mono">총 11개 과제</span>
+              <span className="text-[11px] text-slate-400 font-mono">총 {PORTFOLIO_PROJECTS.length}개 과제</span>
             </div>
 
             {/* Search Input */}
@@ -160,17 +162,26 @@ export default function PortfolioPage() {
                       <span className={`text-[11px] font-mono font-bold ${isSelected ? "text-blue-400" : "text-slate-500"}`}>
                         #{String(idx + 1).padStart(2, "0")}
                       </span>
-                      <span className={`px-2 py-0.5 text-[9px] font-bold rounded border whitespace-nowrap ${
-                        p.category === "ERP" 
-                          ? "bg-purple-950/80 text-purple-300 border-purple-800"
-                          : p.category === "RPA"
-                          ? "bg-cyan-950/80 text-cyan-300 border-cyan-800"
-                          : p.category === "AI"
-                          ? "bg-emerald-950/80 text-emerald-300 border-emerald-800"
-                          : "bg-slate-900 text-slate-400 border-slate-700"
-                      }`}>
-                        {p.categoryName}
-                      </span>
+                      
+                      <div className="flex items-center gap-1.5">
+                        {p.liveUrl && (
+                          <span className="px-1.5 py-0.5 text-[9px] font-extrabold rounded bg-yellow-400 text-slate-950 flex items-center gap-0.5 whitespace-nowrap shadow-sm">
+                            <Zap className="w-2.5 h-2.5 fill-current" />
+                            <span>라이브</span>
+                          </span>
+                        )}
+                        <span className={`px-2 py-0.5 text-[9px] font-bold rounded border whitespace-nowrap ${
+                          p.category === "ERP" 
+                            ? "bg-purple-950/80 text-purple-300 border-purple-800"
+                            : p.category === "RPA"
+                            ? "bg-cyan-950/80 text-cyan-300 border-cyan-800"
+                            : p.category === "AI"
+                            ? "bg-emerald-950/80 text-emerald-300 border-emerald-800"
+                            : "bg-slate-900 text-slate-400 border-slate-700"
+                        }`}>
+                          {p.categoryName}
+                        </span>
+                      </div>
                     </div>
 
                     <div className={`font-bold text-xs leading-snug ${isSelected ? "text-white" : "text-slate-200"}`}>
@@ -229,6 +240,7 @@ export default function PortfolioPage() {
               </div>
             </div>
 
+            {/* Title */}
             <div>
               <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
                 {currentProject.title}
@@ -238,34 +250,57 @@ export default function PortfolioPage() {
               </p>
             </div>
 
-            {/* Tech Stack Chips */}
-            <div className="pt-2 border-t border-slate-800 flex flex-wrap gap-1.5 items-center">
-              <span className="text-xs font-bold text-slate-400 flex items-center gap-1 mr-1">
-                <Tag className="w-3.5 h-3.5 text-blue-500" /> 기술 스택:
-              </span>
-              {currentProject.techStack.map((tech) => (
-                <span
-                  key={tech}
-                  className="px-2.5 py-1 rounded-md bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono font-medium"
+            {/* 🌟 BRIGHT YELLOW DIRECT ACCESS LINK (제목 하단 노란색 바로가기 링크) 🌟 */}
+            {currentProject.liveUrl && (
+              <div className="pt-2">
+                <a
+                  href={currentProject.liveUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full sm:w-auto inline-flex items-center justify-between sm:justify-start gap-3 px-5 py-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-extrabold text-xs sm:text-sm shadow-xl shadow-yellow-400/20 hover:shadow-yellow-400/30 transition-all transform active:scale-[0.98] group cursor-pointer"
                 >
-                  {tech}
-                </span>
-              ))}
-            </div>
-
-            {/* Demo / Source Links */}
-            {currentProject.links?.demo && (
-              <div className="pt-2 flex gap-3">
-                <Link
-                  href={currentProject.links.demo}
-                  target={currentProject.links.demo.startsWith("http") ? "_blank" : undefined}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-2 shadow-md shadow-blue-600/20 transition-colors"
-                >
-                  <span>라이브 서비스 바로가기</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </Link>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-slate-950 text-yellow-400 flex items-center justify-center font-black text-xs">
+                      <Zap className="w-3.5 h-3.5 fill-current" />
+                    </div>
+                    <span className="tracking-tight">배포 사이트 바로가기:</span>
+                    <span className="underline underline-offset-2 font-mono text-[11px] sm:text-xs">
+                      {currentProject.liveUrl}
+                    </span>
+                  </div>
+                  <ExternalLink className="w-4 h-4 text-slate-950 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform shrink-0" />
+                </a>
               </div>
             )}
+
+            {/* Tech Stack & GitHub Chips */}
+            <div className="pt-3 border-t border-slate-800 flex flex-wrap gap-2 items-center justify-between">
+              <div className="flex flex-wrap gap-1.5 items-center">
+                <span className="text-xs font-bold text-slate-400 flex items-center gap-1 mr-1">
+                  <Tag className="w-3.5 h-3.5 text-blue-500" /> 기술:
+                </span>
+                {currentProject.techStack.map((tech) => (
+                  <span
+                    key={tech}
+                    className="px-2.5 py-1 rounded-md bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono font-medium"
+                  >
+                    {tech}
+                  </span>
+                ))}
+              </div>
+
+              {currentProject.githubUrl && (
+                <a
+                  href={currentProject.githubUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-mono flex items-center gap-1.5 transition-colors border border-slate-700"
+                >
+                  <Github className="w-3.5 h-3.5" />
+                  <span>GitHub</span>
+                </a>
+              )}
+            </div>
           </div>
 
           {/* 2. Core Markdown Summary (.MD) Viewer */}

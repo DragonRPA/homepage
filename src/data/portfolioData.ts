@@ -15,11 +15,9 @@ export interface PortfolioProject {
   period: string;
   clientOrTarget: string;
   techStack: string[];
-  links?: {
-    demo?: string;
-    github?: string;
-    docs?: string;
-  };
+  liveUrl?: string; // Bright yellow direct access link
+  githubUrl?: string;
+  docsUrl?: string;
   summaryMarkdown: string;
   captures: ProjectCapture[];
 }
@@ -40,11 +38,11 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     category: "ERP",
     categoryName: "엔터프라이즈 ERP",
     period: "2026.08 ~ 2026.09",
-    clientOrTarget: "(주)기연리프트 전사 도입",
+    clientOrTarget: "(주)기연리프트 전사 도입 (현장/사무직 30명)",
     techStack: ["React 19", "Vite", "Supabase", "Groq Whisper STT", "Workers AI", "Node.js SEA", "Gutenberg Z-Pattern"],
-    links: {
-      docs: "docs/e_Bro_Manual.md",
-    },
+    liveUrl: "https://kiyeun-lift.vercel.app",
+    githubUrl: "https://github.com/DragonRPA/Kiyeun_Lift",
+    docsUrl: "docs/e_Bro_Manual.md",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
 - **현장과 사무실의 극심한 단절 해소**: 고소작업대 렌탈 현장은 분진과 소음 속에서 장갑을 낀 채 일하는 정비사, 운전 중 배차 전화를 받는 배차원, 수백 장의 계산서와 통장을 대사하는 경리 간 업무 단절이 극심했습니다.
@@ -87,9 +85,8 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     period: "2026.08 ~ 2026.09",
     clientOrTarget: "DragonRPA 사내 기간계 시스템",
     techStack: ["Next.js 15", "TypeScript", "Tailwind CSS", "Neon Serverless PostgreSQL", "Cloudflare R2"],
-    links: {
-      demo: "/erp",
-    },
+    liveUrl: "https://www.dragonrpa.co.kr/erp",
+    githubUrl: "https://github.com/DragonRPA/homepage",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
 - **소규모 고효율 기업을 위한 군더더기 없는 올인원 시스템**: 파편화된 외부 솔루션(근태 툴, 문서함, 회계 엑셀)을 단 하나의 서버리스 아키텍처로 통합.
@@ -119,46 +116,6 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
   },
   {
-    id: "universal-rpa-recorder",
-    title: "Universal RPA Recorder & UIA Spy Studio",
-    subtitle: "Windows UIA 3.0 네이티브 엘리먼트 스파이 및 범용 웹/데스크톱 RPA 시나리오 녹화 스튜디오",
-    category: "RPA",
-    categoryName: "지능형 RPA",
-    period: "2026.07 ~ 2026.08",
-    clientOrTarget: "범용 웹/데스크톱 업무 자동화 솔루션",
-    techStack: ["Python", "PyQt5", "Windows UI Automation (UIA 3.0)", "Playwright", "SEH Exception Guard"],
-    links: {
-      docs: "Universal_RPA_Recorder/README.md",
-    },
-    summaryMarkdown: `
-### 1. 기획 의도 및 배경
-- **복잡한 코딩 없는 실무자용 노코드 RPA 시나리오 생성**: 사내 레거시 ERP, 웹 포털, 윈도우 C/S 프로그램 등 모든 타겟에서 실시간 조작을 캡처하여 표준 실행 규격으로 변환하는 독립 스튜디오 구축.
-- **Windows UIA 3.0 네이티브 하이라이팅**: DOM 구조가 없는 데스크톱 앱에서도 마우스 정지 0.1초 디바운스를 통해 컨트롤을 정확히 식별.
-
-### 2. 핵심 비즈니스 효익
-- **1회 셋업 vs 반복 루프 분할 오케스트레이션**: 로그인/페이지 진입 등 1회 실행부와 엑셀 행별 반복 실행부를 원클릭 카드로 분리 재배치.
-- **SEH 5중 예외 방어 엔진**: UIA 핸들 누수와 윈도우 충돌을 원천 차단하여 24시간 무중단 녹화 안정성 확보.
-- **변수 템플릿 원클릭 치환**: 고정 입력값을 \`{{계약번호}}\`, \`{{자산코드}}\` 등의 템플릿 변수로 즉시 매핑.
-
-### 3. 주요 기능 구성
-1. **라이브 액션 카드 생성기**: 클릭, 텍스트 입력, 더블클릭, 파일 첨부, 엔터 키 입력 실시간 타임라인 카드 렌더링.
-2. **F2 단일화 요소 저장소**: 스파이 모드에서 F2 키로 선택한 UI 요소를 영구 저장소에 보관 및 재활용.
-3. **표준 JSON 내보내기/불러오기**: 생성된 시나리오를 \`scenario.json\`으로 저장하여 RPA 러너에서 즉시 무인 실행.
-`,
-    captures: [
-      {
-        id: "rpa-rec-cap-1",
-        title: "RPA 녹화 스튜디오 메인 작업 화면",
-        description: "브라우저 실시간 액션 캡처 및 1회 실행/반복 루프 카드 분할 편집 패널",
-      },
-      {
-        id: "rpa-rec-cap-2",
-        title: "Windows UIA 3.0 엘리먼트 스파이 & 속성 인스펙터",
-        description: "윈도우 네이티브 컨트롤의 AutomationId, ControlType, BoundingRectangle 정밀 스니핑 화면",
-      },
-    ],
-  },
-  {
     id: "autolog-tax",
     title: "AutoLog Tax (법인차량 운행기록부 자동작성 솔루션)",
     subtitle: "국세청 표준 양식 100% 일치 업무용승용차 운행기록부 월별 분할 엑셀 자동 생성 서비스",
@@ -167,9 +124,8 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     period: "2026.08",
     clientOrTarget: "법인 차량 운용 기업 세무/회계 실무자",
     techStack: ["Next.js 15", "TypeScript", "Tailwind CSS", "ExcelJS", "GitHub Actions CI/CD"],
-    links: {
-      demo: "https://dragonrpa.github.io/AutoLog_Tax/",
-    },
+    liveUrl: "https://dragonrpa.github.io/AutoLog_Tax/",
+    githubUrl: "https://github.com/DragonRPA/AutoLog_Tax",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
 - **매년 반복되는 법인차량 운행기록부 수동 작성 고통 해소**: 국세청 제출용 양식은 계기판 수치, 출퇴근 거리, 업무사용비율이 1km의 오차도 없이 맞아야 비용 처리가 인정됩니다.
@@ -207,9 +163,9 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     period: "2026.07 ~ 2026.08",
     clientOrTarget: "물류 주기장 및 자산 라벨 출력 관리자",
     techStack: ["React", "Vite", "TypeScript", "Zebra ZPL II", "Web Bluetooth", "Local SEA Agent"],
-    links: {
-      docs: "LabelPrintStation/MANUAL.md",
-    },
+    liveUrl: "https://dragonrpa.github.io/LabelPrintStation/",
+    githubUrl: "https://github.com/DragonRPA/LabelPrintStation",
+    docsUrl: "LabelPrintStation/MANUAL.md",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
 - **현장 라벨 출력의 비효율 타파**: PC 앞에 앉아 서식을 찾고 일일이 번호를 입력해 인쇄 버튼을 누르는 과정을 없애고자 함.
@@ -239,6 +195,45 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
   },
   {
+    id: "universal-rpa-recorder",
+    title: "Universal RPA Recorder & UIA Spy Studio",
+    subtitle: "Windows UIA 3.0 네이티브 엘리먼트 스파이 및 범용 웹/데스크톱 RPA 시나리오 녹화 스튜디오",
+    category: "RPA",
+    categoryName: "지능형 RPA",
+    period: "2026.07 ~ 2026.08",
+    clientOrTarget: "범용 웹/데스크톱 업무 자동화 솔루션",
+    techStack: ["Python", "PyQt5", "Windows UI Automation (UIA 3.0)", "Playwright", "SEH Exception Guard"],
+    githubUrl: "https://github.com/DragonRPA/RPA_Script_Editor",
+    docsUrl: "Universal_RPA_Recorder/README.md",
+    summaryMarkdown: `
+### 1. 기획 의도 및 배경
+- **복잡한 코딩 없는 실무자용 노코드 RPA 시나리오 생성**: 사내 레거시 ERP, 웹 포털, 윈도우 C/S 프로그램 등 모든 타겟에서 실시간 조작을 캡처하여 표준 실행 규격으로 변환하는 독립 스튜디오 구축.
+- **Windows UIA 3.0 네이티브 하이라이팅**: DOM 구조가 없는 데스크톱 앱에서도 마우스 정지 0.1초 디바운스를 통해 컨트롤을 정확히 식별.
+
+### 2. 핵심 비즈니스 효익
+- **1회 셋업 vs 반복 루프 분할 오케스트레이션**: 로그인/페이지 진입 등 1회 실행부와 엑셀 행별 반복 실행부를 원클릭 카드로 분리 재배치.
+- **SEH 5중 예외 방어 엔진**: UIA 핸들 누수와 윈도우 충돌을 원천 차단하여 24시간 무중단 녹화 안정성 확보.
+- **변수 템플릿 원클릭 치환**: 고정 입력값을 \`{{계약번호}}\`, \`{{자산코드}}\` 등의 템플릿 변수로 즉시 매핑.
+
+### 3. 주요 기능 구성
+1. **라이브 액션 카드 생성기**: 클릭, 텍스트 입력, 더블클릭, 파일 첨부, 엔터 키 입력 실시간 타임라인 카드 렌더링.
+2. **F2 단일화 요소 저장소**: 스파이 모드에서 F2 키로 선택한 UI 요소를 영구 저장소에 보관 및 재활용.
+3. **표준 JSON 내보내기/불러오기**: 생성된 시나리오를 \`scenario.json\`으로 저장하여 RPA 러너에서 즉시 무인 실행.
+`,
+    captures: [
+      {
+        id: "rpa-rec-cap-1",
+        title: "RPA 녹화 스튜디오 메인 작업 화면",
+        description: "브라우저 실시간 액션 캡처 및 1회 실행/반복 루프 카드 분할 편집 패널",
+      },
+      {
+        id: "rpa-rec-cap-2",
+        title: "Windows UIA 3.0 엘리먼트 스파이 & 속성 인스펙터",
+        description: "윈도우 네이티브 컨트롤의 AutomationId, ControlType, BoundingRectangle 정밀 스니핑 화면",
+      },
+    ],
+  },
+  {
     id: "space-advisor",
     title: "Space Advisor (고객센터 실시간 STT 상담 비서 & 스케줄링)",
     subtitle: "고객 통화 음성 실시간 Whisper STT 전사 및 고장 원인/자가조치 스크립트 AI 추천 CRM",
@@ -247,9 +242,8 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     period: "2026.08",
     clientOrTarget: "고객센터 저숙련 상담사 및 현장 출장 정비팀",
     techStack: ["FastAPI", "SQLAlchemy 2.0", "Supabase PostgreSQL", "Ollama LLM", "WASAPI Loopback STT", "React PWA"],
-    links: {
-      docs: "Space_consult_assist/README.md",
-    },
+    githubUrl: "https://github.com/DragonRPA/Space_consult_assist",
+    docsUrl: "Space_consult_assist/README.md",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
 - **신입/저숙련 상담사의 고난도 기술 상담 대응 지원**: 고소작업대 고장 증상은 수백 가지에 달하여 초보 상담사가 원인을 파악하고 자가조치법을 안내하기 어렵습니다.
@@ -287,9 +281,8 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     period: "2026.08",
     clientOrTarget: "AI 영상 제작 및 마케팅 미디어 크리에이터",
     techStack: ["Python", "MiniMax H3 DiT", "ComfyUI Headless API", "SageAttention v2", "FFmpeg", "PyQt5"],
-    links: {
-      docs: "Video_Create_Studio/README.md",
-    },
+    githubUrl: "https://github.com/DragonRPA/Video_Create_Studio",
+    docsUrl: "Video_Create_Studio/README.md",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
 - **고품질 오픈소스 멀티모달 영상 모델의 로컬 독립 실행**: 클라우드 구독 비용 없이 로컬 GPU(RTX 3060~4090 / Blackwell)에서 원클릭으로 720p 24fps 영상을 생성하는 독립 스튜디오 구축.
@@ -327,9 +320,8 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     period: "2026.08",
     clientOrTarget: "Cloudflare R2 대용량 아카이브 관리자",
     techStack: ["C# .NET 10", "NativeAOT", "Cloudflare R2 S3 REST API", "Win32 GUI", "Zero Dependency"],
-    links: {
-      docs: "Easy_Down/README.md",
-    },
+    githubUrl: "https://github.com/DragonRPA/Easy_Down_DRCF",
+    docsUrl: "Easy_Down/README.md",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
 - **대용량 클라우드 스토리지의 선별 다운로드 부재 해결**: 수십 GB에 달하는 R2 버킷 전체를 동기화하지 않고, 원하는 폴더나 파일만을 탐색하여 즉시 다운로드하는 초경량 네이티브 도구 필요.
@@ -357,9 +349,8 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     period: "2026.07 ~ 2026.08",
     clientOrTarget: "사내 IT 헬프데스크 및 임직원 자가 조치용",
     techStack: ["Node.js", "JavaScript", "Markdown Knowledge Base", "HTML5", "CSS3"],
-    links: {
-      docs: "HanWha_Wiki_PC/README.md",
-    },
+    githubUrl: "https://github.com/DragonRPA/HanWha_Wiki_PC",
+    docsUrl: "HanWha_Wiki_PC/README.md",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
 - **사내 IT 헬프데스크 반복 문의 부하 70% 감소**: PC 부팅 불가, SSD 인식 오류, 블루스크린(BSOD) 코드 등 빈번한 장애 유형을 누구나 1분 만에 따라 할 수 있도록 표준화된 위키 지식베이스 구축.
@@ -378,6 +369,32 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
   },
   {
+    id: "git-and-vercel",
+    title: "Git & Vercel Manager (원클릭 배포 자동화 도구)",
+    subtitle: "GitHub 저장소 관리 및 Vercel 프로덕션 배포 파이프라인 자동화 CLI/GUI 스튜디오",
+    category: "UTILITY",
+    categoryName: "엔지니어링 & 유틸리티",
+    period: "2026.07",
+    clientOrTarget: "DragonRPA 개발 파이프라인 및 CI/CD 관리자",
+    techStack: ["Node.js", "TypeScript", "Vite", "React 19", "Octokit GraphQL", "Simple-Git"],
+    githubUrl: "https://github.com/DragonRPA/GitAndVercel",
+    summaryMarkdown: `
+### 1. 기획 의도 및 배경
+- **Git 커밋부터 Vercel 배포까지의 수작업 단계 단일화**: 버전 릴리즈 노트 생성, 커밋 태깅, Vercel 슬롯 관리(최대 20개 유지 정책)를 원클릭으로 처리하기 위한 통합 개발자 도구.
+
+### 2. 핵심 비즈니스 효익
+- **자동 릴리즈 노트 생성기**: 커밋 메시지 분석 기반 버전별 릴리즈 노트 자동 추출 및 동기화.
+- **Vercel API 슬롯 퍼지 엔진**: 배포 슬롯이 20개를 초과할 경우 가장 오래된 슬롯을 자동 삭제하여 빌드 한도 유지.
+`,
+    captures: [
+      {
+        id: "gitvercel-cap-1",
+        title: "Git & Vercel 배포 매니저 화면",
+        description: "저장소 브랜치 상태 및 Vercel 실시간 배포 로그 모니터링 콘솔",
+      },
+    ],
+  },
+  {
     id: "doctogether-mailer",
     title: "Doctogether Bulk Mailer (기부금영수증 & 대량 커스텀 메일러)",
     subtitle: "엑셀 데이터 기반 소득세법 제45호의2 기부금영수증 Word 자동 생성 및 맞춤형 대량 이메일 발송",
@@ -386,9 +403,7 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     period: "2026.06 ~ 2026.07",
     clientOrTarget: "사단법인 및 비영리단체 후원 관리팀",
     techStack: ["Python", "OpenPyXL", "Python-docx", "SMTP SSL", "Email Template Engine"],
-    links: {
-      docs: "MailSender_Doctogether/README.md",
-    },
+    docsUrl: "MailSender_Doctogether/README.md",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
 - **연말정산 기부금영수증 수동 발급 인력 낭비 제거**: 수백 명의 후원자에게 법정 양식(소득세법 시행규칙 별지 제45호의2)에 맞춘 Word/PDF 문서를 개별 생성하고 맞춤 메일로 발송하는 전 과정을 1-Click 자동화.
@@ -414,9 +429,7 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     period: "2026.09",
     clientOrTarget: "대량 PC/노트북 입고 검수 및 자산 등록팀",
     techStack: ["C (Pure Native)", "Windows GDI", "Ollama Vision / Tesseract", "Batch Processing"],
-    links: {
-      docs: "레노버시리얼/README.md",
-    },
+    docsUrl: "레노버시리얼/README.md",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
 - **수백 대의 노트북 라벨 사진 일일이 타이핑하는 작업 제거**: 노트북 바닥면 라벨 사진을 폴더에 넣으면 시리얼 번호(S/N)와 윈도우 제품키(Product Key) 영역을 초고속으로 자동 크롭하고 텍스트로 추출하여 엑셀/CSV로 출력.
@@ -430,6 +443,31 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
         id: "lenovo-cap-1",
         title: "초경량 비전 시리얼/라이선스 추출 콘솔",
         description: "장비 라벨 사진 일괄 크롭 및 텍스트 OCR 추출 파이프라인 실행 화면",
+      },
+    ],
+  },
+  {
+    id: "remove-ad",
+    title: "Remove AD (Windows 브라우저 푸시 알림 및 애드웨어 제거 유틸리티)",
+    subtitle: "크롬/엣지/웨일 브라우저 악성 푸시 알림 권한 및 윈도우 작업 스케줄러 악성 프로세스 원클릭 청소기",
+    category: "UTILITY",
+    categoryName: "엔지니어링 & 유틸리티",
+    period: "2026.07",
+    clientOrTarget: "PC 유지보수 및 사내 보안 클리너",
+    techStack: ["Node.js", "Express", "Windows Task Scheduler", "Browser Profile Cleaner"],
+    githubUrl: "https://github.com/DragonRPA/Remove_AD",
+    summaryMarkdown: `
+### 1. 기획 의도 및 배경
+- **브라우저 우하단 무분별한 광고 팝업 원클릭 해결**: 악성 사이트 방문으로 활성화된 브라우저 알림 권한과 백그라운드 등록 작업을 원클릭으로 초기화하는 전용 유틸리티.
+
+### 2. 핵심 비즈니스 효익
+- **멀티 브라우저 프로필 전수 검색**: Chrome, Edge, Whale의 Preferences JSON을 직접 파싱하여 비인가 도메인 권한만 안전하게 박탈.
+`,
+    captures: [
+      {
+        id: "removead-cap-1",
+        title: "Remove AD 원클릭 검사 및 치료 화면",
+        description: "브라우저별 등록된 악성 알림 도메인 목록 탐지 및 원클릭 제거 콘솔",
       },
     ],
   },

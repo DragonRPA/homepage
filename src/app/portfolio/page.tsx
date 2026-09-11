@@ -148,8 +148,15 @@ export default function PortfolioPage() {
             ))}
           </div>
 
-          {/* Top Actions: Install WebApp + ERP */}
+          {/* Top Actions: Company Profile + Install WebApp + ERP */}
           <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              href="/about"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors whitespace-nowrap"
+            >
+              <span>회사소개</span>
+            </Link>
+
             {/* 📲 WEB APP INSTALL BUTTON (상단 웹앱 등록 버튼) */}
             <button
               onClick={handleInstallClick}

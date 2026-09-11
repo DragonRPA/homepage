@@ -33,15 +33,14 @@ export const PORTFOLIO_CATEGORIES = [
 export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
   {
     id: "ebro-rental-erp",
-    title: "e-Bro (기연리프트 렌탈 ERP & PTT 음성 비서)",
+    title: "e-Bro (고소작업대 렌탈 ERP & PTT 음성 비서)",
     subtitle: "고소작업대 렌탈 전 생애주기 15대 체인 통합 ERP 및 현장 PTT 음성 비서 시스템",
     category: "ERP",
     categoryName: "엔터프라이즈 ERP",
     period: "2026.08 ~ 2026.09",
-    clientOrTarget: "(주)기연리프트 전사 도입 (현장/사무직 30명)",
+    clientOrTarget: "국내 고소작업대 렌탈 전문기업 전사 도입 (현장/사무직 30명)",
     techStack: ["React 19", "Vite", "Supabase", "Groq Whisper STT", "Workers AI", "Node.js SEA", "Gutenberg Z-Pattern"],
     liveUrl: "https://kiyeun-lift.vercel.app",
-    githubUrl: "https://github.com/DragonRPA/Kiyeun_Lift",
     docsUrl: "docs/e_Bro_Manual.md",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
@@ -341,16 +340,15 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
   },
   {
-    id: "hanwha-wiki-pc",
-    title: "HanWha PC Wiki (하드웨어/BSOD 트러블슈팅 지식베이스)",
+    id: "enterprise-pc-wiki",
+    title: "Enterprise PC Wiki (대기업 사내 하드웨어/BSOD 트러블슈팅 지식베이스)",
     subtitle: "대기업 사내 PC, SSD, 블루스크린(BSOD) 장애 유형별 1-Click 해결 가이드 지식 포털",
     category: "UTILITY",
     categoryName: "엔지니어링 & 유틸리티",
     period: "2026.07 ~ 2026.08",
-    clientOrTarget: "사내 IT 헬프데스크 및 임직원 자가 조치용",
+    clientOrTarget: "대기업 사내 IT 헬프데스크 및 임직원 자가 조치용",
     techStack: ["Node.js", "JavaScript", "Markdown Knowledge Base", "HTML5", "CSS3"],
-    githubUrl: "https://github.com/DragonRPA/HanWha_Wiki_PC",
-    docsUrl: "HanWha_Wiki_PC/README.md",
+    docsUrl: "docs/Enterprise_PC_Wiki.md",
     summaryMarkdown: `
 ### 1. 기획 의도 및 배경
 - **사내 IT 헬프데스크 반복 문의 부하 70% 감소**: PC 부팅 불가, SSD 인식 오류, 블루스크린(BSOD) 코드 등 빈번한 장애 유형을 누구나 1분 만에 따라 할 수 있도록 표준화된 위키 지식베이스 구축.
@@ -362,8 +360,8 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
 `,
     captures: [
       {
-        id: "hanwha-cap-1",
-        title: "HanWha PC Wiki 메인 지식베이스 포털",
+        id: "ent-wiki-cap-1",
+        title: "Enterprise PC Wiki 메인 지식베이스 포털",
         description: "하드웨어 장애, SSD 트러블슈팅, BSOD 에러 코드 검색 및 단계별 해결 가이드 화면",
       },
     ],

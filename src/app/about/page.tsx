@@ -115,14 +115,38 @@ export default function AboutCompanyPage() {
             </div>
           </div>
 
-          {/* Mission Box */}
-          <div className="mt-8 p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-            <div className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Award className="w-4 h-4" /> 전사 최우선 개발 사명 (System Core Mission)
+          {/* Mission & Leader Profile Box */}
+          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+              <div className="text-xs font-bold text-yellow-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Award className="w-4 h-4" /> {COMPANY_INFO.leaderProfile.title}
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                {COMPANY_INFO.leaderProfile.summary}
+              </p>
+              <ul className="space-y-1 text-[11px] text-slate-400 pt-1">
+                {COMPANY_INFO.leaderProfile.keyStrengths.slice(0, 2).map((s, i) => (
+                  <li key={i} className="flex items-start gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-sans">
-              &ldquo;{COMPANY_INFO.missionStatement}&rdquo; — 모든 개발, UI/UX 설계, 비즈니스 도메인 연동 시 단순한 코드 완성이 아닌 <strong>임직원의 최소 노력으로 최대 업무 효익과 이익(최대 편익)을 창출하는 것</strong>을 절대적인 최우선 사명으로 준수합니다.
-            </p>
+
+            <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Award className="w-4 h-4" /> 전사 최우선 개발 사명 (System Core Mission)
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                  &ldquo;{COMPANY_INFO.missionStatement}&rdquo;
+                </p>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed pt-2 border-t border-slate-800/80">
+                모든 개발, UI/UX 설계, 비즈니스 도메인 연동 시 단순한 코드 완성이 아닌 <strong>임직원의 최소 노력으로 최대 업무 효익과 이익(최대 편익)을 창출하는 것</strong>을 절대적인 최우선 사명으로 준수합니다.
+              </p>
+            </div>
           </div>
         </section>
 

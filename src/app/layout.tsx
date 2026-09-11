@@ -48,11 +48,54 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://www.dragonrpa.co.kr/#organization",
+        "name": "(주)드래곤알피에이",
+        "alternateName": "DragonRPA Co., Ltd.",
+        "url": "https://www.dragonrpa.co.kr",
+        "logo": "https://www.dragonrpa.co.kr/logo.png",
+        "description": "18년 코스피 상장 종합 렌탈사 도메인 전문성과 지능형 비즈니스 자동화(RPA, AI, ERP)의 융합",
+        "founder": {
+          "@type": "Person",
+          "name": "이정용",
+          "jobTitle": "대표이사 (18년 코스피 상장 렌탈사 총괄 경력)",
+          "description": "산업장비/건설기계/특수설비 렌탈 비즈니스 라이프사이클 및 ERP 아키텍처 최고 전문가"
+        },
+        "knowsAbout": [
+          "Enterprise Rental ERP",
+          "Robotic Process Automation",
+          "Windows UI Automation (UIA 3.0)",
+          "Speech-To-Text (Whisper)",
+          "Generative AI",
+          "Tax Automation (AutoLog Tax)",
+          "Zebra ZPL II Label Printing"
+        ]
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://www.dragonrpa.co.kr/#website",
+        "url": "https://www.dragonrpa.co.kr",
+        "name": "DragonRPA",
+        "publisher": {
+          "@id": "https://www.dragonrpa.co.kr/#organization"
+        }
+      }
+    ]
+  };
+
   return (
     <html lang="ko" className="scroll-smooth">
       <head>
         <link rel="icon" href="/favicon.png" type="image/png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
       </head>
       <body className="min-h-screen flex flex-col bg-slate-950 text-slate-100 antialiased selection:bg-blue-600 selection:text-white">
         {children}

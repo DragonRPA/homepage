@@ -6,7 +6,7 @@ import {
   Bot, Layers, ArrowLeft, Search, ExternalLink, 
   Calendar, CheckCircle2, ChevronRight, Image as ImageIcon,
   FileCode, Terminal, Sparkles, Folder, Eye, Tag, Github, Zap,
-  Smartphone, Download, X, Share, PlusSquare, Monitor, HelpCircle, Copy
+  Smartphone, Download, X, Share, PlusSquare, Monitor, HelpCircle, Copy, Camera
 } from "lucide-react";
 import { 
   PORTFOLIO_PROJECTS, 
@@ -148,8 +148,16 @@ export default function PortfolioPage() {
             ))}
           </div>
 
-          {/* Top Actions: Company Profile + Install WebApp + ERP */}
+          {/* Top Actions: Manual Studio + Company Profile + Install WebApp + ERP */}
           <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              href="/manual-studio"
+              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition-all flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>매뉴얼 스튜디오</span>
+            </Link>
+
             <Link
               href="/about"
               className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors whitespace-nowrap"

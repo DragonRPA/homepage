@@ -10,9 +10,12 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.dragonrpa.co.kr"),
-  title: "DragonRPA | 업무 자동화 및 프로젝트 포트폴리오",
-  description: "B2B 업무 프로세스 자동화(RPA), 렌탈 자산 관리 ERP, 국가 공공데이터포털 API 데이터 파이프라인 전문 기업 (주)드래곤알피에이",
+  title: "DragonRPA | 실무 중심 비즈니스 자동화 & 엔터프라이즈 렌탈 ERP",
+  description: "기업의 인적자원은 반복적인 사무에 국한되기에는 너무나 중요합니다. 고객의 가치창출에 기여하는 비즈니스 자동화(RPA), 렌탈 자산 ERP, AI 음성 솔루션 전문 기업 (주)드래곤알피에이",
   manifest: "/manifest.json",
+  alternates: {
+    canonical: "https://www.dragonrpa.co.kr",
+  },
   icons: {
     icon: "/favicon.png",
     shortcut: "/favicon.png",
@@ -23,11 +26,15 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "DragonRPA",
   },
-  keywords: ["RPA", "업무자동화", "공공데이터", "ERP", "자산관리", "배차관리", "DragonRPA", "드래곤알피에이", "포트폴리오"],
-  authors: [{ name: "(주)드래곤알피에이" }],
+  keywords: [
+    "DragonRPA", "드래곤알피에이", "업무자동화", "RPA", "렌탈 ERP", 
+    "고소작업대 ERP", "자산관리", "배차관리", "AutoLog Tax", "운행기록부", 
+    "Label Print Station", "Space Advisor", "Whisper STT", "비즈니스 자동화"
+  ],
+  authors: [{ name: "(주)드래곤알피에이", url: "https://www.dragonrpa.co.kr" }],
   openGraph: {
-    title: "DragonRPA | 업무 자동화 및 프로젝트 포트폴리오",
-    description: "B2B 업무 프로세스 자동화, 렌탈 자산 ERP, 공공데이터포털 API 데이터 파이프라인",
+    title: "DragonRPA | 실무 중심 비즈니스 자동화 & 엔터프라이즈 렌탈 ERP",
+    description: "기업의 인적자원은 반복적인 사무에 국한되기에는 너무나 중요합니다. 우리는 고객의 가치창출에 기여하는 것에 자부심을 느낍니다.",
     url: "https://www.dragonrpa.co.kr",
     siteName: "DragonRPA",
     images: [
@@ -40,6 +47,12 @@ export const metadata: Metadata = {
     ],
     locale: "ko_KR",
     type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "DragonRPA | 비즈니스 자동화 & 엔터프라이즈 렌탈 ERP",
+    description: "기업의 인적자원은 반복적인 사무에 국한되기에는 너무나 중요합니다. 우리는 고객의 가치창출에 기여하는 것에 자부심을 느낍니다.",
+    images: ["/logo.png"],
   },
 };
 
@@ -58,15 +71,18 @@ export default function RootLayout({
         "alternateName": "DragonRPA Co., Ltd.",
         "url": "https://www.dragonrpa.co.kr",
         "logo": "https://www.dragonrpa.co.kr/logo.png",
-        "description": "18년 코스피 상장 종합 렌탈사 도메인 전문성과 지능형 비즈니스 자동화(RPA, AI, ERP)의 융합",
+        "slogan": "기업의 인적자원은 반복적인 사무에 국한되기에는 너무나 중요합니다. 우리는 고객의 가치창출에 기여하는 것에 자부심을 느낍니다.",
+        "description": "기업의 인적자원이 반복 사무를 넘어 본원적 가치창출에 기여할 수 있도록 돕는 비즈니스 자동화 & 기간계 ERP 파트너",
         "founder": {
           "@type": "Person",
           "name": "이정용",
-          "jobTitle": "대표이사 (18년 코스피 상장 렌탈사 총괄 경력)",
-          "description": "산업장비/건설기계/특수설비 렌탈 비즈니스 라이프사이클 및 ERP 아키텍처 최고 전문가"
+          "jobTitle": "대표이사",
+          "description": "기업의 인적자원이 가치 있는 일에 집중할 수 있도록 돕는 비즈니스 자동화 및 엔터프라이즈 ERP 아키텍트"
         },
         "knowsAbout": [
           "Enterprise Rental ERP",
+          "Internal Control over Financial Reporting (ICFR)",
+          "IT General Controls (ITGC) & IT Application Controls (ITAC)",
           "Robotic Process Automation",
           "Windows UI Automation (UIA 3.0)",
           "Speech-To-Text (Whisper)",
@@ -83,6 +99,35 @@ export default function RootLayout({
         "publisher": {
           "@id": "https://www.dragonrpa.co.kr/#organization"
         }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "e-Bro ERP",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web, Windows, Android, iOS",
+        "description": "산업장비/고소작업대 15대 라이프사이클 체인 통합 기간계 렌탈 ERP 및 실시간 PTT 음성 비서",
+        "offers": {
+          "@type": "Offer",
+          "availability": "https://schema.org/InStock",
+          "price": "0",
+          "priceCurrency": "KRW"
+        }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "AutoLog Tax",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web Browser",
+        "description": "국세청 표준 양식 업무용승용차 운행기록부 월별 분할 엑셀 자동화 시스템",
+        "url": "https://dragonrpa.github.io/AutoLog_Tax/"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "Label Print Station",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web Browser, Bluetooth",
+        "description": "Zebra ZPL II 노코드 비주얼 캔버스 디자이너 및 블루투스 스캐너 1초 무인 다이렉트 라벨 출력기",
+        "url": "https://dragonrpa.github.io/LabelPrintStation/"
       }
     ]
   };

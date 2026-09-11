@@ -6,7 +6,7 @@ import {
   Bot, Layers, ArrowLeft, ExternalLink, Printer, 
   CheckCircle2, Sparkles, Building2, Cpu, ShieldCheck, 
   Zap, Code2, Globe, Mail, Phone, ChevronRight, FileText,
-  Award, Terminal, Database, Network
+  Award, Terminal, Database, Network, Camera
 } from "lucide-react";
 import { COMPANY_INFO, BUSINESS_PILLARS } from "@/data/companyData";
 
@@ -41,6 +41,14 @@ export default function AboutCompanyPage() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              href="/manual-studio"
+              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition-all flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>매뉴얼 스튜디오</span>
+            </Link>
+
             <button
               onClick={handlePrint}
               className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-sm"
@@ -52,10 +60,10 @@ export default function AboutCompanyPage() {
 
             <Link
               href="/portfolio"
-              className="text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition-all flex items-center gap-1.5 whitespace-nowrap"
+              className="text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all flex items-center gap-1.5 whitespace-nowrap"
             >
-              <Layers className="w-3.5 h-3.5" />
-              <span>포트폴리오 ➔</span>
+              <Layers className="w-3.5 h-3.5 text-blue-400" />
+              <span>포트폴리오</span>
             </Link>
 
             <Link
@@ -89,7 +97,7 @@ export default function AboutCompanyPage() {
             <div className="space-y-4 text-center md:text-left flex-1">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-950/80 border border-blue-800 text-blue-300 text-xs font-bold">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>지능형 비즈니스 자동화 & 기간계 ERP 전문기업</span>
+                <span>실무 경험 중심의 비즈니스 자동화 & ERP 파트너</span>
               </div>
 
               <div>
@@ -134,18 +142,27 @@ export default function AboutCompanyPage() {
               </ul>
             </div>
 
-            <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5 flex flex-col justify-between">
+            <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3.5 flex flex-col justify-between">
               <div className="space-y-2">
-                <div className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Award className="w-4 h-4" /> 전사 최우선 개발 사명 (System Core Mission)
+                <div className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4" /> 창업 비전 (Founding Motto)
+                </div>
+                <p className="text-xs text-slate-200 font-medium leading-relaxed font-sans bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">
+                  &ldquo;{COMPANY_INFO.foundingMotto}&rdquo;
+                </p>
+              </div>
+
+              <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
+                <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Award className="w-3.5 h-3.5" /> 전사 최우선 개발 사명 (System Core Mission)
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed font-sans">
                   &ldquo;{COMPANY_INFO.missionStatement}&rdquo;
                 </p>
+                <p className="text-[11px] text-slate-400 leading-relaxed pt-1">
+                  단순 코드 완성을 넘어 <strong>임직원의 최소 노력으로 최대 업무 효익과 이익(최대 편익)을 창출하는 것</strong>을 시스템 개발의 절대 원칙으로 삼습니다.
+                </p>
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed pt-2 border-t border-slate-800/80">
-                모든 개발, UI/UX 설계, 비즈니스 도메인 연동 시 단순한 코드 완성이 아닌 <strong>임직원의 최소 노력으로 최대 업무 효익과 이익(최대 편익)을 창출하는 것</strong>을 절대적인 최우선 사명으로 준수합니다.
-              </p>
             </div>
           </div>
         </section>
@@ -239,15 +256,15 @@ export default function AboutCompanyPage() {
           </div>
         </section>
 
-        {/* SECTION 3: 4 TECHNICAL DIFFERENTIATORS */}
+        {/* SECTION 3: 4 CORE VALUES */}
         <section className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 space-y-8 shadow-2xl">
           <div className="space-y-1 text-center sm:text-left">
-            <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">Engineering Excellence</span>
+            <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">Core Values & Principles</span>
             <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-              DragonRPA 4대 기술 차별성
+              DragonRPA 4대 핵심 가치
             </h2>
             <p className="text-xs text-slate-400">
-              전사 시스템 개발 표준 헌장에 입각한 타협 없는 공학적 완성도
+              풍부한 실무 경험과 신뢰를 바탕으로 고객사와 함께 성장하는 원칙
             </p>
           </div>
 
@@ -284,10 +301,10 @@ export default function AboutCompanyPage() {
               <span>실전 납품 & 개발 포트폴리오</span>
             </div>
             <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-              13대 핵심 프로젝트 실시간 쇼케이스
+              13대 프로젝트 쇼케이스
             </h3>
             <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-              고소작업대 렌탈 차세대 ERP, 대기업 사내 IT 헬프데스크, 국세청 세무 자동화 등 지금까지 구축된 13개 고난도 과제의 기획서와 라이브 데모를 확인하실 수 있습니다.
+              고소작업대 렌탈 ERP, 대기업 사내 IT 헬프데스크, 국세청 세무 자동화 등 현장의 실무 문제를 함께 해결하며 구축해온 프로젝트 구현 결과와 라이브 데모입니다.
             </p>
           </div>
 

@@ -1,6 +1,6 @@
 import React from "react";
 import Link from "next/link";
-import { Layers } from "lucide-react";
+import { Layers, Camera, Download, FileText } from "lucide-react";
 
 export default function Home() {
   return (
@@ -26,6 +26,14 @@ export default function Home() {
 
         <div className="flex items-center gap-2 sm:gap-3">
           <Link
+            href="/manual-studio"
+            className="text-xs font-bold px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition-all flex items-center gap-1.5"
+          >
+            <Camera className="w-3.5 h-3.5" />
+            <span>매뉴얼 스튜디오</span>
+          </Link>
+
+          <Link
             href="/about"
             className="text-xs font-semibold px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5"
           >
@@ -34,18 +42,18 @@ export default function Home() {
 
           <Link
             href="/portfolio"
-            className="text-xs font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition-all flex items-center gap-1.5"
+            className="text-xs font-semibold px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5"
           >
-            <Layers className="w-3.5 h-3.5" />
+            <Layers className="w-3.5 h-3.5 text-blue-400" />
             <span>포트폴리오</span>
           </Link>
         </div>
       </header>
 
       {/* 2. Main Content Area */}
-      <main className="flex-1 flex items-center justify-center py-20">
-        <div className="text-center space-y-5">
-          <div className="w-24 h-24 rounded-3xl bg-white p-3 flex items-center justify-center mx-auto shadow-2xl shadow-blue-600/10 border border-slate-800">
+      <main className="flex-1 flex flex-col items-center justify-center py-12">
+        <div className="text-center space-y-4">
+          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-white p-3 flex items-center justify-center mx-auto shadow-2xl shadow-blue-600/10 border border-slate-800">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo.png"
@@ -60,6 +68,53 @@ export default function Home() {
             <p className="text-slate-400 text-xs tracking-widest uppercase font-mono">
               dragonrpa.co.kr
             </p>
+          </div>
+        </div>
+
+        {/* 📸 매뉴얼 스튜디오 공식 배포 카드 */}
+        <div className="w-full max-w-xl mx-auto mt-8 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4 text-left">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs font-bold text-slate-300">신규 배포 소프트웨어</span>
+            </div>
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-900/60 text-amber-300 border border-amber-700/60">
+              v1.2.0 평가판 (~2026.12.31)
+            </span>
+          </div>
+
+          <div>
+            <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+              <Camera className="w-5 h-5 text-blue-400" />
+              <span>매뉴얼 스튜디오 (Manual Studio)</span>
+            </h2>
+            <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
+              업무 화면 캡처 ➔ 1·2·3 자동 번호 부여 ➔ 민감정보 블러 ➔ 파워포인트(PPTX) 자동 생성 도구
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2 text-[11px] text-slate-400">
+            <span className="px-2.5 py-1 rounded-md bg-slate-950 border border-slate-800 font-mono">단일 EXE 27.97 MB</span>
+            <span className="px-2.5 py-1 rounded-md bg-slate-950 border border-slate-800">Nuitka C 기계어</span>
+            <span className="px-2.5 py-1 rounded-md bg-slate-950 border border-slate-800">무설치 즉시 실행</span>
+          </div>
+
+          <div className="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
+            <a
+              href="/downloads/ManualStudio.exe"
+              download="ManualStudio.exe"
+              className="w-full sm:w-auto flex-1 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 transition-all whitespace-nowrap"
+            >
+              <Download className="w-4 h-4" />
+              <span>프로그램 다운로드 (27.97 MB)</span>
+            </a>
+            <Link
+              href="/manual-studio"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+            >
+              <FileText className="w-3.5 h-3.5 text-blue-400" />
+              <span>기능 설명서 ➔</span>
+            </Link>
           </div>
         </div>
       </main>

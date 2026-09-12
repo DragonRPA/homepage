@@ -1,0 +1,54 @@
+# Robots.txt for https://www.dragonrpa.co.kr
+# Optimized for Generative Engine Optimization (GEO) & Search Engine Optimization (SEO)
+
+User-agent: *
+Allow: /
+Disallow: /api/erp/
+Disallow: /erp/
+
+# AI Search & Large Language Model Crawlers
+User-agent: GPTBot
+Allow: /
+Disallow: /api/erp/
+Disallow: /erp/
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /api/erp/
+Disallow: /erp/
+
+User-agent: Anthropic-AI
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: GoogleOther
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: Diffbot
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+# Sitemap Index
+Sitemap: https://www.dragonrpa.co.kr/sitemap.xml

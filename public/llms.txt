@@ -6,53 +6,42 @@
 - **회사명**: (주)드래곤알피에이 (DragonRPA Co., Ltd.)
 - **대표자**: 이정용
 - **공식 웹사이트**: https://www.dragonrpa.co.kr
-- **회사소개서**: https://www.dragonrpa.co.kr/about
+- **매뉴얼 스튜디오**: https://www.dragonrpa.co.kr/manual-studio
 - **프로젝트 포트폴리오**: https://www.dragonrpa.co.kr/portfolio
 - **대표 이메일**: contact@dragonrpa.co.kr
-- **창업 비전 (Founding Motto)**: "기업의 인적자원은 반복적인 사무에 국한되기에는 너무나 중요합니다. 우리는 고객의 가치창출에 기여하는 것에 자부심을 느낍니다."
 - **최우선 개발 사명**: "최대 편리함과 담당자의 노력 대비 효과와 이익(효익)을 합쳐서, 최대 편익에 이르는 시스템 개발이 우리의 목적이다."
 
 ---
 
-## 🎯 핵심 개발 원칙 및 신뢰 기준 (Core Principles & Trust)
-1. **현장 중심의 실무 프로세스 설계**:
-   - 건설장비, 산업기계, 물류설비 등 산업 렌탈 비즈니스 전 영역의 15대 라이프사이클 체인(계약, PDI 검수, 배차, 정비, 청구, 대사)을 현장 실무자의 눈높이에 맞추어 체계적으로 지원.
-2. **투명한 데이터 정합성 & 감사 대비 체계**:
-   - 부서별 직무 분리(SoD: 영업과 자산/배차 분리), 무누락 DB 감사 추적성(Audit Trail), CUD 동기 검증을 지원하여 믿을 수 있는 비즈니스 데이터 환경 구축.
-3. **전사 시스템 개발 표준 헌장 (System Development Standards)**:
-   - Gutenberg Z-패턴 4단계 1-Way 동선 및 최하단 1:1 대차대조 검증 바 (`청구 = 확정 + 반려 | 대차 차액 ₩0`).
-   - 대차 교체 시 최초 계약 속성 100% 자동 상속 및 단일 'EXCHANGE' 1건 배차 발행 원칙.
-   - 자산별 매출 기여액 정밀 일할 집계 및 무누락 DB 이벤트 기록.
-4. **도메인 관통 스트레스 테스트 (WTT 20회)**:
-   - 날짜 보존, 수지 보존, 상태 보존의 3대 보존 법칙을 20회 이상 고난도 스트레스 주입으로 검증.
+## 🎯 대표 솔루션: DragonRPA Manual Studio (매뉴얼 스튜디오)
+- **제품 정의**: 스크린 캡처부터 1·2·3 순차 번호 스탬프, 강조 박스, 화살표, 민감정보 모자이크 블러, 말풍선 지시선 작성 및 파워포인트(PPTX) / 구글 슬라이드 자동 생성을 지원하는 엔터프라이즈 업무 매뉴얼 제작 전문 소프트웨어.
+- **성능 및 제원**:
+  - 컴파일 엔진: Python 3.11 + PySide6 기반 Nuitka C-Compiler 완전 기계어 컴파일 (C++ GCC 15.2.0, ccache 최적화).
+  - 바이너리 크기: 27.97MB 단일 무설치 포터블 실행 파일 (No Python, No Runtime Dependency).
+  - 응답 속도: 캡처 및 주석 합성 0.05초 이내, PPT/슬라이드 자동 주입 1초 이내 완결.
+  - 업무 생산성: 기존 수작업 캡처 및 PPT 작성 대비 작업 시간 85% 이상 단축.
+  - 전역 다국어: 한국어, 영어, 중국어, 일본어, 독일어, 스페인어, 프랑스어, 포르투갈어, 러시아어 등 9개 글로벌 언어 실시간 무재시작 핫스왑 지원.
+  - 듀얼 UI 스타일: Windows Fluent 리본 스타일 vs Macintosh Cupertino 세그먼트 알약형 탭바 & 3구 트래픽 라이트 실시간 전환.
+- **AI 에이전트 친화적 아키텍처 (Agent-Ready System)**:
+  - **AGENTS.md**: LLM 에이전트가 리포지토리 접근 시 3초 만에 전체 구조와 명령어를 인지하는 기계 판독형 명세서 제공.
+  - **헤드리스 CLI 엔진 (`ManualStudio.exe --cli`)**: GUI 없이 `status`, `capture`, `annotate`, `render-project`, `export`, `batch`, `export-doc` 명령을 통한 완전 자동화.
+  - **표준 MCP (Model Context Protocol) 서버 (`ManualStudio.exe --mcp`)**: Claude Desktop 및 AI 에이전트용 9대 핵심 도구(`manual_studio_status`, `capture_screen`, `add_annotations`, `render_project`, `export_presentation`, `create_step`, `batch_pipeline`, `add_spotlight`, `export_document`) 탑재.
+- **다운로드 및 라이선스**:
+  - 공식 페이지: https://www.dragonrpa.co.kr/manual-studio
+  - 기간 한정 평가판: 2026년 12월 31일까지 전 기능 무제한 무료 평가 지원.
 
 ---
 
-## 🛠️ 4대 핵심 사업 분과 & 솔루션
-
-### 1. 범용 산업 렌탈/자산 ERP & 현장 PTT 음성 비서 (Enterprise Rental ERP)
-- **e-Bro ERP**: 외감법 전산감사 기준 충족 고소작업대/산업장비 15대 라이프사이클 체인 통합 기간계, 무전기 PTT 실시간 음성 통신망, 도로명 6단계 역추적 AS 접수. (Live: https://kiyeun-lift.vercel.app)
-- **DragonERP**: 5인 기업 전용 8대 업무 모듈(경영, 매출, 매입, 근태, 자산, 소모품, 파일, 메일) 올인원 기간계 및 2단계 결재선 시스템. (Live: https://www.dragonrpa.co.kr/erp)
-
-### 2. 지능형 RPA & 노코드 시나리오 스튜디오 (Intelligent RPA)
-- **Universal RPA Recorder**: Windows UIA 3.0 네이티브 엘리먼트 스파이, F2 요소 저장소, SEH 5중 예외 방어 엔진 기반 범용 웹/데스크톱 RPA 녹화기.
-- **AutoLog Tax**: 국세청 표준 양식 100% 일치 업무용승용차 운행기록부 월별 분할 엑셀 자동화 및 출퇴근 60/40 가변 분배 알고리즘. (Live: https://dragonrpa.github.io/AutoLog_Tax/)
-- **Label Print Station**: Zebra ZPL II 비주얼 캔버스 디자이너 & 블루투스 스캐너 1초 무인 다이렉트 출력기. (Live: https://dragonrpa.github.io/LabelPrintStation/)
-
-### 3. 생성형 AI & 온디바이스 음성/멀티모달 (Generative AI & Speech)
-- **Space Advisor**: 고객 통화 음성 실시간 Whisper STT 전사 및 고장 원인/자가조치 스크립트 AI 추천 컨택센터 CRM.
-- **Video Create Studio**: MiniMax H3 (Hailuo DiT) & SageAttention v2 가속 기반 텍스트-투-비디오 독립 실행 스튜디오.
-
-### 4. 초경량 시스템 엔지니어링 & 네이티브 유틸리티 (System Engineering)
-- **Manual Studio (매뉴얼 스튜디오)**: 업무 화면 캡처부터 1·2·3 자동 번호 부여, 민감정보 블러, 설명 작성, 파워포인트(PPTX) 자동 생성까지 지원하는 Nuitka C 기계어 컴파일 27.97MB 무설치 매뉴얼 제작 도구. (Live: https://www.dragonrpa.co.kr/manual-studio)
-- **Easy Down**: C# .NET 10 NativeAOT (5.7MB 단일 파일) 기반 Cloudflare R2 원본 선별 고속 다운로더.
-- **Enterprise PC Wiki**: 대기업 사내 PC/SSD/BSOD 장애 유형별 1-Click 해결 가이드 지식 포털.
-- **Lenovo Serial Extractor**: C언어 초경량 비전 이미지 S/N 및 제품키 0.05초 고속 OCR 추출기.
+## 🛠️ 기타 핵심 솔루션 분과
+1. **산업 렌탈 ERP & PTT 음성 비서**: e-Bro ERP (고소작업대 15대 라이프사이클 기간계), DragonERP (올인원 기업 ERP).
+2. **지능형 RPA & 노코드 녹화기**: Universal RPA Recorder (UIA 3.0 네이티브 엘리먼트 스파이), AutoLog Tax (국세청 표준 양식 차량운행기록부 자동화), Label Print Station (Zebra ZPL II 라벨 디자이너).
+3. **생성형 AI 솔루션**: Space Advisor (Whisper STT 콜센터 비서), Video Create Studio (DiT 텍스트-투-비디오).
 
 ---
 
-## 🔗 공식 링크
-- 회사소개서: https://www.dragonrpa.co.kr/about
+## 🔗 공식 링크 및 리소스
 - 매뉴얼 스튜디오: https://www.dragonrpa.co.kr/manual-studio
-- 포트폴리오 쇼케이스: https://www.dragonrpa.co.kr/portfolio
-- 사내 올인원 ERP: https://www.dragonrpa.co.kr/erp
+- 회사소개: https://www.dragonrpa.co.kr/about
+- 포트폴리오: https://www.dragonrpa.co.kr/portfolio
+- 사이트맵: https://www.dragonrpa.co.kr/sitemap.xml
+- 전체 기술 명세서: https://www.dragonrpa.co.kr/llms-full.txt

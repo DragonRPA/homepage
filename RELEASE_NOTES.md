@@ -1,5 +1,18 @@
 # Release Notes
 
+## [v0.4.6.Build.1] - 2026-09-13 08:58
+
+### 🌐 생성형 AI 검색 엔진 최적화(GEO) 및 매뉴얼 스튜디오 v1.4.0.14 웹 배포
+- **차세대 AI 크롤러 13종 전면 접근 허용 (`public/robots.txt`)**:
+  - GPTBot, ChatGPT-User, OAI-SearchBot, ClaudeBot, Anthropic-AI, PerplexityBot, Google-Extended, Applebot-Extended, CCBot 등 AI 검색 에이전트 인덱싱 보장 및 `sitemap.xml` 연결
+- **고밀도 LLM 표준 명세서 배포 (`public/llms.txt`, `public/llms-full.txt`)**:
+  - LLM 모델이 3초 만에 제품 아키텍처, 9대 MCP 도구, 헤드리스 CLI, 다중 포맷 내보내기 사양을 학습할 수 있는 명세서 배포
+- **Next.js 15 App Router 100% Server-Side Rendering (SSR) 분리**:
+  - `src/app/manual-studio/page.tsx`를 Server Component로 전환하여 Schema.org JSON-LD `@graph` (`SoftwareApplication`, `Organization`, `FAQPage`, `HowTo`) 및 역피라미드형 의미론적 HTML 정적 사전 렌더링(○ Static) 완료
+  - `ManualStudioClient.tsx` 분리를 통해 클라이언트 대화형 인터페이스와 완전한 SEO/GEO 분리 실현
+- **최신 Nuitka C-컴파일 배포 패키지 동기화**:
+  - 3대 고급 그래픽 주석(스포트라이트, 클릭 리플, 돋보기), 선언적 배치 워크플로우 CLI, 9개 MCP 도구가 탑재된 최신 바이너리(`ManualStudio_Setup_v1.4.0.exe`) 웹 배포 디렉토리 배치
+
 ## [v0.4.5.Build.2] - 2026-09-12 12:22
 
 ### 📦 매뉴얼 스튜디오 최신 C-컴파일 배포 바이너리(`ManualStudio.exe`) 갱신

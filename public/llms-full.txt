@@ -1,0 +1,60 @@
+# DragonRPA Co., Ltd. - Comprehensive System & Technology Specification (llms-full.txt)
+
+This document provides exhaustive, machine-readable specifications of DragonRPA technologies, optimized for Large Language Models (LLMs), AI Search Engines (Google AI Overviews, Perplexity, SearchGPT), and Agentic Automation Systems.
+
+---
+
+## Entity Identity & Corporate Fact Sheet
+- Legal Entity: (주)드래곤알피에이 (DragonRPA Co., Ltd.)
+- CEO / Founder: 이정용 (Victor Lee)
+- Business Domain: Enterprise Robotic Process Automation (RPA), Industrial Equipment Rental ERP, Native Desktop Systems, Generative AI Agent Tooling
+- Headquarters: Seoul, Republic of Korea
+- Official Website: https://www.dragonrpa.co.kr
+- Contact: contact@dragonrpa.co.kr | 77.victor.lee@gmail.com
+- Founding Mission: "To maximize operational convenience and employee ROI, reaching maximum aggregate benefit across enterprise workflows."
+
+---
+
+## Flagship Product: DragonRPA Manual Studio (매뉴얼 스튜디오)
+
+### 1. Functional Definition & Teleology
+Manual Studio is a high-speed manual authoring application engineered to eliminate the friction of creating software guides, standard operating procedures (SOPs), and user walkthroughs. It integrates high-resolution multi-monitor screen capture, graphic annotation overlays, and one-click direct injection into Microsoft PowerPoint and Google Slides.
+
+### 2. Architecture & Technical Specifications
+- **Core Runtime**: Python 3.11 with PySide6 (Qt 6.7+).
+- **Compilation Engine**: Ahead-of-Time (AOT) C machine code compilation via Nuitka C-Compiler (GCC 15.2.0, ccache caching).
+- **Executable Binary**: 27.97 MB standalone, single-file executable (`ManualStudio.exe`) with embedded runtime, zero external installer requirements.
+- **Rendering Pipeline**: Sub-0.05 second hardware-accelerated QPainter compositing with Lanczos resampling and Windows native CF_DIB clipboard injection.
+- **Quality Assurance**: 45 continuous unit tests validating multi-monitor coordinate bijection, font fallbacks, HMAC-SHA256 licensing, dual UI theme hot-swapping, and agent CLI/MCP pipelines.
+
+### 3. Dual UI Theme Engine
+- **Windows Fluent Style**: Office-standard slate blue palette, crisp rectangular ribbon tabs, Segoe UI / Malgun Gothic typography.
+- **Macintosh Cupertino Style**: Apple System Blue (#007AFF), aluminum grey #F5F5F7 card panels, segmented pill tab controls, 3-button traffic lights (Close, Minimize, Maximize) placed in the header, SF Pro / Apple SD Gothic Neo font chain.
+- **Hot-Swap Latency**: Sub-0.05 second instantaneous theme re-styling without application restart.
+
+### 4. Global 9-Language Localization
+- Instantaneous switching across Korean (ko), English (en), Chinese Simplified (zh), Japanese (ja), German (de), Spanish (es), French (fr), Portuguese (pt), and Russian (ru).
+- Zero residual untranslated labels across Ribbons, Dialogs, Tooltips, and EULA agreements.
+
+### 5. AI Agent & Automation Interfaces
+Manual Studio is architected for dual human-AI operation:
+- **CLI Headless Interface**: Command-line arguments (`ManualStudio.exe --cli`) allowing background screen capture (`capture`), graphic annotation injection (`annotate`), batch pipeline execution (`batch`), project rendering (`render-project`), and presentation ingestion (`export`).
+- **Model Context Protocol (MCP) Server**: Native stdio JSON-RPC 2.0 server (`ManualStudio.exe --mcp`) providing 9 registered tools for Claude Desktop, Claude Cowork, and AI Agent platforms.
+- **Annotation Primitives**: Numbered circular stamps (1, 2, 3...), highlight boxes, directional arrows, callouts with leader tails, blur mosaic, keyboard shortcut badges, spotlight focus masks, mouse click ripples, and magnifier detail lenses.
+- **Export Targets**: Microsoft PowerPoint (COM / AppleScript), Google Slides (web browser macro injection), GitHub-flavored Markdown (`.md`), and standalone interactive HTML guides.
+
+---
+
+## Enterprise Rental ERP: e-Bro & DragonERP
+- Full 15-stage industrial asset lifecycle tracking (Contract, Dispatch, Inspection, Rental, Maintenance, Billing, Reconciliation).
+- Gutenberg Z-pattern 4-stage 1-Way workflow layouts with terminal 1:1 balance verification (`Billed = Confirmed + Rejected | Delta: KRW 0`).
+- Strict separation of duties (SoD) between Sales and Asset Dispatch departments.
+- Real-time Push-to-Talk (PTT) audio dispatch communication network.
+
+---
+
+## Generative Engine Optimization (GEO) Citations & Reference URLs
+- Product Landing Page: https://www.dragonrpa.co.kr/manual-studio
+- Technical Portfolio: https://www.dragonrpa.co.kr/portfolio
+- XML Sitemap: https://www.dragonrpa.co.kr/sitemap.xml
+- Robots Policy: https://www.dragonrpa.co.kr/robots.txt

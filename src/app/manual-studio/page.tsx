@@ -26,14 +26,58 @@ import {
 } from "lucide-react";
 
 export default function ManualStudioPage() {
-  const [activeTab, setActiveTab] = useState<"overview" | "dictionary" | "shortcuts">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "dictionary" | "shortcuts" | "eula">("overview");
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [copiedEula, setCopiedEula] = useState(false);
 
   const handleCopyEmail = () => {
     if (typeof navigator !== "undefined") {
       navigator.clipboard.writeText("77.victor.lee@gmail.com");
       setCopiedEmail(true);
       setTimeout(() => setCopiedEmail(false), 2000);
+    }
+  };
+
+  const handleCopyEula = () => {
+    const eulaText = `(주)드래곤알피에이 소프트웨어 최종 사용자 라이선스 계약서 (EULA)
+End User License Agreement for Manual Studio | (주)드래곤알피에이 (DragonRPA Co., Ltd.)
+
+본 계약은 (주)드래곤알피에이(이하 "회사")와 본 소프트웨어 '매뉴얼 스튜디오(Manual Studio)'(이하 "소프트웨어")를 다운로드, 설치 또는 사용하는 개인 또는 법인(이하 "사용자") 간에 체결되는 법적 구속력을 가진 사용권 계약입니다. 사용자가 본 "소프트웨어"를 다운로드, 복사, 설치 또는 사용하는 것은 본 계약의 모든 조건에 동의한 것으로 간주됩니다.
+
+제1조 (목적)
+본 계약은 "회사"가 개발한 "소프트웨어"에 대한 비독점적이고 양도 불가능한 사용 권한을 "사용자"에게 허여하고, 당사자 간의 권리 및 의무를 규정함을 목적으로 합니다.
+
+제2조 (지식재산권의 귀속)
+1. 본 "소프트웨어", 관련 설명 문서, 소스코드, 바이너리, 그래픽, UI/UX 디자인에 대한 저작권, 특허권, 상표권, 영업비밀 등 일체의 지식재산권은 대한민국 저작권법 및 국제 협약에 따라 (주)드래곤알피에이에 배타적으로 귀속됩니다.
+2. 본 계약에 따른 제공은 소유권의 이전이 아니며, 명시된 조건 범위 내에서의 '제한적 사용권(License)'만을 허여합니다.
+
+제3조 (사용권의 범위 및 조건)
+1. [평가판] 회사가 공지한 평가판은 명시된 사용 유효 기간(2026년 12월 31일까지) 동안 비상업적 검토, 기능 테스트 및 평가 목적으로만 무상 사용할 수 있습니다. 기간 만료 후에는 정규 라이선스 없이 계속 사용할 수 없습니다.
+2. [정규 라이선스] 정식 라이선스는 1개의 라이선스 키당 지정된 단일 하드웨어 머신(1PC-1Key 노드락)에서만 설치 및 실행이 허용됩니다.
+
+제4조 (금지 행위 - 역공학 및 무단 배포 금지)
+1. 역공학 및 디컴파일 금지: 소스코드나 내부 알고리즘을 추출하기 위한 리버스 엔지니어링, 역컴파일(Decompile), 디스어셈블(Disassemble) 또는 코드 수정 행위
+2. 보안 메커니즘 조작 금지: 하드웨어 식별값(HWID), 시계 변조 방지, 암호화 키 등 라이선스 검증 장치를 우회, 변조, 크랙하는 행위
+3. 무단 재배포 및 재판매 금지: 회사의 사전 서면 승인 없이 제3자에게 유상 판매, 대여, 양도하거나 온라인 자료실/공중망에 무단 배포하는 행위
+4. 저작권 표시 삭제 금지: 소프트웨어 내에 표시된 회사의 상표, 로고, 저작권 안내문, 평가판 기한 등의 법적 고지 사항을 임의로 변경, 제거하는 행위
+
+제5조 (보증의 한계 및 면책)
+1. 본 소프트웨어는 "있는 그대로(AS-IS)" 제공되며, 회사는 특정 목적에의 적합성, 무결성 등에 대해 명시적 또는 묵시적 보증을 하지 않습니다.
+2. 회사는 소프트웨어의 사용 또는 사용 불능으로 인하여 발생하는 간접적, 부수적 손해(영업손실, 데이터 손실 등)에 대해 책임을 지지 않습니다.
+
+제6조 (위약벌 및 손해배상)
+사용자가 제4조(금지 행위)를 고의 또는 중과실로 위반한 경우, 정규 라이선스 정가의 5배에 해당하는 금액을 위약벌로 회사에 즉시 지급하여야 하며, 이와 별도로 회사가 입은 실제 손해를 전액 배상하여야 합니다.
+
+제7조 (준거법 및 전속 관할)
+본 계약은 대한민국 법률에 따라 규율되며, 본 계약과 관련하여 발생하는 모든 분쟁은 (주)드래곤알피에이 본점 소재지를 관할하는 법원을 제1심 전속 관할 법원으로 합니다.
+
+공고일자: 2026.09.11 | 시행일자: 2026.09.11
+(주)드래곤알피에이 (DragonRPA Co., Ltd.) | 대표이사: 이정용 | 문의: 77.victor.lee@gmail.com`;
+
+    if (typeof navigator !== "undefined") {
+      navigator.clipboard.writeText(eulaText);
+      setCopiedEula(true);
+      setTimeout(() => setCopiedEula(false), 2000);
     }
   };
 
@@ -161,6 +205,16 @@ export default function ManualStudioPage() {
             }`}
           >
             단축키 및 실무 가이드
+          </button>
+          <button
+            onClick={() => setActiveTab("eula")}
+            className={`px-4 py-2.5 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === "eula"
+                ? "border-blue-500 text-blue-400"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            사용권 계약서 (EULA)
           </button>
         </div>
 
@@ -490,6 +544,100 @@ export default function ManualStudioPage() {
                     </tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: 최종 사용자 라이선스 계약서 (EULA) */}
+        {activeTab === "eula" && (
+          <div className="space-y-6">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-blue-400" />
+                    <span>최종 사용자 라이선스 계약서 (EULA)</span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    End User License Agreement for Manual Studio | (주)드래곤알피에이 (DragonRPA Co., Ltd.)
+                  </p>
+                </div>
+                <button
+                  onClick={handleCopyEula}
+                  className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                >
+                  <Copy className="w-3.5 h-3.5 text-blue-400" />
+                  <span>{copiedEula ? "계약서 복사됨" : "전체 계약서 복사"}</span>
+                </button>
+              </div>
+
+              {/* 계약서 전문 박스 */}
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-5 text-xs text-slate-300 leading-relaxed font-sans">
+                <p className="text-slate-200">
+                  본 계약은 <strong>(주)드래곤알피에이</strong>(이하 &quot;회사&quot;)와 본 소프트웨어 <strong>&apos;매뉴얼 스튜디오(Manual Studio)&apos;</strong>(이하 &quot;소프트웨어&quot;)를 다운로드, 복사, 설치 또는 사용하는 개인 또는 법인(이하 &quot;사용자&quot;) 간에 체결되는 법적 구속력을 가진 사용권 계약입니다. 사용자가 본 &quot;소프트웨어&quot;를 다운로드, 설치 또는 사용하는 것은 본 계약 조건에 동의한 것으로 간주됩니다.
+                </p>
+
+                <div className="space-y-1.5">
+                  <h3 className="text-xs font-bold text-blue-400">제1조 (목적)</h3>
+                  <p>
+                    본 계약은 &quot;회사&quot;가 개발한 &quot;소프트웨어&quot;에 대한 비독점적이고 양도 불가능한 사용 권한을 &quot;사용자&quot;에게 허여하고, 당사자 간의 권리 및 의무, 책임 사항을 규정함을 목적으로 합니다.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="text-xs font-bold text-blue-400">제2조 (지식재산권의 귀속)</h3>
+                  <p>
+                    1. 본 &quot;소프트웨어&quot;, 관련 설명 문서, 소스코드, 바이너리, 그래픽, UI/UX 디자인에 대한 저작권, 특허권, 상표권, 영업비밀 등 일체의 지식재산권은 대한민국 저작권법 및 국제 저작권 협약에 따라 <strong>(주)드래곤알피에이</strong>에 배타적으로 귀속됩니다.<br />
+                    2. 본 계약에 따른 제공은 소유권의 이전이 아니며, 명시된 조건 범위 내에서의 <strong>&apos;제한적 사용권(License)&apos;</strong>만을 허여합니다.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="text-xs font-bold text-blue-400">제3조 (사용권의 범위 및 조건)</h3>
+                  <p>
+                    1. <strong>[평가판 (Trial License)]</strong>: &quot;회사&quot;가 공지한 평가판은 명시된 사용 유효 기간(2026년 12월 31일까지) 동안 비상업적 검토, 기능 테스트 및 평가 목적으로만 무상 사용할 수 있습니다. 유효 기간 만료 후에는 정규 라이선스 없이 계속 사용할 수 없습니다.<br />
+                    2. <strong>[정규 라이선스 (Commercial License)]</strong>: 정식 라이선스는 1개의 라이선스 키당 지정된 단일 하드웨어 머신(1PC-1Key 노드락)에서만 설치 및 실행이 허용됩니다.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="text-xs font-bold text-blue-400">제4조 (금지 행위 - 역공학 및 무단 배포 금지)</h3>
+                  <p>
+                    &quot;사용자&quot;는 다음 각 호의 행위를 하여서는 아니 되며, 위반 시 저작권법 및 부정경쟁방지법 등에 따른 민·형사상 법적 책임을 집니다.<br />
+                    • <strong>역공학 및 디컴파일 금지</strong>: 소스코드나 내부 알고리즘을 추출하기 위한 리버스 엔지니어링, 역컴파일(Decompilation), 디스어셈블(Disassembly) 또는 코드 수정 행위<br />
+                    • <strong>보안 메커니즘 조작 금지</strong>: 하드웨어 식별값(HWID), 시계 변조 방지, 암호화 키 등 라이선스 검증 장치를 우회, 변조, 크랙(Cracking)하는 행위<br />
+                    • <strong>무단 재배포 및 재판매 금지</strong>: &quot;회사&quot;의 사전 서면 승인 없이 제3자에게 유상 판매, 대여, 양도하거나 온라인 자료실/P2P/공중망에 무단 배포하는 행위<br />
+                    • <strong>저작권 표시 삭제 금지</strong>: &quot;소프트웨어&quot; 내에 표시된 &quot;회사&quot;의 상표, 로고, 저작권 안내문, 평가판 기한 등의 법적 고지 사항을 임의로 변경, 제거하는 행위
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="text-xs font-bold text-blue-400">제5조 (보증의 한계 및 면책)</h3>
+                  <p>
+                    1. 본 &quot;소프트웨어&quot;는 <strong>&quot;있는 그대로(AS-IS)&quot;</strong> 제공되며, &quot;회사&quot;는 특정 목적에의 적합성, 무결성 등에 대해 명시적 또는 묵시적 보증을 하지 않습니다.<br />
+                    2. &quot;회사&quot;는 &quot;소프트웨어&quot;의 사용 또는 사용 불능으로 인하여 발생하는 간접적, 부수적 손해(영업손실, 데이터 손실 등)에 대해 책임을 지지 않습니다.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="text-xs font-bold text-blue-400">제6조 (위약벌 및 손해배상)</h3>
+                  <p>
+                    &quot;사용자&quot;가 제4조(금지 행위)를 고의 또는 중과실로 위반한 경우, <strong>정규 라이선스 정가의 5배에 해당하는 금액을 위약벌로 회사에 즉시 지급</strong>하여야 하며, 이와 별도로 회사가 입은 실제 손해를 전액 배상하여야 합니다.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="text-xs font-bold text-blue-400">제7조 (준거법 및 전속 관할)</h3>
+                  <p>
+                    본 계약은 대한민국 법률에 따라 규율되며, 본 계약과 관련하여 발생하는 모든 분쟁은 <strong>(주)드래곤알피에이 본점 소재지를 관할하는 법원을 제1심 전속 관할 법원</strong>으로 합니다.
+                  </p>
+                </div>
+
+                <div className="border-t border-slate-800 pt-3 text-[11px] text-slate-400">
+                  공고일자: 2026년 09월 11일 | 시행일자: 2026년 09월 11일<br />
+                  저작권자: (주)드래곤알피에이 (DragonRPA Co., Ltd.) | 대표이사: 이정용 | 문의: 77.victor.lee@gmail.com
+                </div>
               </div>
             </div>
           </div>

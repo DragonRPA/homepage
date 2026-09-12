@@ -44,6 +44,7 @@
 - **Video Create Studio**: MiniMax H3 (Hailuo DiT) & SageAttention v2 가속 기반 텍스트-투-비디오 독립 실행 스튜디오.
 
 ### 4. 초경량 시스템 엔지니어링 & 네이티브 유틸리티 (System Engineering)
+- **Manual Studio (매뉴얼 스튜디오)**: 업무 화면 캡처부터 1·2·3 자동 번호 부여, 민감정보 블러, 설명 작성, 파워포인트(PPTX) 자동 생성까지 지원하는 Nuitka C 기계어 컴파일 27.97MB 무설치 매뉴얼 제작 도구. (Live: https://www.dragonrpa.co.kr/manual-studio)
 - **Easy Down**: C# .NET 10 NativeAOT (5.7MB 단일 파일) 기반 Cloudflare R2 원본 선별 고속 다운로더.
 - **Enterprise PC Wiki**: 대기업 사내 PC/SSD/BSOD 장애 유형별 1-Click 해결 가이드 지식 포털.
 - **Lenovo Serial Extractor**: C언어 초경량 비전 이미지 S/N 및 제품키 0.05초 고속 OCR 추출기.
@@ -52,5 +53,6 @@
 
 ## 🔗 공식 링크
 - 회사소개서: https://www.dragonrpa.co.kr/about
+- 매뉴얼 스튜디오: https://www.dragonrpa.co.kr/manual-studio
 - 포트폴리오 쇼케이스: https://www.dragonrpa.co.kr/portfolio
 - 사내 올인원 ERP: https://www.dragonrpa.co.kr/erp

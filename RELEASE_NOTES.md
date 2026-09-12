@@ -1,5 +1,12 @@
 # Release Notes
 
+## [v0.4.4.Build.1] - 2026-09-12 11:58
+
+### 🚀 매뉴얼 스튜디오(Manual Studio) DragonRPA 공식 포털 단독 이관 및 ERP 분리 완료
+- **포트폴리오 & 사업 분과 공식 솔루션 등재**: `portfolioData.ts`, `companyData.ts`, `public/llms.txt`, `layout.tsx` (Schema.org)에 매뉴얼 스튜디오 등재 완료
+- **동적 사이트맵 색인 연동 (`sitemap.ts`)**: `https://www.dragonrpa.co.kr/manual-studio` 사이트맵 및 AI 크롤러 색인 연결
+- **e-Bro ERP(`Giyuen_Lift`) 내 매뉴얼 스튜디오 모달 제거 및 분리**: 고소작업대 렌탈 ERP와 독립 데스크톱 유틸리티의 R&R 분리 완결
+
 ## [v0.4.3.Build.1] - 2026-09-11 15:30
 
 ### 📸 매뉴얼 스튜디오 (Manual Studio) 웹 기능설명서 구축 및 메인화면/헤더 다운로드 탑재

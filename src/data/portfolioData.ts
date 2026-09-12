@@ -445,6 +445,35 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
   },
   {
+    id: "manual-studio",
+    title: "매뉴얼 스튜디오 (Manual Studio)",
+    subtitle: "업무 화면 캡처부터 1·2·3 자동 번호 부여, 민감정보 블러, 설명 작성, 파워포인트(PPTX) 자동 생성까지 지원하는 Nuitka C 컴파일 무설치 매뉴얼 제작 도구",
+    category: "UTILITY",
+    categoryName: "엔지니어링 & 유틸리티",
+    period: "2026.09",
+    clientOrTarget: "전사 표준 업무 매뉴얼/SOP 작성 담당자 및 IT 지원팀",
+    techStack: ["Python", "PyQt5", "Nuitka C 기계어", "python-pptx", "Windows GDI", "단일 EXE 27.97MB"],
+    liveUrl: "/manual-studio",
+    docsUrl: "downloads/ManualStudio.exe",
+    summaryMarkdown: `
+### 1. 기획 의도 및 배경
+- **반복적인 매뉴얼 캡처 및 파워포인트 편집 노동 제거**: 업무 매뉴얼(SOP)을 만들 때 화면 캡처 ➔ 그림판 복사 ➔ 빨간 네모 테두리 그리기 ➔ 번호 적기 ➔ PPT에 붙여넣기 ➔ 텍스트 상자 추가 등 끝없는 수작업을 1-Stop으로 자동화.
+- **순수 C 기계어 Nuitka 컴파일**: 무거운 Python 런타임 없이 27.97MB 단일 .exe 실행 파일로 빌드되어 더블클릭 0.5초 만에 즉시 구동.
+
+### 2. 핵심 비즈니스 효익
+- **매뉴얼 제작 시간 80% 단축**: 캡처 즉시 마우스 클릭만으로 ①, ②, ③ 번호 배지가 자동 생성되며 우측 리스트에 설명이 동기화.
+- **파워포인트(.pptx) 원클릭 자동 셋업**: 작성 완료 후 [PPT 내보내기 (Ctrl+E)] 클릭 시 16:9 슬라이드 표지, 목차, 캡처 이미지, 설명란이 완벽한 정렬로 자동 생성.
+- **민감정보 보호 (블러 도구)**: 개인정보, 계좌번호, 대외비 영역을 드래그하여 원클릭 모자이크 처리.
+`,
+    captures: [
+      {
+        id: "ms-cap-1",
+        title: "매뉴얼 스튜디오 메인 작업대",
+        description: "영역 캡처 ➔ 자동 순번 부여 ➔ 주석 작성 ➔ PPT 생성 올인원 작업 캔버스",
+      },
+    ],
+  },
+  {
     id: "remove-ad",
     title: "Remove AD (Windows 브라우저 푸시 알림 및 애드웨어 제거 유틸리티)",
     subtitle: "크롬/엣지/웨일 브라우저 악성 푸시 알림 권한 및 윈도우 작업 스케줄러 악성 프로세스 원클릭 청소기",

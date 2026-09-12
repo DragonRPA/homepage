@@ -128,6 +128,21 @@ export default function RootLayout({
         "operatingSystem": "Web Browser, Bluetooth",
         "description": "Zebra ZPL II 노코드 비주얼 캔버스 디자이너 및 블루투스 스캐너 1초 무인 다이렉트 라벨 출력기",
         "url": "https://dragonrpa.github.io/LabelPrintStation/"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "Manual Studio (매뉴얼 스튜디오)",
+        "applicationCategory": "BusinessApplication, UtilityApplication",
+        "operatingSystem": "Windows 10, Windows 11 (64-bit)",
+        "description": "업무 화면 캡처부터 1·2·3 자동 번호 부여, 민감정보 블러, 설명 작성, 파워포인트(PPTX) 자동 생성까지 지원하는 Nuitka C 기계어 컴파일 무설치 매뉴얼 제작 도구",
+        "url": "https://www.dragonrpa.co.kr/manual-studio",
+        "downloadUrl": "https://www.dragonrpa.co.kr/downloads/ManualStudio.exe",
+        "offers": {
+          "@type": "Offer",
+          "availability": "https://schema.org/InStock",
+          "price": "0",
+          "priceCurrency": "KRW"
+        }
       }
     ]
   };

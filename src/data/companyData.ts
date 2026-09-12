@@ -130,13 +130,14 @@ export const BUSINESS_PILLARS: BusinessPillar[] = [
     category: "엔지니어링 & 유틸리티",
     description: "무거운 런타임 없이 더블클릭 0초 만에 구동되는 순수 네이티브 단일 실행 파일(.exe)과 대규모 IT 헬프데스크 지식베이스, 소득세법 기부금영수증 대량 발송 솔루션을 엔지니어링합니다.",
     highlights: [
+      "Nuitka C 기계어 컴파일 27.97MB 단일 무설치 매뉴얼 제작 도구 (Manual Studio)",
       "C# .NET 10 NativeAOT 기반 Cloudflare R2 원본 선별 고속 다운로더 (Easy Down)",
       "C언어 기반 장비 라벨 사진 S/N 및 제품키 0.05초 초고속 OCR 추출 엔진",
       "대기업 사내 PC/SSD/BSOD 장애 유형별 1-Click 해결 가이드 지식 포털 (Enterprise PC Wiki)",
-      "소득세법 제45호의2 기부금영수증 Word 서식 자동 매핑 및 대량 SMTP 발송",
     ],
-    techStack: ["C# .NET 10 NativeAOT", "C (Pure Native)", "Win32 GDI", "OpenPyXL", "Python-docx", "Cloudflare R2"],
+    techStack: ["Nuitka C Compiler", "PyQt5", "python-pptx", "C# .NET 10 NativeAOT", "C (Pure Native)", "Win32 GDI"],
     portfolioLinks: [
+      { name: "매뉴얼 스튜디오", url: "/manual-studio" },
       { name: "Easy Down R2 다운로더", url: "/portfolio" },
       { name: "Enterprise PC Wiki", url: "/portfolio" },
       { name: "Lenovo Serial Extractor", url: "/portfolio" },

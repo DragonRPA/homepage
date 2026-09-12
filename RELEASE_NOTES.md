@@ -1,5 +1,11 @@
 # Release Notes
 
+## [v0.4.5.Build.2] - 2026-09-12 12:22
+
+### 📦 매뉴얼 스튜디오 최신 C-컴파일 배포 바이너리(`ManualStudio.exe`) 갱신
+- **EULA 내장 바이너리 배포 동기화 (`public/downloads/ManualStudio.exe`)**:
+  - 프로그램 메뉴바 `EULA(&E)` 및 우측 코너 버튼, `AboutDialog` 내 EULA 뷰어가 내장된 최신 Nuitka C-기계어 단일 실행파일(27.97MB) 배포 패키지 동기화 완료.
+
 ## [v0.4.5.Build.1] - 2026-09-12 12:18
 
 ### 📜 매뉴얼 스튜디오(Manual Studio) 공식 최종 사용자 라이선스 계약서(EULA) 웹 공표

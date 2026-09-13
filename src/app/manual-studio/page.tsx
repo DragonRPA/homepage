@@ -54,7 +54,7 @@ export default function ManualStudioPage() {
         "name": "매뉴얼 스튜디오 (Manual Studio)",
         "operatingSystem": "Windows 10, Windows 11, macOS",
         "applicationCategory": "BusinessApplication",
-        "softwareVersion": "1.4.0.14",
+        "softwareVersion": "1.4.0.15",
         "description": "화면 캡처부터 그래픽 주석(스포트라이트, 클릭 리플, 돋보기), 파워포인트·구글 슬라이드·마크다운·HTML 원클릭 슬라이드 자동 생성까지 지원하는 초고속 업무 매뉴얼 저작 소프트웨어.",
         "url": "https://www.dragonrpa.co.kr/manual-studio",
         "downloadUrl": "https://www.dragonrpa.co.kr/downloads/ManualStudio_Setup_v1.4.0.exe",
@@ -78,7 +78,7 @@ export default function ManualStudioPage() {
           "Shift+F9 가변 영역 드래그 캡처 및 F8 하위 모달창 정밀 캡처",
           "자동 증가 순번 스탬프, 하이라이트 박스, 화살표, 지시선, 텍스트, 모자이크",
           "스포트라이트 초점 마스크, 마우스 클릭 리플, 돋보기 확대 렌즈 주석",
-          "F10 파워포인트 및 구글 슬라이드 실시간 신규 슬라이드 직접 생성 및 전송",
+          "F10(PowerPoint) 및 F11(Google Slides) 실시간 신규 슬라이드 직접 생성 및 전송",
           "Markdown 및 독립형 반응형 HTML 매뉴얼 즉시 문서 변환",
           "Anthropic 표준 Model Context Protocol (MCP) 서버 내장 (9개 원자적 도구 제공)",
           "헤드리스 CLI 인터페이스 (--cli capture, annotate, batch, export-doc)",
@@ -123,7 +123,7 @@ export default function ManualStudioPage() {
           {
             "@type": "HowToStep",
             "name": "파워포인트/슬라이드 자동 내보내기",
-            "text": "단축키 F10을 누르면 파워포인트에 새로운 슬라이드가 자동으로 추가되며 완벽한 규격으로 배치됩니다.",
+            "text": "단축키 F10(파워포인트) 또는 F11(구글 슬라이드)을 누르면 새로운 슬라이드가 자동으로 추가되며 완벽한 규격으로 배치됩니다.",
             "url": "https://www.dragonrpa.co.kr/manual-studio#step3"
           }
         ]
@@ -208,7 +208,7 @@ export default function ManualStudioPage() {
           <tbody>
             <tr>
               <td>단계당 제작 소요 시간</td>
-              <td>약 3초 (F9 캡처 ➔ 주석 ➔ F10 자동 슬라이드)</td>
+              <td>약 3초 (F9 캡처 ➔ 주석 ➔ F10/F11 자동 슬라이드)</td>
               <td>약 45초 (캡처 ➔ 그림판 주석 ➔ PPT 붙여넣기 ➔ 정렬)</td>
             </tr>
             <tr>

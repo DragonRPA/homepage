@@ -500,8 +500,12 @@ End User License Agreement for Manual Studio | (주)드래곤알피에이 (Drago
                   <span className="font-mono text-xs font-bold bg-blue-900/60 text-blue-300 px-2.5 py-1 rounded border border-blue-700/60">F9</span>
                 </div>
                 <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 flex justify-between items-center">
-                  <span className="text-xs text-slate-300">파워포인트/슬라이드 1초 자동 주입</span>
+                  <span className="text-xs text-slate-300">파워포인트 슬라이드 삽입</span>
                   <span className="font-mono text-xs font-bold bg-emerald-900/60 text-emerald-300 px-2.5 py-1 rounded border border-emerald-700/60">F10</span>
+                </div>
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 flex justify-between items-center">
+                  <span className="text-xs text-slate-300">구글 슬라이드 즉시 전송</span>
+                  <span className="font-mono text-xs font-bold bg-amber-900/60 text-amber-300 px-2.5 py-1 rounded border border-amber-700/60">F11</span>
                 </div>
                 <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 flex justify-between items-center">
                   <span className="text-xs text-slate-300">선택 도구 전환</span>

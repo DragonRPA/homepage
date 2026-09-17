@@ -2,6 +2,34 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  async redirects() {
+    return [
+      {
+        source: "/downloads/ManualStudio.exe",
+        destination:
+          "https://pub-4bd1b65a7bcc4eef8993da27e7362727.r2.dev/releases/ManualStudio_latest.exe",
+        permanent: false,
+      },
+      {
+        source: "/downloads/ManualStudio_latest.exe",
+        destination:
+          "https://pub-4bd1b65a7bcc4eef8993da27e7362727.r2.dev/releases/ManualStudio_latest.exe",
+        permanent: false,
+      },
+      {
+        source: "/downloads/version.json",
+        destination:
+          "https://pub-4bd1b65a7bcc4eef8993da27e7362727.r2.dev/releases/version.json",
+        permanent: false,
+      },
+      {
+        source: "/downloads/:file(ManualStudio.*)",
+        destination:
+          "https://pub-4bd1b65a7bcc4eef8993da27e7362727.r2.dev/releases/ManualStudio_latest.exe",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -33,23 +33,33 @@ export default function Footer() {
             </div>
             <ul className="space-y-2 text-slate-400">
               <li>
-                <a href="#solutions" className="hover:text-white transition-colors">
-                  RPA 프로세스 자동화 엔진
+                <a href="/manual-studio" className="hover:text-white transition-colors">
+                  매뉴얼 스튜디오 (Manual Studio)
                 </a>
               </li>
               <li>
-                <a href="#solutions" className="hover:text-white transition-colors">
-                  렌탈 자산 & EXCHANGE 배차 ERP
+                <a href="/label-station" className="hover:text-white transition-colors">
+                  라벨스테이션 (Label Print Station)
                 </a>
               </li>
               <li>
-                <a href="#public-data" className="hover:text-white transition-colors">
-                  공공데이터포털 API 연계
+                <a href="/license-lookup" className="hover:text-sky-400 text-sky-400/90 transition-colors">
+                  🔑 정품 라이선스 키 찾기
                 </a>
               </li>
               <li>
-                <a href="#technology" className="hover:text-white transition-colors">
-                  보안 및 인프라 아키텍처
+                <a href="/portfolio" className="hover:text-white transition-colors">
+                  포트폴리오 & 기술 쇼케이스
+                </a>
+              </li>
+              <li>
+                <a href="/admin/products" className="hover:text-slate-300 text-slate-500 transition-colors text-[11px]">
+                  ⚙️ 상품 카탈로그 관리
+                </a>
+              </li>
+              <li>
+                <a href="/shareholder-registry" className="hover:text-slate-300 text-slate-500 transition-colors text-[11px]">
+                  📄 주주명세서 양식 발급기
                 </a>
               </li>
             </ul>

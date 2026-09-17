@@ -151,6 +151,13 @@ export default function PortfolioPage() {
           {/* Top Actions: Manual Studio + Company Profile + Install WebApp + ERP */}
           <div className="flex items-center gap-2 sm:gap-3">
             <Link
+              href="/products"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors whitespace-nowrap"
+            >
+              스토어
+            </Link>
+
+            <Link
               href="/manual-studio"
               className="text-xs font-bold px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition-all flex items-center gap-1.5 whitespace-nowrap"
             >
@@ -589,7 +596,7 @@ export default function PortfolioPage() {
 
       {/* Global Footer */}
       <footer className="bg-slate-900 border-t border-slate-800 py-6 mt-12 text-center text-xs text-slate-500">
-        <p>© 2026 DragonRPA Co., Ltd. All rights reserved. | <Link href="/erp" className="hover:text-slate-400">사내 ERP</Link></p>
+        <p>© 2026 DragonRPA Co., Ltd. All rights reserved. | <Link href="/products" className="hover:text-slate-400">스토어</Link> | <Link href="/admin/products" className="hover:text-blue-400">관리자 CMS</Link> | <Link href="/erp" className="hover:text-slate-400">사내 ERP</Link></p>
       </footer>
     </div>
   );

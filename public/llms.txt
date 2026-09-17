@@ -41,7 +41,10 @@
 
 ## 🔗 공식 링크 및 리소스
 - 매뉴얼 스튜디오: https://www.dragonrpa.co.kr/manual-studio
+- 라벨스테이션: https://www.dragonrpa.co.kr/label-station
+- 라이선스 키 찾기: https://www.dragonrpa.co.kr/license-lookup
 - 회사소개: https://www.dragonrpa.co.kr/about
 - 포트폴리오: https://www.dragonrpa.co.kr/portfolio
 - 사이트맵: https://www.dragonrpa.co.kr/sitemap.xml
 - 전체 기술 명세서: https://www.dragonrpa.co.kr/llms-full.txt
+

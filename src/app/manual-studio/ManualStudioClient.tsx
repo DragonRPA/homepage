@@ -27,10 +27,13 @@ import {
   Terminal,
   Zap,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  CreditCard
 } from "lucide-react";
+import PaymentModal from "@/components/PaymentModal";
 
 export default function ManualStudioClient() {
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"overview" | "dictionary" | "shortcuts" | "ai-mcp" | "faq" | "eula">("overview");
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [copiedEula, setCopiedEula] = useState(false);
@@ -126,13 +129,20 @@ End User License Agreement for Manual Studio | (주)드래곤알피에이 (Drago
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              href="/products"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors whitespace-nowrap"
+            >
+              스토어
+            </Link>
+
             <a
               href="/downloads/ManualStudio.exe"
               download="ManualStudio.exe"
               className="text-xs font-bold px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition-all flex items-center gap-1.5 whitespace-nowrap"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>다운로드 (27.97 MB)</span>
+              <span>다운로드</span>
             </a>
 
             <Link
@@ -176,18 +186,25 @@ End User License Agreement for Manual Studio | (주)드래곤알피에이 (Drago
                 매뉴얼 스튜디오 (DragonRPA Manual Studio)
               </h1>
               <p className="text-sm text-slate-300 max-w-2xl leading-relaxed">
-                업무 화면 캡처부터 1·2·3 자동 번호 스탬프, 강조 박스, 화살표, 민감정보 블러, 파워포인트(PPTX) & 구글 슬라이드 1초 원터치 자동 주입까지 지원하는 초경량 27.97MB C 기계어 컴파일 무설치 매뉴얼 제작 도구입니다.
+                업무 화면 캡처부터 1·2·3 자동 번호 스탬프, 강조 박스, 화살표, 민감정보 블러, 파워포인트(PPTX) & 구글 슬라이드 1초 원터치 자동 주입까지 지원하는 초경량 C 기계어 컴파일 무설치 매뉴얼 저작 도구입니다.
               </p>
             </div>
 
             <div className="shrink-0 flex flex-col sm:flex-row md:flex-col gap-2.5 w-full sm:w-auto">
+              <button
+                onClick={() => setIsPaymentModalOpen(true)}
+                className="w-full sm:w-auto px-5 py-3 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-sm shadow-xl shadow-sky-500/25 flex items-center justify-center gap-2 transition-all"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span>정품 라이선스 구매하기</span>
+              </button>
               <a
                 href="/downloads/ManualStudio.exe"
                 download="ManualStudio.exe"
-                className="w-full sm:w-auto px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-xl shadow-blue-600/25 flex items-center justify-center gap-2 transition-all"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-all"
               >
-                <Download className="w-4 h-4" />
-                <span>EXE 다운로드 (27.97 MB)</span>
+                <Download className="w-3.5 h-3.5" />
+                <span>무료 평가판 다운로드</span>
               </a>
               <div className="text-[11px] text-slate-400 text-center">
                 Windows 10/11 64-bit 지원 • macOS 호환
@@ -195,6 +212,14 @@ End User License Agreement for Manual Studio | (주)드래곤알피에이 (Drago
             </div>
           </div>
         </section>
+
+        {/* Payment Modal */}
+        <PaymentModal
+          isOpen={isPaymentModalOpen}
+          onClose={() => setIsPaymentModalOpen(false)}
+          defaultProductId="MANUAL_STUDIO"
+          defaultPlanType="PERSONAL"
+        />
 
         {/* 탭 네비게이션 */}
         <div className="flex border-b border-slate-800 gap-2 overflow-x-auto pb-1 scrollbar-none">
@@ -633,8 +658,11 @@ End User License Agreement for Manual Studio | (주)드래곤알피에이 (Drago
           </div>
           <div className="flex items-center gap-4 text-slate-400">
             <span>문의: contact@dragonrpa.co.kr</span>
+            <Link href="/products" className="hover:text-slate-200">스토어</Link>
             <Link href="/about" className="hover:text-slate-200">회사소개</Link>
             <Link href="/portfolio" className="hover:text-slate-200">포트폴리오</Link>
+            <span className="text-slate-700">|</span>
+            <Link href="/admin/products" className="hover:text-blue-400 text-slate-500">관리자 CMS</Link>
           </div>
         </div>
       </footer>

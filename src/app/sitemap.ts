@@ -24,10 +24,28 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.9,
     },
     {
+      url: `${baseUrl}/products`,
+      lastModified: currentDate,
+      changeFrequency: 'weekly',
+      priority: 0.98,
+    },
+    {
       url: `${baseUrl}/manual-studio`,
       lastModified: currentDate,
       changeFrequency: 'weekly',
       priority: 0.95,
+    },
+    {
+      url: `${baseUrl}/label-station`,
+      lastModified: currentDate,
+      changeFrequency: 'weekly',
+      priority: 0.95,
+    },
+    {
+      url: `${baseUrl}/license-lookup`,
+      lastModified: currentDate,
+      changeFrequency: 'monthly',
+      priority: 0.8,
     },
     {
       url: `${baseUrl}/erp`,

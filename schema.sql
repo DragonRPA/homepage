@@ -233,3 +233,85 @@ CREATE TABLE IF NOT EXISTS tax_invoices (
     nts_status VARCHAR(30) DEFAULT 'READY' NOT NULL, -- READY, SENT_SUCCESS, SENT_FAIL
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
+
+-- 15. 온라인 소프트웨어 주문/결제 내역 (토스페이먼츠 및 글로벌 결제 통합)
+CREATE TABLE IF NOT EXISTS orders (
+    id SERIAL PRIMARY KEY,
+    order_no VARCHAR(50) UNIQUE NOT NULL,
+    product_id VARCHAR(50) NOT NULL, -- MANUAL_STUDIO, LABEL_STATION, UNIVERSAL_RPA, ALL_PASS
+    plan_type VARCHAR(30) NOT NULL,  -- PERSONAL, BUSINESS, ENTERPRISE
+    customer_name VARCHAR(100),
+    customer_email VARCHAR(100) NOT NULL,
+    country_code VARCHAR(10) DEFAULT 'KR' NOT NULL,
+    language_code VARCHAR(10) DEFAULT 'ko' NOT NULL,
+    amount NUMERIC(12, 2) NOT NULL,
+    currency VARCHAR(10) DEFAULT 'KRW' NOT NULL, -- KRW, USD
+    gateway VARCHAR(30) NOT NULL,    -- TOSS, LEMONSQUEEZY, STRIPE, TEST
+    payment_key VARCHAR(100),
+    status VARCHAR(20) DEFAULT 'PAID' NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+-- 16. 소프트웨어 정품 라이선스 마스터
+CREATE TABLE IF NOT EXISTS licenses (
+    id SERIAL PRIMARY KEY,
+    license_key VARCHAR(50) UNIQUE NOT NULL, -- DRAGON-[PROD]-[PLAN]-[RAND]-[CRC]
+    order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+    product_id VARCHAR(50) NOT NULL,
+    plan_type VARCHAR(30) NOT NULL,
+    customer_name VARCHAR(100),
+    customer_email VARCHAR(100) NOT NULL,
+    country_code VARCHAR(10) DEFAULT 'KR' NOT NULL,
+    language_code VARCHAR(10) DEFAULT 'ko' NOT NULL,
+    max_activations INTEGER DEFAULT 1 NOT NULL, -- 허용 머신 대수 (개인용 1, 기업용 3)
+    status VARCHAR(20) DEFAULT 'ACTIVE' NOT NULL, -- ACTIVE, REVOKED, EXPIRED
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE -- 영구 라이선스는 NULL
+);
+
+-- 17. PC 하드웨어(HWID) 1PC 노드락 활성화 이력
+CREATE TABLE IF NOT EXISTS license_activations (
+    id SERIAL PRIMARY KEY,
+    license_key VARCHAR(50) REFERENCES licenses(license_key) ON DELETE CASCADE,
+    machine_id VARCHAR(100) NOT NULL, -- CPU/메인보드 고유 해시 HWID
+    machine_name VARCHAR(100),
+    activated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    last_check_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    UNIQUE(license_key, machine_id)
+);
+
+-- 18. 소프트웨어 상품 카탈로그 마스터
+CREATE TABLE IF NOT EXISTS products (
+    id VARCHAR(50) PRIMARY KEY, -- MANUAL_STUDIO, LABEL_STATION, etc.
+    name VARCHAR(100) NOT NULL,
+    name_en VARCHAR(100),
+    version VARCHAR(30) DEFAULT 'v1.0.0',
+    badge VARCHAR(50) DEFAULT 'Best Seller',
+    summary TEXT NOT NULL,
+    features JSONB DEFAULT '[]'::jsonb,
+    icon_type VARCHAR(50) DEFAULT 'file',
+    detail_url VARCHAR(200),
+    download_url VARCHAR(200),
+    is_published BOOLEAN DEFAULT TRUE NOT NULL, -- 쇼핑몰 노출/게시 여부
+    sort_order INTEGER DEFAULT 1 NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+-- 19. 소프트웨어 상품별 라이선스 플랜 및 가격 정책
+CREATE TABLE IF NOT EXISTS product_plans (
+    id SERIAL PRIMARY KEY,
+    product_id VARCHAR(50) REFERENCES products(id) ON DELETE CASCADE NOT NULL,
+    plan_type VARCHAR(30) NOT NULL, -- PERSONAL, BUSINESS, ENTERPRISE
+    plan_name VARCHAR(100) NOT NULL,
+    plan_badge VARCHAR(50),
+    price_krw BIGINT NOT NULL, -- 대한민국 원화 (KRW ₩)
+    price_usd NUMERIC(10, 2) NOT NULL, -- 글로벌 달러 (USD $)
+    max_activations INTEGER DEFAULT 1 NOT NULL, -- 허용 PC 대수
+    device_desc VARCHAR(100) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE NOT NULL, -- 플랜 판매 활성화 여부
+    sort_order INTEGER DEFAULT 1 NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    UNIQUE(product_id, plan_type)
+);

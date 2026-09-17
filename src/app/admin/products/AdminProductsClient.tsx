@@ -20,7 +20,8 @@ import {
   ChevronRight,
   Shield,
   FileText,
-  Printer
+  Printer,
+  Download
 } from "lucide-react";
 import { Product, ProductPlan } from "@/lib/productService";
 
@@ -374,6 +375,35 @@ export default function AdminProductsClient() {
           </div>
         </div>
 
+        {/* Release & Upload Workflow Guide Banner */}
+        <div className="mt-6 bg-blue-950/40 border border-blue-800/60 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="p-2.5 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 shrink-0 mt-0.5">
+              <Download className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                <span>최신 실행 파일(EXE) 배포 및 Cloudflare R2 업로드 방법</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-300 border border-blue-700/60">원클릭 자동화</span>
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                <code className="text-sky-300 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">D:\01.AntiGravity\999.매뉴얼제작\배포_Cloudflare업로드.bat</code>을 더블클릭하면 최신 바이너리가 Cloudflare R2로 자동 업로드되며, 이 관리자 페이지의 버전 번호 및 다운로드 URL도 실시간 자동 갱신됩니다.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href="https://pub-4bd1b65a7bcc4eef8993da27e7362727.r2.dev/releases/ManualStudio_latest.exe"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition"
+            >
+              <span>현재 R2 최신 파일 확인</span>
+              <ExternalLink className="w-3.5 h-3.5 text-sky-400" />
+            </a>
+          </div>
+        </div>
+
         {/* Status Toast */}
         {statusMessage && (
           <div
@@ -655,6 +685,43 @@ export default function AdminProductsClient() {
                   type="text"
                   value={product.summary}
                   onChange={(e) => updateProductField(product.id, "summary", e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="md:col-span-2 flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-slate-400">
+                    최신 설치/실행 파일 다운로드 링크 (Cloudflare R2 URL)
+                  </label>
+                  {product.downloadUrl && (
+                    <a
+                      href={product.downloadUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sky-400 hover:underline flex items-center gap-0.5 text-[10px]"
+                    >
+                      <span>링크 열기</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={product.downloadUrl || ""}
+                  onChange={(e) => updateProductField(product.id, "downloadUrl", e.target.value)}
+                  placeholder="https://pub-4bd1b65a7bcc4eef8993da27e7362727.r2.dev/releases/ManualStudio_latest.exe"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:border-sky-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="md:col-span-2 flex flex-col gap-1">
+                <label className="text-[11px] font-bold text-slate-400">제품 상세 설명 랜딩 페이지 링크</label>
+                <input
+                  type="text"
+                  value={product.detailUrl || ""}
+                  onChange={(e) => updateProductField(product.id, "detailUrl", e.target.value)}
+                  placeholder="/manual-studio"
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
                 />
               </div>

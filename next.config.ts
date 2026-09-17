@@ -52,6 +52,14 @@ const nextConfig: NextConfig = {
         source: "/pc-wiki/:path*",
         destination: "https://dragonrpa.github.io/HanWha_Wiki_PC/:path*",
       },
+      {
+        source: "/LabelPrintStation",
+        destination: "https://dragonrpa.github.io/LabelPrintStation/",
+      },
+      {
+        source: "/LabelPrintStation/:path*",
+        destination: "https://dragonrpa.github.io/LabelPrintStation/:path*",
+      },
     ];
   },
 };

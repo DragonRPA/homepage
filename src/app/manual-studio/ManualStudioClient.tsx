@@ -28,7 +28,8 @@ import {
   Zap,
   Sparkles,
   ArrowRight,
-  CreditCard
+  CreditCard,
+  Smartphone
 } from "lucide-react";
 import PaymentModal from "@/components/PaymentModal";
 
@@ -204,10 +205,18 @@ End User License Agreement for Manual Studio | (주)드래곤알피에이 (Drago
                 className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-all"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>무료 평가판 다운로드</span>
+                <span>PC 평가판 다운로드 (EXE)</span>
+              </a>
+              <a
+                href="/downloads/ManualStudioMobile.apk"
+                download="ManualStudioMobile.apk"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-all"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                <span>안드로이드 APK 다운로드 (11.5 MB)</span>
               </a>
               <div className="text-[11px] text-slate-400 text-center">
-                Windows 10/11 64-bit 지원 • macOS 호환
+                Windows 10/11 64-bit • Android 8.0+ 지원
               </div>
             </div>
           </div>

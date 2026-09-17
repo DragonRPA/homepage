@@ -1,6 +1,6 @@
 import React from "react";
 import Link from "next/link";
-import { Layers, Camera, Download, FileText, ShoppingBag, Settings } from "lucide-react";
+import { Layers, Camera, Download, FileText, ShoppingBag, Settings, Smartphone } from "lucide-react";
 import { getPublishedProducts } from "@/lib/productService";
 
 export const dynamic = "force-dynamic";
@@ -122,14 +122,23 @@ export default async function Home() {
               className="w-full sm:w-auto flex-1 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 transition-all whitespace-nowrap"
             >
               <Download className="w-4 h-4" />
-              <span>프로그램 다운로드 ({version})</span>
+              <span>PC 다운로드 ({version})</span>
+            </a>
+            <a
+              href="/downloads/ManualStudioMobile.apk"
+              download="ManualStudioMobile.apk"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+              title="안드로이드 스마트폰 전용 앱 다운로드 (11.5 MB)"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+              <span>모바일 APK (11.5 MB)</span>
             </a>
             <Link
               href="/manual-studio"
               className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
             >
               <FileText className="w-3.5 h-3.5 text-blue-400" />
-              <span>기능 설명서 ➔</span>
+              <span>설명서 ➔</span>
             </Link>
           </div>
         </div>

@@ -180,6 +180,13 @@ export default function ProductsClient() {
             </Link>
 
             <Link
+              href="/pc-wiki"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors whitespace-nowrap"
+            >
+              피씨위키
+            </Link>
+
+            <Link
               href="/license-lookup"
               className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors whitespace-nowrap"
             >
@@ -524,6 +531,7 @@ export default function ProductsClient() {
           <div className="flex items-center gap-4 text-slate-400">
             <span>문의: contact@dragonrpa.co.kr</span>
             <Link href="/license-lookup" className="hover:text-slate-200">라이선스키조회</Link>
+            <Link href="/pc-wiki" className="hover:text-slate-200">피씨위키</Link>
             <Link href="/about" className="hover:text-slate-200">회사소개</Link>
             <Link href="/portfolio" className="hover:text-slate-200">포트폴리오</Link>
             <span className="text-slate-700">|</span>

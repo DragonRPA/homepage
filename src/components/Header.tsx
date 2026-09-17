@@ -10,6 +10,7 @@ export default function Header() {
     { name: "스토어 / 요금제", href: "/products" },
     { name: "매뉴얼 스튜디오", href: "/manual-studio" },
     { name: "라벨스테이션", href: "/label-station" },
+    { name: "피씨위키", href: "/pc-wiki" },
     { name: "라이선스 키 찾기", href: "/license-lookup" },
     { name: "회사 소개", href: "/about" },
     { name: "포트폴리오", href: "/portfolio" },

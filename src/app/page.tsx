@@ -1,6 +1,6 @@
 import React from "react";
 import Link from "next/link";
-import { Layers, Camera, Download, FileText, ShoppingBag, Settings, Smartphone } from "lucide-react";
+import { Layers, Camera, Download, FileText, ShoppingBag, Settings, Smartphone, BookOpen } from "lucide-react";
 import { getPublishedProducts } from "@/lib/productService";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +47,14 @@ export default async function Home() {
           >
             <Camera className="w-3.5 h-3.5" />
             <span>매뉴얼 스튜디오</span>
+          </Link>
+
+          <Link
+            href="/pc-wiki"
+            className="text-xs font-semibold px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-blue-400" />
+            <span>피씨위키</span>
           </Link>
 
           <Link
@@ -149,6 +157,8 @@ export default async function Home() {
         <p>Copyright © 2026 DragonRPA Co., Ltd. All rights reserved.</p>
         <div className="flex items-center gap-4 text-slate-400">
           <Link href="/products" className="hover:text-slate-200">스토어</Link>
+          <Link href="/manual-studio" className="hover:text-slate-200">매뉴얼 스튜디오</Link>
+          <Link href="/pc-wiki" className="hover:text-slate-200">피씨위키</Link>
           <Link href="/portfolio" className="hover:text-slate-200">포트폴리오</Link>
           <Link href="/about" className="hover:text-slate-200">회사소개</Link>
           <span className="text-slate-700">|</span>

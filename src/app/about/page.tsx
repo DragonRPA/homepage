@@ -56,6 +56,13 @@ export default function AboutCompanyPage() {
               <span>매뉴얼 스튜디오</span>
             </Link>
 
+            <Link
+              href="/pc-wiki"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors whitespace-nowrap"
+            >
+              피씨위키
+            </Link>
+
             <button
               onClick={handlePrint}
               className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-sm"
@@ -367,7 +374,7 @@ export default function AboutCompanyPage() {
 
       {/* 3. Minimal Footer */}
       <footer className="bg-slate-900 border-t border-slate-800 py-6 mt-12 text-center text-xs text-slate-500 print:hidden">
-        <p>© 2026 DragonRPA Co., Ltd. All rights reserved. | <Link href="/products" className="hover:text-slate-400">스토어</Link> | <Link href="/portfolio" className="hover:text-slate-400">포트폴리오</Link> | <Link href="/admin/products" className="hover:text-blue-400">관리자 CMS</Link></p>
+        <p>© 2026 DragonRPA Co., Ltd. All rights reserved. | <Link href="/products" className="hover:text-slate-400">스토어</Link> | <Link href="/pc-wiki" className="hover:text-slate-400">피씨위키</Link> | <Link href="/portfolio" className="hover:text-slate-400">포트폴리오</Link> | <Link href="/admin/products" className="hover:text-blue-400">관리자 CMS</Link></p>
       </footer>
     </div>
   );

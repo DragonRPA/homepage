@@ -42,6 +42,18 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async rewrites() {
+    return [
+      {
+        source: "/pc-wiki",
+        destination: "https://dragonrpa.github.io/HanWha_Wiki_PC/",
+      },
+      {
+        source: "/pc-wiki/:path*",
+        destination: "https://dragonrpa.github.io/HanWha_Wiki_PC/:path*",
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -43,6 +43,11 @@ export default function Footer() {
                 </a>
               </li>
               <li>
+                <a href="/pc-wiki" className="hover:text-white transition-colors">
+                  피씨위키 (PC Troubleshooting Wiki)
+                </a>
+              </li>
+              <li>
                 <a href="/license-lookup" className="hover:text-sky-400 text-sky-400/90 transition-colors">
                   🔑 정품 라이선스 키 찾기
                 </a>

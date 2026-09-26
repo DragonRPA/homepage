@@ -127,7 +127,7 @@ export default function RootLayout({
         "applicationCategory": "BusinessApplication",
         "operatingSystem": "Web Browser, Bluetooth",
         "description": "Zebra ZPL II 노코드 비주얼 캔버스 디자이너 및 블루투스 스캐너 1초 무인 다이렉트 라벨 출력기",
-        "url": "https://dragonrpa.github.io/LabelPrintStation/"
+        "url": "https://www.dragonrpa.co.kr/LabelPrintStation/demo"
       },
       {
         "@type": "SoftwareApplication",

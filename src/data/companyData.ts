@@ -99,7 +99,7 @@ export const BUSINESS_PILLARS: BusinessPillar[] = [
     techStack: ["Python", "PyQt5", "Windows UIA 3.0", "Next.js 15", "ExcelJS", "Zebra ZPL II", "Web Bluetooth"],
     portfolioLinks: [
       { name: "AutoLog Tax 운행기록부", url: "https://dragonrpa.github.io/AutoLog_Tax/" },
-      { name: "Label Print Station", url: "https://dragonrpa.github.io/LabelPrintStation/" },
+      { name: "Label Print Station (데모)", url: "https://www.dragonrpa.co.kr/LabelPrintStation/demo" },
       { name: "Universal RPA Recorder", url: "/portfolio" },
     ],
   },

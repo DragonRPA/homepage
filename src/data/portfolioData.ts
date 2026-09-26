@@ -162,7 +162,7 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     period: "2026.07 ~ 2026.08",
     clientOrTarget: "물류 주기장 및 자산 라벨 출력 관리자",
     techStack: ["React", "Vite", "TypeScript", "Zebra ZPL II", "Web Bluetooth", "Local SEA Agent"],
-    liveUrl: "https://dragonrpa.github.io/LabelPrintStation/",
+    liveUrl: "https://www.dragonrpa.co.kr/LabelPrintStation/demo",
     githubUrl: "https://github.com/DragonRPA/LabelPrintStation",
     docsUrl: "LabelPrintStation/MANUAL.md",
     summaryMarkdown: `

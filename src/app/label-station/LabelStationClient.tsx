@@ -66,6 +66,15 @@ export default function LabelStationClient() {
               <span>정품 라이선스 구매하기</span>
             </button>
             <a
+              href="/LabelPrintStation/demo"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-xl font-bold text-base bg-sky-950 hover:bg-sky-900 text-sky-300 border border-sky-600/50 shadow-lg transition"
+            >
+              <Sparkles className="w-5 h-5 text-sky-400" />
+              <span>온라인 라벨 디자이너 체험 (데모)</span>
+            </a>
+            <a
               href="/downloads/LabelStation_Setup_v1.0.0.exe"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-xl font-bold text-base bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 transition"
             >

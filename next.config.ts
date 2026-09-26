@@ -49,6 +49,16 @@ const nextConfig: NextConfig = {
           "https://pub-4bd1b65a7bcc4eef8993da27e7362727.r2.dev/releases/ManualStudio_latest.exe",
         permanent: false,
       },
+      {
+        source: "/LabelPrintStation/demo",
+        destination: "/LabelPrintStation/#/demo",
+        permanent: false,
+      },
+      {
+        source: "/LabelPrintStation/demo/",
+        destination: "/LabelPrintStation/#/demo",
+        permanent: false,
+      },
     ];
   },
   async rewrites() {

@@ -79,6 +79,14 @@ const nextConfig: NextConfig = {
         source: "/LabelPrintStation/:path*",
         destination: "https://dragonrpa.github.io/LabelPrintStation/:path*",
       },
+      {
+        source: "/test",
+        destination: "/test/index.html",
+      },
+      {
+        source: "/test/",
+        destination: "/test/index.html",
+      },
     ];
   },
 };

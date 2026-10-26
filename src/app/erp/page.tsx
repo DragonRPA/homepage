@@ -5,14 +5,14 @@ import {
   Users, ShoppingCart, Truck, Briefcase, FileText, 
   Building2, Shield, CheckSquare, Settings, Calendar, 
   Clock, DollarSign, CreditCard, ChevronDown, ChevronRight,
-  FolderTree, Database
+  FolderTree, Database, Package, Layers
 } from "lucide-react";
 
 import { ErpLogin } from "./components/ErpLogin";
 import { ErpHeader } from "./components/ErpHeader";
 import { PasswordChangeModal } from "./components/PasswordChangeModal";
 
-// 9대 ebro_it 모방 핵심 모듈 + 4대 기존 비즈니스 도메인
+// ebro_it 모방 핵심 모듈군
 import { OrganizationTab } from "./components/OrganizationTab";
 import { PermissionsTab } from "./components/PermissionsTab";
 import { ApprovalInboxTab } from "./components/ApprovalInboxTab";
@@ -23,13 +23,18 @@ import { OtManagementTab } from "./components/OtManagementTab";
 import { BankMatchingTab } from "./components/BankMatchingTab";
 import { PayrollTab } from "./components/PayrollTab";
 
+// ebro_it 제품관리 및 자산관리
+import { ProductManagementTab } from "./components/ProductManagementTab";
+import { AssetManagementTab } from "./components/AssetManagementTab";
+
+// 영업 및 서비스 도메인
 import { TradeTab } from "./components/TradeTab";
 import { RentalTab } from "./components/RentalTab";
 import { ServiceTab } from "./components/ServiceTab";
 import { TaxInvoiceTab } from "./components/TaxInvoiceTab";
 import "./erp-theme.css";
 
-export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "BUSINESS";
+export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "ASSET" | "BUSINESS";
 
 export type ErpMenuKey =
   | "ORG"
@@ -42,6 +47,8 @@ export type ErpMenuKey =
   | "BANK_MATCHING"
   | "PAYROLL"
   | "TAX"
+  | "PRODUCT"
+  | "ASSET"
   | "TRADE"
   | "RENTAL"
   | "SERVICES";
@@ -92,12 +99,21 @@ const CATEGORIES: CategoryConfig[] = [
     ],
   },
   {
+    key: "ASSET",
+    label: "자산관리",
+    icon: Layers,
+    items: [
+      { key: "PRODUCT", label: "제품 관리", icon: Package },
+      { key: "ASSET", label: "자산 관리", icon: Layers },
+    ],
+  },
+  {
     key: "BUSINESS",
-    label: "영업·자산",
+    label: "영업·계약",
     icon: Briefcase,
     items: [
       { key: "TRADE", label: "판매용 (커머스)", icon: ShoppingCart },
-      { key: "RENTAL", label: "임대용 (렌탈자산)", icon: Truck },
+      { key: "RENTAL", label: "임대 계약/청구", icon: Truck },
       { key: "SERVICES", label: "용역 관리 (운영/개발)", icon: Briefcase },
     ],
   },
@@ -111,11 +127,12 @@ export default function ErpMainPage() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
-  // Accordion open/close state for the tree groups
+  // Accordion open/close state for tree groups
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     HR: true,
     APPROVAL: true,
     FINANCE: true,
+    ASSET: true,
     BUSINESS: true,
   });
 
@@ -208,7 +225,7 @@ export default function ErpMainPage() {
               </span>
             </div>
             <span className="text-[10px] px-2 py-0.5 rounded font-mono font-semibold erp-sidebar-badge">
-              4그룹 13메뉴
+              5그룹 15메뉴
             </span>
           </div>
 
@@ -324,6 +341,16 @@ export default function ErpMainPage() {
             {activeMenu === "BANK_MATCHING" && <BankMatchingTab currentUser={currentUser} />}
             {activeMenu === "PAYROLL" && <PayrollTab currentUser={currentUser} />}
             {activeMenu === "TAX" && <TaxInvoiceTab currentUser={currentUser} />}
+            {activeMenu === "PRODUCT" && (
+              <ProductManagementTab 
+                currentUser={currentUser} 
+                onNavigateToAsset={() => {
+                  setActiveCategory("ASSET");
+                  setActiveMenu("ASSET");
+                }}
+              />
+            )}
+            {activeMenu === "ASSET" && <AssetManagementTab currentUser={currentUser} />}
             {activeMenu === "TRADE" && <TradeTab currentUser={currentUser} onNavigateToTax={navigateToTax} />}
             {activeMenu === "RENTAL" && <RentalTab currentUser={currentUser} onNavigateToTax={navigateToTax} />}
             {activeMenu === "SERVICES" && <ServiceTab currentUser={currentUser} onNavigateToTax={navigateToTax} />}

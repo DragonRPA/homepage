@@ -1,0 +1,318 @@
+/* ==========================================================================
+   e-Bro ERP Architecture Light/Dark Theme Standard (전사 테마 SSOT)
+   기본 모드: 밝은화면모드 (Light Mode - Clean Paper Ledger Standard)
+   ========================================================================== */
+
+:root,
+[data-theme='light'] {
+  --bg-app: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-header: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-header: #f1f5f9;
+  --bg-subtle: #f8fafc;
+  --bg-active: #eff6ff;
+
+  --border-color: #e2e8f0;
+  --border-subtle: #f1f5f9;
+  --border-strong: #cbd5e1;
+
+  --text-main: #0f172a;       /* 먹색 잉크 (Primary Text) */
+  --text-secondary: #334155;  /* 보조 텍스트 */
+  --text-muted: #64748b;      /* 비활성/설명 텍스트 */
+  --text-subtle: #94a3b8;
+
+  --primary: #1d4ed8;         /* 블루 액션 */
+  --primary-hover: #1e40af;
+  --primary-light: #eff6ff;
+
+  --success: #047857;         /* 에메랄드 */
+  --success-light: #ecfdf5;
+
+  --warning: #b45309;         /* 앰버 */
+  --warning-light: #fffbeb;
+
+  --danger: #dc2626;          /* 크림슨 */
+  --danger-light: #fef2f2;
+}
+
+[data-theme='dark'] {
+  --bg-app: #020617;
+  --bg-surface: #0f172a;
+  --bg-header: #0f172a;
+  --bg-card: #0f172a;
+  --bg-card-header: #1e293b;
+  --bg-subtle: #1e293b;
+  --bg-active: #1e3a8a;
+
+  --border-color: #334155;
+  --border-subtle: #1e293b;
+  --border-strong: #475569;
+
+  --text-main: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-subtle: #64748b;
+
+  --primary: #2563eb;
+  --primary-hover: #3b82f6;
+  --primary-light: #1e293b;
+
+  --success: #10b981;
+  --success-light: #064e3b;
+
+  --warning: #f59e0b;
+  --warning-light: #78350f;
+
+  --danger: #ef4444;
+  --danger-light: #7f1d1d;
+}
+
+/* ==========================================================================
+   밝은화면모드 (Light Mode) 전사 스타일 오버라이드 가드
+   ========================================================================== */
+
+[data-theme='light'] {
+  color-scheme: light;
+}
+
+[data-theme='light'] .erp-app-container,
+[data-theme='light'].erp-app-container {
+  background-color: var(--bg-app) !important;
+  color: var(--text-main) !important;
+}
+
+/* 1. 배경 계층 매핑 */
+[data-theme='light'] .bg-slate-950 {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+[data-theme='light'] .bg-slate-900 {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme='light'] .bg-slate-900\/90,
+[data-theme='light'] .bg-slate-900\/80,
+[data-theme='light'] .bg-slate-900\/60 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme='light'] .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme='light'] .bg-slate-800\/80,
+[data-theme='light'] .bg-slate-800\/60,
+[data-theme='light'] .bg-slate-800\/40 {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme='light'] .bg-slate-950\/60,
+[data-theme='light'] .bg-slate-950\/80 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* 2. 경계선 매핑 */
+[data-theme='light'] .border-slate-800,
+[data-theme='light'] .border-slate-800\/90,
+[data-theme='light'] .border-slate-800\/80,
+[data-theme='light'] .border-slate-700 {
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme='light'] .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0 !important;
+}
+
+/* 3. 텍스트 색상 고대비 먹색 잉크 매핑 */
+[data-theme='light'] .text-slate-100,
+[data-theme='light'] .text-slate-200 {
+  color: #0f172a !important;
+}
+
+[data-theme='light'] .text-slate-300 {
+  color: #1e293b !important;
+}
+
+[data-theme='light'] .text-slate-400 {
+  color: #475569 !important;
+}
+
+[data-theme='light'] .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* 4. 입력 폼 & 셀렉트 & 텍스트에어리어 */
+[data-theme='light'] input:not([type='submit']):not([type='button']),
+[data-theme='light'] select,
+[data-theme='light'] textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+[data-theme='light'] input::placeholder,
+[data-theme='light'] textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+[data-theme='light'] input:focus,
+[data-theme='light'] select:focus,
+[data-theme='light'] textarea:focus {
+  border-color: #2563eb !important;
+  outline: none !important;
+  box-shadow: 0 0 0 1px #2563eb !important;
+}
+
+/* 5. 테이블 헤더 & 셀 호버 */
+[data-theme='light'] thead {
+  background-color: #f1f5f9 !important;
+  color: #1e293b !important;
+}
+
+[data-theme='light'] thead th {
+  background-color: #f1f5f9 !important;
+  color: #1e293b !important;
+  border-bottom: 2px solid #cbd5e1 !important;
+}
+
+[data-theme='light'] tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+
+[data-theme='light'] .hover\:bg-slate-800\/40:hover,
+[data-theme='light'] .hover\:bg-slate-800:hover {
+  background-color: #f1f5f9 !important;
+}
+
+[data-theme='light'] .hover\:bg-slate-700:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* 6. 상태 뱃지 (파스텔 + 고대비 먹색 텍스트) */
+[data-theme='light'] .bg-blue-950,
+[data-theme='light'] .bg-blue-950\/60,
+[data-theme='light'] .bg-blue-950\/40,
+[data-theme='light'] .bg-blue-950\/20 {
+  background-color: #eff6ff !important;
+  border-color: #bfdbfe !important;
+  color: #1d4ed8 !important;
+}
+
+[data-theme='light'] .bg-emerald-950,
+[data-theme='light'] .bg-emerald-500\/20 {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #047857 !important;
+}
+
+[data-theme='light'] .bg-amber-950,
+[data-theme='light'] .bg-amber-500\/20 {
+  background-color: #fffbeb !important;
+  border-color: #fde68a !important;
+  color: #b45309 !important;
+}
+
+[data-theme='light'] .bg-rose-950,
+[data-theme='light'] .bg-rose-500\/20 {
+  background-color: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #dc2626 !important;
+}
+
+[data-theme='light'] .bg-purple-950,
+[data-theme='light'] .bg-purple-500\/20 {
+  background-color: #faf5ff !important;
+  border-color: #e9d5ff !important;
+  color: #7e22ce !important;
+}
+
+/* 7. 버튼 및 텍스트 화이트 보존 가드 */
+[data-theme='light'] .text-white,
+[data-theme='light'] .text-white *,
+[data-theme='light'] button.bg-blue-600,
+[data-theme='light'] button.bg-blue-500,
+[data-theme='light'] button.bg-emerald-600,
+[data-theme='light'] button.bg-emerald-500,
+[data-theme='light'] button.bg-amber-600,
+[data-theme='light'] button.bg-rose-600,
+[data-theme='light'] button.bg-purple-600 {
+  color: #ffffff !important;
+}
+
+[data-theme='light'] button.bg-slate-800,
+[data-theme='light'] button.bg-slate-900 {
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+  border-color: #cbd5e1 !important;
+}
+
+[data-theme='light'] button.bg-slate-800:hover,
+[data-theme='light'] button.bg-slate-900:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* 8. 2단 GNB 네비게이션 가드 */
+[data-theme='light'] nav.h-10 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme='light'] nav.h-10 button {
+  color: #475569 !important;
+}
+
+[data-theme='light'] nav.h-10 button.border-blue-500 {
+  color: #1d4ed8 !important;
+  background-color: #eff6ff !important;
+  border-color: #1d4ed8 !important;
+}
+
+[data-theme='light'] nav.h-10 button:hover:not(.border-blue-500) {
+  color: #0f172a !important;
+  background-color: #f1f5f9 !important;
+}
+
+[data-theme='light'] .h-9 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme='light'] .h-9 button {
+  color: #475569 !important;
+}
+
+[data-theme='light'] .h-9 button.bg-blue-600 {
+  background-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+[data-theme='light'] .h-9 button:hover:not(.bg-blue-600) {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* 9. 모달 백드롭 및 컨테이너 */
+[data-theme='light'] .fixed.inset-0.bg-black\/60 {
+  background-color: rgba(15, 23, 42, 0.4) !important;
+  backdrop-filter: blur(2px) !important;
+}
+
+/* 10. 그림자 효과 평면화 (e-Bro Flat Paper Ledger Standard) */
+[data-theme='light'] .shadow-sm,
+[data-theme='light'] .shadow {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme='light'] .shadow-2xl {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+}

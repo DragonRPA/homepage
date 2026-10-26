@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Building2, Lock, User, KeyRound, AlertCircle } from "lucide-react";
+import "../erp-theme.css";
 
 interface ErpLoginProps {
   onLoginSuccess: (user: any) => void;
@@ -49,7 +50,7 @@ export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+    <div data-theme="light" className="erp-app-container min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-lg shadow-2xl p-6 text-white">
         <div className="flex flex-col items-center text-center mb-6">
           <div className="w-12 h-12 bg-blue-600 rounded flex items-center justify-center shadow-lg mb-3">

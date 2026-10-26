@@ -26,6 +26,7 @@ import { TradeTab } from "./components/TradeTab";
 import { RentalTab } from "./components/RentalTab";
 import { ServiceTab } from "./components/ServiceTab";
 import { TaxInvoiceTab } from "./components/TaxInvoiceTab";
+import "./erp-theme.css";
 
 export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "BUSINESS";
 
@@ -107,13 +108,20 @@ export default function ErpMainPage() {
   const [activeCategory, setActiveCategory] = useState<ErpCategoryKey>("HR");
   const [activeMenu, setActiveMenu] = useState<ErpMenuKey>("ORG");
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
 
-  // Restore session from localStorage on mount
+  // Restore session & theme from localStorage on mount
   useEffect(() => {
     try {
       const stored = localStorage.getItem("dragonrpa_erp_user");
       if (stored) {
         setCurrentUser(JSON.parse(stored));
+      }
+      const savedTheme = localStorage.getItem("dragonrpa_erp_theme") as "light" | "dark";
+      if (savedTheme === "light" || savedTheme === "dark") {
+        setTheme(savedTheme);
+      } else {
+        setTheme("light"); // e-Bro ERP 전사 표준: 밝은화면모드 기본
       }
     } catch (e) {
       console.error("Session restore error:", e);
@@ -121,6 +129,16 @@ export default function ErpMainPage() {
       setIsInitialized(true);
     }
   }, []);
+
+  const toggleTheme = () => {
+    const next = theme === "light" ? "dark" : "light";
+    setTheme(next);
+    try {
+      localStorage.setItem("dragonrpa_erp_theme", next);
+    } catch (e) {
+      console.error("Failed to save theme:", e);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem("dragonrpa_erp_user");
@@ -156,10 +174,12 @@ export default function ErpMainPage() {
   const currentCategoryConfig = CATEGORIES.find((c) => c.key === activeCategory) || CATEGORIES[0];
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 select-none">
+    <div data-theme={theme} className="erp-app-container flex flex-col h-screen w-screen overflow-hidden select-none bg-slate-950 text-slate-100">
       {/* 1. Enterprise Top Header */}
       <ErpHeader
         user={currentUser}
+        theme={theme}
+        onToggleTheme={toggleTheme}
         onOpenPasswordModal={() => setShowPasswordModal(true)}
         onLogout={handleLogout}
       />

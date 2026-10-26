@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Building2, User, KeyRound, LogOut, CheckCircle2, Shield } from "lucide-react";
+import { Building2, User, KeyRound, LogOut, CheckCircle2, Shield, Sun, Moon } from "lucide-react";
 
 interface ErpHeaderProps {
   user: {
@@ -14,12 +14,16 @@ interface ErpHeaderProps {
     role: string;
     email?: string;
   };
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
   onOpenPasswordModal: () => void;
   onLogout: () => void;
 }
 
 export const ErpHeader: React.FC<ErpHeaderProps> = ({
   user,
+  theme,
+  onToggleTheme,
   onOpenPasswordModal,
   onLogout,
 }) => {
@@ -46,8 +50,32 @@ export const ErpHeader: React.FC<ErpHeaderProps> = ({
       </div>
 
       {/* Status & User Actions */}
-      <div className="flex items-center gap-3">
-        <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-xs text-slate-300">
+      <div className="flex items-center gap-2.5">
+        {/* e-Bro 스타일 화면 모드 전환 버튼 */}
+        <button
+          onClick={onToggleTheme}
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition shrink-0"
+          style={{
+            backgroundColor: theme === "light" ? "#f1f5f9" : "#1e293b",
+            color: theme === "light" ? "#0f172a" : "#f8fafc",
+            borderColor: theme === "light" ? "#cbd5e1" : "#475569",
+          }}
+          title={theme === "light" ? "어두운화면모드(다크모드)로 전환" : "밝은화면모드(라이트모드)로 전환"}
+        >
+          {theme === "light" ? (
+            <>
+              <Sun className="w-3.5 h-3.5 text-amber-500" />
+              <span>밝은화면모드</span>
+            </>
+          ) : (
+            <>
+              <Moon className="w-3.5 h-3.5 text-sky-400" />
+              <span>어두운화면모드</span>
+            </>
+          )}
+        </button>
+
+        <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-xs text-slate-300">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span>DB 연결됨</span>
         </div>
@@ -73,7 +101,7 @@ export const ErpHeader: React.FC<ErpHeaderProps> = ({
           title="비밀번호 변경"
         >
           <KeyRound className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">비밀번호 변경</span>
+          <span className="hidden sm:inline">비밀번호</span>
         </button>
 
         {/* Logout Button */}
@@ -89,3 +117,4 @@ export const ErpHeader: React.FC<ErpHeaderProps> = ({
     </header>
   );
 };
+

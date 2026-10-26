@@ -50,22 +50,22 @@ export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div data-theme="light" className="erp-app-container min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-lg shadow-2xl p-6 text-white">
+    <div data-theme="light" className="erp-app-container min-h-screen flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-sm rounded-lg border p-6 select-none shadow-sm erp-login-card">
         <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-12 h-12 bg-blue-600 rounded flex items-center justify-center shadow-lg mb-3">
+          <div className="w-12 h-12 bg-blue-600 rounded flex items-center justify-center mb-3 shadow">
             <Building2 className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-lg font-bold text-slate-100 tracking-tight">
+          <h1 className="text-lg font-bold tracking-tight">
             (주)드래곤알피에이 ERP
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs opacity-75 mt-1 font-mono">
             통합 엔터프라이즈 기간계 시스템
           </p>
         </div>
 
         {errorMsg && (
-          <div className="mb-4 p-2.5 bg-rose-950/80 border border-rose-800 rounded text-rose-300 text-xs flex items-center gap-2">
+          <div className="mb-4 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded text-rose-600 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
@@ -73,8 +73,8 @@ export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess }) => {
 
         <form onSubmit={handleLogin} className="flex flex-col gap-3.5">
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-blue-400" />
+            <label className="text-xs font-semibold flex items-center gap-1.5">
+              <User className="w-3.5 h-3.5 text-blue-600" />
               <span>로그인 아이디</span>
             </label>
             <input
@@ -83,13 +83,13 @@ export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess }) => {
               onChange={(e) => setLoginId(e.target.value)}
               placeholder="아이디 입력 (예: admin)"
               autoComplete="username"
-              className="h-10 px-3 bg-slate-800 border border-slate-700 rounded text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
+              className="h-10 px-3 rounded text-xs transition"
             />
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-              <KeyRound className="w-3.5 h-3.5 text-blue-400" />
+            <label className="text-xs font-semibold flex items-center gap-1.5">
+              <KeyRound className="w-3.5 h-3.5 text-blue-600" />
               <span>비밀번호</span>
             </label>
             <input
@@ -98,22 +98,23 @@ export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess }) => {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="비밀번호 입력 (초기: 1111)"
               autoComplete="current-password"
-              className="h-10 px-3 bg-slate-800 border border-slate-700 rounded text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
+              className="h-10 px-3 rounded text-xs transition"
             />
           </div>
 
+          {/* Submit button: Colored solid blue, pure white text */}
           <button
             type="submit"
             disabled={loading}
-            className="mt-2 h-10 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded transition flex items-center justify-center gap-2 disabled:opacity-50 shadow-md"
+            className="mt-2 h-10 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded transition flex items-center justify-center gap-2 disabled:opacity-50"
           >
-            <Lock className="w-4 h-4" />
-            <span>{loading ? "인증 확인 중..." : "시스템 로그인"}</span>
+            <Lock className="w-4 h-4 text-white" />
+            <span className="text-white">{loading ? "인증 확인 중..." : "시스템 로그인"}</span>
           </button>
         </form>
 
-        <div className="mt-6 pt-4 border-t border-slate-800/80 text-center">
-          <p className="text-[11px] text-slate-500 font-mono">
+        <div className="mt-6 pt-4 border-t text-center">
+          <p className="text-[11px] opacity-70 font-mono">
             초기 관리자 계정: admin / 초기 비밀번호: 1111
           </p>
         </div>

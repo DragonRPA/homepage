@@ -1,0 +1,135 @@
+import { NextResponse } from "next/server";
+import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
+
+// GET: 역할 마스터, 역할별 권한 매핑, 사원별 배정 현황 조회
+export async function GET() {
+  try {
+    const pool = getErpPool();
+
+    // 1. 역할 목록
+    const rolesRes = await pool.query(`
+      SELECT 
+        r.id,
+        r.role_code as "roleCode",
+        r.role_name as "roleName",
+        r.description,
+        r.created_at as "createdAt",
+        COUNT(e.id)::int as "assignedCount"
+      FROM erp_custom_roles r
+      LEFT JOIN erp_employees e ON e.role_code = r.role_code AND e.employment_status = 'ACTIVE'
+      GROUP BY r.id
+      ORDER BY r.id ASC
+    `);
+
+    // 2. 역할별 권한 매핑
+    const permsRes = await pool.query(`
+      SELECT 
+        id,
+        role_code as "roleCode",
+        menu_key as "menuKey",
+        can_view as "canView",
+        can_save as "canSave"
+      FROM erp_role_permissions
+      ORDER BY role_code, menu_key
+    `);
+
+    return NextResponse.json({
+      success: true,
+      roles: rolesRes.rows,
+      permissions: permsRes.rows,
+    });
+  } catch (error: any) {
+    console.error("GET Permissions Error:", error);
+    return NextResponse.json({ error: "권한 정보 조회 실패: " + error.message }, { status: 500 });
+  }
+}
+
+// POST: 신규 역할 생성
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { roleCode, roleName, description } = body;
+
+    if (!roleCode || !roleName) {
+      return NextResponse.json({ error: "역할 코드와 역할명은 필수입니다." }, { status: 400 });
+    }
+
+    const { data, error } = await supabaseErp
+      .from("erp_custom_roles")
+      .insert({
+        role_code: roleCode.trim().toUpperCase(),
+        role_name: roleName.trim(),
+        description: description ? description.trim() : null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        return NextResponse.json({ error: "이미 존재하는 역할 코드입니다." }, { status: 409 });
+      }
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, role: data });
+  } catch (error: any) {
+    console.error("POST Role Error:", error);
+    return NextResponse.json({ error: "역할 생성 실패" }, { status: 500 });
+  }
+}
+
+// PUT: 역할별 메뉴 권한 일괄 업데이트
+export async function PUT(request: Request) {
+  try {
+    const body = await request.json();
+    const { roleCode, permissions } = body; // permissions: [{ menuKey, canView, canSave }]
+
+    if (!roleCode || !Array.isArray(permissions)) {
+      return NextResponse.json({ error: "역할 코드와 권한 배열이 필요합니다." }, { status: 400 });
+    }
+
+    const pool = getErpPool();
+    // Transactional upsert
+    for (const p of permissions) {
+      await pool.query(
+        `INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (role_code, menu_key)
+         DO UPDATE SET can_view = EXCLUDED.can_view, can_save = EXCLUDED.can_save`,
+        [roleCode, p.menuKey, !!p.canView, !!p.canSave]
+      );
+    }
+
+    return NextResponse.json({ success: true, message: "권한이 갱신되었습니다." });
+  } catch (error: any) {
+    console.error("PUT Permissions Error:", error);
+    return NextResponse.json({ error: "권한 갱신 실패" }, { status: 500 });
+  }
+}
+
+// PATCH: 사원의 역할 배정 변경
+export async function PATCH(request: Request) {
+  try {
+    const { employeeId, roleCode } = await request.json();
+
+    if (!employeeId || !roleCode) {
+      return NextResponse.json({ error: "사원 ID와 역할 코드는 필수입니다." }, { status: 400 });
+    }
+
+    const { data, error } = await supabaseErp
+      .from("erp_employees")
+      .update({ role_code: roleCode, updated_at: new Date().toISOString() })
+      .eq("id", employeeId)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, employee: data });
+  } catch (error: any) {
+    console.error("PATCH Employee Role Error:", error);
+    return NextResponse.json({ error: "사원 역할 배정 실패" }, { status: 500 });
+  }
+}

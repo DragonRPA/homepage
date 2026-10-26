@@ -5,6 +5,7 @@ import {
   CheckSquare, Check, X, Clock, FileText, AlertCircle, 
   RefreshCw, User, Calendar, ShieldCheck, ChevronRight
 } from "lucide-react";
+import { formatErpNumber } from "@/lib/erpFormat";
 
 interface ApprovalStep {
   stepId: number;
@@ -219,7 +220,7 @@ export const ApprovalInboxTab: React.FC<{ currentUser: any }> = ({ currentUser }
         {/* Left: Request Dossier List (5 cols) */}
         <div className="col-span-12 md:col-span-5 bg-slate-900 border border-slate-800 rounded flex flex-col overflow-hidden">
           <div className="p-2.5 bg-slate-800/80 border-b border-slate-700 text-xs font-bold text-slate-300 flex items-center justify-between">
-            <span>결재 대기 및 진행 문서 ({requests.length}건)</span>
+            <span>결재 대기 및 진행 문서 ({formatErpNumber(requests.length)}건)</span>
           </div>
 
           <div className="flex-1 overflow-y-auto divide-y divide-slate-800">

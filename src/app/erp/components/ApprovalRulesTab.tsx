@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
   ShieldAlert, Save, RefreshCw, Check, X, 
-  HelpCircle, Settings, Layers, AlertCircle
+  HelpCircle, Settings, Layers, AlertCircle,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
+import { sortErpItems, SortDirection, formatErpNumber } from "@/lib/erpFormat";
 
 interface ApprovalRule {
   id: number;
@@ -25,6 +27,39 @@ export const ApprovalRulesTab: React.FC<{ currentUser: any }> = ({ currentUser }
   const [loading, setLoading] = useState(false);
   const [editingRules, setEditingRules] = useState<Record<number, ApprovalRule>>({});
   const [isDirty, setIsDirty] = useState(false);
+  const [sortKey, setSortKey] = useState<string>("id");
+  const [sortDir, setSortDir] = useState<SortDirection>("asc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const renderSortTh = (label: string, colKey: string, align: "left" | "right" | "center" = "left") => (
+    <th
+      onClick={() => handleSort(colKey)}
+      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none hover:bg-slate-700/60 transition ${
+        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
+      }`}
+    >
+      <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"}`}>
+        <span>{label}</span>
+        {sortKey === colKey ? (
+          sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-blue-400" /> : <ArrowDown className="w-3 h-3 text-blue-400" />
+        ) : (
+          <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100" />
+        )}
+      </div>
+    </th>
+  );
+
+  const sortedRules = useMemo(() => {
+    return sortErpItems(rules, sortKey, sortDir);
+  }, [rules, sortKey, sortDir]);
 
   const [toastMessage, setToastMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const showToast = (text: string, type: "success" | "error" = "success") => {
@@ -179,21 +214,21 @@ export const ApprovalRulesTab: React.FC<{ currentUser: any }> = ({ currentUser }
         </div>
 
         {/* Rules Table */}
-        <div className="bg-slate-900 border border-slate-800 rounded shadow-sm overflow-hidden">
+        <div className="bg-slate-900 border border-slate-800 rounded shadow-sm overflow-auto max-h-[calc(100vh-230px)]">
           <table className="w-full text-xs text-left border-collapse">
-            <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700">
+            <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0 z-10 select-none">
               <tr>
-                <th className="py-2.5 px-3 whitespace-nowrap">이벤트 코드</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">결재 이벤트명</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">카테고리</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">승인 필요 최소 티어</th>
-                <th className="py-2.5 px-3 whitespace-nowrap text-center">부서합의 여부</th>
-                <th className="py-2.5 px-3 whitespace-nowrap text-center">규칙 활성화</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">규칙 설명</th>
+                {renderSortTh("이벤트 코드", "eventType")}
+                {renderSortTh("결재 이벤트명", "eventName")}
+                {renderSortTh("카테고리", "category")}
+                {renderSortTh("승인 필요 최소 티어", "requiredTier")}
+                {renderSortTh("부서합의 여부", "autoConsensus", "center")}
+                {renderSortTh("규칙 활성화", "isActive", "center")}
+                {renderSortTh("규칙 설명", "description")}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {rules.map((rule) => {
+              {sortedRules.map((rule) => {
                 const r = editingRules[rule.id] || rule;
                 return (
                   <tr key={rule.id} className="hover:bg-slate-800/40 transition">

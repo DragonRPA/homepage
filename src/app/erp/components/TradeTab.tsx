@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Package, Plus, ShoppingCart, TrendingUp, RefreshCw, 
-  Search, Download, DollarSign, Layers, FileText, CheckCircle2, AlertCircle, X
+  Search, Download, DollarSign, Layers, FileText, CheckCircle2, AlertCircle, X,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
+import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface TradeTabProps {
   currentUser: any;
@@ -27,6 +29,41 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   const [searchTerm, setSearchTerm] = useState("");
   const [startDate, setStartDate] = useState("2026-01-01");
   const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
+
+  // Sorting State
+  const [sortKey, setSortKey] = useState<string>("id");
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
+    const isActive = sortKey === key;
+    return (
+      <th
+        onClick={() => handleSort(key)}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-800 transition text-${align}`}
+        title={`${label} 기준 정렬`}
+      >
+        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+          <span>{label}</span>
+          <span className="shrink-0">
+            {isActive ? (
+              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
+            ) : (
+              <ArrowUpDown className="w-3 h-3 opacity-30" />
+            )}
+          </span>
+        </div>
+      </th>
+    );
+  };
 
   // Modals
   const [showAddProductModal, setShowAddProductModal] = useState(false);
@@ -113,6 +150,23 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   useEffect(() => {
     fetchData();
   }, [startDate, endDate, selectedEntity]);
+
+  // Sorted Data Lists
+  const sortedProducts = useMemo(() => {
+    return sortErpItems(products, sortKey, sortDir);
+  }, [products, sortKey, sortDir]);
+
+  const sortedPurchases = useMemo(() => {
+    return sortErpItems(purchases, sortKey, sortDir);
+  }, [purchases, sortKey, sortDir]);
+
+  const sortedSales = useMemo(() => {
+    return sortErpItems(sales, sortKey, sortDir);
+  }, [sales, sortKey, sortDir]);
+
+  const sortedCustomerBreakdown = useMemo(() => {
+    return sortErpItems(customerBreakdown, sortKey, sortDir);
+  }, [customerBreakdown, sortKey, sortDir]);
 
   // Handle Add Product
   const handleAddProduct = async (e: React.FormEvent) => {
@@ -371,28 +425,28 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
               <tr>
-                <th className="py-2.5 px-3">SKU 코드</th>
-                <th className="py-2.5 px-3">상품명</th>
-                <th className="py-2.5 px-3">분류</th>
-                <th className="py-2.5 px-3">규격</th>
-                <th className="py-2.5 px-3 text-center">단위</th>
-                <th className="py-2.5 px-3 text-right">기준매입단가</th>
-                <th className="py-2.5 px-3 text-right">기준판매단가</th>
-                <th className="py-2.5 px-3 text-right">예상마진</th>
-                <th className="py-2.5 px-3 text-right">안전재고</th>
-                <th className="py-2.5 px-3 text-right">현재재고</th>
+                {renderSortTh("SKU 코드", "sku_code")}
+                {renderSortTh("상품명", "name")}
+                {renderSortTh("분류", "category")}
+                {renderSortTh("규격", "spec")}
+                {renderSortTh("단위", "unit", "center")}
+                {renderSortTh("기준매입단가", "standard_cost", "right")}
+                {renderSortTh("기준판매단가", "standard_price", "right")}
+                {renderSortTh("예상마진", "margin", "right")}
+                {renderSortTh("안전재고", "safety_stock", "right")}
+                {renderSortTh("현재재고", "current_stock", "right")}
                 <th className="py-2.5 px-3 text-center">상태</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {products.length === 0 ? (
+              {sortedProducts.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="py-8 text-center text-slate-500">
                     등록된 판매 상품이 없습니다.
                   </td>
                 </tr>
               ) : (
-                products.map((p) => {
+                sortedProducts.map((p) => {
                   const cost = Number(p.standard_cost || 0);
                   const price = Number(p.standard_price || 0);
                   const margin = price - cost;
@@ -404,15 +458,15 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                       <td className="py-2 px-3 text-slate-300">{p.category}</td>
                       <td className="py-2 px-3 text-slate-400">{p.spec || "-"}</td>
                       <td className="py-2 px-3 text-center text-slate-400">{p.unit}</td>
-                      <td className="py-2 px-3 text-right font-mono text-slate-300">₩{cost.toLocaleString()}</td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">₩{price.toLocaleString()}</td>
+                      <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(cost)}</td>
+                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(price)}</td>
                       <td className="py-2 px-3 text-right font-mono text-emerald-400">
-                        ₩{margin.toLocaleString()} ({marginRate}%)
+                        {formatErpCurrency(margin)} ({marginRate}%)
                       </td>
-                      <td className="py-2 px-3 text-right font-mono text-slate-400">{p.safety_stock}</td>
+                      <td className="py-2 px-3 text-right font-mono text-slate-400">{formatErpQty(p.safety_stock, p.unit)}</td>
                       <td className="py-2 px-3 text-right font-mono font-bold">
                         <span className={p.current_stock < p.safety_stock ? "text-rose-400" : "text-emerald-400"}>
-                          {p.current_stock}
+                          {formatErpQty(p.current_stock, p.unit)}
                         </span>
                       </td>
                       <td className="py-2 px-3 text-center">
@@ -434,33 +488,33 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
               <tr>
-                <th className="py-2.5 px-3">구매번호</th>
-                <th className="py-2.5 px-3">구매일자</th>
-                <th className="py-2.5 px-3">매입처(공급자)</th>
-                <th className="py-2.5 px-3">상품명</th>
-                <th className="py-2.5 px-3 text-right">수량</th>
-                <th className="py-2.5 px-3 text-right">매입단가</th>
-                <th className="py-2.5 px-3 text-right">총 매입금액</th>
+                {renderSortTh("구매번호", "purchaseNo")}
+                {renderSortTh("구매일자", "purchaseDate")}
+                {renderSortTh("매입처(공급자)", "vendorName")}
+                {renderSortTh("상품명", "productName")}
+                {renderSortTh("수량", "qty", "right")}
+                {renderSortTh("매입단가", "unitCost", "right")}
+                {renderSortTh("총 매입금액", "totalAmount", "right")}
                 <th className="py-2.5 px-3 text-center">입고상태</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {purchases.length === 0 ? (
+              {sortedPurchases.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-500">
                     구매 입고 내역이 없습니다.
                   </td>
                 </tr>
               ) : (
-                purchases.map((pu) => (
+                sortedPurchases.map((pu) => (
                   <tr key={pu.id} className="hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3 font-mono text-blue-400">{pu.purchaseNo}</td>
                     <td className="py-2 px-3 font-mono text-slate-300">{pu.purchaseDate}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{pu.vendorName}</td>
                     <td className="py-2 px-3 text-slate-200">[{pu.skuCode}] {pu.productName}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-200">{pu.qty} {pu.unit}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-300">₩{Number(pu.unitCost).toLocaleString()}</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-amber-400">₩{Number(pu.totalAmount).toLocaleString()}</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-200">{formatErpQty(pu.qty, pu.unit)}</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(pu.unitCost)}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-amber-400">{formatErpCurrency(pu.totalAmount)}</td>
                     <td className="py-2 px-3 text-center">
                       <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-bold">
                         입고완료
@@ -477,28 +531,28 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
               <tr>
-                <th className="py-2.5 px-3">귀속 사업자</th>
-                <th className="py-2.5 px-3">판매번호</th>
-                <th className="py-2.5 px-3">판매일자</th>
-                <th className="py-2.5 px-3">고객사(수요처)</th>
-                <th className="py-2.5 px-3">판매상품</th>
-                <th className="py-2.5 px-3 text-right">수량</th>
-                <th className="py-2.5 px-3 text-right">판매단가</th>
-                <th className="py-2.5 px-3 text-right">매출액</th>
-                <th className="py-2.5 px-3 text-right">매출원가</th>
-                <th className="py-2.5 px-3 text-right">마진(이익률)</th>
+                {renderSortTh("귀속 사업자", "entityType")}
+                {renderSortTh("판매번호", "saleNo")}
+                {renderSortTh("판매일자", "saleDate")}
+                {renderSortTh("고객사(수요처)", "customerName")}
+                {renderSortTh("판매상품", "productName")}
+                {renderSortTh("수량", "qty", "right")}
+                {renderSortTh("판매단가", "unitPrice", "right")}
+                {renderSortTh("매출액", "totalAmount", "right")}
+                {renderSortTh("매출원가", "cogsAmount", "right")}
+                {renderSortTh("마진(이익률)", "marginAmount", "right")}
                 <th className="py-2.5 px-3 text-center">세금계산서</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {sales.length === 0 ? (
+              {sortedSales.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="py-8 text-center text-slate-500">
                     판매 출고 내역이 없습니다.
                   </td>
                 </tr>
               ) : (
-                sales.map((s) => (
+                sortedSales.map((s) => (
                   <tr key={s.id} className="hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3">
                       {s.entityType === "INDIVIDUAL" ? (
@@ -515,12 +569,12 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     <td className="py-2 px-3 font-mono text-slate-300">{s.saleDate}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{s.customerName}</td>
                     <td className="py-2 px-3 text-slate-200">[{s.skuCode}] {s.productName}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-200">{s.qty} {s.unit}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-300">₩{Number(s.unitPrice).toLocaleString()}</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">₩{Number(s.totalAmount).toLocaleString()}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-400">₩{Number(s.cogsAmount).toLocaleString()}</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-200">{formatErpQty(s.qty, s.unit)}</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(s.unitPrice)}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(s.totalAmount)}</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-400">{formatErpCurrency(s.cogsAmount)}</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
-                      ₩{Number(s.marginAmount).toLocaleString()} ({s.marginRate}%)
+                      {formatErpCurrency(s.marginAmount)} ({s.marginRate}%)
                     </td>
                     <td className="py-2 px-3 text-center">
                       <button
@@ -544,25 +598,25 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
               <div className="p-3 bg-slate-950 border border-slate-800 rounded">
                 <span className="text-[11px] text-slate-400">총 판매 건수 / 수량</span>
                 <div className="text-base font-bold text-white mt-1">
-                  {settlementSummary?.totalOrders || 0}건 / {settlementSummary?.totalQty || 0}개
+                  {formatErpNumber(settlementSummary?.totalOrders || 0)}건 / {formatErpQty(settlementSummary?.totalQty || 0, "개")}
                 </div>
               </div>
               <div className="p-3 bg-slate-950 border border-slate-800 rounded">
                 <span className="text-[11px] text-slate-400">총 매출액</span>
                 <div className="text-base font-bold text-blue-400 mt-1">
-                  ₩{Number(settlementSummary?.totalRevenue || 0).toLocaleString()}
+                  {formatErpCurrency(settlementSummary?.totalRevenue || 0)}
                 </div>
               </div>
               <div className="p-3 bg-slate-950 border border-slate-800 rounded">
                 <span className="text-[11px] text-slate-400">총 매출원가 (COGS)</span>
                 <div className="text-base font-bold text-slate-400 mt-1">
-                  ₩{Number(settlementSummary?.totalCogs || 0).toLocaleString()}
+                  {formatErpCurrency(settlementSummary?.totalCogs || 0)}
                 </div>
               </div>
               <div className="p-3 bg-slate-950 border border-slate-800 rounded">
                 <span className="text-[11px] text-slate-400">총 매출총이익 (마진율)</span>
                 <div className="text-base font-bold text-emerald-400 mt-1">
-                  ₩{Number(settlementSummary?.totalMargin || 0).toLocaleString()} ({settlementSummary?.marginRate || 0}%)
+                  {formatErpCurrency(settlementSummary?.totalMargin || 0)} ({settlementSummary?.marginRate || 0}%)
                 </div>
               </div>
             </div>
@@ -575,34 +629,34 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
               <table className="w-full text-left text-xs whitespace-nowrap">
                 <thead className="bg-slate-900 text-slate-400 font-semibold border-b border-slate-800">
                   <tr>
-                    <th className="py-2 px-3">거래처명</th>
-                    <th className="py-2 px-3 text-right">주문건수</th>
-                    <th className="py-2 px-3 text-right">매출액</th>
-                    <th className="py-2 px-3 text-right">매출원가</th>
-                    <th className="py-2 px-3 text-right">매출총이익</th>
-                    <th className="py-2 px-3 text-right">마진율</th>
+                    {renderSortTh("거래처명", "customerName")}
+                    {renderSortTh("주문건수", "orderCount", "right")}
+                    {renderSortTh("매출액", "revenue", "right")}
+                    {renderSortTh("매출원가", "cogs", "right")}
+                    {renderSortTh("매출총이익", "margin", "right")}
+                    {renderSortTh("마진율", "marginRate", "right")}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {customerBreakdown.length === 0 ? (
+                  {sortedCustomerBreakdown.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-6 text-center text-slate-500">
                         해당 기간 정산 데이터가 없습니다.
                       </td>
                     </tr>
                   ) : (
-                    customerBreakdown.map((c, idx) => (
+                    sortedCustomerBreakdown.map((c, idx) => (
                       <tr key={idx} className="hover:bg-slate-800/40">
                         <td className="py-2 px-3 font-bold text-slate-100">{c.customerName}</td>
-                        <td className="py-2 px-3 text-right font-mono">{c.orderCount}건</td>
+                        <td className="py-2 px-3 text-right font-mono">{formatErpNumber(c.orderCount)}건</td>
                         <td className="py-2 px-3 text-right font-mono font-bold text-blue-400">
-                          ₩{Number(c.revenue).toLocaleString()}
+                          {formatErpCurrency(c.revenue)}
                         </td>
                         <td className="py-2 px-3 text-right font-mono text-slate-400">
-                          ₩{Number(c.cogs).toLocaleString()}
+                          {formatErpCurrency(c.cogs)}
                         </td>
                         <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
-                          ₩{Number(c.margin).toLocaleString()}
+                          {formatErpCurrency(c.margin)}
                         </td>
                         <td className="py-2 px-3 text-right font-mono text-emerald-300">
                           {c.marginRate}%
@@ -928,7 +982,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                   <option value="">선택하십시오</option>
                   {products.map(p => (
                     <option key={p.id} value={p.id}>
-                      [{p.sku_code}] {p.name} (현재고: {p.current_stock}{p.unit})
+                      [{p.sku_code}] {p.name} (현재고: {formatErpQty(p.current_stock, p.unit)})
                     </option>
                   ))}
                 </select>

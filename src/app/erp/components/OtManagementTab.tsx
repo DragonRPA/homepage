@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Clock, Check, X, Plus, Download, RefreshCw, 
-  Search, Calendar, AlertCircle, FileSpreadsheet, Trash2
+  Search, Calendar, AlertCircle, FileSpreadsheet, Trash2,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
+import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface Overtime {
   id: number;
@@ -122,6 +124,45 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
       return true;
     });
   }, [overtimes, statusFilter, deptFilter, searchQuery]);
+
+  // Sorting State
+  const [sortKey, setSortKey] = useState<string>("otDate");
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
+    const isActive = sortKey === key;
+    return (
+      <th
+        onClick={() => handleSort(key)}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-700 transition text-${align} whitespace-nowrap`}
+        title={`${label} 기준 정렬`}
+      >
+        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+          <span>{label}</span>
+          <span className="shrink-0">
+            {isActive ? (
+              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
+            ) : (
+              <ArrowUpDown className="w-3 h-3 opacity-30" />
+            )}
+          </span>
+        </div>
+      </th>
+    );
+  };
+
+  const sortedFilteredOvertimes = useMemo(() => {
+    return sortErpItems(filteredOvertimes, sortKey, sortDir);
+  }, [filteredOvertimes, sortKey, sortDir]);
 
   // KPIs
   const kpis = useMemo(() => {
@@ -342,15 +383,15 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
       <div className="px-4 pt-3 pb-1 grid grid-cols-3 gap-3 shrink-0">
         <div className="bg-slate-900 border border-slate-800 p-2.5 rounded flex items-center justify-between">
           <span className="text-xs text-slate-400">당월 총 신청 건수</span>
-          <span className="text-base font-bold font-mono text-slate-100">{kpis.totalCount}건</span>
+          <span className="text-base font-bold font-mono text-slate-100">{formatErpNumber(kpis.totalCount)}건</span>
         </div>
         <div className="bg-slate-900 border border-slate-800 p-2.5 rounded flex items-center justify-between">
           <span className="text-xs text-slate-400">당월 승인 연장근무 합계</span>
-          <span className="text-base font-bold font-mono text-emerald-400">{kpis.approvedHours.toFixed(1)}시간</span>
+          <span className="text-base font-bold font-mono text-emerald-400">{formatErpNumber(kpis.approvedHours)}시간</span>
         </div>
         <div className="bg-slate-900 border border-slate-800 p-2.5 rounded flex items-center justify-between">
           <span className="text-xs text-slate-400">결재 대기</span>
-          <span className="text-base font-bold font-mono text-amber-400">{kpis.pendingCount}건</span>
+          <span className="text-base font-bold font-mono text-amber-400">{formatErpNumber(kpis.pendingCount)}건</span>
         </div>
       </div>
 
@@ -358,29 +399,29 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
       <div className="flex-1 overflow-auto p-4 pt-2">
         <div className="bg-slate-900 border border-slate-800 rounded shadow-sm overflow-hidden">
           <table className="w-full text-xs text-left border-collapse">
-            <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0">
+            <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0 z-10">
               <tr>
-                <th className="py-2.5 px-3 whitespace-nowrap">근무일자 (요일)</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">사번</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">성명</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">부서</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">근무 시간</th>
-                <th className="py-2.5 px-3 whitespace-nowrap text-center">인정시간</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">근무 사유</th>
-                <th className="py-2.5 px-3 whitespace-nowrap text-center">결재상태</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">승인자</th>
+                {renderSortTh("근무일자 (요일)", "otDate")}
+                {renderSortTh("사번", "employeeNo")}
+                {renderSortTh("성명", "employeeName")}
+                {renderSortTh("부서", "department")}
+                {renderSortTh("근무 시간", "startTime")}
+                {renderSortTh("인정시간", "otHours", "center")}
+                {renderSortTh("근무 사유", "reason")}
+                {renderSortTh("결재상태", "status", "center")}
+                {renderSortTh("승인자", "approverName")}
                 <th className="py-2.5 px-3 whitespace-nowrap text-center">조치 / 관리</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {filteredOvertimes.length === 0 ? (
+              {sortedFilteredOvertimes.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-12 text-center text-slate-500">
                     해당 월에 신청된 연장근무 내역이 없습니다.
                   </td>
                 </tr>
               ) : (
-                filteredOvertimes.map((ot) => (
+                sortedFilteredOvertimes.map((ot) => (
                   <tr key={ot.id} className="hover:bg-slate-800/40 transition">
                     <td className="py-2 px-3 font-mono text-slate-300 whitespace-nowrap">
                       {ot.otDate ? ot.otDate.substring(0, 10) : "-"}{" "}
@@ -393,7 +434,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                       {ot.startTime} ~ {ot.endTime}
                     </td>
                     <td className="py-2 px-3 text-center font-mono font-bold text-amber-400 whitespace-nowrap">
-                      {ot.otHours}h
+                      {formatErpNumber(ot.otHours)}h
                     </td>
                     <td className="py-2 px-3 text-slate-300 max-w-xs truncate" title={ot.reason}>
                       {ot.reason}

@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Users, UserPlus, RefreshCw, Calendar, CheckCircle2, XCircle, 
-  Clock, AlertCircle, Search, Edit2, Shield, FileText, Check, X
+  Clock, AlertCircle, Search, Edit2, Shield, FileText, Check, X,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
+import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface EmployeeTabProps {
   currentUser: any;
@@ -90,6 +92,49 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
       return matchesSearch && matchesDept && matchesStatus;
     });
   }, [employees, searchTerm, deptFilter, statusFilter]);
+
+  // Sorting State
+  const [sortKey, setSortKey] = useState<string>("employeeNo");
+  const [sortDir, setSortDir] = useState<SortDirection>("asc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
+    const isActive = sortKey === key;
+    return (
+      <th
+        onClick={() => handleSort(key)}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-800 transition text-${align} whitespace-nowrap`}
+        title={`${label} 기준 정렬`}
+      >
+        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+          <span>{label}</span>
+          <span className="shrink-0">
+            {isActive ? (
+              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
+            ) : (
+              <ArrowUpDown className="w-3 h-3 opacity-30" />
+            )}
+          </span>
+        </div>
+      </th>
+    );
+  };
+
+  const sortedEmployees = useMemo(() => {
+    return sortErpItems(filteredEmployees, sortKey, sortDir);
+  }, [filteredEmployees, sortKey, sortDir]);
+
+  const sortedLeaves = useMemo(() => {
+    return sortErpItems(leaves, sortKey, sortDir);
+  }, [leaves, sortKey, sortDir]);
 
   // Handle Add Employee
   const handleAddEmployee = async (e: React.FormEvent) => {
@@ -351,28 +396,28 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
               <tr>
-                <th className="py-2.5 px-3">사번</th>
-                <th className="py-2.5 px-3">성명</th>
-                <th className="py-2.5 px-3">부서</th>
-                <th className="py-2.5 px-3">직급</th>
-                <th className="py-2.5 px-3">권한</th>
-                <th className="py-2.5 px-3">입사일자</th>
-                <th className="py-2.5 px-3">재직상태</th>
-                <th className="py-2.5 px-3 text-right">부여연차</th>
-                <th className="py-2.5 px-3 text-right">사용연차</th>
-                <th className="py-2.5 px-3 text-right">잔여연차</th>
-                <th className="py-2.5 px-3">연락처 / 이메일</th>
+                {renderSortTh("사번", "employeeNo")}
+                {renderSortTh("성명", "name")}
+                {renderSortTh("부서", "department")}
+                {renderSortTh("직급", "position")}
+                {renderSortTh("권한", "role")}
+                {renderSortTh("입사일자", "joinDate")}
+                {renderSortTh("재직상태", "employmentStatus")}
+                {renderSortTh("부여연차", "grantDays", "right")}
+                {renderSortTh("사용연차", "usedDays", "right")}
+                {renderSortTh("잔여연차", "remainDays", "right")}
+                {renderSortTh("연락처 / 이메일", "email")}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {filteredEmployees.length === 0 ? (
+              {sortedEmployees.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="py-8 text-center text-slate-500">
                     {loading ? "사원 데이터를 불러오는 중..." : "등록된 사원 데이터가 없습니다."}
                   </td>
                 </tr>
               ) : (
-                filteredEmployees.map((e) => (
+                sortedEmployees.map((e) => (
                   <tr key={e.id} className="hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3 font-mono text-blue-400 font-semibold">{e.employeeNo}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{e.name}</td>
@@ -397,10 +442,10 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
                         {e.employmentStatus === "ACTIVE" ? "재직" : e.employmentStatus === "ON_LEAVE" ? "휴직" : "퇴사"}
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-200">{Number(e.grantDays).toFixed(1)}일</td>
-                    <td className="py-2 px-3 text-right font-mono text-amber-400">{Number(e.usedDays).toFixed(1)}일</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-200">{formatErpNumber(e.grantDays)}일</td>
+                    <td className="py-2 px-3 text-right font-mono text-amber-400">{formatErpNumber(e.usedDays)}일</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
-                      {Number(e.remainDays).toFixed(1)}일
+                      {formatErpNumber(e.remainDays)}일
                     </td>
                     <td className="py-2 px-3 text-slate-400 text-[11px]">
                       {e.phone || "-"} / {e.email || "-"}
@@ -414,27 +459,27 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
               <tr>
-                <th className="py-2.5 px-3">신청일</th>
-                <th className="py-2.5 px-3">사원명</th>
-                <th className="py-2.5 px-3">부서 / 직급</th>
-                <th className="py-2.5 px-3">연차 구분</th>
-                <th className="py-2.5 px-3">기간</th>
-                <th className="py-2.5 px-3 text-right">차감일수</th>
-                <th className="py-2.5 px-3">신청 사유</th>
-                <th className="py-2.5 px-3">결재 상태</th>
-                <th className="py-2.5 px-3">결재자</th>
+                {renderSortTh("신청일", "createdAt")}
+                {renderSortTh("사원명", "employeeName")}
+                {renderSortTh("부서 / 직급", "department")}
+                {renderSortTh("연차 구분", "leaveType")}
+                {renderSortTh("기간", "startDate")}
+                {renderSortTh("차감일수", "deductedDays", "right")}
+                {renderSortTh("신청 사유", "reason")}
+                {renderSortTh("결재 상태", "status")}
+                {renderSortTh("결재자", "approverName")}
                 <th className="py-2.5 px-3 text-center">결재 조치</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {leaves.length === 0 ? (
+              {sortedLeaves.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-8 text-center text-slate-500">
                     신청된 연차 내역이 없습니다.
                   </td>
                 </tr>
               ) : (
-                leaves.map((l) => (
+                sortedLeaves.map((l) => (
                   <tr key={l.id} className="hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3 font-mono text-slate-400">{l.createdAt?.split("T")[0]}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{l.employeeName}</td>
@@ -448,7 +493,7 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
                       {l.startDate} ~ {l.endDate}
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-amber-400">
-                      {Number(l.deductedDays).toFixed(1)}일
+                      {formatErpNumber(l.deductedDays)}일
                     </td>
                     <td className="py-2 px-3 text-slate-200 max-w-xs truncate" title={l.reason}>
                       {l.reason}

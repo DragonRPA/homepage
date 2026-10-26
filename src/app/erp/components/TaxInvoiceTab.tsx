@@ -4,9 +4,11 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
   FileText, Plus, RefreshCw, Download, Search, 
   CheckCircle2, Printer, AlertCircle, X, ExternalLink, Send,
-  Building2, UserCheck, ShieldCheck, Check, Info
+  Building2, UserCheck, ShieldCheck, Check, Info,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
 import { BUSINESS_ENTITIES, EntityType, getEntity } from "@/lib/businessEntities";
+import { formatErpNumber, formatErpCurrency, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface TaxInvoiceTabProps {
   currentUser: any;
@@ -24,6 +26,17 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const [domainFilter, setDomainFilter] = useState("ALL");
   const [entityFilter, setEntityFilter] = useState<"ALL" | "CORP" | "INDIVIDUAL">(selectedEntity);
   const [searchTerm, setSearchTerm] = useState("");
+  const [sortKey, setSortKey] = useState<string>("issueDate");
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
 
   // Keep entityFilter in sync when parent header changes
   useEffect(() => {
@@ -95,6 +108,11 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       return matchSearch;
     });
   }, [invoices, searchTerm]);
+
+  // Sorted items with robust numeric/string/date sorting
+  const sortedInvoices = useMemo(() => {
+    return sortErpItems(filteredInvoices, sortKey, sortDir);
+  }, [filteredInvoices, sortKey, sortDir]);
 
   // KPI Calculations (헌장 4.1 회계 보존: 통합 = 법인 + 개인)
   const kpiStats = useMemo(() => {
@@ -299,10 +317,10 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
             </span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-base font-bold text-blue-700">
-                ₩{kpiStats.totalGross.toLocaleString()}
+                {formatErpCurrency(kpiStats.totalGross)}
               </span>
               <span className="text-[10px] opacity-60">
-                (공급가 ₩{kpiStats.totalSupply.toLocaleString()})
+                (공급가 {formatErpCurrency(kpiStats.totalSupply)})
               </span>
             </div>
           </div>
@@ -325,12 +343,12 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
             <span className="text-[11px] opacity-75 flex items-center gap-1 font-semibold">
               (주)드래곤알피에이 [법인]
               <span className="text-[10px] px-1 rounded bg-indigo-100 text-indigo-800 font-bold">
-                {kpiStats.corpCount}건
+                {formatErpNumber(kpiStats.corpCount)}건
               </span>
             </span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-base font-bold text-indigo-700">
-                ₩{kpiStats.corpGross.toLocaleString()}
+                {formatErpCurrency(kpiStats.corpGross)}
               </span>
               <span className="text-[10px] opacity-60 font-mono">
                 806-88-03266
@@ -356,12 +374,12 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
             <span className="text-[11px] opacity-75 flex items-center gap-1 font-semibold">
               드래곤알피에이 [개인]
               <span className="text-[10px] px-1 rounded bg-amber-100 text-amber-800 font-bold">
-                {kpiStats.indivCount}건
+                {formatErpNumber(kpiStats.indivCount)}건
               </span>
             </span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-base font-bold text-amber-700">
-                ₩{kpiStats.indivGross.toLocaleString()}
+                {formatErpCurrency(kpiStats.indivGross)}
               </span>
               <span className="text-[10px] opacity-60 font-mono">
                 295-03-02683
@@ -376,7 +394,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
           <div className="flex flex-col text-[11px]">
             <span className="opacity-70">대차대조 보존검증</span>
             <span className="font-bold text-emerald-700 font-mono">
-              대차차액 ₩{kpiStats.balanceDiff.toLocaleString()}
+              대차차액 {formatErpCurrency(kpiStats.balanceDiff)}
             </span>
           </div>
         </div>
@@ -459,34 +477,210 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         </div>
       </div>
 
-      {/* 3. Gutenberg Z-Pattern Inspection: 고밀도 슬림 대사 그리드 */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full text-left text-xs whitespace-nowrap">
+      {/* 3. Gutenberg Z-Pattern Inspection: 고밀도 슬림 대사 그리드 (세로 스크롤 & 컬럼 정렬) */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <table className="w-full text-left text-xs whitespace-nowrap border-collapse">
           <thead className="sticky top-0 border-b font-semibold select-none z-10 bg-card">
             <tr>
-              <th className="py-2.5 px-3">발행 사업자</th>
-              <th className="py-2.5 px-3">계산서번호</th>
-              <th className="py-2.5 px-3">발행일자</th>
-              <th className="py-2.5 px-3">매출 분과</th>
-              <th className="py-2.5 px-3">공급받는자 (거래처)</th>
-              <th className="py-2.5 px-3">품목명</th>
-              <th className="py-2.5 px-3 text-right">공급가액</th>
-              <th className="py-2.5 px-3 text-right">세액 (VAT)</th>
-              <th className="py-2.5 px-3 text-right">합계금액</th>
-              <th className="py-2.5 px-3">국세청 승인번호</th>
-              <th className="py-2.5 px-3 text-center">전송상태</th>
+              <th
+                onClick={() => handleSort("supplierCorpName")}
+                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
+                title="발행 사업자 기준 정렬"
+              >
+                <div className="inline-flex items-center gap-1.5">
+                  <span>발행 사업자</span>
+                  <span className="shrink-0">
+                    {sortKey === "supplierCorpName" ? (
+                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-30" />
+                    )}
+                  </span>
+                </div>
+              </th>
+
+              <th
+                onClick={() => handleSort("invoiceNo")}
+                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
+                title="계산서번호 기준 정렬"
+              >
+                <div className="inline-flex items-center gap-1.5">
+                  <span>계산서번호</span>
+                  <span className="shrink-0">
+                    {sortKey === "invoiceNo" ? (
+                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-30" />
+                    )}
+                  </span>
+                </div>
+              </th>
+
+              <th
+                onClick={() => handleSort("issueDate")}
+                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
+                title="발행일자 기준 정렬"
+              >
+                <div className="inline-flex items-center gap-1.5">
+                  <span>발행일자</span>
+                  <span className="shrink-0">
+                    {sortKey === "issueDate" ? (
+                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-30" />
+                    )}
+                  </span>
+                </div>
+              </th>
+
+              <th
+                onClick={() => handleSort("domainType")}
+                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
+                title="매출 분과 기준 정렬"
+              >
+                <div className="inline-flex items-center gap-1.5">
+                  <span>매출 분과</span>
+                  <span className="shrink-0">
+                    {sortKey === "domainType" ? (
+                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-30" />
+                    )}
+                  </span>
+                </div>
+              </th>
+
+              <th
+                onClick={() => handleSort("customerName")}
+                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
+                title="공급받는자 기준 정렬"
+              >
+                <div className="inline-flex items-center gap-1.5">
+                  <span>공급받는자 (거래처)</span>
+                  <span className="shrink-0">
+                    {sortKey === "customerName" ? (
+                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-30" />
+                    )}
+                  </span>
+                </div>
+              </th>
+
+              <th
+                onClick={() => handleSort("itemName")}
+                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
+                title="품목명 기준 정렬"
+              >
+                <div className="inline-flex items-center gap-1.5">
+                  <span>품목명</span>
+                  <span className="shrink-0">
+                    {sortKey === "itemName" ? (
+                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-30" />
+                    )}
+                  </span>
+                </div>
+              </th>
+
+              <th
+                onClick={() => handleSort("supplyAmount")}
+                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-right"
+                title="공급가액 기준 정렬"
+              >
+                <div className="inline-flex items-center justify-end w-full gap-1.5">
+                  <span>공급가액</span>
+                  <span className="shrink-0">
+                    {sortKey === "supplyAmount" ? (
+                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-30" />
+                    )}
+                  </span>
+                </div>
+              </th>
+
+              <th
+                onClick={() => handleSort("vatAmount")}
+                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-right"
+                title="세액 기준 정렬"
+              >
+                <div className="inline-flex items-center justify-end w-full gap-1.5">
+                  <span>세액 (VAT)</span>
+                  <span className="shrink-0">
+                    {sortKey === "vatAmount" ? (
+                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-30" />
+                    )}
+                  </span>
+                </div>
+              </th>
+
+              <th
+                onClick={() => handleSort("totalAmount")}
+                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-right"
+                title="합계금액 기준 정렬"
+              >
+                <div className="inline-flex items-center justify-end w-full gap-1.5">
+                  <span>합계금액</span>
+                  <span className="shrink-0">
+                    {sortKey === "totalAmount" ? (
+                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-30" />
+                    )}
+                  </span>
+                </div>
+              </th>
+
+              <th
+                onClick={() => handleSort("ntsConfirmNo")}
+                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
+                title="국세청 승인번호 기준 정렬"
+              >
+                <div className="inline-flex items-center gap-1.5">
+                  <span>국세청 승인번호</span>
+                  <span className="shrink-0">
+                    {sortKey === "ntsConfirmNo" ? (
+                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-30" />
+                    )}
+                  </span>
+                </div>
+              </th>
+
+              <th
+                onClick={() => handleSort("status")}
+                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-center"
+                title="전송상태 기준 정렬"
+              >
+                <div className="inline-flex items-center justify-center w-full gap-1.5">
+                  <span>전송상태</span>
+                  <span className="shrink-0">
+                    {sortKey === "status" ? (
+                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-30" />
+                    )}
+                  </span>
+                </div>
+              </th>
+
               <th className="py-2.5 px-3 text-center">팝빌 연동 조치</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-400/20">
-            {filteredInvoices.length === 0 ? (
+            {sortedInvoices.length === 0 ? (
               <tr>
                 <td colSpan={12} className="py-12 text-center opacity-60">
                   {loading ? "세금계산서 대장을 불러오는 중입니다..." : "발행된 세금계산서 데이터가 없습니다."}
                 </td>
               </tr>
             ) : (
-              filteredInvoices.map((inv) => {
+              sortedInvoices.map((inv) => {
                 const isCorp = (inv.supplierEntityType || "CORP") === "CORP";
                 return (
                   <tr key={inv.id} className="hover:bg-slate-500/5 transition">
@@ -528,13 +722,13 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                     </td>
                     <td className="py-2 px-3">{inv.itemName}</td>
                     <td className="py-2 px-3 text-right font-mono opacity-80">
-                      ₩{Number(inv.supplyAmount).toLocaleString()}
+                      {formatErpCurrency(inv.supplyAmount)}
                     </td>
                     <td className="py-2 px-3 text-right font-mono opacity-60">
-                      ₩{Number(inv.vatAmount).toLocaleString()}
+                      {formatErpCurrency(inv.vatAmount)}
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
-                      ₩{Number(inv.totalAmount).toLocaleString()}
+                      {formatErpCurrency(inv.totalAmount)}
                     </td>
                     <td className="py-2 px-3 font-mono text-[11px] opacity-70">
                       {inv.ntsConfirmNo}
@@ -584,24 +778,24 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       <div className="border-t px-4 py-2.5 flex flex-wrap items-center justify-between text-xs bg-card shrink-0 gap-2">
         <div className="flex items-center gap-4 flex-wrap">
           <span>
-            선택 대장: <strong>{filteredInvoices.length}건</strong>
+            선택 대장: <strong>{formatErpNumber(filteredInvoices.length)}건</strong>
           </span>
           <span>
-            공급가액 소계: <strong className="text-blue-700">₩{filteredInvoices.reduce((s, i) => s + Number(i.supplyAmount || 0), 0).toLocaleString()}</strong>
+            공급가액 소계: <strong className="text-blue-700">{formatErpCurrency(filteredInvoices.reduce((s, i) => s + Number(i.supplyAmount || 0), 0))}</strong>
           </span>
           <span>
-            부가세: <strong className="opacity-75">₩{filteredInvoices.reduce((s, i) => s + Number(i.vatAmount || 0), 0).toLocaleString()}</strong>
+            부가세: <strong className="opacity-75">{formatErpCurrency(filteredInvoices.reduce((s, i) => s + Number(i.vatAmount || 0), 0))}</strong>
           </span>
           <span>
-            합계총액: <strong className="text-emerald-700 text-sm">₩{filteredInvoices.reduce((s, i) => s + Number(i.totalAmount || 0), 0).toLocaleString()}</strong>
+            합계총액: <strong className="text-emerald-700 text-sm">{formatErpCurrency(filteredInvoices.reduce((s, i) => s + Number(i.totalAmount || 0), 0))}</strong>
           </span>
         </div>
         <div className="flex items-center gap-3 text-[11px] opacity-75 font-mono">
-          <span>법인(806-88-03266): ₩{kpiStats.corpGross.toLocaleString()}</span>
+          <span>법인(806-88-03266): {formatErpCurrency(kpiStats.corpGross)}</span>
           <span>|</span>
-          <span>개인(295-03-02683): ₩{kpiStats.indivGross.toLocaleString()}</span>
+          <span>개인(295-03-02683): {formatErpCurrency(kpiStats.indivGross)}</span>
           <span>|</span>
-          <span className="font-bold text-emerald-700">대차차액 ₩0</span>
+          <span className="font-bold text-emerald-700">대차차액 {formatErpCurrency(kpiStats.balanceDiff)}</span>
         </div>
       </div>
 
@@ -763,9 +957,9 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
               {/* 합계금액 프리뷰 */}
               <div className="p-2.5 rounded bg-blue-50/50 border border-blue-200 flex items-center justify-between text-xs">
                 <div className="flex flex-col">
-                  <span className="text-[11px] opacity-75">공급가: ₩{Number(supplyAmt || 0).toLocaleString()} | 부가세: ₩{Math.round(Number(supplyAmt || 0) * 0.1).toLocaleString()}</span>
+                  <span className="text-[11px] opacity-75">공급가: {formatErpCurrency(supplyAmt)} | 부가세: {formatErpCurrency(Math.round(Number(supplyAmt || 0) * 0.1))}</span>
                   <span className="font-bold text-blue-900">
-                    합계금액: ₩{Math.round(Number(supplyAmt || 0) * 1.1).toLocaleString()}
+                    합계금액: {formatErpCurrency(Math.round(Number(supplyAmt || 0) * 1.1))}
                   </span>
                 </div>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-blue-600 text-white font-bold">

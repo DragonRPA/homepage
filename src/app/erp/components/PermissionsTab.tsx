@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
   Shield, Check, Lock, Save, Plus, Users, 
-  Search, RefreshCw, Key, CheckSquare, Square, Info
+  Search, RefreshCw, Key, CheckSquare, Square, Info,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
+import { sortErpItems, SortDirection, formatErpNumber } from "@/lib/erpFormat";
 
 interface CustomRole {
   id: number;
@@ -234,6 +236,36 @@ export const PermissionsTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     }
   };
 
+  const [userSortKey, setUserSortKey] = useState<string>("employeeNo");
+  const [userSortDir, setUserSortDir] = useState<SortDirection>("asc");
+
+  const handleUserSort = (key: string) => {
+    if (userSortKey === key) {
+      setUserSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setUserSortKey(key);
+      setUserSortDir("asc");
+    }
+  };
+
+  const renderSortTh = (label: string, colKey: string, align: "left" | "right" | "center" = "left") => (
+    <th
+      onClick={() => handleUserSort(colKey)}
+      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none hover:bg-slate-700/60 transition ${
+        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
+      }`}
+    >
+      <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"}`}>
+        <span>{label}</span>
+        {userSortKey === colKey ? (
+          userSortDir === "asc" ? <ArrowUp className="w-3 h-3 text-blue-400" /> : <ArrowDown className="w-3 h-3 text-blue-400" />
+        ) : (
+          <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100" />
+        )}
+      </div>
+    </th>
+  );
+
   const filteredEmployees = employees.filter((emp) => {
     if (userDeptFilter !== "ALL" && emp.department !== userDeptFilter) return false;
     if (userSearch.trim()) {
@@ -246,6 +278,10 @@ export const PermissionsTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     }
     return true;
   });
+
+  const sortedFilteredEmployees = useMemo(() => {
+    return sortErpItems(filteredEmployees, userSortKey, userSortDir);
+  }, [filteredEmployees, userSortKey, userSortDir]);
 
   return (
     <div className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-hidden font-sans">
@@ -272,7 +308,7 @@ export const PermissionsTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 activeSubTab === "ROLES" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
               }`}
             >
-              역할 권한 매트릭스 ({roles.length}개 역할)
+              역할 권한 매트릭스 ({formatErpNumber(roles.length)}개 역할)
             </button>
             <button
               onClick={() => setActiveSubTab("USERS")}
@@ -280,7 +316,7 @@ export const PermissionsTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 activeSubTab === "USERS" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
               }`}
             >
-              사원 권한 배정 ({employees.length}명)
+              사원 권한 배정 ({formatErpNumber(employees.length)}명)
             </button>
           </div>
         </div>
@@ -357,7 +393,7 @@ export const PermissionsTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                   </p>
                   <div className="mt-1 flex items-center justify-between text-[10px] text-slate-500">
                     <span>배정 인원</span>
-                    <span className="font-bold text-slate-300 font-mono">{r.assignedCount || 0}명</span>
+                    <span className="font-bold text-slate-300 font-mono">{formatErpNumber(r.assignedCount || 0)}명</span>
                   </div>
                 </button>
               ))}
@@ -465,24 +501,24 @@ export const PermissionsTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 </div>
               </div>
               <span className="text-xs text-slate-400">
-                총 {filteredEmployees.length}명
+                총 {formatErpNumber(filteredEmployees.length)}명
               </span>
             </div>
 
             <div className="flex-1 overflow-auto">
               <table className="w-full text-xs text-left border-collapse">
-                <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0">
+                <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0 z-10 select-none">
                   <tr>
-                    <th className="py-2.5 px-3">사번</th>
-                    <th className="py-2.5 px-3">성명</th>
-                    <th className="py-2.5 px-3">소속 부서</th>
-                    <th className="py-2.5 px-3">직급 / 직책</th>
-                    <th className="py-2.5 px-3">현재 배정된 권한 역할</th>
-                    <th className="py-2.5 px-3 text-center">권한 역할 변경</th>
+                    {renderSortTh("사번", "employeeNo")}
+                    {renderSortTh("성명", "name")}
+                    {renderSortTh("소속 부서", "department")}
+                    {renderSortTh("직급 / 직책", "position")}
+                    {renderSortTh("현재 배정된 권한 역할", "roleCode")}
+                    <th className="py-2.5 px-3 text-center whitespace-nowrap">권한 역할 변경</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {filteredEmployees.map((emp) => (
+                  {sortedFilteredEmployees.map((emp) => (
                     <tr key={emp.id} className="hover:bg-slate-800/40 transition">
                       <td className="py-2 px-3 font-mono text-slate-400">{emp.employeeNo}</td>
                       <td className="py-2 px-3 font-bold text-slate-100">{emp.name}</td>

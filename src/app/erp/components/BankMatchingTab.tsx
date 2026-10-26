@@ -3,9 +3,11 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Building2, Search, Plus, Download, RefreshCw, 
-  Check, X, Link as LinkIcon, DollarSign, Calendar, Upload, AlertCircle, UserCheck
+  Check, X, Link as LinkIcon, DollarSign, Calendar, Upload, AlertCircle, UserCheck,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
 import { BUSINESS_ENTITIES } from "@/lib/businessEntities";
+import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface BankTransaction {
   id: number;
@@ -94,6 +96,45 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     setToastMessage({ type, text });
     setTimeout(() => setToastMessage(null), 3000);
   };
+
+  // Sorting State
+  const [sortKey, setSortKey] = useState<string>("transDate");
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
+    const isActive = sortKey === key;
+    return (
+      <th
+        onClick={() => handleSort(key)}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-700 transition text-${align} whitespace-nowrap`}
+        title={`${label} 기준 정렬`}
+      >
+        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+          <span>{label}</span>
+          <span className="shrink-0">
+            {isActive ? (
+              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
+            ) : (
+              <ArrowUpDown className="w-3 h-3 opacity-30" />
+            )}
+          </span>
+        </div>
+      </th>
+    );
+  };
+
+  const sortedTransactions = useMemo(() => {
+    return sortErpItems(transactions, sortKey, sortDir);
+  }, [transactions, sortKey, sortDir]);
 
   const fetchTransactions = async () => {
     setLoading(true);
@@ -438,29 +479,29 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded shadow-sm overflow-hidden h-full flex flex-col">
           <div className="flex-1 overflow-auto">
             <table className="w-full text-xs text-left border-collapse">
-              <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0">
+              <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0 z-10">
                 <tr>
-                  <th className="py-2.5 px-3 whitespace-nowrap">거래일시</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">은행 / 계좌</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-center">구분</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">입금액(원)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">출금액(원)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">거래후잔액</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">적요 (입금자/거래처)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-center">대사상태</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">매칭대상</th>
+                  {renderSortTh("거래일시", "transDate")}
+                  {renderSortTh("은행 / 계좌", "bankName")}
+                  {renderSortTh("구분", "transType", "center")}
+                  {renderSortTh("입금액(원)", "amount", "right")}
+                  {renderSortTh("출금액(원)", "amount", "right")}
+                  {renderSortTh("거래후잔액", "balanceAfter", "right")}
+                  {renderSortTh("적요 (입금자/거래처)", "senderReceiver")}
+                  {renderSortTh("대사상태", "isMatched", "center")}
+                  {renderSortTh("매칭대상", "matchedType")}
                   <th className="py-2.5 px-3 whitespace-nowrap text-center">조치</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {transactions.length === 0 ? (
+                {sortedTransactions.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="py-16 text-center text-slate-500">
                       조회된 은행 거래 내역이 없습니다.
                     </td>
                   </tr>
                 ) : (
-                  transactions.map((t) => (
+                  sortedTransactions.map((t) => (
                     <tr key={t.id} className="hover:bg-slate-800/40 transition">
                       <td className="py-2 px-3 font-mono text-slate-300 whitespace-nowrap">
                         {t.transDate} <span className="text-slate-500 text-[10px]">{t.transTime}</span>
@@ -492,13 +533,13 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                         </span>
                       </td>
                       <td className="py-2 px-3 text-right font-mono font-bold whitespace-nowrap text-blue-400">
-                        {t.transType === "DEPOSIT" ? `₩${Number(t.amount).toLocaleString()}` : "-"}
+                        {t.transType === "DEPOSIT" ? formatErpCurrency(t.amount) : "-"}
                       </td>
                       <td className="py-2 px-3 text-right font-mono font-bold whitespace-nowrap text-rose-400">
-                        {t.transType === "WITHDRAWAL" ? `₩${Number(t.amount).toLocaleString()}` : "-"}
+                        {t.transType === "WITHDRAWAL" ? formatErpCurrency(t.amount) : "-"}
                       </td>
                       <td className="py-2 px-3 text-right font-mono text-slate-400 whitespace-nowrap">
-                        ₩{Number(t.balanceAfter || 0).toLocaleString()}
+                        {formatErpCurrency(t.balanceAfter || 0)}
                       </td>
                       <td className="py-2 px-3 font-bold text-slate-100 whitespace-nowrap">
                         {t.senderReceiver}
@@ -555,17 +596,17 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
         <div className="flex items-center gap-4 text-xs font-mono">
           <div>
             <span className="text-slate-400">총 입금액: </span>
-            <span className="font-bold text-blue-400">₩{summary.totalDeposit.toLocaleString()}</span>
+            <span className="font-bold text-blue-400">{formatErpCurrency(summary.totalDeposit)}</span>
           </div>
           <span className="text-slate-600">=</span>
           <div>
             <span className="text-slate-400">🟢 매칭 확정액: </span>
-            <span className="font-bold text-emerald-400">₩{summary.matchedDeposit.toLocaleString()}</span>
+            <span className="font-bold text-emerald-400">{formatErpCurrency(summary.matchedDeposit)}</span>
           </div>
           <span className="text-slate-600">+</span>
           <div>
             <span className="text-slate-400">⏳ 미매칭 잔여액: </span>
-            <span className="font-bold text-amber-400">₩{summary.unmatchedDeposit.toLocaleString()}</span>
+            <span className="font-bold text-amber-400">{formatErpCurrency(summary.unmatchedDeposit)}</span>
           </div>
           <span className="text-slate-600">|</span>
           <div className="flex items-center gap-1 font-bold text-slate-300">
@@ -576,7 +617,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
 
         <div className="flex items-center gap-2 text-xs">
           <span className="text-slate-400">총 출금: </span>
-          <span className="font-mono font-bold text-rose-400">₩{summary.totalWithdrawal.toLocaleString()}</span>
+          <span className="font-mono font-bold text-rose-400">{formatErpCurrency(summary.totalWithdrawal)}</span>
         </div>
       </div>
 
@@ -747,7 +788,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">입금액:</span>
-                <span className="text-blue-400 font-bold font-mono">₩{Number(selectedTrans.amount).toLocaleString()}</span>
+                <span className="text-blue-400 font-bold font-mono">{formatErpCurrency(selectedTrans.amount)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">입금자명:</span>

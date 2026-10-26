@@ -4,8 +4,10 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
   Package, Plus, Search, RefreshCw, Download, Edit2, 
   Trash2, X, Check, Eye, AlertCircle, Save, Layers,
-  ExternalLink, Building2, Cpu, HardDrive, Monitor, Shield
+  ExternalLink, Building2, Cpu, HardDrive, Monitor, Shield,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
+import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface ProductModel {
   id: number;
@@ -157,6 +159,45 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
       return true;
     });
   }, [products, categoryFilter, manufacturerFilter, assetFilter, searchTerm]);
+
+  // Sorting State
+  const [sortKey, setSortKey] = useState<string>("modelCode");
+  const [sortDir, setSortDir] = useState<SortDirection>("asc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
+    const isActive = sortKey === key;
+    return (
+      <th
+        onClick={() => handleSort(key)}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-${align} whitespace-nowrap`}
+        title={`${label} 기준 정렬`}
+      >
+        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+          <span>{label}</span>
+          <span className="shrink-0">
+            {isActive ? (
+              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+            ) : (
+              <ArrowUpDown className="w-3 h-3 opacity-30" />
+            )}
+          </span>
+        </div>
+      </th>
+    );
+  };
+
+  const sortedFilteredProducts = useMemo(() => {
+    return sortErpItems(filteredProducts, sortKey, sortDir);
+  }, [filteredProducts, sortKey, sortDir]);
 
   // KPI Metrics
   const kpiStats = useMemo(() => {
@@ -329,7 +370,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
           <Package className="w-5 h-5 text-blue-600 shrink-0" />
           <div className="flex flex-col">
             <span className="text-[11px] opacity-70">전체 등록 모델</span>
-            <span className="text-sm font-bold">{kpiStats.totalModels.toLocaleString()}개</span>
+            <span className="text-sm font-bold">{formatErpNumber(kpiStats.totalModels)}개</span>
           </div>
         </div>
 
@@ -337,7 +378,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
           <Layers className="w-5 h-5 text-emerald-600 shrink-0" />
           <div className="flex flex-col">
             <span className="text-[11px] opacity-70">총 보유 장비</span>
-            <span className="text-sm font-bold text-emerald-700">{kpiStats.totalUnits.toLocaleString()}대</span>
+            <span className="text-sm font-bold text-emerald-700">{formatErpNumber(kpiStats.totalUnits)}대</span>
           </div>
         </div>
 
@@ -345,7 +386,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
           <Monitor className="w-5 h-5 text-blue-600 shrink-0" />
           <div className="flex flex-col">
             <span className="text-[11px] opacity-70">현장 대여 운용중</span>
-            <span className="text-sm font-bold text-blue-700">{kpiStats.rentedUnits.toLocaleString()}대</span>
+            <span className="text-sm font-bold text-blue-700">{formatErpNumber(kpiStats.rentedUnits)}대</span>
           </div>
         </div>
 
@@ -353,7 +394,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
           <Shield className="w-5 h-5 text-teal-600 shrink-0" />
           <div className="flex flex-col">
             <span className="text-[11px] opacity-70">즉시 출고 가능</span>
-            <span className="text-sm font-bold text-teal-700">{kpiStats.availableUnits.toLocaleString()}대</span>
+            <span className="text-sm font-bold text-teal-700">{formatErpNumber(kpiStats.availableUnits)}대</span>
           </div>
         </div>
 
@@ -361,7 +402,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
           <Cpu className="w-5 h-5 text-amber-600 shrink-0" />
           <div className="flex flex-col">
             <span className="text-[11px] opacity-70">정비/수리중</span>
-            <span className="text-sm font-bold text-amber-700">{kpiStats.repairingUnits.toLocaleString()}대</span>
+            <span className="text-sm font-bold text-amber-700">{formatErpNumber(kpiStats.repairingUnits)}대</span>
           </div>
         </div>
       </div>
@@ -465,29 +506,29 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
         {/* Main Grid Table Area */}
         <div className="flex-1 overflow-auto">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className="sticky top-0 z-10 select-none">
+            <thead className="sticky top-0 z-10 select-none bg-[var(--bg-card)] border-b">
               <tr>
-                <th className="py-2.5 px-3">모델코드</th>
-                <th className="py-2.5 px-3">모델명</th>
-                <th className="py-2.5 px-3">제조사</th>
-                <th className="py-2.5 px-3">카테고리</th>
-                <th className="py-2.5 px-3">핵심 제원</th>
-                <th className="py-2.5 px-3 text-right">표준 월렌탈료</th>
-                <th className="py-2.5 px-3 text-right">일할 단가</th>
-                <th className="py-2.5 px-3 text-center">보유 자산</th>
-                <th className="py-2.5 px-3 text-center">가동 현황</th>
+                {renderSortTh("모델코드", "modelCode")}
+                {renderSortTh("모델명", "modelName")}
+                {renderSortTh("제조사", "manufacturer")}
+                {renderSortTh("카테고리", "category")}
+                {renderSortTh("핵심 제원", "spec")}
+                {renderSortTh("표준 월렌탈료", "standardMonthlyRate", "right")}
+                {renderSortTh("일할 단가", "standardDailyRate", "right")}
+                {renderSortTh("보유 자산", "totalAssets", "center")}
+                {renderSortTh("가동 현황", "rentedAssets", "center")}
                 <th className="py-2.5 px-3 text-center">관리</th>
               </tr>
             </thead>
             <tbody>
-              {filteredProducts.length === 0 ? (
+              {sortedFilteredProducts.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-12 text-center text-xs opacity-60">
                     {loading ? "제품 목록을 불러오는 중입니다..." : "조건에 해당하는 제품 모델이 없습니다."}
                   </td>
                 </tr>
               ) : (
-                filteredProducts.map((p) => {
+                sortedFilteredProducts.map((p) => {
                   const isSelected = selectedProduct?.id === p.id;
                   return (
                     <tr
@@ -520,10 +561,10 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                         {p.spec || "-"}
                       </td>
                       <td className="py-2 px-3 text-right font-mono font-bold whitespace-nowrap">
-                        {p.standardMonthlyRate > 0 ? `${p.standardMonthlyRate.toLocaleString()}원` : "-"}
+                        {p.standardMonthlyRate > 0 ? formatErpCurrency(p.standardMonthlyRate) : "-"}
                       </td>
                       <td className="py-2 px-3 text-right font-mono whitespace-nowrap opacity-80">
-                        {p.standardDailyRate > 0 ? `${p.standardDailyRate.toLocaleString()}원` : "-"}
+                        {p.standardDailyRate > 0 ? formatErpCurrency(p.standardDailyRate) : "-"}
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
                         <span
@@ -533,24 +574,24 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                               : "bg-slate-500/10 text-slate-500 border border-slate-500/20"
                           }`}
                         >
-                          {p.totalAssets}대
+                          {formatErpNumber(p.totalAssets)}대
                         </span>
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
                         {p.totalAssets > 0 ? (
                           <div className="flex items-center justify-center gap-1 text-[11px] font-mono">
                             <span className="text-blue-700 font-bold" title="대여중">
-                              대여 {p.rentedAssets}
+                              대여 {formatErpNumber(p.rentedAssets)}
                             </span>
                             <span className="opacity-40">/</span>
                             <span className="text-emerald-700 font-bold" title="임대가능">
-                              가용 {p.availableAssets}
+                              가용 {formatErpNumber(p.availableAssets)}
                             </span>
                             {p.repairingAssets > 0 && (
                               <>
                                 <span className="opacity-40">/</span>
                                 <span className="text-amber-700 font-bold" title="수리중">
-                                  수리 {p.repairingAssets}
+                                  수리 {formatErpNumber(p.repairingAssets)}
                                 </span>
                               </>
                             )}
@@ -708,15 +749,15 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                     </div>
                     <div className="flex justify-between">
                       <span className="opacity-60">월 표준 렌탈료</span>
-                      <span className="font-bold text-blue-700">{selectedProduct.standardMonthlyRate.toLocaleString()}원 / 월</span>
+                      <span className="font-bold text-blue-700">{formatErpCurrency(selectedProduct.standardMonthlyRate)} / 월</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="opacity-60">일할 기준 단가</span>
-                      <span>{selectedProduct.standardDailyRate.toLocaleString()}원 / 일</span>
+                      <span>{formatErpCurrency(selectedProduct.standardDailyRate)} / 일</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="opacity-60">표준 장비 판매가</span>
-                      <span>{selectedProduct.standardPrice.toLocaleString()}원</span>
+                      <span>{formatErpCurrency(selectedProduct.standardPrice)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="opacity-60">보증 구분</span>
@@ -735,7 +776,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-[11px] opacity-75 flex items-center gap-1">
                     <Layers className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>실제 보유 자산 목록 ({mappedAssets.length}대)</span>
+                    <span>실제 보유 자산 목록 ({formatErpNumber(mappedAssets.length)}대)</span>
                   </span>
                   {onNavigateToAsset && (
                     <button

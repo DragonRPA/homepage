@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Truck, Plus, Calendar, RefreshCw, FileText, CheckCircle2, 
-  RotateCcw, DollarSign, Layers, Search, Wrench, ShieldCheck, X
+  RotateCcw, DollarSign, Layers, Search, Wrench, ShieldCheck, X,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
+import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface RentalTabProps {
   currentUser: any;
@@ -83,6 +85,47 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     setToast({ text, type });
     setTimeout(() => setToast(null), 3000);
   };
+
+  // Sorting State
+  const [sortKey, setSortKey] = useState<string>("id");
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
+    const isActive = sortKey === key;
+    return (
+      <th
+        onClick={() => handleSort(key)}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-800 transition text-${align}`}
+        title={`${label} 기준 정렬`}
+      >
+        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+          <span>{label}</span>
+          <span className="shrink-0">
+            {isActive ? (
+              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
+            ) : (
+              <ArrowUpDown className="w-3 h-3 opacity-30" />
+            )}
+          </span>
+        </div>
+      </th>
+    );
+  };
+
+  // Sorted Lists
+  const sortedAssets = useMemo(() => sortErpItems(assets, sortKey, sortDir), [assets, sortKey, sortDir]);
+  const sortedContracts = useMemo(() => sortErpItems(contracts, sortKey, sortDir), [contracts, sortKey, sortDir]);
+  const sortedBillings = useMemo(() => sortErpItems(billings, sortKey, sortDir), [billings, sortKey, sortDir]);
+  const sortedModels = useMemo(() => sortErpItems(models, sortKey, sortDir), [models, sortKey, sortDir]);
 
   // Fetch All Rental Data
   const fetchData = async () => {
@@ -178,7 +221,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "자산 취득 등록 실패");
 
-      showToast(`자산 [${assetNo}] 취득 완료 (장부가액 ₩${Number(acqCost).toLocaleString()})`);
+      showToast(`자산 [${assetNo}] 취득 완료 (장부가액 ${formatErpCurrency(acqCost)})`);
       setShowAcquireAssetModal(false);
       setAssetNo("");
       fetchData();
@@ -302,7 +345,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     const supplierType = targetCt?.entityType || "CORP";
     const corpLabel = supplierType === "INDIVIDUAL" ? "드래곤알피에이 [개인]" : "(주)드래곤알피에이 [법인]";
 
-    if (!window.confirm(`[${corpLabel} ➔ ${b.customerName}]\n${Number(b.proRataRevenue).toLocaleString()}원에 대한 전자세금계산서를 즉시 발행하시겠습니까?`)) {
+    if (!window.confirm(`[${corpLabel} ➔ ${b.customerName}]\n${formatErpCurrency(b.proRataRevenue)}에 대한 전자세금계산서를 즉시 발행하시겠습니까?`)) {
       return;
     }
     try {
@@ -462,40 +505,40 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
               <tr>
-                <th className="py-2.5 px-3">자산번호</th>
-                <th className="py-2.5 px-3">기종 모델</th>
-                <th className="py-2.5 px-3">제조사</th>
-                <th className="py-2.5 px-3">시리얼번호</th>
-                <th className="py-2.5 px-3">취득일자</th>
-                <th className="py-2.5 px-3 text-right">취득원가</th>
-                <th className="py-2.5 px-3 text-right">잔존가치</th>
-                <th className="py-2.5 px-3 text-center">내용연수</th>
-                <th className="py-2.5 px-3 text-right">감가상각누계액</th>
-                <th className="py-2.5 px-3 text-right">현재 장부가액</th>
-                <th className="py-2.5 px-3 text-center">자산상태</th>
+                {renderSortTh("자산번호", "assetNo")}
+                {renderSortTh("기종 모델", "modelName")}
+                {renderSortTh("제조사", "manufacturer")}
+                {renderSortTh("시리얼번호", "serialNo")}
+                {renderSortTh("취득일자", "acquisitionDate")}
+                {renderSortTh("취득원가", "acquisitionCost", "right")}
+                {renderSortTh("잔존가치", "salvageValue", "right")}
+                {renderSortTh("내용연수", "usefulLifeYears", "center")}
+                {renderSortTh("감가상각누계액", "accumulatedDepreciation", "right")}
+                {renderSortTh("현재 장부가액", "bookValue", "right")}
+                {renderSortTh("자산상태", "status", "center")}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {assets.length === 0 ? (
+              {sortedAssets.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="py-8 text-center text-slate-500">
                     등록된 취득 자산이 없습니다.
                   </td>
                 </tr>
               ) : (
-                assets.map((a) => (
+                sortedAssets.map((a) => (
                   <tr key={a.id} className="hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3 font-mono font-bold text-blue-400">{a.assetNo}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{a.modelName}</td>
                     <td className="py-2 px-3 text-slate-300">{a.manufacturer}</td>
                     <td className="py-2 px-3 font-mono text-slate-400">{a.serialNo || "-"}</td>
                     <td className="py-2 px-3 font-mono text-slate-300">{a.acquisitionDate}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-200">₩{Number(a.acquisitionCost).toLocaleString()}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-400">₩{Number(a.salvageValue).toLocaleString()}</td>
-                    <td className="py-2 px-3 text-center font-mono text-slate-300">{a.usefulLifeYears}년</td>
-                    <td className="py-2 px-3 text-right font-mono text-rose-400">₩{Number(a.accumulatedDepreciation).toLocaleString()}</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-200">{formatErpCurrency(a.acquisitionCost)}</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-400">{formatErpCurrency(a.salvageValue)}</td>
+                    <td className="py-2 px-3 text-center font-mono text-slate-300">{formatErpNumber(a.usefulLifeYears)}년</td>
+                    <td className="py-2 px-3 text-right font-mono text-rose-400">{formatErpCurrency(a.accumulatedDepreciation)}</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
-                      ₩{Number(a.bookValue).toLocaleString()}
+                      {formatErpCurrency(a.bookValue)}
                     </td>
                     <td className="py-2 px-3 text-center">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -517,27 +560,27 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
               <tr>
-                <th className="py-2.5 px-3">귀속 사업자</th>
-                <th className="py-2.5 px-3">계약번호</th>
-                <th className="py-2.5 px-3">고객사(임차인)</th>
-                <th className="py-2.5 px-3">현장명</th>
-                <th className="py-2.5 px-3">배정 자산</th>
-                <th className="py-2.5 px-3">기종 모델</th>
-                <th className="py-2.5 px-3">계약기간</th>
-                <th className="py-2.5 px-3 text-right">월임대료</th>
-                <th className="py-2.5 px-3 text-center">계약상태</th>
+                {renderSortTh("귀속 사업자", "entityType")}
+                {renderSortTh("계약번호", "contractNo")}
+                {renderSortTh("고객사(임차인)", "customerName")}
+                {renderSortTh("현장명", "siteName")}
+                {renderSortTh("배정 자산", "assetNo")}
+                {renderSortTh("기종 모델", "modelName")}
+                {renderSortTh("계약기간", "startDate")}
+                {renderSortTh("월임대료", "monthlyRate", "right")}
+                {renderSortTh("계약상태", "status", "center")}
                 <th className="py-2.5 px-3 text-center">반납 조치</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {contracts.length === 0 ? (
+              {sortedContracts.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-8 text-center text-slate-500">
                     등록된 임대계약이 없습니다.
                   </td>
                 </tr>
               ) : (
-                contracts.map((c) => (
+                sortedContracts.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3">
                       {c.entityType === "INDIVIDUAL" ? (
@@ -556,7 +599,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     <td className="py-2 px-3 font-mono font-bold text-blue-300">{c.assetNo}</td>
                     <td className="py-2 px-3 text-slate-200">{c.modelName}</td>
                     <td className="py-2 px-3 font-mono text-slate-300">{c.startDate} ~ {c.endDate}</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">₩{Number(c.monthlyRate).toLocaleString()}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(c.monthlyRate)}</td>
                     <td className="py-2 px-3 text-center">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                         c.status === "ACTIVE" ? "bg-amber-950 text-amber-400 border border-amber-800" : "bg-slate-800 text-slate-400"
@@ -587,39 +630,39 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
               <tr>
-                <th className="py-2.5 px-3">청구번호</th>
-                <th className="py-2.5 px-3">고객사</th>
-                <th className="py-2.5 px-3">자산/기종</th>
-                <th className="py-2.5 px-3 text-center">가동일수</th>
-                <th className="py-2.5 px-3 text-right">일할매출액</th>
-                <th className="py-2.5 px-3 text-right">감가상각원가(COGS)</th>
-                <th className="py-2.5 px-3 text-right">순마진</th>
-                <th className="py-2.5 px-3 text-center">수납상태</th>
+                {renderSortTh("청구번호", "billingNo")}
+                {renderSortTh("고객사", "customerName")}
+                {renderSortTh("자산/기종", "assetNo")}
+                {renderSortTh("가동일수", "operatingDays", "center")}
+                {renderSortTh("일할매출액", "proRataRevenue", "right")}
+                {renderSortTh("감가상각원가(COGS)", "depreciationCogs", "right")}
+                {renderSortTh("순마진", "netMargin", "right")}
+                {renderSortTh("수납상태", "paymentStatus", "center")}
                 <th className="py-2.5 px-3 text-center">세금계산서</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {billings.length === 0 ? (
+              {sortedBillings.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-8 text-center text-slate-500">
                     해당 연월에 생성된 임대 정산 청구서가 없습니다.
                   </td>
                 </tr>
               ) : (
-                billings.map((b) => (
+                sortedBillings.map((b) => (
                   <tr key={b.id} className="hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3 font-mono text-blue-400">{b.billingNo}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{b.customerName}</td>
                     <td className="py-2 px-3 text-slate-200">{b.assetNo} ({b.modelName})</td>
-                    <td className="py-2 px-3 text-center font-mono text-slate-300">{b.operatingDays}일</td>
+                    <td className="py-2 px-3 text-center font-mono text-slate-300">{formatErpNumber(b.operatingDays)}일</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-blue-400">
-                      ₩{Number(b.proRataRevenue).toLocaleString()}
+                      {formatErpCurrency(b.proRataRevenue)}
                     </td>
                     <td className="py-2 px-3 text-right font-mono text-slate-400">
-                      ₩{Number(b.depreciationCogs).toLocaleString()}
+                      {formatErpCurrency(b.depreciationCogs)}
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
-                      ₩{Number(b.netMargin).toLocaleString()}
+                      {formatErpCurrency(b.netMargin)}
                     </td>
                     <td className="py-2 px-3 text-center">
                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -651,31 +694,31 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
               <tr>
-                <th className="py-2.5 px-3">모델 코드</th>
-                <th className="py-2.5 px-3">모델명</th>
-                <th className="py-2.5 px-3">제조사</th>
-                <th className="py-2.5 px-3">제원 사양</th>
-                <th className="py-2.5 px-3 text-right">기준 월임대료</th>
-                <th className="py-2.5 px-3 text-right">기준 일일단가</th>
-                <th className="py-2.5 px-3 text-center">상태</th>
+                {renderSortTh("모델 코드", "model_code")}
+                {renderSortTh("모델명", "model_name")}
+                {renderSortTh("제조사", "manufacturer")}
+                {renderSortTh("제원 사양", "spec")}
+                {renderSortTh("기준 월임대료", "standard_monthly_rate", "right")}
+                {renderSortTh("기준 일일단가", "standard_daily_rate", "right")}
+                {renderSortTh("상태", "status", "center")}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {models.length === 0 ? (
+              {sortedModels.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-slate-500">
                     등록된 기종 모델이 없습니다.
                   </td>
                 </tr>
               ) : (
-                models.map((m) => (
+                sortedModels.map((m) => (
                   <tr key={m.id} className="hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3 font-mono font-bold text-blue-400">{m.model_code}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{m.model_name}</td>
                     <td className="py-2 px-3 text-slate-300">{m.manufacturer}</td>
                     <td className="py-2 px-3 text-slate-400">{m.spec || "-"}</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">₩{Number(m.standard_monthly_rate).toLocaleString()}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-300">₩{Number(m.standard_daily_rate).toLocaleString()}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(m.standard_monthly_rate)}</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(m.standard_daily_rate)}</td>
                     <td className="py-2 px-3 text-center">
                       <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-bold">
                         정상가동
@@ -692,10 +735,10 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       {/* Terminal Summary (Z-Pattern ④) */}
       <div className="bg-slate-900 border border-slate-800 px-4 py-2.5 rounded flex items-center justify-between text-xs text-slate-300">
         <div className="flex items-center gap-4">
-          <span>총 자산: <strong className="text-white">{assets.length}대</strong></span>
-          <span>임대중: <strong className="text-amber-400">{assets.filter(a => a.status === "RENTED").length}대</strong></span>
-          <span>임대가능: <strong className="text-emerald-400">{assets.filter(a => a.status === "AVAILABLE").length}대</strong></span>
-          <span>총 장부가액: <strong className="text-blue-400">₩{assets.reduce((s, a) => s + Number(a.bookValue || 0), 0).toLocaleString()}</strong></span>
+          <span>총 자산: <strong className="text-white">{formatErpNumber(assets.length)}대</strong></span>
+          <span>임대중: <strong className="text-amber-400">{formatErpNumber(assets.filter(a => a.status === "RENTED").length)}대</strong></span>
+          <span>임대가능: <strong className="text-emerald-400">{formatErpNumber(assets.filter(a => a.status === "AVAILABLE").length)}대</strong></span>
+          <span>총 장부가액: <strong className="text-blue-400">{formatErpCurrency(assets.reduce((s, a) => s + Number(a.bookValue || 0), 0))}</strong></span>
         </div>
         <div className="text-[11px] text-slate-500 font-mono">
           ※ 헌장 1.3 출고 승인 마감 시 자산상태 RENTED 전환 원칙 준수
@@ -1094,7 +1137,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                   <option value="">선택하십시오</option>
                   {contracts.map(c => (
                     <option key={c.id} value={c.id}>
-                      [{c.contractNo}] {c.customerName} - {c.assetNo} (월 ₩{Number(c.monthlyRate).toLocaleString()})
+                      [{c.contractNo}] {c.customerName} - {c.assetNo} (월 {formatErpCurrency(c.monthlyRate)})
                     </option>
                   ))}
                 </select>
@@ -1187,7 +1230,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <p className="font-bold mb-1">⚖️ 감가상각 회계 원칙</p>
                 <p className="text-[11px] leading-relaxed text-amber-300/90">
                   - 정액법 공식: (취득원가 - 잔존가치) / (내용연수 × 12개월)<br/>
-                  - 실행 대상: 현재 가동 중인 전 자산 (총 {assets.length}대)<br/>
+                  - 실행 대상: 현재 가동 중인 전 자산 (총 {formatErpNumber(assets.length)}대)<br/>
                   - 산출된 월 상각비는 임대 기간별 매출원가로 1:1 매핑됩니다.
                 </p>
               </div>

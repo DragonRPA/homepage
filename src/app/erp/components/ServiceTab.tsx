@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
   Briefcase, Plus, RefreshCw, FileText, CheckCircle2, 
-  Layers, Search, DollarSign, Calendar, X
+  Layers, Search, DollarSign, Calendar, X,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
+import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface ServiceTabProps {
   currentUser: any;
@@ -56,6 +58,44 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     setToast({ text, type });
     setTimeout(() => setToast(null), 3000);
   };
+
+  // Sorting State
+  const [sortKey, setSortKey] = useState<string>("id");
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
+    const isActive = sortKey === key;
+    return (
+      <th
+        onClick={() => handleSort(key)}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-800 transition text-${align}`}
+        title={`${label} 기준 정렬`}
+      >
+        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+          <span>{label}</span>
+          <span className="shrink-0">
+            {isActive ? (
+              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
+            ) : (
+              <ArrowUpDown className="w-3 h-3 opacity-30" />
+            )}
+          </span>
+        </div>
+      </th>
+    );
+  };
+
+  const sortedContracts = useMemo(() => sortErpItems(contracts, sortKey, sortDir), [contracts, sortKey, sortDir]);
+  const sortedBillings = useMemo(() => sortErpItems(billings, sortKey, sortDir), [billings, sortKey, sortDir]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -157,7 +197,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     const supplierType = targetCt?.entityType || "CORP";
     const corpLabel = supplierType === "INDIVIDUAL" ? "드래곤알피에이 [개인]" : "(주)드래곤알피에이 [법인]";
 
-    if (!window.confirm(`[${corpLabel} ➔ ${b.customerName}]\n${Number(b.totalAmount).toLocaleString()}원에 대한 전자세금계산서를 즉시 발행하시겠습니까?`)) {
+    if (!window.confirm(`[${corpLabel} ➔ ${b.customerName}]\n${formatErpCurrency(b.totalAmount)}에 대한 전자세금계산서를 즉시 발행하시겠습니까?`)) {
       return;
     }
     try {
@@ -252,33 +292,31 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           <div className="px-3 py-2 border-b border-slate-800 text-xs font-bold text-slate-200 flex items-center justify-between">
             <span>체결 계약 대장 ({contracts.length}건)</span>
             <span className="text-[11px] text-slate-400">
-              총 계약고: ₩{contracts.reduce((s, c) => s + Number(c.contractAmount || 0), 0).toLocaleString()}
+              총 계약고: {formatErpCurrency(contracts.reduce((s, c) => s + Number(c.contractAmount || 0), 0))}
             </span>
           </div>
           <div className="flex-1 overflow-auto">
             <table className="w-full text-left text-xs whitespace-nowrap">
               <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
                 <tr>
-                  <th className="py-2 px-3">귀속</th>
-                  <th className="py-2 px-3">계약번호</th>
-                  <th className="py-2 px-3">고객사</th>
-                  <th className="py-2 px-3">용역/프로젝트명</th>
-                  <th className="py-2 px-3 text-right">
-                    {activeType === "OPERATIONAL" ? "월 용역료" : "총 계약금"}
-                  </th>
-                  <th className="py-2 px-3">계약기간</th>
-                  <th className="py-2 px-3 text-center">상태</th>
+                  {renderSortTh("귀속", "entityType")}
+                  {renderSortTh("계약번호", "contractNo")}
+                  {renderSortTh("고객사", "customerName")}
+                  {renderSortTh("용역/프로젝트명", "projectName")}
+                  {renderSortTh(activeType === "OPERATIONAL" ? "월 용역료" : "총 계약금", activeType === "OPERATIONAL" ? "monthlyFee" : "contractAmount", "right")}
+                  {renderSortTh("계약기간", "startDate")}
+                  {renderSortTh("상태", "status", "center")}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {contracts.length === 0 ? (
+                {sortedContracts.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-8 text-center text-slate-500">
                       등록된 용역 계약이 없습니다.
                     </td>
                   </tr>
                 ) : (
-                  contracts.map((c) => (
+                  sortedContracts.map((c) => (
                     <tr key={c.id} className="hover:bg-slate-800/50 transition">
                       <td className="py-2 px-3">
                         {c.entityType === "INDIVIDUAL" ? (
@@ -295,7 +333,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       <td className="py-2 px-3 font-bold text-slate-100">{c.customerName}</td>
                       <td className="py-2 px-3 text-slate-200">{c.projectName}</td>
                       <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">
-                        ₩{Number(activeType === "OPERATIONAL" ? c.monthlyFee : c.contractAmount).toLocaleString()}
+                        {formatErpCurrency(activeType === "OPERATIONAL" ? c.monthlyFee : c.contractAmount)}
                       </td>
                       <td className="py-2 px-3 font-mono text-slate-400 text-[11px]">
                         {c.startDate} ~ {c.endDate}
@@ -318,36 +356,36 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           <div className="px-3 py-2 border-b border-slate-800 text-xs font-bold text-slate-200 flex items-center justify-between">
             <span>청구 및 수납 내역 ({billings.length}건)</span>
             <span className="text-[11px] text-slate-400">
-              총 청구액: ₩{billings.reduce((s, b) => s + Number(b.totalAmount || 0), 0).toLocaleString()}
+              총 청구액: {formatErpCurrency(billings.reduce((s, b) => s + Number(b.totalAmount || 0), 0))}
             </span>
           </div>
           <div className="flex-1 overflow-auto">
             <table className="w-full text-left text-xs whitespace-nowrap">
               <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
                 <tr>
-                  <th className="py-2 px-3">청구번호</th>
-                  <th className="py-2 px-3">고객사 / 용역명</th>
-                  <th className="py-2 px-3">구분 / 마일스톤</th>
-                  <th className="py-2 px-3 text-right">공급가액</th>
-                  <th className="py-2 px-3 text-right">총 청구액</th>
-                  <th className="py-2 px-3 text-center">세금계산서</th>
+                  {renderSortTh("청구번호", "billingNo")}
+                  {renderSortTh("고객사 / 용역명", "customerName")}
+                  {renderSortTh("구분 / 마일스톤", "milestoneName")}
+                  {renderSortTh("공급가액", "supplyAmount", "right")}
+                  {renderSortTh("총 청구액", "totalAmount", "right")}
+                  <th className="py-2.5 px-3 text-center">세금계산서</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {billings.length === 0 ? (
+                {sortedBillings.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-8 text-center text-slate-500">
                       생성된 청구 내역이 없습니다.
                     </td>
                   </tr>
                 ) : (
-                  billings.map((b) => (
+                  sortedBillings.map((b) => (
                     <tr key={b.id} className="hover:bg-slate-800/50 transition">
                       <td className="py-2 px-3 font-mono text-blue-400">{b.billingNo}</td>
                       <td className="py-2 px-3 font-bold text-slate-100">{b.customerName}</td>
                       <td className="py-2 px-3 text-slate-300">{b.milestoneName}</td>
-                      <td className="py-2 px-3 text-right font-mono text-slate-300">₩{Number(b.supplyAmount).toLocaleString()}</td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">₩{Number(b.totalAmount).toLocaleString()}</td>
+                      <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(b.supplyAmount)}</td>
+                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(b.totalAmount)}</td>
                       <td className="py-2 px-3 text-center">
                         {b.taxInvoiceNo ? (
                           <span className="font-mono text-[10px] text-blue-400">{b.taxInvoiceNo}</span>
@@ -372,9 +410,9 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       {/* Terminal Summary (Z-Pattern ④) */}
       <div className="bg-slate-900 border border-slate-800 px-4 py-2.5 rounded flex items-center justify-between text-xs text-slate-300">
         <div className="flex items-center gap-4">
-          <span>{activeType === "OPERATIONAL" ? "운영용역" : "개발용역"} 계약: <strong className="text-white">{contracts.length}건</strong></span>
-          <span>누적 청구건수: <strong className="text-blue-400">{billings.length}건</strong></span>
-          <span>총 청구 공급가액: <strong className="text-emerald-400">₩{billings.reduce((s, b) => s + Number(b.supplyAmount || 0), 0).toLocaleString()}</strong></span>
+          <span>{activeType === "OPERATIONAL" ? "운영용역" : "개발용역"} 계약: <strong className="text-white">{formatErpNumber(contracts.length)}건</strong></span>
+          <span>누적 청구건수: <strong className="text-blue-400">{formatErpNumber(billings.length)}건</strong></span>
+          <span>총 청구 공급가액: <strong className="text-emerald-400">{formatErpCurrency(billings.reduce((s, b) => s + Number(b.supplyAmount || 0), 0))}</strong></span>
         </div>
         <div className="text-[11px] text-slate-500 font-mono">
           ※ 계약 및 청구관리 ➔ 전자세금계산서 1-Way 자동 발행 파이프라인

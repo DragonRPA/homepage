@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Calendar, Clock, Check, X, AlertCircle, RefreshCw, 
-  Send, Trash2, Info, ChevronRight, User
+  Send, Trash2, Info, ChevronRight, User,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
+import { sortErpItems, SortDirection, formatErpNumber } from "@/lib/erpFormat";
 
 interface LeaveRequest {
   id: number;
@@ -43,6 +45,39 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
   const [myInfo, setMyInfo] = useState<Employee | null>(null);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(false);
+  const [sortKey, setSortKey] = useState<string>("createdAt");
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const renderSortTh = (label: string, colKey: string, align: "left" | "right" | "center" = "left") => (
+    <th
+      onClick={() => handleSort(colKey)}
+      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none hover:bg-slate-700/60 transition ${
+        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
+      }`}
+    >
+      <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"}`}>
+        <span>{label}</span>
+        {sortKey === colKey ? (
+          sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-blue-400" /> : <ArrowDown className="w-3 h-3 text-blue-400" />
+        ) : (
+          <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100" />
+        )}
+      </div>
+    </th>
+  );
+
+  const sortedLeaves = useMemo(() => {
+    return sortErpItems(leaves, sortKey, sortDir);
+  }, [leaves, sortKey, sortDir]);
 
   // Form State
   const [leaveType, setLeaveType] = useState<"ANNUAL" | "HALF_AM" | "HALF_PM">("ANNUAL");
@@ -211,21 +246,21 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
               <div className="p-3 bg-slate-950/60 rounded border border-slate-800 text-center">
                 <span className="text-[10px] text-slate-400 block mb-1">부여 연차</span>
                 <span className="text-lg font-mono font-bold text-blue-400">
-                  {myInfo ? Number(myInfo.grantDays).toFixed(1) : "15.0"}
+                  {myInfo ? formatErpNumber(myInfo.grantDays) : "15"}
                   <span className="text-xs font-normal text-slate-400 ml-0.5">일</span>
                 </span>
               </div>
               <div className="p-3 bg-slate-950/60 rounded border border-slate-800 text-center">
                 <span className="text-[10px] text-slate-400 block mb-1">사용 연차</span>
                 <span className="text-lg font-mono font-bold text-amber-400">
-                  {myInfo ? Number(myInfo.usedDays).toFixed(1) : "0.0"}
+                  {myInfo ? formatErpNumber(myInfo.usedDays) : "0"}
                   <span className="text-xs font-normal text-slate-400 ml-0.5">일</span>
                 </span>
               </div>
               <div className="p-3 bg-slate-950/60 rounded border border-slate-800 text-center">
                 <span className="text-[10px] text-slate-400 block mb-1">잔여 연차</span>
                 <span className="text-lg font-mono font-bold text-emerald-400">
-                  {myInfo ? Number(myInfo.remainDays).toFixed(1) : "15.0"}
+                  {myInfo ? formatErpNumber(myInfo.remainDays) : "15"}
                   <span className="text-xs font-normal text-slate-400 ml-0.5">일</span>
                 </span>
               </div>
@@ -308,7 +343,7 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
             <div className="p-2.5 bg-slate-950/60 rounded border border-slate-800 flex items-center justify-between text-xs">
               <span className="text-slate-400">차감 예정 일수</span>
               <span className="font-mono font-bold text-amber-400">
-                {calculatedDeductedDays}일 (주말 제외)
+                {formatErpNumber(calculatedDeductedDays)}일 (주말 제외)
               </span>
             </div>
 
@@ -336,32 +371,32 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
         {/* Right: My Leave History Table (8 cols) */}
         <div className="col-span-12 lg:col-span-8 bg-slate-900 border border-slate-800 rounded flex flex-col overflow-hidden">
           <div className="p-3 bg-slate-800/80 border-b border-slate-700 text-xs font-bold text-slate-300 flex items-center justify-between">
-            <span>내 연차 신청 및 결재 이력 ({leaves.length}건)</span>
+            <span>내 연차 신청 및 결재 이력 ({formatErpNumber(leaves.length)}건)</span>
           </div>
 
           <div className="flex-1 overflow-auto">
             <table className="w-full text-xs text-left border-collapse">
-              <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0">
+              <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0 z-10 select-none">
                 <tr>
-                  <th className="py-2.5 px-3">신청일시</th>
-                  <th className="py-2.5 px-3">구분</th>
-                  <th className="py-2.5 px-3">휴가 기간</th>
-                  <th className="py-2.5 px-3 text-center">차감일수</th>
-                  <th className="py-2.5 px-3">사유</th>
-                  <th className="py-2.5 px-3 text-center">결재상태</th>
-                  <th className="py-2.5 px-3">결재자</th>
-                  <th className="py-2.5 px-3 text-center">관리</th>
+                  {renderSortTh("신청일시", "createdAt")}
+                  {renderSortTh("구분", "leaveType")}
+                  {renderSortTh("휴가 기간", "startDate")}
+                  {renderSortTh("차감일수", "deductedDays", "center")}
+                  {renderSortTh("사유", "reason")}
+                  {renderSortTh("결재상태", "status", "center")}
+                  {renderSortTh("결재자", "approverName")}
+                  <th className="py-2.5 px-3 text-center whitespace-nowrap">관리</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {leaves.length === 0 ? (
+                {sortedLeaves.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-12 text-center text-slate-500">
                       신청된 연차 내역이 없습니다.
                     </td>
                   </tr>
                 ) : (
-                  leaves.map((l) => (
+                  sortedLeaves.map((l) => (
                     <tr key={l.id} className="hover:bg-slate-800/40 transition">
                       <td className="py-2 px-3 font-mono text-slate-400 whitespace-nowrap">
                         {l.createdAt ? l.createdAt.substring(0, 10) : "-"}
@@ -375,7 +410,7 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
                         {l.startDate} {l.startDate !== l.endDate ? `~ ${l.endDate}` : ""}
                       </td>
                       <td className="py-2 px-3 text-center font-mono font-bold text-amber-400 whitespace-nowrap">
-                        {l.deductedDays}일
+                        {formatErpNumber(l.deductedDays)}일
                       </td>
                       <td className="py-2 px-3 text-slate-300 max-w-xs truncate" title={l.reason}>
                         {l.reason}

@@ -1,22 +1,28 @@
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
 
-// GET: 부서 목록 및 부서원 수 조회
+// GET: 부서 목록, 계층 구조(parentDepartmentId), 보편 기능 태그(functional_tags) 및 부서원 수 조회
 export async function GET() {
   try {
     const pool = getErpPool();
     const query = `
       SELECT 
-        d.id,
+        d.id::text as "id",
         d.dept_code as "deptCode",
         d.dept_name as "deptName",
-        d.parent_id as "parentId",
+        d.dept_name as "name",
+        d.parent_id::text as "parentId",
+        d.parent_id::text as "parentDepartmentId",
         d.manager_name as "managerName",
         d.sort_order as "sortOrder",
+        COALESCE(d.functional_tags, '[]'::jsonb) as "functionalTags",
+        COALESCE(d.functional_tags, '[]'::jsonb) as "functional_tags",
         d.created_at as "createdAt",
+        d.updated_at as "updatedAt",
         COUNT(e.id)::int as "memberCount"
       FROM erp_departments d
-      LEFT JOIN erp_employees e ON e.department = d.dept_name AND e.employment_status = 'ACTIVE'
+      LEFT JOIN erp_employees e 
+        ON (e.department_id = d.id OR (e.department_id IS NULL AND e.department = d.dept_name AND e.department <> ''))
       GROUP BY d.id
       ORDER BY d.sort_order ASC, d.id ASC
     `;
@@ -28,24 +34,29 @@ export async function GET() {
   }
 }
 
-// POST: 신규 부서 등록
+// POST: 신규 부서 등록 (인라인 트리 생성 및 모달 생성 모두 지원)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { deptCode, deptName, parentId, managerName, sortOrder } = body;
-
-    if (!deptCode || !deptName) {
-      return NextResponse.json({ error: "부서코드와 부서명은 필수 항목입니다." }, { status: 400 });
-    }
+    const deptName = (body.name ?? body.deptName ?? "").trim();
+    const deptCode = (body.deptCode || `DEPT-${Date.now()}`).trim().toUpperCase();
+    const rawParent = body.parentDepartmentId !== undefined ? body.parentDepartmentId : body.parentId;
+    const parentId = rawParent && !isNaN(Number(rawParent)) ? Number(rawParent) : null;
+    const managerName = body.managerName ? body.managerName.trim() : null;
+    const sortOrder = body.sortOrder ? parseInt(body.sortOrder) : 10;
+    const functionalTags = Array.isArray(body.functional_tags || body.functionalTags)
+      ? (body.functional_tags || body.functionalTags)
+      : [];
 
     const { data, error } = await supabaseErp
       .from("erp_departments")
       .insert({
-        dept_code: deptCode.trim().toUpperCase(),
-        dept_name: deptName.trim(),
-        parent_id: parentId ? parseInt(parentId) : null,
-        manager_name: managerName ? managerName.trim() : null,
-        sort_order: sortOrder ? parseInt(sortOrder) : 10,
+        dept_code: deptCode,
+        dept_name: deptName,
+        parent_id: parentId,
+        manager_name: managerName,
+        sort_order: sortOrder,
+        functional_tags: functionalTags,
       })
       .select()
       .single();
@@ -57,32 +68,58 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, department: data });
+    return NextResponse.json({
+      success: true,
+      department: {
+        id: String(data.id),
+        deptCode: data.dept_code,
+        deptName: data.dept_name,
+        name: data.dept_name,
+        parentId: data.parent_id ? String(data.parent_id) : null,
+        parentDepartmentId: data.parent_id ? String(data.parent_id) : null,
+        managerName: data.manager_name,
+        sortOrder: data.sort_order,
+        functionalTags: data.functional_tags || [],
+        functional_tags: data.functional_tags || [],
+        createdAt: data.created_at,
+        updatedAt: data.updated_at,
+      },
+    });
   } catch (error: any) {
     console.error("POST Department Error:", error);
     return NextResponse.json({ error: "부서 등록 실패" }, { status: 500 });
   }
 }
 
-// PUT: 부서 정보 수정
+// PUT: 부서 정보 수정 (부서명 인라인 수정, 상위부서 변경, 보편 기능 태그 매핑 등)
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, deptName, managerName, sortOrder } = body;
+    const { id, deptName, name, managerName, sortOrder, parentId, parentDepartmentId, functionalTags, functional_tags } = body;
 
     if (!id) {
       return NextResponse.json({ error: "부서 ID가 누락되었습니다." }, { status: 400 });
     }
 
-    const updatePayload: any = {};
-    if (deptName !== undefined) updatePayload.dept_name = deptName.trim();
+    const updatePayload: any = {
+      updated_at: new Date().toISOString(),
+    };
+    const nextName = name !== undefined ? name : deptName;
+    if (nextName !== undefined) updatePayload.dept_name = String(nextName).trim();
     if (managerName !== undefined) updatePayload.manager_name = managerName ? managerName.trim() : null;
     if (sortOrder !== undefined) updatePayload.sort_order = parseInt(sortOrder);
+    if (parentDepartmentId !== undefined || parentId !== undefined) {
+      const rawParent = parentDepartmentId !== undefined ? parentDepartmentId : parentId;
+      updatePayload.parent_id = rawParent && !isNaN(Number(rawParent)) ? Number(rawParent) : null;
+    }
+    if (functional_tags !== undefined || functionalTags !== undefined) {
+      updatePayload.functional_tags = functional_tags ?? functionalTags ?? [];
+    }
 
     const { data, error } = await supabaseErp
       .from("erp_departments")
       .update(updatePayload)
-      .eq("id", id)
+      .eq("id", Number(id))
       .select()
       .single();
 
@@ -90,7 +127,31 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, department: data });
+    // 부서명 변경 시 소속 직원의 department 문자열도 동기화
+    if (nextName !== undefined && data) {
+      await supabaseErp
+        .from("erp_employees")
+        .update({ department: data.dept_name })
+        .eq("department_id", Number(id));
+    }
+
+    return NextResponse.json({
+      success: true,
+      department: {
+        id: String(data.id),
+        deptCode: data.dept_code,
+        deptName: data.dept_name,
+        name: data.dept_name,
+        parentId: data.parent_id ? String(data.parent_id) : null,
+        parentDepartmentId: data.parent_id ? String(data.parent_id) : null,
+        managerName: data.manager_name,
+        sortOrder: data.sort_order,
+        functionalTags: data.functional_tags || [],
+        functional_tags: data.functional_tags || [],
+        createdAt: data.created_at,
+        updatedAt: data.updated_at,
+      },
+    });
   } catch (error: any) {
     console.error("PUT Department Error:", error);
     return NextResponse.json({ error: "부서 수정 실패" }, { status: 500 });
@@ -110,7 +171,7 @@ export async function DELETE(request: Request) {
     const { error } = await supabaseErp
       .from("erp_departments")
       .delete()
-      .eq("id", id);
+      .eq("id", Number(id));
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

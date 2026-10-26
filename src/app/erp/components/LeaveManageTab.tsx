@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Users, Calendar, RefreshCw, Download, Edit3, 
-  RotateCcw, Search, Check, AlertCircle, Plus, ShieldCheck
+  RotateCcw, Search, Check, AlertCircle, Plus, ShieldCheck,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
+import { sortErpItems, SortDirection, formatErpNumber } from "@/lib/erpFormat";
 
 interface EmployeeLeave {
   id: number;
@@ -67,6 +69,36 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     return diffYears;
   };
 
+  const [sortKey, setSortKey] = useState<string>("employeeNo");
+  const [sortDir, setSortDir] = useState<SortDirection>("asc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const renderSortTh = (label: string, colKey: string, align: "left" | "right" | "center" = "left") => (
+    <th
+      onClick={() => handleSort(colKey)}
+      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none hover:bg-slate-700/60 transition ${
+        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
+      }`}
+    >
+      <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"}`}>
+        <span>{label}</span>
+        {sortKey === colKey ? (
+          sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-blue-400" /> : <ArrowDown className="w-3 h-3 text-blue-400" />
+        ) : (
+          <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100" />
+        )}
+      </div>
+    </th>
+  );
+
   // Filtered
   const filteredEmployees = useMemo(() => {
     return employees.filter((emp) => {
@@ -82,6 +114,10 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
       return true;
     });
   }, [employees, deptFilter, searchQuery]);
+
+  const sortedEmployees = useMemo(() => {
+    return sortErpItems(filteredEmployees, sortKey, sortDir);
+  }, [filteredEmployees, sortKey, sortDir]);
 
   // Annual Reset & Recalculate
   const handleAnnualReset = async () => {
@@ -235,25 +271,25 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
 
       {/* Main Table Area */}
       <div className="flex-1 overflow-auto p-4">
-        <div className="bg-slate-900 border border-slate-800 rounded shadow-sm overflow-hidden">
+        <div className="bg-slate-900 border border-slate-800 rounded shadow-sm overflow-auto max-h-[calc(100vh-230px)]">
           <table className="w-full text-xs text-left border-collapse">
-            <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0">
+            <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0 z-10 select-none">
               <tr>
-                <th className="py-2.5 px-3 whitespace-nowrap">사번</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">성명</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">부서</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">직급 / 직책</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">입사일</th>
-                <th className="py-2.5 px-3 whitespace-nowrap text-center">근속연수</th>
-                <th className="py-2.5 px-3 whitespace-nowrap text-center">부여 연차</th>
-                <th className="py-2.5 px-3 whitespace-nowrap text-center">사용 연차</th>
-                <th className="py-2.5 px-3 whitespace-nowrap text-center">잔여 연차</th>
-                <th className="py-2.5 px-3 whitespace-nowrap text-center">소진율</th>
+                {renderSortTh("사번", "employeeNo")}
+                {renderSortTh("성명", "name")}
+                {renderSortTh("부서", "department")}
+                {renderSortTh("직급 / 직책", "position")}
+                {renderSortTh("입사일", "joinDate")}
+                {renderSortTh("근속연수", "joinDate", "center")}
+                {renderSortTh("부여 연차", "grantDays", "right")}
+                {renderSortTh("사용 연차", "usedDays", "right")}
+                {renderSortTh("잔여 연차", "remainDays", "right")}
+                {renderSortTh("소진율", "usedDays", "center")}
                 <th className="py-2.5 px-3 whitespace-nowrap text-center">조정</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {filteredEmployees.map((emp) => {
+              {sortedEmployees.map((emp) => {
                 const grant = Number(emp.grantDays || 15);
                 const used = Number(emp.usedDays || 0);
                 const remain = Number(emp.remainDays || (grant - used));
@@ -276,14 +312,14 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                         {tenure}년차
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-center font-mono font-bold text-blue-400 whitespace-nowrap">
-                      {grant.toFixed(1)}일
+                    <td className="py-2 px-3 text-right font-mono font-bold text-blue-400 whitespace-nowrap">
+                      {formatErpNumber(grant)}일
                     </td>
-                    <td className="py-2 px-3 text-center font-mono font-bold text-amber-400 whitespace-nowrap">
-                      {used.toFixed(1)}일
+                    <td className="py-2 px-3 text-right font-mono font-bold text-amber-400 whitespace-nowrap">
+                      {formatErpNumber(used)}일
                     </td>
-                    <td className="py-2 px-3 text-center font-mono font-bold text-emerald-400 whitespace-nowrap">
-                      {remain.toFixed(1)}일
+                    <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400 whitespace-nowrap">
+                      {formatErpNumber(remain)}일
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1.5">
@@ -293,7 +329,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                             style={{ width: `${rate}%` }}
                           />
                         </div>
-                        <span className="font-mono text-[10px] text-slate-400">{rate}%</span>
+                        <span className="font-mono text-[10px] text-slate-400">{formatErpNumber(rate)}%</span>
                       </div>
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">

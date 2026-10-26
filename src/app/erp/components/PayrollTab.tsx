@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   CreditCard, DollarSign, Calendar, RefreshCw, 
-  Download, Check, AlertCircle, CheckSquare, Edit3, Lock, Send
+  Download, Check, AlertCircle, CheckSquare, Edit3, Lock, Send,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
+import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface PayrollRecord {
   id: number;
@@ -57,6 +59,45 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     setToastMessage({ type, text });
     setTimeout(() => setToastMessage(null), 3000);
   };
+
+  // Sorting State
+  const [sortKey, setSortKey] = useState<string>("employeeNo");
+  const [sortDir, setSortDir] = useState<SortDirection>("asc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left", extraClass: string = "") => {
+    const isActive = sortKey === key;
+    return (
+      <th
+        onClick={() => handleSort(key)}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-700 transition text-${align} whitespace-nowrap ${extraClass}`}
+        title={`${label} 기준 정렬`}
+      >
+        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+          <span>{label}</span>
+          <span className="shrink-0">
+            {isActive ? (
+              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
+            ) : (
+              <ArrowUpDown className="w-3 h-3 opacity-30" />
+            )}
+          </span>
+        </div>
+      </th>
+    );
+  };
+
+  const sortedRecords = useMemo(() => {
+    return sortErpItems(records, sortKey, sortDir);
+  }, [records, sortKey, sortDir]);
 
   const fetchPayroll = async () => {
     setLoading(true);
@@ -278,38 +319,38 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
         <div className="bg-slate-900 border border-slate-800 rounded shadow-sm overflow-hidden h-full flex flex-col">
           <div className="flex-1 overflow-auto">
             <table className="w-full text-xs text-left border-collapse">
-              <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0">
+              <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0 z-10">
                 <tr>
-                  <th className="py-2.5 px-3 whitespace-nowrap">사번</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">성명</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">부서</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">직급 / 직책</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">기본급</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-center">OT시간</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">연장수당</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">식대(비과세)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">상여금</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right text-blue-300 font-bold bg-slate-800/90">총지급액</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">국민연금(4.5%)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">건강보험(3.54%)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">고용보험(0.9%)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">소득세</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right">지방소득세</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right text-rose-300 font-bold bg-slate-800/90">총공제액</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-right text-emerald-400 font-bold bg-slate-800/90">실지급액</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap text-center">상태</th>
+                  {renderSortTh("사번", "employeeNo")}
+                  {renderSortTh("성명", "employeeName")}
+                  {renderSortTh("부서", "department")}
+                  {renderSortTh("직급 / 직책", "position")}
+                  {renderSortTh("기본급", "baseSalary", "right")}
+                  {renderSortTh("OT시간", "otHours", "center")}
+                  {renderSortTh("연장수당", "otPay", "right")}
+                  {renderSortTh("식대(비과세)", "mealAllowance", "right")}
+                  {renderSortTh("상여금", "bonus", "right")}
+                  {renderSortTh("총지급액", "totalGross", "right", "text-blue-300 font-bold bg-slate-800/90")}
+                  {renderSortTh("국민연금(4.5%)", "nationalPension", "right")}
+                  {renderSortTh("건강보험(3.54%)", "healthInsurance", "right")}
+                  {renderSortTh("고용보험(0.9%)", "employmentInsurance", "right")}
+                  {renderSortTh("소득세", "incomeTax", "right")}
+                  {renderSortTh("지방소득세", "localTax", "right")}
+                  {renderSortTh("총공제액", "totalDeduction", "right", "text-rose-300 font-bold bg-slate-800/90")}
+                  {renderSortTh("실지급액", "netSalary", "right", "text-emerald-400 font-bold bg-slate-800/90")}
+                  {renderSortTh("상태", "status", "center")}
                   <th className="py-2.5 px-3 whitespace-nowrap text-center">관리</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 font-mono text-[11px]">
-                {records.length === 0 ? (
+                {sortedRecords.length === 0 ? (
                   <tr>
                     <td colSpan={19} className="py-16 text-center text-slate-500 font-sans text-xs">
                       {selectedMonth} 급여 대장이 생성되지 않았습니다. 상단 &apos;급여 자동 계산 & 대장 생성&apos; 버튼을 클릭하세요.
                     </td>
                   </tr>
                 ) : (
-                  records.map((r) => (
+                  sortedRecords.map((r) => (
                     <tr key={r.id} className="hover:bg-slate-800/40 transition">
                       <td className="py-2 px-3 text-slate-400 whitespace-nowrap font-sans">{r.employeeNo}</td>
                       <td className="py-2 px-3 font-bold text-slate-100 whitespace-nowrap font-sans">{r.employeeName}</td>
@@ -318,43 +359,43 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                         {r.position} {r.duty ? `(${r.duty})` : ""}
                       </td>
                       <td className="py-2 px-3 text-right text-slate-300 whitespace-nowrap">
-                        ₩{Number(r.baseSalary).toLocaleString()}
+                        {formatErpCurrency(r.baseSalary)}
                       </td>
                       <td className="py-2 px-3 text-center text-amber-400 font-bold whitespace-nowrap">
-                        {r.otHours}h
+                        {formatErpNumber(r.otHours)}h
                       </td>
                       <td className="py-2 px-3 text-right text-amber-400 whitespace-nowrap">
-                        ₩{Number(r.otPay).toLocaleString()}
+                        {formatErpCurrency(r.otPay)}
                       </td>
                       <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
-                        ₩{Number(r.mealAllowance).toLocaleString()}
+                        {formatErpCurrency(r.mealAllowance)}
                       </td>
                       <td className="py-2 px-3 text-right text-slate-300 whitespace-nowrap">
-                        ₩{Number(r.bonus).toLocaleString()}
+                        {formatErpCurrency(r.bonus)}
                       </td>
                       <td className="py-2 px-3 text-right font-bold text-blue-300 bg-blue-950/20 whitespace-nowrap">
-                        ₩{Number(r.totalGross).toLocaleString()}
+                        {formatErpCurrency(r.totalGross)}
                       </td>
                       <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
-                        ₩{Number(r.nationalPension).toLocaleString()}
+                        {formatErpCurrency(r.nationalPension)}
                       </td>
                       <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
-                        ₩{Number(r.healthInsurance).toLocaleString()}
+                        {formatErpCurrency(r.healthInsurance)}
                       </td>
                       <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
-                        ₩{Number(r.employmentInsurance).toLocaleString()}
+                        {formatErpCurrency(r.employmentInsurance)}
                       </td>
                       <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
-                        ₩{Number(r.incomeTax).toLocaleString()}
+                        {formatErpCurrency(r.incomeTax)}
                       </td>
                       <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
-                        ₩{Number(r.localTax).toLocaleString()}
+                        {formatErpCurrency(r.localTax)}
                       </td>
                       <td className="py-2 px-3 text-right font-bold text-rose-300 bg-rose-950/20 whitespace-nowrap">
-                        ₩{Number(r.totalDeduction).toLocaleString()}
+                        {formatErpCurrency(r.totalDeduction)}
                       </td>
                       <td className="py-2 px-3 text-right font-bold text-emerald-400 bg-emerald-950/20 whitespace-nowrap text-xs">
-                        ₩{Number(r.netSalary).toLocaleString()}
+                        {formatErpCurrency(r.netSalary)}
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap font-sans">
                         <span
@@ -398,29 +439,29 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
         <div className="flex items-center gap-4 text-xs font-mono">
           <div>
             <span className="text-slate-400">📄 총지급액: </span>
-            <span className="font-bold text-blue-400">₩{summary.totalGrossSum.toLocaleString()}</span>
+            <span className="font-bold text-blue-400">{formatErpCurrency(summary.totalGrossSum)}</span>
           </div>
           <span className="text-slate-600">=</span>
           <div>
             <span className="text-slate-400">🛡️ 총공제액: </span>
-            <span className="font-bold text-rose-400">₩{summary.totalDeductionSum.toLocaleString()}</span>
+            <span className="font-bold text-rose-400">{formatErpCurrency(summary.totalDeductionSum)}</span>
           </div>
           <span className="text-slate-600">+</span>
           <div>
             <span className="text-slate-400">💳 실지급총액: </span>
-            <span className="font-bold text-emerald-400">₩{summary.netSalarySum.toLocaleString()}</span>
+            <span className="font-bold text-emerald-400">{formatErpCurrency(summary.netSalarySum)}</span>
           </div>
           <span className="text-slate-600">|</span>
           <div className="flex items-center gap-1 font-bold text-slate-300">
             <span>⚖️ 수지 차액:</span>
             <span className="text-emerald-400">
-              ₩{Math.abs(summary.totalGrossSum - (summary.totalDeductionSum + summary.netSalarySum)).toLocaleString()} (1원도 틀림없이 보존)
+              {formatErpCurrency(Math.abs(summary.totalGrossSum - (summary.totalDeductionSum + summary.netSalarySum)))} (1원도 틀림없이 보존)
             </span>
           </div>
         </div>
 
         <div className="text-xs text-slate-400">
-          대상 사원: <span className="text-slate-100 font-bold font-mono">{summary.count}명</span>
+          대상 사원: <span className="text-slate-100 font-bold font-mono">{formatErpNumber(summary.count)}명</span>
         </div>
       </div>
 

@@ -29,7 +29,13 @@
   */
   --primary: #1d4ed8;
   --primary-hover: #1e40af;
-  --primary-light: #eff6ff;
+  --primary-light: rgba(29, 78, 216, 0.1);
+  --primary-border: rgba(29, 78, 216, 0.35);
+
+  --bg-secondary: #e2dbcd;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
 
   --success: #047857;
   --success-hover: #065f46;
@@ -69,7 +75,13 @@
 
   --primary: #0284c7;
   --primary-hover: #0369a1;
-  --primary-light: #075985;
+  --primary-light: rgba(2, 132, 199, 0.2);
+  --primary-border: rgba(2, 132, 199, 0.45);
+
+  --bg-secondary: #111827;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
 
   --success: #34d399;
   --success-hover: #059669;
@@ -571,4 +583,89 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
+}
+
+/* ==========================================================================
+   🏢 [eBro ERP OrganizationSettings 공통 컴포넌트 & 애니메이션]
+   ========================================================================== */
+.card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-main);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background-color: var(--primary);
+  color: #ffffff !important;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-secondary:hover {
+  background-color: var(--bg-header);
+  color: var(--text-main);
+}
+
+.drop-target-active {
+  background-color: var(--primary-light) !important;
+  border-color: var(--primary) !important;
+  transform: scale(1.01);
+  z-index: 10;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.slide-in-right {
+  animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes pulseBtn {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.pulse-animation {
+  animation: pulseBtn 1.5s infinite ease-in-out;
 }

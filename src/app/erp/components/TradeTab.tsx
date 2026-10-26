@@ -8,10 +8,11 @@ import {
 
 interface TradeTabProps {
   currentUser: any;
+  selectedEntity?: "ALL" | "CORP" | "INDIVIDUAL";
   onNavigateToTax?: () => void;
 }
 
-export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, onNavigateToTax }) => {
+export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity = "ALL", onNavigateToTax }) => {
   const [subTab, setSubTab] = useState<"products" | "purchases" | "sales" | "settlement">("products");
   const [loading, setLoading] = useState(false);
 
@@ -31,6 +32,16 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, onNavigateToTax
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [showAddPurchaseModal, setShowAddPurchaseModal] = useState(false);
   const [showAddSaleModal, setShowAddSaleModal] = useState(false);
+
+  // Add Sale Form
+  const [soEntityType, setSoEntityType] = useState<"CORP" | "INDIVIDUAL">(
+    selectedEntity === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP"
+  );
+
+  useEffect(() => {
+    if (selectedEntity === "INDIVIDUAL") setSoEntityType("INDIVIDUAL");
+    else if (selectedEntity === "CORP") setSoEntityType("CORP");
+  }, [selectedEntity]);
 
   // Add Product Form
   const [skuCode, setSkuCode] = useState("");
@@ -68,10 +79,14 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, onNavigateToTax
   const fetchData = async () => {
     setLoading(true);
     try {
+      const salesUrl = selectedEntity && selectedEntity !== "ALL"
+        ? `/api/erp/trade/sales?entityType=${selectedEntity}`
+        : "/api/erp/trade/sales";
+
       const [prodRes, purRes, saleRes, setRes] = await Promise.all([
         fetch("/api/erp/trade/products"),
         fetch("/api/erp/trade/purchases"),
-        fetch("/api/erp/trade/sales"),
+        fetch(salesUrl),
         fetch(`/api/erp/trade/settlement?startDate=${startDate}&endDate=${endDate}`)
       ]);
 
@@ -97,7 +112,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, onNavigateToTax
 
   useEffect(() => {
     fetchData();
-  }, [startDate, endDate]);
+  }, [startDate, endDate, selectedEntity]);
 
   // Handle Add Product
   const handleAddProduct = async (e: React.FormEvent) => {
@@ -178,6 +193,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, onNavigateToTax
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          entityType: soEntityType,
           saleDate: soDate,
           customerName: soCustomer,
           productId: soProductId,
@@ -199,7 +215,8 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, onNavigateToTax
 
   // Handle Issue Tax Invoice from Sale
   const handleIssueTaxFromSale = async (sale: any) => {
-    if (!window.confirm(`[${sale.customerName}] ${Number(sale.totalAmount).toLocaleString()}원에 대한 전자세금계산서를 즉시 발행하시겠습니까?`)) {
+    const corpLabel = sale.entityType === "INDIVIDUAL" ? "드래곤알피에이 [개인]" : "(주)드래곤알피에이 [법인]";
+    if (!window.confirm(`[${corpLabel} ➔ ${sale.customerName}]\n${Number(sale.totalAmount).toLocaleString()}원에 대한 전자세금계산서를 즉시 발행하시겠습니까?`)) {
       return;
     }
     try {
@@ -208,6 +225,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, onNavigateToTax
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           domainType: "TRADE_SALE",
+          supplierEntityType: sale.entityType || "CORP",
           refId: sale.id,
           customerName: sale.customerName,
           itemName: `${sale.productName} (${sale.qty}${sale.unit})`,
@@ -218,7 +236,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, onNavigateToTax
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "세금계산서 발행 실패");
 
-      showToast(`세금계산서 [${data.invoice.invoiceNo}] 국세청 발행 완료!`);
+      showToast(`세금계산서 [${data.invoice.invoice_no || data.invoice.invoiceNo}] 국세청 발행 완료!`);
       if (onNavigateToTax) onNavigateToTax();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -459,6 +477,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, onNavigateToTax
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
               <tr>
+                <th className="py-2.5 px-3">귀속 사업자</th>
                 <th className="py-2.5 px-3">판매번호</th>
                 <th className="py-2.5 px-3">판매일자</th>
                 <th className="py-2.5 px-3">고객사(수요처)</th>
@@ -474,13 +493,24 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, onNavigateToTax
             <tbody className="divide-y divide-slate-800/60">
               {sales.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-8 text-center text-slate-500">
+                  <td colSpan={11} className="py-8 text-center text-slate-500">
                     판매 출고 내역이 없습니다.
                   </td>
                 </tr>
               ) : (
                 sales.map((s) => (
                   <tr key={s.id} className="hover:bg-slate-800/50 transition">
+                    <td className="py-2 px-3">
+                      {s.entityType === "INDIVIDUAL" ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                          개인
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                          법인
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2 px-3 font-mono text-blue-400">{s.saleNo}</td>
                     <td className="py-2 px-3 font-mono text-slate-300">{s.saleDate}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{s.customerName}</td>
@@ -839,6 +869,37 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, onNavigateToTax
             </div>
 
             <form onSubmit={handleAddSale} className="mt-4 flex flex-col gap-3 text-xs">
+              {/* 귀속 사업자 선택 */}
+              <div className="flex flex-col gap-1 p-2 rounded bg-slate-950 border border-slate-800">
+                <label className="text-slate-400 font-semibold text-[11px]">매출 귀속 사업자 선택</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSoEntityType("CORP")}
+                    className={`p-2 rounded border text-left transition ${
+                      soEntityType === "CORP"
+                        ? "border-blue-500 bg-blue-500/20 text-blue-300 font-bold"
+                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
+                    }`}
+                  >
+                    <div>(주)드래곤알피에이 [법인]</div>
+                    <div className="font-mono text-[10px] opacity-75">806-88-03266</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSoEntityType("INDIVIDUAL")}
+                    className={`p-2 rounded border text-left transition ${
+                      soEntityType === "INDIVIDUAL"
+                        ? "border-amber-500 bg-amber-500/20 text-amber-300 font-bold"
+                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
+                    }`}
+                  >
+                    <div>드래곤알피에이 [개인]</div>
+                    <div className="font-mono text-[10px] opacity-75">295-03-02683</div>
+                  </button>
+                </div>
+              </div>
+
               <div className="flex flex-col gap-1">
                 <label className="text-slate-400">고객사 (수요처명)</label>
                 <input

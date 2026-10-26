@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
 
-// GET: 은행 입출금 거래내역 및 1:1 대사 통계 조회
+// GET: 은행 입출금 거래내역 및 1:1 대사 통계 조회 (계좌 및 사업자 필터 지원)
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -9,12 +9,15 @@ export async function GET(request: Request) {
     const endDate = searchParams.get("endDate");
     const transType = searchParams.get("transType"); // ALL, DEPOSIT, WITHDRAWAL
     const matchStatus = searchParams.get("matchStatus"); // ALL, MATCHED, UNMATCHED
+    const accountNo = searchParams.get("accountNo"); // ALL or specific account no
+    const entityType = searchParams.get("entityType"); // ALL, CORP, INDIVIDUAL
     const search = searchParams.get("search");
 
     const pool = getErpPool();
     let query = `
       SELECT 
         id,
+        entity_type as "entityType",
         bank_name as "bankName",
         account_no as "accountNo",
         trans_date as "transDate",
@@ -54,6 +57,16 @@ export async function GET(request: Request) {
       conditions.push(`is_matched = true`);
     } else if (matchStatus === "UNMATCHED") {
       conditions.push(`is_matched = false`);
+    }
+
+    if (accountNo && accountNo !== "ALL") {
+      params.push(accountNo);
+      conditions.push(`account_no = $${params.length}`);
+    }
+
+    if (entityType && entityType !== "ALL") {
+      params.push(entityType);
+      conditions.push(`entity_type = $${params.length}`);
     }
 
     if (search && search.trim()) {
@@ -114,13 +127,17 @@ export async function POST(request: Request) {
       let insertedCount = 0;
       for (const item of body) {
         if (!item.transDate || !item.amount || !item.senderReceiver) continue;
+        const assignedEntity = (item.entityType === "INDIVIDUAL" || (item.accountNo && item.accountNo.includes("140"))) ? "INDIVIDUAL" : "CORP";
+        const targetAccount = item.accountNo || (assignedEntity === "INDIVIDUAL" ? "140-129404-04-018" : "478-081383-04-018");
+
         await pool.query(
           `INSERT INTO erp_bank_transactions 
-           (bank_name, account_no, trans_date, trans_time, trans_type, amount, balance_after, sender_receiver, memo)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+           (entity_type, bank_name, account_no, trans_date, trans_time, trans_type, amount, balance_after, sender_receiver, memo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [
+            assignedEntity,
             item.bankName || "기업은행",
-            item.accountNo || "111-222-333333",
+            targetAccount,
             item.transDate,
             item.transTime || "12:00:00",
             item.transType || "DEPOSIT",
@@ -136,16 +153,20 @@ export async function POST(request: Request) {
     }
 
     // 단건 등록
-    const { bankName, accountNo, transDate, transTime, transType, amount, balanceAfter, senderReceiver, memo } = body;
+    const { entityType, bankName, accountNo, transDate, transTime, transType, amount, balanceAfter, senderReceiver, memo } = body;
     if (!transDate || !amount || !senderReceiver) {
       return NextResponse.json({ error: "거래일자, 금액, 적요(거래처/입금자명)는 필수 항목입니다." }, { status: 400 });
     }
 
+    const assignedEntity = (entityType === "INDIVIDUAL" || (accountNo && accountNo.includes("140"))) ? "INDIVIDUAL" : "CORP";
+    const targetAccount = accountNo || (assignedEntity === "INDIVIDUAL" ? "140-129404-04-018" : "478-081383-04-018");
+
     const { data, error } = await supabaseErp
       .from("erp_bank_transactions")
       .insert({
+        entity_type: assignedEntity,
         bank_name: bankName || "기업은행",
-        account_no: accountNo || "111-222-333333",
+        account_no: targetAccount,
         trans_date: transDate,
         trans_time: transTime || "12:00:00",
         trans_type: transType || "DEPOSIT",

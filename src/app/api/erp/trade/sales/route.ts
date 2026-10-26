@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 
-// GET: List all sales
-export async function GET() {
+// GET: List all sales (optionally filter by entityType)
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const entityType = searchParams.get("entityType");
+
     const pool = getErpPool();
-    const query = `
+    let query = `
       SELECT 
         s.id,
         s.sale_no as "saleNo",
+        s.entity_type as "entityType",
         s.sale_date as "saleDate",
         s.customer_name as "customerName",
         s.product_id as "productId",
@@ -26,9 +30,16 @@ export async function GET() {
         s.created_at as "createdAt"
       FROM erp_trade_sales s
       JOIN erp_trade_products tp ON s.product_id = tp.id
-      ORDER BY s.sale_date DESC, s.id DESC
+      WHERE 1=1
     `;
-    const res = await pool.query(query);
+    const params: any[] = [];
+    if (entityType && entityType !== "ALL") {
+      params.push(entityType);
+      query += ` AND s.entity_type = $${params.length}`;
+    }
+    query += " ORDER BY s.sale_date DESC, s.id DESC";
+
+    const res = await pool.query(query, params);
     return NextResponse.json({ success: true, sales: res.rows });
   } catch (error: any) {
     console.error("GET Sales Error:", error);
@@ -40,11 +51,13 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { saleDate, customerName, productId, qty, unitPrice, memo } = body;
+    const { saleDate, customerName, productId, qty, unitPrice, memo, entityType } = body;
 
     if (!customerName || !productId || !qty || !unitPrice) {
       return NextResponse.json({ error: "고객사, 상품, 수량, 판매단가는 필수입니다." }, { status: 400 });
     }
+
+    const assignedEntity = entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
 
     const pool = getErpPool();
     const client = await pool.connect();
@@ -74,10 +87,10 @@ export async function POST(request: Request) {
       // 2. Insert sale
       const insRes = await client.query(
         `INSERT INTO erp_trade_sales 
-         (sale_no, sale_date, customer_name, product_id, qty, unit_price, total_amount, cogs_amount, margin_amount, status, memo)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'CONFIRMED', $10)
+         (sale_no, entity_type, sale_date, customer_name, product_id, qty, unit_price, total_amount, cogs_amount, margin_amount, status, memo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'CONFIRMED', $11)
          RETURNING *`,
-        [saleNo, saleDate || new Date().toISOString().split("T")[0], customerName, productId, parsedQty, parsedUnitPrice, totalAmount, cogsAmount, marginAmount, memo || ""]
+        [saleNo, assignedEntity, saleDate || new Date().toISOString().split("T")[0], customerName, productId, parsedQty, parsedUnitPrice, totalAmount, cogsAmount, marginAmount, memo || ""]
       );
 
       // 3. Deduct stock
@@ -92,7 +105,7 @@ export async function POST(request: Request) {
       await client.query(
         `INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
          VALUES ('TRADE', 'SALE', $1, 'ADMIN', $2)`,
-        [saleNo, JSON.stringify({ customerName, productId, qty: parsedQty, totalAmount, marginAmount })]
+        [saleNo, JSON.stringify({ customerName, productId, qty: parsedQty, totalAmount, marginAmount, entityType: assignedEntity })]
       );
 
       await client.query("COMMIT");

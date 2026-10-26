@@ -8,10 +8,11 @@ import {
 
 interface RentalTabProps {
   currentUser: any;
+  selectedEntity?: "ALL" | "CORP" | "INDIVIDUAL";
   onNavigateToTax?: () => void;
 }
 
-export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, onNavigateToTax }) => {
+export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntity = "ALL", onNavigateToTax }) => {
   const [subTab, setSubTab] = useState<"models" | "assets" | "contracts" | "billings">("assets");
   const [loading, setLoading] = useState(false);
 
@@ -30,6 +31,16 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, onNavigateToT
   const [showDeprecModal, setShowDeprecModal] = useState(false);
   const [showAddContractModal, setShowAddContractModal] = useState(false);
   const [showAddBillingModal, setShowAddBillingModal] = useState(false);
+
+  // Contract Form
+  const [ctEntityType, setCtEntityType] = useState<"CORP" | "INDIVIDUAL">(
+    selectedEntity === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP"
+  );
+
+  useEffect(() => {
+    if (selectedEntity === "INDIVIDUAL") setCtEntityType("INDIVIDUAL");
+    else if (selectedEntity === "CORP") setCtEntityType("CORP");
+  }, [selectedEntity]);
 
   // Model Form
   const [modelCode, setModelCode] = useState("");
@@ -77,10 +88,14 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, onNavigateToT
   const fetchData = async () => {
     setLoading(true);
     try {
+      const contractsUrl = selectedEntity && selectedEntity !== "ALL"
+        ? `/api/erp/rental/contracts?entityType=${selectedEntity}`
+        : "/api/erp/rental/contracts";
+
       const [mRes, aRes, cRes, bRes] = await Promise.all([
         fetch("/api/erp/rental/products"),
         fetch("/api/erp/rental/assets"),
-        fetch("/api/erp/rental/contracts"),
+        fetch(contractsUrl),
         fetch(`/api/erp/rental/billings?yearMonth=${selectedYm}`)
       ]);
 
@@ -103,7 +118,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, onNavigateToT
 
   useEffect(() => {
     fetchData();
-  }, [selectedYm]);
+  }, [selectedYm, selectedEntity]);
 
   // Handle Add Model
   const handleAddModel = async (e: React.FormEvent) => {
@@ -208,6 +223,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, onNavigateToT
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          entityType: ctEntityType,
           customerName: ctCustomer,
           siteName: ctSite,
           assetId: ctAssetId,
@@ -282,7 +298,11 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, onNavigateToT
 
   // Handle Issue Tax from Rental Billing
   const handleIssueTaxFromRental = async (b: any) => {
-    if (!window.confirm(`[${b.customerName}] ${Number(b.proRataRevenue).toLocaleString()}원에 대한 전자세금계산서를 즉시 발행하시겠습니까?`)) {
+    const targetCt = contracts.find(c => c.id === b.contractId);
+    const supplierType = targetCt?.entityType || "CORP";
+    const corpLabel = supplierType === "INDIVIDUAL" ? "드래곤알피에이 [개인]" : "(주)드래곤알피에이 [법인]";
+
+    if (!window.confirm(`[${corpLabel} ➔ ${b.customerName}]\n${Number(b.proRataRevenue).toLocaleString()}원에 대한 전자세금계산서를 즉시 발행하시겠습니까?`)) {
       return;
     }
     try {
@@ -291,6 +311,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, onNavigateToT
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           domainType: "RENTAL",
+          supplierEntityType: supplierType,
           refId: b.id,
           customerName: b.customerName,
           itemName: `고소작업대 임대료 (${b.modelName} ${b.assetNo} / ${b.operatingDays}일)`,
@@ -301,7 +322,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, onNavigateToT
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "세금계산서 발행 실패");
 
-      showToast(`세금계산서 [${data.invoice.invoiceNo}] 국세청 발행 완료!`);
+      showToast(`세금계산서 [${data.invoice.invoice_no || data.invoice.invoiceNo}] 국세청 발행 완료!`);
       if (onNavigateToTax) onNavigateToTax();
       fetchData();
     } catch (err: any) {
@@ -496,6 +517,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, onNavigateToT
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
               <tr>
+                <th className="py-2.5 px-3">귀속 사업자</th>
                 <th className="py-2.5 px-3">계약번호</th>
                 <th className="py-2.5 px-3">고객사(임차인)</th>
                 <th className="py-2.5 px-3">현장명</th>
@@ -510,13 +532,24 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, onNavigateToT
             <tbody className="divide-y divide-slate-800/60">
               {contracts.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-500">
+                  <td colSpan={10} className="py-8 text-center text-slate-500">
                     등록된 임대계약이 없습니다.
                   </td>
                 </tr>
               ) : (
                 contracts.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-800/50 transition">
+                    <td className="py-2 px-3">
+                      {c.entityType === "INDIVIDUAL" ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                          개인
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                          법인
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2 px-3 font-mono text-blue-400">{c.contractNo}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{c.customerName}</td>
                     <td className="py-2 px-3 text-slate-300">{c.siteName}</td>
@@ -891,6 +924,37 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, onNavigateToT
             </div>
 
             <form onSubmit={handleAddContract} className="mt-4 flex flex-col gap-3 text-xs">
+              {/* 귀속 사업자 선택 */}
+              <div className="flex flex-col gap-1 p-2 rounded bg-slate-950 border border-slate-800">
+                <label className="text-slate-400 font-semibold text-[11px]">계약 귀속 사업자 선택</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCtEntityType("CORP")}
+                    className={`p-2 rounded border text-left transition ${
+                      ctEntityType === "CORP"
+                        ? "border-blue-500 bg-blue-500/20 text-blue-300 font-bold"
+                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
+                    }`}
+                  >
+                    <div>(주)드래곤알피에이 [법인]</div>
+                    <div className="font-mono text-[10px] opacity-75">806-88-03266</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCtEntityType("INDIVIDUAL")}
+                    className={`p-2 rounded border text-left transition ${
+                      ctEntityType === "INDIVIDUAL"
+                        ? "border-amber-500 bg-amber-500/20 text-amber-300 font-bold"
+                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
+                    }`}
+                  >
+                    <div>드래곤알피에이 [개인]</div>
+                    <div className="font-mono text-[10px] opacity-75">295-03-02683</div>
+                  </button>
+                </div>
+              </div>
+
               <div className="flex flex-col gap-1">
                 <label className="text-slate-400">임차 고객사</label>
                 <input

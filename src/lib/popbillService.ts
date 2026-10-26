@@ -1,5 +1,6 @@
 import "server-only";
 import popbill from "popbill";
+import { BUSINESS_ENTITIES } from "./businessEntities";
 
 const linkId = process.env.POPBILL_LINK_ID;
 const secretKey = process.env.POPBILL_SECRET_KEY;
@@ -21,7 +22,13 @@ popbill.config({
 export const popbillTaxService = popbill.TaxinvoiceService();
 
 export interface PopbillIssueParams {
-  corpNum?: string; // 공급자 사업자등록번호 (기본값: POPBILL_CORP_NUM)
+  corpNum?: string; // 공급자 사업자등록번호 (기본값: 법인 8068803266)
+  supplierCorpName?: string;
+  supplierCeoName?: string;
+  supplierAddr?: string;
+  supplierBizType?: string;
+  supplierBizClass?: string;
+  supplierEmail?: string;
   invoicerMgtKey: string; // 우리 시스템 세금계산서 관리번호 (TX...)
   writeDate: string; // 작성일자 YYYYMMDD
   customerName: string; // 공급받는자 상호
@@ -39,7 +46,8 @@ export interface PopbillIssueParams {
  * 팝빌 전자세금계산서 즉시 발행 (registIssue)
  */
 export async function registIssuePopbill(params: PopbillIssueParams): Promise<any> {
-  const corpNum = (params.corpNum || process.env.POPBILL_CORP_NUM || "3128703310").replace(/-/g, "");
+  const defaultEntity = BUSINESS_ENTITIES.CORP;
+  const corpNum = (params.corpNum || defaultEntity.bizNumRaw).replace(/[^0-9]/g, "");
 
   const taxinvoiceObj = {
     writeDate: params.writeDate.replace(/-/g, ""),
@@ -48,20 +56,20 @@ export async function registIssuePopbill(params: PopbillIssueParams): Promise<an
     issueTiming: "직접발행",
     taxType: "과세",
     invoicerCorpNum: corpNum,
-    invoicerCorpName: "(주)드래곤알피에이",
-    invoicerCEOName: "이정용",
-    invoicerAddr: "서울특별시 송파구 올림픽로 300",
-    invoicerBizType: "서비스",
-    invoicerBizClass: "소프트웨어 개발 및 공급업",
-    invoicerContactName: "이정용",
-    invoicerEmail: "contact@dragonrpa.co.kr",
+    invoicerCorpName: params.supplierCorpName || defaultEntity.corpName,
+    invoicerCEOName: params.supplierCeoName || defaultEntity.ceoName,
+    invoicerAddr: params.supplierAddr || defaultEntity.address,
+    invoicerBizType: params.supplierBizType || defaultEntity.bizType,
+    invoicerBizClass: params.supplierBizClass || defaultEntity.bizClass,
+    invoicerContactName: params.supplierCeoName || defaultEntity.ceoName,
+    invoicerEmail: params.supplierEmail || defaultEntity.email,
 
     invoiceeType: "사업자",
-    invoiceeCorpNum: params.customerBizNo.replace(/-/g, "") || "1000000000",
+    invoiceeCorpNum: params.customerBizNo.replace(/[^0-9]/g, "") || "1000000000",
     invoiceeCorpName: params.customerName,
     invoiceeCEOName: params.customerCeoName || "대표자",
     invoiceeContactName1: params.customerCeoName || "담당자",
-    invoiceeEmail1: params.customerEmail || "contact@dragonrpa.co.kr",
+    invoiceeEmail1: params.customerEmail || defaultEntity.email,
 
     supplyCostTotal: params.supplyAmount.toString(),
     taxTotal: params.vatAmount.toString(),

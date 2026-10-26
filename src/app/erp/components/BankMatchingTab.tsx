@@ -3,11 +3,13 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Building2, Search, Plus, Download, RefreshCw, 
-  Check, X, Link as LinkIcon, DollarSign, Calendar, Upload, AlertCircle
+  Check, X, Link as LinkIcon, DollarSign, Calendar, Upload, AlertCircle, UserCheck
 } from "lucide-react";
+import { BUSINESS_ENTITIES } from "@/lib/businessEntities";
 
 interface BankTransaction {
   id: number;
+  entityType?: "CORP" | "INDIVIDUAL";
   bankName: string;
   accountNo: string;
   transDate: string;
@@ -23,7 +25,15 @@ interface BankTransaction {
   matchedAt: string | null;
 }
 
-export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
+interface BankMatchingTabProps {
+  currentUser: any;
+  selectedEntity?: "ALL" | "CORP" | "INDIVIDUAL";
+}
+
+export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({ 
+  currentUser,
+  selectedEntity = "ALL"
+}) => {
   const isAdmin = currentUser?.role === "ADMIN" || currentUser?.loginId === "admin";
 
   const today = new Date().toISOString().substring(0, 10);
@@ -33,7 +43,19 @@ export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser })
   const [endDate, setEndDate] = useState(today);
   const [transType, setTransType] = useState<"ALL" | "DEPOSIT" | "WITHDRAWAL">("ALL");
   const [matchStatus, setMatchStatus] = useState<"ALL" | "MATCHED" | "UNMATCHED">("ALL");
+  const [accountFilter, setAccountFilter] = useState("ALL");
   const [search, setSearch] = useState("");
+
+  // Sync account filter when global entity selection changes
+  useEffect(() => {
+    if (selectedEntity === "CORP") {
+      setAccountFilter("478-081383-04-018");
+    } else if (selectedEntity === "INDIVIDUAL") {
+      setAccountFilter("140-129404-04-018");
+    } else {
+      setAccountFilter("ALL");
+    }
+  }, [selectedEntity]);
 
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [summary, setSummary] = useState({
@@ -48,8 +70,9 @@ export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser })
   // New Transaction Modal
   const [modalOpen, setModalOpen] = useState(false);
   const [newTrans, setNewTrans] = useState({
+    entityType: "CORP" as "CORP" | "INDIVIDUAL",
     bankName: "기업은행",
-    accountNo: "111-222-333333",
+    accountNo: "478-081383-04-018",
     transDate: today,
     transTime: "12:00:00",
     transType: "DEPOSIT" as "DEPOSIT" | "WITHDRAWAL",
@@ -82,6 +105,12 @@ export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser })
         matchStatus,
         search,
       });
+      if (accountFilter !== "ALL") {
+        params.set("accountNo", accountFilter);
+      }
+      if (selectedEntity !== "ALL") {
+        params.set("entityType", selectedEntity);
+      }
       const res = await fetch(`/api/erp/bank-matching?${params.toString()}`);
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "조회 실패");
@@ -97,7 +126,7 @@ export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser })
 
   useEffect(() => {
     fetchTransactions();
-  }, [startDate, endDate, transType, matchStatus]);
+  }, [startDate, endDate, transType, matchStatus, accountFilter, selectedEntity]);
 
   // Handle Create Transaction
   const handleCreateTrans = async (e: React.FormEvent) => {
@@ -123,12 +152,13 @@ export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser })
     }
   };
 
-  // Seed Mock Data
+  // Seed Mock Data (기업은행 법인 및 개인 통장 실사 반영)
   const handleSeedMockData = async () => {
     const mockList = [
       {
+        entityType: "CORP",
         bankName: "기업은행",
-        accountNo: "111-222-333333",
+        accountNo: "478-081383-04-018",
         transDate: today,
         transTime: "09:30:00",
         transType: "DEPOSIT",
@@ -138,8 +168,9 @@ export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser })
         memo: "10월 RPA 라이선스 임대료 입금",
       },
       {
+        entityType: "CORP",
         bankName: "기업은행",
-        accountNo: "111-222-333333",
+        accountNo: "478-081383-04-018",
         transDate: today,
         transTime: "11:15:00",
         transType: "DEPOSIT",
@@ -149,8 +180,21 @@ export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser })
         memo: "개발용역 2차 중도금",
       },
       {
+        entityType: "INDIVIDUAL",
         bankName: "기업은행",
-        accountNo: "111-222-333333",
+        accountNo: "140-129404-04-018",
+        transDate: today,
+        transTime: "13:40:00",
+        transType: "DEPOSIT",
+        amount: 1650000,
+        balanceAfter: 12650000,
+        senderReceiver: "태양소프트",
+        memo: "개인사업자 응용SW 유지보수료",
+      },
+      {
+        entityType: "CORP",
+        bankName: "기업은행",
+        accountNo: "478-081383-04-018",
         transDate: today,
         transTime: "14:20:00",
         transType: "WITHDRAWAL",
@@ -160,15 +204,16 @@ export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser })
         memo: "서버 IDC 회선 사용료",
       },
       {
+        entityType: "INDIVIDUAL",
         bankName: "기업은행",
-        accountNo: "111-222-333333",
+        accountNo: "140-129404-04-018",
         transDate: today,
         transTime: "16:40:00",
         transType: "DEPOSIT",
-        amount: 1650000,
-        balanceAfter: 60230000,
-        senderReceiver: "태양물류",
-        memo: "고소작업대 렌탈 10월분",
+        amount: 880000,
+        balanceAfter: 13530000,
+        senderReceiver: "글로벌파트너스",
+        memo: "RPA 스크립트 개발 검수비용",
       },
     ];
 
@@ -327,6 +372,16 @@ export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser })
               <option value="UNMATCHED">미대사 (미매칭)</option>
             </select>
 
+            <select
+              value={accountFilter}
+              onChange={(e) => setAccountFilter(e.target.value)}
+              className="bg-slate-800 border border-slate-700 text-xs text-slate-200 px-2 py-1.5 rounded focus:outline-none focus:border-blue-500 font-medium"
+            >
+              <option value="ALL">전체 계좌 (통합)</option>
+              <option value="478-081383-04-018">기업은행 478-081383 [법인]</option>
+              <option value="140-129404-04-018">기업은행 140-129404 [개인]</option>
+            </select>
+
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
               <input
@@ -411,8 +466,19 @@ export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser })
                         {t.transDate} <span className="text-slate-500 text-[10px]">{t.transTime}</span>
                       </td>
                       <td className="py-2 px-3 text-slate-300 whitespace-nowrap">
-                        <span className="font-semibold text-slate-200">{t.bankName}</span>{" "}
-                        <span className="font-mono text-slate-400 text-[11px]">{t.accountNo}</span>
+                        <div className="flex items-center gap-1.5">
+                          {(t.entityType === "INDIVIDUAL" || t.accountNo?.includes("140")) ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                              개인
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                              법인
+                            </span>
+                          )}
+                          <span className="font-semibold text-slate-200">{t.bankName}</span>{" "}
+                          <span className="font-mono text-slate-400 text-[11px]">{t.accountNo}</span>
+                        </div>
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
                         <span
@@ -527,6 +593,37 @@ export const BankMatchingTab: React.FC<{ currentUser: any }> = ({ currentUser })
             </h2>
 
             <div className="space-y-3">
+              {/* 사업자 통장 선택 */}
+              <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-950 border border-slate-800">
+                <label className="text-xs text-slate-400 font-semibold">입출금 통장 선택 (귀속 사업자)</label>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setNewTrans({ ...newTrans, entityType: "CORP", accountNo: "478-081383-04-018" })}
+                    className={`p-2 rounded border text-left transition ${
+                      newTrans.accountNo === "478-081383-04-018"
+                        ? "border-blue-500 bg-blue-500/20 text-blue-300 font-bold"
+                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
+                    }`}
+                  >
+                    <div>(주)드래곤알피에이 [법인]</div>
+                    <div className="font-mono text-[10px] opacity-75">478-081383-04-018</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewTrans({ ...newTrans, entityType: "INDIVIDUAL", accountNo: "140-129404-04-018" })}
+                    className={`p-2 rounded border text-left transition ${
+                      newTrans.accountNo === "140-129404-04-018"
+                        ? "border-amber-500 bg-amber-500/20 text-amber-300 font-bold"
+                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
+                    }`}
+                  >
+                    <div>드래곤알피에이 [개인]</div>
+                    <div className="font-mono text-[10px] opacity-75">140-129404-04-018</div>
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs text-slate-400 font-semibold">은행명</label>

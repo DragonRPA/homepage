@@ -20,9 +20,16 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "세금계산서 관리번호가 필요합니다." }, { status: 400 });
       }
       try {
+        let activeCorpNum = corpNum;
+        if (!activeCorpNum) {
+          const invRes = await pool.query("SELECT supplier_corp_num FROM erp_tax_invoices WHERE invoice_no = $1", [mgtKey]);
+          if (invRes.rows.length > 0 && invRes.rows[0].supplier_corp_num) {
+            activeCorpNum = invRes.rows[0].supplier_corp_num;
+          }
+        }
         const url = action === "VIEW_URL" 
-          ? await getPopbillPopUpURL(mgtKey, corpNum)
-          : await getPopbillPrintURL(mgtKey, corpNum);
+          ? await getPopbillPopUpURL(mgtKey, activeCorpNum)
+          : await getPopbillPrintURL(mgtKey, activeCorpNum);
         return NextResponse.json({ success: true, url });
       } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 400 });
@@ -35,7 +42,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "세금계산서 관리번호가 필요합니다." }, { status: 400 });
       }
       try {
-        const info = await getPopbillInfo(mgtKey, corpNum);
+        let activeCorpNum = corpNum;
+        if (!activeCorpNum) {
+          const invRes = await pool.query("SELECT supplier_corp_num FROM erp_tax_invoices WHERE invoice_no = $1", [mgtKey]);
+          if (invRes.rows.length > 0 && invRes.rows[0].supplier_corp_num) {
+            activeCorpNum = invRes.rows[0].supplier_corp_num;
+          }
+        }
+        const info = await getPopbillInfo(mgtKey, activeCorpNum);
         if (info.ntsresult === "전송성공" || info.stateCode === 300) {
           await pool.query(
             "UPDATE erp_tax_invoices SET status = 'SENT_NTS', nts_confirm_no = $1 WHERE invoice_no = $2",
@@ -62,8 +76,15 @@ export async function POST(request: Request) {
       const inv = res.rows[0];
 
       try {
+        const activeCorpNum = corpNum || inv.supplier_corp_num || "8068803266";
         const popResult = await registIssuePopbill({
-          corpNum,
+          corpNum: activeCorpNum,
+          supplierCorpName: inv.supplier_corp_name,
+          supplierCeoName: inv.supplier_ceo_name,
+          supplierAddr: inv.supplier_address,
+          supplierBizType: inv.supplier_biz_type,
+          supplierBizClass: inv.supplier_biz_class,
+          supplierEmail: inv.supplier_email,
           invoicerMgtKey: inv.invoice_no,
           writeDate: inv.issue_date.toISOString().split("T")[0],
           customerName: inv.customer_name,
@@ -85,7 +106,7 @@ export async function POST(request: Request) {
 
         return NextResponse.json({
           success: true,
-          message: `팝빌 전자세금계산서 [${inv.invoice_no}] 발행이 완료되었습니다.`,
+          message: `[${inv.supplier_corp_name || "드래곤알피에이"}] 팝빌 전자세금계산서 [${inv.invoice_no}] 국세청 발행 완료`,
           popResult,
         });
       } catch (popErr: any) {

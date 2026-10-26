@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 import { ErpLogin } from "./components/ErpLogin";
-import { ErpHeader } from "./components/ErpHeader";
+import { ErpHeader, EntityScope } from "./components/ErpHeader";
 import { PasswordChangeModal } from "./components/PasswordChangeModal";
 
 // ebro_it 모방 핵심 모듈군
@@ -126,6 +126,7 @@ export default function ErpMainPage() {
   const [activeMenu, setActiveMenu] = useState<ErpMenuKey>("ORG");
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [selectedEntity, setSelectedEntity] = useState<EntityScope>("ALL");
 
   // Accordion open/close state for tree groups
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
@@ -155,6 +156,11 @@ export default function ErpMainPage() {
         setTheme(savedTheme);
       } else {
         setTheme("light"); // e-Bro ERP 전사 표준: 밝은화면모드 기본
+      }
+
+      const savedEntity = localStorage.getItem("dragonrpa_erp_entity") as EntityScope;
+      if (savedEntity === "ALL" || savedEntity === "CORP" || savedEntity === "INDIVIDUAL") {
+        setSelectedEntity(savedEntity);
       }
     } catch (e) {
       console.error("Session restore error:", e);
@@ -207,6 +213,13 @@ export default function ErpMainPage() {
       <ErpHeader
         user={currentUser}
         theme={theme}
+        selectedEntity={selectedEntity}
+        onSelectEntity={(e) => {
+          setSelectedEntity(e);
+          try {
+            localStorage.setItem("dragonrpa_erp_entity", e);
+          } catch (err) {}
+        }}
         onToggleTheme={toggleTheme}
         onOpenPasswordModal={() => setShowPasswordModal(true)}
         onLogout={handleLogout}
@@ -338,9 +351,22 @@ export default function ErpMainPage() {
             {activeMenu === "OT_MANAGE" && <OtManagementTab currentUser={currentUser} />}
             {activeMenu === "APPROVAL_INBOX" && <ApprovalInboxTab currentUser={currentUser} />}
             {activeMenu === "APPROVAL_RULES" && <ApprovalRulesTab currentUser={currentUser} />}
-            {activeMenu === "BANK_MATCHING" && <BankMatchingTab currentUser={currentUser} />}
+            {activeMenu === "BANK_MATCHING" && (
+              <BankMatchingTab currentUser={currentUser} selectedEntity={selectedEntity} />
+            )}
             {activeMenu === "PAYROLL" && <PayrollTab currentUser={currentUser} />}
-            {activeMenu === "TAX" && <TaxInvoiceTab currentUser={currentUser} />}
+            {activeMenu === "TAX" && (
+              <TaxInvoiceTab 
+                currentUser={currentUser} 
+                selectedEntity={selectedEntity}
+                onSelectEntity={(e) => {
+                  setSelectedEntity(e);
+                  try {
+                    localStorage.setItem("dragonrpa_erp_entity", e);
+                  } catch (err) {}
+                }}
+              />
+            )}
             {activeMenu === "PRODUCT" && (
               <ProductManagementTab 
                 currentUser={currentUser} 
@@ -351,9 +377,27 @@ export default function ErpMainPage() {
               />
             )}
             {activeMenu === "ASSET" && <AssetManagementTab currentUser={currentUser} />}
-            {activeMenu === "TRADE" && <TradeTab currentUser={currentUser} onNavigateToTax={navigateToTax} />}
-            {activeMenu === "RENTAL" && <RentalTab currentUser={currentUser} onNavigateToTax={navigateToTax} />}
-            {activeMenu === "SERVICES" && <ServiceTab currentUser={currentUser} onNavigateToTax={navigateToTax} />}
+            {activeMenu === "TRADE" && (
+              <TradeTab 
+                currentUser={currentUser} 
+                selectedEntity={selectedEntity}
+                onNavigateToTax={navigateToTax} 
+              />
+            )}
+            {activeMenu === "RENTAL" && (
+              <RentalTab 
+                currentUser={currentUser} 
+                selectedEntity={selectedEntity}
+                onNavigateToTax={navigateToTax} 
+              />
+            )}
+            {activeMenu === "SERVICES" && (
+              <ServiceTab 
+                currentUser={currentUser} 
+                selectedEntity={selectedEntity}
+                onNavigateToTax={navigateToTax} 
+              />
+            )}
           </div>
         </main>
       </div>

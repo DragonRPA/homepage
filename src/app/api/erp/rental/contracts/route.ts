@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 
-// GET: List all rental contracts
-export async function GET() {
+// GET: List all rental contracts (optionally filter by entityType)
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const entityType = searchParams.get("entityType");
+
     const pool = getErpPool();
-    const query = `
+    let query = `
       SELECT 
         c.id,
         c.contract_no as "contractNo",
+        c.entity_type as "entityType",
         c.customer_name as "customerName",
         c.site_name as "siteName",
         c.asset_id as "assetId",
@@ -25,9 +29,16 @@ export async function GET() {
       FROM erp_rental_contracts c
       JOIN erp_rental_assets a ON c.asset_id = a.id
       JOIN erp_rental_products rp ON a.rental_product_id = rp.id
-      ORDER BY c.start_date DESC, c.id DESC
+      WHERE 1=1
     `;
-    const res = await pool.query(query);
+    const params: any[] = [];
+    if (entityType && entityType !== "ALL") {
+      params.push(entityType);
+      query += ` AND c.entity_type = $${params.length}`;
+    }
+    query += " ORDER BY c.start_date DESC, c.id DESC";
+
+    const res = await pool.query(query, params);
     return NextResponse.json({ success: true, contracts: res.rows });
   } catch (error: any) {
     console.error("GET Rental Contracts Error:", error);
@@ -39,11 +50,13 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { customerName, siteName, assetId, startDate, endDate, monthlyRate, dailyRate, deposit, memo } = body;
+    const { customerName, siteName, assetId, startDate, endDate, monthlyRate, dailyRate, deposit, memo, entityType } = body;
 
     if (!customerName || !assetId || !startDate || !endDate) {
       return NextResponse.json({ error: "고객사, 자산, 계약시작일, 종료일은 필수입니다." }, { status: 400 });
     }
+
+    const assignedEntity = entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
 
     const pool = getErpPool();
     const client = await pool.connect();
@@ -68,11 +81,12 @@ export async function POST(request: Request) {
       // 1. Insert contract
       const insRes = await client.query(
         `INSERT INTO erp_rental_contracts
-         (contract_no, customer_name, site_name, asset_id, start_date, end_date, monthly_rate, daily_rate, deposit, status, memo)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'ACTIVE', $10)
+         (contract_no, entity_type, customer_name, site_name, asset_id, start_date, end_date, monthly_rate, daily_rate, deposit, status, memo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'ACTIVE', $11)
          RETURNING *`,
         [
           contractNo, 
+          assignedEntity,
           customerName.trim(), 
           siteName || "본사/지정현장", 
           assetId, 
@@ -95,7 +109,7 @@ export async function POST(request: Request) {
       await client.query(
         `INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
          VALUES ('RENTAL_CONTRACT', 'CREATE', $1, 'ADMIN', $2)`,
-        [contractNo, JSON.stringify({ customerName, assetNo: assetCheck.rows[0].asset_no, monthlyRate })]
+        [contractNo, JSON.stringify({ customerName, assetNo: assetCheck.rows[0].asset_no, monthlyRate, entityType: assignedEntity })]
       );
 
       await client.query("COMMIT");

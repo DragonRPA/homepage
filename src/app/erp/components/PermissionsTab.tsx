@@ -45,6 +45,8 @@ const MENU_DEFS = [
   { key: "bank_matching", name: "은행 입출금 대장", category: "회계" },
   { key: "payroll", name: "급여 정산", category: "회계" },
   { key: "tax_invoice", name: "세금계산서 발행", category: "회계" },
+  { key: "customer", name: "고객 관리 (매출처)", category: "거래처" },
+  { key: "vendor", name: "매입거래처 관리", category: "거래처" },
   { key: "trade", name: "판매용 (커머스)", category: "영업" },
   { key: "rental", name: "임대용 (렌탈자산)", category: "영업" },
   { key: "service", name: "용역 관리 (운영/개발)", category: "영업" },

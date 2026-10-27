@@ -27,6 +27,9 @@ import { PayrollTab } from "./components/PayrollTab";
 import { ProductManagementTab } from "./components/ProductManagementTab";
 import { AssetManagementTab } from "./components/AssetManagementTab";
 
+// 거래처 관리 (고객 관리 & 매입거래처 관리)
+import { PartnerManagementTab } from "./components/PartnerManagementTab";
+
 // 영업 및 서비스 도메인
 import { TradeTab } from "./components/TradeTab";
 import { RentalTab } from "./components/RentalTab";
@@ -34,7 +37,7 @@ import { ServiceTab } from "./components/ServiceTab";
 import { TaxInvoiceTab } from "./components/TaxInvoiceTab";
 import "./erp-theme.css";
 
-export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "ASSET" | "BUSINESS";
+export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "PARTNER" | "ASSET" | "BUSINESS";
 
 export type ErpMenuKey =
   | "ORG"
@@ -47,6 +50,8 @@ export type ErpMenuKey =
   | "BANK_MATCHING"
   | "PAYROLL"
   | "TAX"
+  | "CUSTOMER"
+  | "VENDOR"
   | "PRODUCT"
   | "ASSET"
   | "TRADE"
@@ -99,6 +104,15 @@ const CATEGORIES: CategoryConfig[] = [
     ],
   },
   {
+    key: "PARTNER",
+    label: "거래처 관리",
+    icon: Building2,
+    items: [
+      { key: "CUSTOMER", label: "고객 관리 (매출처)", icon: Users },
+      { key: "VENDOR", label: "매입거래처 관리", icon: Truck },
+    ],
+  },
+  {
     key: "ASSET",
     label: "자산관리",
     icon: Layers,
@@ -133,6 +147,7 @@ export default function ErpMainPage() {
     HR: true,
     APPROVAL: true,
     FINANCE: true,
+    PARTNER: true,
     ASSET: true,
     BUSINESS: true,
   });
@@ -365,6 +380,20 @@ export default function ErpMainPage() {
                     localStorage.setItem("dragonrpa_erp_entity", e);
                   } catch (err) {}
                 }}
+              />
+            )}
+            {activeMenu === "CUSTOMER" && (
+              <PartnerManagementTab
+                currentUser={currentUser}
+                initialType="CUSTOMER"
+                onNavigateToTax={navigateToTax}
+              />
+            )}
+            {activeMenu === "VENDOR" && (
+              <PartnerManagementTab
+                currentUser={currentUser}
+                initialType="VENDOR"
+                onNavigateToTax={navigateToTax}
               />
             )}
             {activeMenu === "PRODUCT" && (

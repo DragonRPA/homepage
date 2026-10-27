@@ -24,6 +24,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   const [sales, setSales] = useState<any[]>([]);
   const [settlementSummary, setSettlementSummary] = useState<any>(null);
   const [customerBreakdown, setCustomerBreakdown] = useState<any[]>([]);
+  const [registeredPartners, setRegisteredPartners] = useState<any[]>([]);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
@@ -120,21 +121,24 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
         ? `/api/erp/trade/sales?entityType=${selectedEntity}`
         : "/api/erp/trade/sales";
 
-      const [prodRes, purRes, saleRes, setRes] = await Promise.all([
+      const [prodRes, purRes, saleRes, setRes, partRes] = await Promise.all([
         fetch("/api/erp/trade/products"),
         fetch("/api/erp/trade/purchases"),
         fetch(salesUrl),
-        fetch(`/api/erp/trade/settlement?startDate=${startDate}&endDate=${endDate}`)
+        fetch(`/api/erp/trade/settlement?startDate=${startDate}&endDate=${endDate}`),
+        fetch("/api/erp/partners?type=ALL")
       ]);
 
       const pData = await prodRes.json();
       const puData = await purRes.json();
       const sData = await saleRes.json();
       const seData = await setRes.json();
+      const partData = await partRes.json();
 
       if (pData.success) setProducts(pData.products);
       if (puData.success) setPurchases(puData.purchases);
       if (sData.success) setSales(sData.sales);
+      if (partData.success && Array.isArray(partData.partners)) setRegisteredPartners(partData.partners);
       if (seData.success) {
         setSettlementSummary(seData.summary);
         setCustomerBreakdown(seData.customerBreakdown);
@@ -823,15 +827,25 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
 
             <form onSubmit={handleAddPurchase} className="mt-4 flex flex-col gap-3 text-xs">
               <div className="flex flex-col gap-1">
-                <label className="text-slate-400">매입처 (공급자명)</label>
+                <label className="text-slate-400">매입처 (공급자명) *</label>
                 <input
                   type="text"
+                  list="vendor-datalist"
                   value={poVendor}
                   onChange={(e) => setPoVendor(e.target.value)}
-                  placeholder="예: (주)테크솔루션"
+                  placeholder="예: (주)케이티정보통신 (등록 거래처 선택 가능)"
                   className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
                   required
                 />
+                <datalist id="vendor-datalist">
+                  {registeredPartners
+                    .filter((p) => p.partnerType === "VENDOR" || p.partnerType === "BOTH")
+                    .map((p) => (
+                      <option key={p.id} value={p.name}>
+                        {p.partnerCode} | {p.bizType || ""} | 담당: {p.managerName || "미지정"}
+                      </option>
+                    ))}
+                </datalist>
               </div>
 
               <div className="flex flex-col gap-1">
@@ -955,15 +969,25 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-slate-400">고객사 (수요처명)</label>
+                <label className="text-slate-400">고객사 (수요처명) *</label>
                 <input
                   type="text"
+                  list="customer-datalist"
                   value={soCustomer}
                   onChange={(e) => setSoCustomer(e.target.value)}
-                  placeholder="예: 현대건설(주)"
+                  placeholder="예: 현대건설(주) (등록 고객사 선택 가능)"
                   className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
                   required
                 />
+                <datalist id="customer-datalist">
+                  {registeredPartners
+                    .filter((p) => p.partnerType === "CUSTOMER" || p.partnerType === "BOTH")
+                    .map((p) => (
+                      <option key={p.id} value={p.name}>
+                        {p.partnerCode} | 사업자: {p.businessNo || "-"} | 마감: {p.statementClosingDay}
+                      </option>
+                    ))}
+                </datalist>
               </div>
 
               <div className="flex flex-col gap-1">

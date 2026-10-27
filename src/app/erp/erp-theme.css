@@ -151,11 +151,46 @@
 
 [data-theme='light'] [class*="bg-slate-950/"],
 [data-theme='light'] [class*="bg-slate-900/"],
-[data-theme='light'] [class*="bg-slate-800/"] {
-  background-color: #f2ede2 !important;
+[data-theme='light'] [class*="bg-slate-800/"],
+[data-theme='light'] [class*="bg-slate-700/"],
+[data-theme='light'] .bg-slate-950\/90,
+[data-theme='light'] .bg-slate-950\/80,
+[data-theme='light'] .bg-slate-950\/70,
+[data-theme='light'] .bg-slate-950\/60,
+[data-theme='light'] .bg-slate-950\/50,
+[data-theme='light'] .bg-slate-950\/40,
+[data-theme='light'] .bg-slate-950\/30,
+[data-theme='light'] .bg-slate-950\/20,
+[data-theme='light'] .bg-slate-950\/10,
+[data-theme='light'] .bg-slate-900\/90,
+[data-theme='light'] .bg-slate-900\/80,
+[data-theme='light'] .bg-slate-900\/70,
+[data-theme='light'] .bg-slate-900\/60,
+[data-theme='light'] .bg-slate-900\/50,
+[data-theme='light'] .bg-slate-900\/40,
+[data-theme='light'] .bg-slate-900\/30,
+[data-theme='light'] .bg-slate-900\/20,
+[data-theme='light'] .bg-slate-900\/10,
+[data-theme='light'] .bg-slate-800\/90,
+[data-theme='light'] .bg-slate-800\/80,
+[data-theme='light'] .bg-slate-800\/70,
+[data-theme='light'] .bg-slate-800\/60,
+[data-theme='light'] .bg-slate-800\/50,
+[data-theme='light'] .bg-slate-800\/40,
+[data-theme='light'] .bg-slate-800\/30,
+[data-theme='light'] .bg-slate-800\/20,
+[data-theme='light'] .bg-slate-800\/10,
+[data-theme='light'] .bg-slate-700\/90,
+[data-theme='light'] .bg-slate-700\/80,
+[data-theme='light'] .bg-slate-700\/70,
+[data-theme='light'] .bg-slate-700\/60,
+[data-theme='light'] .bg-slate-700\/50,
+[data-theme='light'] .bg-slate-700\/40 {
+  background-color: #f4efe4 !important;
   background-image: var(--paper-texture) !important;
   background-repeat: repeat !important;
   border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
 }
 
 [data-theme='light'] [class*="border-slate-800"],

@@ -237,7 +237,7 @@ export default function ErpMainPage() {
     CATEGORIES.flatMap((c) => c.items).find((i) => i.key === activeMenu);
 
   return (
-    <div data-theme={theme} className="erp-app-container flex flex-col h-screen w-screen overflow-hidden select-none">
+    <div data-theme={theme} className={`erp-app-container ${theme === 'dark' ? 'dark' : ''} flex flex-col h-screen w-screen overflow-hidden select-none`}>
       {/* 1. Enterprise Top Header */}
       <ErpHeader
         user={currentUser}

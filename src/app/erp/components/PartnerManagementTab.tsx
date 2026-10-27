@@ -560,37 +560,188 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     document.body.removeChild(link);
   };
 
+  // Helper: Load pdf.js from CDN in browser and extract Page 1 JPEG + Text Hint
+  const extractPdfImageAndText = async (
+    file: File
+  ): Promise<{ imageBase64: string; textHint: string }> => {
+    if (typeof window === "undefined") {
+      return { imageBase64: "", textHint: "" };
+    }
+
+    const w = window as any;
+    if (!w.pdfjsLib) {
+      await new Promise<void>((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src =
+          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = () =>
+          reject(new Error("PDF 렌더링 엔진 로드에 실패했습니다."));
+        document.head.appendChild(script);
+      });
+    }
+
+    const pdfjsLib = w.pdfjsLib;
+    if (pdfjsLib.GlobalWorkerOptions) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const loadingTask = pdfjsLib.getDocument({
+      data: arrayBuffer,
+      cMapUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl:
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/standard_fonts/",
+    });
+
+    const pdfDoc = await loadingTask.promise;
+    const page = await pdfDoc.getPage(1);
+
+    // 1. Extract text content preserving line order
+    let textHint = "";
+    try {
+      const textContent = await page.getTextContent();
+      const items = (textContent.items || []) as any[];
+      let lastY: number | null = null;
+      const parts: string[] = [];
+      for (const item of items) {
+        const y = item.transform ? Math.round(item.transform[5]) : null;
+        if (lastY !== null && y !== null && Math.abs(y - lastY) > 5) {
+          parts.push("\n");
+        } else if (parts.length > 0) {
+          parts.push(" ");
+        }
+        parts.push(item.str || "");
+        if (y !== null) lastY = y;
+      }
+      textHint = parts.join("");
+    } catch (e) {
+      console.warn("PDF textContent extraction warning:", e);
+    }
+
+    // 2. Render Page 1 onto high-res Canvas -> JPEG base64
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(64, Math.round(viewport.width));
+    canvas.height = Math.max(64, Math.round(viewport.height));
+    const ctx = canvas.getContext("2d");
+    let imageBase64 = "";
+    if (ctx) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      imageBase64 = canvas.toDataURL("image/jpeg", 0.88);
+    }
+
+    return { imageBase64, textHint };
+  };
+
+  // Helper: Resize image file onto Canvas -> JPEG base64
+  const resizeImageToBase64 = (file: File, maxDim = 1800): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("이미지 파일 읽기 실패"));
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        const img = new Image();
+        img.onerror = () => resolve(dataUrl);
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          width = Math.max(64, width);
+          height = Math.max(64, height);
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(dataUrl);
+            return;
+          }
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", 0.88));
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   // Business Registration Certificate Drag & Drop / File Processing
   const handleBizCertFileUpload = async (file: File) => {
     if (!file) return;
     setOcrLoading(true);
     setOcrFileName(file.name);
-    try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64Data = reader.result as string;
-        setOcrPreviewFileUrl(base64Data);
+    setOcrResult(null);
 
-        const res = await fetch("/api/erp/partners/ocr-biz-cert", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fileData: base64Data,
-            fileName: file.name,
-          }),
-        });
-        const data = await res.json();
-        if (data.success && data.parsed) {
-          setOcrResult(data.parsed);
-          showToast(data.message || "사업자등록증 정보가 자동 분석되었습니다.");
-        } else {
-          showToast("자동 분석을 완료할 수 없습니다. 파일을 확인해주세요.", "error");
+    try {
+      const isPdf =
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf");
+
+      let imageBase64 = "";
+      let textHint = "";
+
+      if (isPdf) {
+        try {
+          const pdfOut = await extractPdfImageAndText(file);
+          imageBase64 = pdfOut.imageBase64;
+          textHint = pdfOut.textHint;
+        } catch (pdfErr) {
+          console.warn("Client PDF render fallback:", pdfErr);
         }
-        setOcrLoading(false);
-      };
-      reader.readAsDataURL(file);
+      } else {
+        imageBase64 = await resizeImageToBase64(file, 1800);
+      }
+
+      if (imageBase64) {
+        setOcrPreviewFileUrl(imageBase64);
+      } else {
+        // Fallback: read raw file data URL
+        const rawUrl = await new Promise<string>((resolve) => {
+          const r = new FileReader();
+          r.onload = () => resolve((r.result as string) || "");
+          r.onerror = () => resolve("");
+          r.readAsDataURL(file);
+        });
+        setOcrPreviewFileUrl(rawUrl);
+      }
+
+      const res = await fetch("/api/erp/partners/ocr-biz-cert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: imageBase64 || undefined,
+          rawText: textHint || undefined,
+          fileName: file.name,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.parsed) {
+        setOcrResult(data.parsed);
+        showToast(data.message || "사업자등록증 정보가 자동 분석되었습니다.");
+      } else {
+        showToast(
+          data.error || "자동 분석을 완료할 수 없습니다. 파일을 확인해주세요.",
+          "error"
+        );
+      }
     } catch (e: any) {
       showToast(e.message || "파일 처리 실패", "error");
+    } finally {
       setOcrLoading(false);
     }
   };
@@ -634,7 +785,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       bizItem: ocrResult.bizItem || "",
       address: ocrResult.address || "",
       addressDetail: "",
-      mainPhone: "",
+      mainPhone: ocrResult.mainPhone || "",
       mainEmail: ocrResult.email || "",
       faxNo: "",
       managerEmployeeId: currentUser?.id ? String(currentUser.id) : "",
@@ -655,34 +806,30 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   // Business Card Upload
   const handleCardImageUpload = async (file: File, side: "front" | "back") => {
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64Data = reader.result as string;
-        if (side === "front") {
-          setContactForm((prev: any) => ({ ...prev, businessCardFrontUrl: base64Data }));
-          const res = await fetch("/api/erp/partners/ocr-card", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fileData: base64Data, fileName: file.name }),
-          });
-          const data = await res.json();
-          if (data.success && data.parsed) {
-            setContactForm((prev: any) => ({
-              ...prev,
-              name: prev.name || data.parsed.name || "",
-              position: prev.position || data.parsed.position || "",
-              department: prev.department || data.parsed.department || "",
-              mobile: prev.mobile || data.parsed.mobile || "",
-              email: prev.email || data.parsed.email || "",
-              telephone: prev.telephone || data.parsed.telephone || "",
-            }));
-            showToast("명함 정보가 자동 분석되었습니다.");
-          }
-        } else {
-          setContactForm((prev: any) => ({ ...prev, businessCardBackUrl: base64Data }));
+      const base64Data = await resizeImageToBase64(file, 1600);
+      if (side === "front") {
+        setContactForm((prev: any) => ({ ...prev, businessCardFrontUrl: base64Data }));
+        const res = await fetch("/api/erp/partners/ocr-card", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: base64Data, fileName: file.name }),
+        });
+        const data = await res.json();
+        if (data.success && data.parsed) {
+          setContactForm((prev: any) => ({
+            ...prev,
+            name: prev.name || data.parsed.name || "",
+            position: prev.position || data.parsed.position || "",
+            department: prev.department || data.parsed.department || "",
+            mobile: prev.mobile || data.parsed.mobile || "",
+            email: prev.email || data.parsed.email || "",
+            telephone: prev.telephone || data.parsed.telephone || "",
+          }));
+          showToast("명함 정보가 자동 분석되었습니다.");
         }
-      };
-      reader.readAsDataURL(file);
+      } else {
+        setContactForm((prev: any) => ({ ...prev, businessCardBackUrl: base64Data }));
+      }
     } catch (e: any) {
       showToast(e.message || "명함 처리 실패", "error");
     }
@@ -1038,7 +1185,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
               {/* Dossier Body */}
               <div className="flex-1 overflow-y-auto p-3 space-y-3">
                 {/* 1. 본사 관리 핵심 속성 */}
-                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2 dark:bg-slate-950/60 dark:border-slate-800">
+                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2 dark:bg-slate-900 dark:border-slate-800">
                   <span className="text-[11px] font-bold text-[#1d4ed8] dark:text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5" />
                     <span>본사 관리 및 정산 마감 조건</span>
@@ -1077,7 +1224,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                 </div>
 
                 {/* 2. 본사 기본 제원 및 주소 */}
-                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-1.5 text-xs dark:bg-slate-950/60 dark:border-slate-800">
+                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-1.5 text-xs dark:bg-slate-900 dark:border-slate-800">
                   <span className="text-[11px] font-bold text-[#475569] dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-1">
                     <Building2 className="w-3.5 h-3.5" />
                     <span>본사 사업자 기본 제원</span>
@@ -1126,7 +1273,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                 </div>
 
                 {/* 3. 사업자등록증 원본 보관함 */}
-                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2 text-xs dark:bg-slate-950/60 dark:border-slate-800">
+                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2 text-xs dark:bg-slate-900 dark:border-slate-800">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-[#6d28d9] dark:text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
                       <FileCheck className="w-3.5 h-3.5" />
@@ -1199,7 +1346,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                 </div>
 
                 {/* 4. 거래처 담당자 및 실물 명함 보관함 */}
-                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2.5 dark:bg-slate-950/60 dark:border-slate-800">
+                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2.5 dark:bg-slate-900 dark:border-slate-800">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <CreditCard className="w-3.5 h-3.5 text-[#047857] dark:text-emerald-400" />
@@ -1311,7 +1458,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
 
                 {/* 5. 비고 */}
                 {selectedPartner.memo && (
-                  <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] text-xs dark:bg-slate-950/60 dark:border-slate-800">
+                  <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] text-xs dark:bg-slate-900 dark:border-slate-800">
                     <span className="text-[10px] text-[#475569] block mb-1">비고 및 특이사항</span>
                     <p className="text-[#334155] dark:text-slate-300 whitespace-pre-wrap">{selectedPartner.memo}</p>
                   </div>
@@ -1653,7 +1800,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                   isCertDragging
                     ? "border-[#1d4ed8] bg-[#dbeafe] scale-[1.01]"
                     : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#ede6d6] hover:border-[#1d4ed8]"
-                } dark:bg-slate-950/60 dark:border-slate-700`}
+                } dark:bg-slate-900 dark:border-slate-700`}
               >
                 <input
                   ref={certFileInputRef}
@@ -1703,48 +1850,125 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                 </div>
               )}
 
-              {/* OCR Parsing Result Preview */}
+              {/* OCR Parsing Result Preview (Editable) */}
               {ocrResult && !ocrLoading && (
                 <div className="p-4 bg-[#f4efe4] rounded-lg border border-[#b5a894] space-y-3 dark:bg-slate-950 dark:border-slate-800">
                   <div className="flex items-center justify-between pb-2 border-b border-[#b5a894] dark:border-slate-800">
                     <div className="flex items-center gap-2">
                       <FileCheck className="w-4 h-4 text-[#047857]" />
                       <strong className="text-[#0f172a] text-sm dark:text-slate-200">
-                        {ocrResult.name || "상호명 미확인"}
+                        {ocrResult.name || "상호명 확인 필요"}
                       </strong>
                       <span className="text-xs font-mono text-[#6d28d9] font-bold">
-                        [{ocrResult.businessNo || "사업자번호 미확인"}]
+                        [{ocrResult.businessNo || "사업자번호 확인 필요"}]
                       </span>
                     </div>
-                    <span className="text-[11px] font-bold text-[#047857] bg-[#ecfdf5] px-2 py-0.5 rounded border border-[#a7f3d0]">
-                      분석 완료
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {ocrPreviewFileUrl && ocrPreviewFileUrl.startsWith("data:image/") && (
+                        <button
+                          type="button"
+                          onClick={() => setZoomImageUrl(ocrPreviewFileUrl)}
+                          className="text-[11px] font-bold text-[#1d4ed8] hover:underline"
+                        >
+                          원본 미리보기
+                        </button>
+                      )}
+                      <span className="text-[11px] font-bold text-[#047857] bg-[#ecfdf5] px-2 py-0.5 rounded border border-[#a7f3d0]">
+                        분석 완료
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                    <div>
-                      <span className="text-[#475569] block text-[10px]">대표자 성명</span>
-                      <span className="font-semibold text-[#0f172a] dark:text-slate-200">{ocrResult.ceoName || "-"}</span>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-xs">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">상호명 (법인명)</label>
+                      <input
+                        type="text"
+                        value={ocrResult.name || ""}
+                        onChange={(e) => setOcrResult({ ...ocrResult, name: e.target.value })}
+                        placeholder="상호명 입력"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-bold focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
                     </div>
-                    <div>
-                      <span className="text-[#475569] block text-[10px]">개업연월일</span>
-                      <span className="font-mono text-[#0f172a] dark:text-slate-200">{ocrResult.openDate || "-"}</span>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">사업자등록번호</label>
+                      <input
+                        type="text"
+                        value={ocrResult.businessNo || ""}
+                        onChange={(e) => setOcrResult({ ...ocrResult, businessNo: e.target.value })}
+                        placeholder="000-00-00000"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono font-bold focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
                     </div>
-                    <div>
-                      <span className="text-[#475569] block text-[10px]">업태</span>
-                      <span className="text-[#0f172a] dark:text-slate-200">{ocrResult.bizType || "-"}</span>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">대표자 성명</label>
+                      <input
+                        type="text"
+                        value={ocrResult.ceoName || ""}
+                        onChange={(e) => setOcrResult({ ...ocrResult, ceoName: e.target.value })}
+                        placeholder="대표자 성명"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-semibold focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
                     </div>
-                    <div>
-                      <span className="text-[#475569] block text-[10px]">종목</span>
-                      <span className="text-[#0f172a] dark:text-slate-200">{ocrResult.bizItem || "-"}</span>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">개업연월일</label>
+                      <input
+                        type="text"
+                        value={ocrResult.openDate || ""}
+                        onChange={(e) => setOcrResult({ ...ocrResult, openDate: e.target.value })}
+                        placeholder="YYYY-MM-DD"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
                     </div>
-                    <div className="col-span-2">
-                      <span className="text-[#475569] block text-[10px]">본사 사업장 소재지</span>
-                      <span className="text-[#0f172a] dark:text-slate-200">{ocrResult.address || "-"}</span>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">업태</label>
+                      <input
+                        type="text"
+                        value={ocrResult.bizType || ""}
+                        onChange={(e) => setOcrResult({ ...ocrResult, bizType: e.target.value })}
+                        placeholder="업태"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
                     </div>
-                    <div className="col-span-2">
-                      <span className="text-[#475569] block text-[10px]">세금계산서 전용 이메일</span>
-                      <span className="font-mono text-[#1d4ed8] dark:text-blue-300">{ocrResult.email || "-"}</span>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">종목</label>
+                      <input
+                        type="text"
+                        value={ocrResult.bizItem || ""}
+                        onChange={(e) => setOcrResult({ ...ocrResult, bizItem: e.target.value })}
+                        placeholder="종목"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
+                    </div>
+                    <div className="col-span-2 flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">본사 사업장 소재지</label>
+                      <input
+                        type="text"
+                        value={ocrResult.address || ""}
+                        onChange={(e) => setOcrResult({ ...ocrResult, address: e.target.value })}
+                        placeholder="사업장 소재지"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">세금계산서 전용 이메일</label>
+                      <input
+                        type="text"
+                        value={ocrResult.email || ""}
+                        onChange={(e) => setOcrResult({ ...ocrResult, email: e.target.value })}
+                        placeholder="tax@company.co.kr"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#1d4ed8] px-2.5 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-blue-300"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">법인등록번호 / 전화번호</label>
+                      <input
+                        type="text"
+                        value={ocrResult.corporateNo || ocrResult.mainPhone || ""}
+                        onChange={(e) => setOcrResult({ ...ocrResult, corporateNo: e.target.value })}
+                        placeholder="-"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
                     </div>
                   </div>
                 </div>
@@ -1801,7 +2025,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
             {/* Form Body */}
             <form onSubmit={handleSaveContact} className="flex-1 overflow-y-auto py-3 space-y-3.5 text-xs">
               {/* Business Card Photo Upload */}
-              <div className="p-3 bg-[#f4efe4] border border-[#b5a894] rounded-lg space-y-2 dark:bg-slate-950/60 dark:border-slate-800">
+              <div className="p-3 bg-[#f4efe4] border border-[#b5a894] rounded-lg space-y-2 dark:bg-slate-900 dark:border-slate-800">
                 <span className="text-xs font-bold text-[#047857] block flex items-center gap-1.5">
                   <ImageIcon className="w-3.5 h-3.5" />
                   <span>실물 명함 사진 첨부 및 자동 문자 인식(OCR)</span>

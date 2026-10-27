@@ -34,6 +34,9 @@ export async function GET() {
         e.role, 
         e.role_code as "roleCode",
         e.base_salary as "baseSalary",
+        e.salary_bank_name as "salaryBankName",
+        e.salary_account_no as "salaryAccountNo",
+        e.salary_account_holder as "salaryAccountHolder",
         e.email, 
         e.phone, 
         e.birth_date::text as "birthDate",
@@ -94,6 +97,9 @@ export async function POST(request: Request) {
       birthDate,
       address,
       baseSalary,
+      salaryBankName,
+      salaryAccountNo,
+      salaryAccountHolder,
       joinDate,
       grantDays,
       status,
@@ -151,6 +157,9 @@ export async function POST(request: Request) {
         role: role || "USER",
         role_code: roleCode || (role === "ADMIN" ? "ADMIN" : role === "MANAGER" ? "MANAGER" : "EMPLOYEE"),
         base_salary: baseSalary !== undefined ? parseFloat(baseSalary) || 0 : 3500000,
+        salary_bank_name: salaryBankName ? String(salaryBankName).trim() : null,
+        salary_account_no: salaryAccountNo ? String(salaryAccountNo).trim() : null,
+        salary_account_holder: salaryAccountHolder ? String(salaryAccountHolder).trim() : null,
         email: email ? String(email).trim() : null,
         phone: phone ? String(phone).trim() : null,
         birth_date: birthDate || null,
@@ -187,6 +196,9 @@ export async function POST(request: Request) {
         tierLevel: data.tier_level ?? 0,
         status: normalizeStatusToEbro(data.employment_status),
         employmentStatus: normalizeStatusToDb(data.employment_status),
+        salaryBankName: data.salary_bank_name || "",
+        salaryAccountNo: data.salary_account_no || "",
+        salaryAccountHolder: data.salary_account_holder || "",
         profileImageUrl: data.profile_image_url || undefined,
       },
     });
@@ -222,6 +234,9 @@ export async function PUT(request: Request) {
       joinDate,
       address,
       baseSalary,
+      salaryBankName,
+      salaryAccountNo,
+      salaryAccountHolder,
       status,
       employmentStatus,
       leaveDate,
@@ -278,6 +293,9 @@ export async function PUT(request: Request) {
     if (joinDate !== undefined) updatePayload.join_date = joinDate || new Date().toISOString().split("T")[0];
     if (address !== undefined) updatePayload.address = address || null;
     if (baseSalary !== undefined) updatePayload.base_salary = parseFloat(baseSalary) || 0;
+    if (salaryBankName !== undefined) updatePayload.salary_bank_name = salaryBankName ? String(salaryBankName).trim() : null;
+    if (salaryAccountNo !== undefined) updatePayload.salary_account_no = salaryAccountNo ? String(salaryAccountNo).trim() : null;
+    if (salaryAccountHolder !== undefined) updatePayload.salary_account_holder = salaryAccountHolder ? String(salaryAccountHolder).trim() : null;
     if (status !== undefined || employmentStatus !== undefined) {
       updatePayload.employment_status = normalizeStatusToDb(status ?? employmentStatus);
     }
@@ -309,6 +327,9 @@ export async function PUT(request: Request) {
         tierLevel: data.tier_level ?? 0,
         status: normalizeStatusToEbro(data.employment_status),
         employmentStatus: normalizeStatusToDb(data.employment_status),
+        salaryBankName: data.salary_bank_name || "",
+        salaryAccountNo: data.salary_account_no || "",
+        salaryAccountHolder: data.salary_account_holder || "",
         profileImageUrl: data.profile_image_url || undefined,
       },
     });

@@ -192,6 +192,9 @@ export interface UserNode {
   birthDate?: string;
   joinDate?: string;
   baseSalary?: number;
+  salaryBankName?: string;
+  salaryAccountNo?: string;
+  salaryAccountHolder?: string;
   address?: string;
   phone?: string;
   email?: string;
@@ -424,6 +427,9 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
           birthDate: e.birthDate ? String(e.birthDate).substring(0, 10) : "",
           joinDate: e.joinDate ? String(e.joinDate).substring(0, 10) : "",
           baseSalary: Number(e.baseSalary ?? 3500000),
+          salaryBankName: e.salaryBankName || "",
+          salaryAccountNo: e.salaryAccountNo || "",
+          salaryAccountHolder: e.salaryAccountHolder || "",
           address: e.address || "",
           phone: e.phone || "",
           email: e.email || "",
@@ -540,6 +546,9 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
         birthDate: e.birthDate ? String(e.birthDate).substring(0, 10) : "",
         joinDate: e.joinDate ? String(e.joinDate).substring(0, 10) : "",
         baseSalary: Number(e.baseSalary ?? 3500000),
+        salaryBankName: e.salaryBankName || "",
+        salaryAccountNo: e.salaryAccountNo || "",
+        salaryAccountHolder: e.salaryAccountHolder || "",
         address: e.address || "",
         phone: e.phone || "",
         email: e.email || "",
@@ -662,6 +671,9 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       loginId: "",
       passwordHash: "",
       baseSalary: 3500000,
+      salaryBankName: "",
+      salaryAccountNo: "",
+      salaryAccountHolder: "",
       joinDate: nowIso.substring(0, 10),
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -879,6 +891,9 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       "연락처",
       "이메일",
       "주소",
+      "급여은행",
+      "급여계좌번호",
+      "예금주",
       ...(canViewPayroll ? ["기본급(원)"] : []),
     ];
 
@@ -904,6 +919,9 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
         isPrivileged ? u.phone || "-" : maskPhoneNumber(u.phone),
         isPrivileged ? u.email || "-" : maskEmail(u.email),
         `"${(isPrivileged ? u.address || "-" : maskAddress(u.address)).replace(/"/g, '""')}"`,
+        u.salaryBankName || "-",
+        isPrivileged || canViewPayroll ? (u.salaryAccountNo || "-") : (u.salaryAccountNo ? u.salaryAccountNo.slice(0, 4) + "-****" : "-"),
+        isPrivileged || canViewPayroll ? (u.salaryAccountHolder || u.name || "-") : maskName(u.salaryAccountHolder || u.name),
         ...(canViewPayroll ? [u.baseSalary || 0] : []),
       ];
       csvRows.push(cols.join(","));
@@ -1254,6 +1272,25 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                 >
                   {isPrivileged || revealedPhones.has(user.id) ? <EyeOff size={11} /> : <Eye size={11} />}
                 </span>
+              </div>
+            )}
+            {(user.salaryBankName || user.salaryAccountNo) && (
+              <div
+                style={{
+                  fontSize: "11.5px",
+                  color: "var(--text-muted)",
+                  marginTop: "2px",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                급여계좌: {user.salaryBankName || "-"}{" "}
+                {isPrivileged || canViewPayroll || revealedPhones.has(user.id)
+                  ? user.salaryAccountNo || ""
+                  : user.salaryAccountNo
+                  ? `${user.salaryAccountNo.slice(0, 4)}-****`
+                  : ""}
               </div>
             )}
           </div>
@@ -2214,6 +2251,138 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                     onChange={(e) => setSelectedProfile({ ...selectedProfile, address: e.target.value })}
                     disabled={!canEdit}
                   />
+                </div>
+
+                {/* 급여계좌 정보 */}
+                <div
+                  style={{
+                    marginTop: "2px",
+                    padding: "10px",
+                    backgroundColor: "var(--bg-app)",
+                    borderRadius: "6px",
+                    border: "1px solid var(--border-color)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: "bold",
+                      color: "var(--text-main)",
+                      display: "block",
+                    }}
+                  >
+                    급여계좌 정보
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                      <label style={{ fontSize: "11px", color: "var(--text-secondary)" }}>은행명</label>
+                      <select
+                        style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
+                        value={selectedProfile.salaryBankName || ""}
+                        onChange={(e) =>
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            salaryBankName: e.target.value,
+                            salaryAccountHolder:
+                              selectedProfile.salaryAccountHolder || selectedProfile.name || "",
+                          })
+                        }
+                        disabled={!canEdit}
+                      >
+                        <option value="">(은행 선택)</option>
+                        {[
+                          "기업은행",
+                          "국민은행",
+                          "신한은행",
+                          "우리은행",
+                          "하나은행",
+                          "농협은행",
+                          "카카오뱅크",
+                          "토스뱅크",
+                          "케이뱅크",
+                          "SC제일은행",
+                          "한국씨티은행",
+                          "우체국",
+                          "새마을금고",
+                          "신협",
+                          "수협은행",
+                          "부산은행",
+                          "대구은행(iM뱅크)",
+                          "경남은행",
+                          "광주은행",
+                          "전북은행",
+                          "제주은행",
+                        ].map((bank) => (
+                          <option key={bank} value={bank}>
+                            {bank}
+                          </option>
+                        ))}
+                        {selectedProfile.salaryBankName &&
+                          ![
+                            "기업은행",
+                            "국민은행",
+                            "신한은행",
+                            "우리은행",
+                            "하나은행",
+                            "농협은행",
+                            "카카오뱅크",
+                            "토스뱅크",
+                            "케이뱅크",
+                            "SC제일은행",
+                            "한국씨티은행",
+                            "우체국",
+                            "새마을금고",
+                            "신협",
+                            "수협은행",
+                            "부산은행",
+                            "대구은행(iM뱅크)",
+                            "경남은행",
+                            "광주은행",
+                            "전북은행",
+                            "제주은행",
+                          ].includes(selectedProfile.salaryBankName) && (
+                            <option value={selectedProfile.salaryBankName}>
+                              {selectedProfile.salaryBankName}
+                            </option>
+                          )}
+                      </select>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                      <label style={{ fontSize: "11px", color: "var(--text-secondary)" }}>예금주</label>
+                      <input
+                        type="text"
+                        style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
+                        placeholder="예금주 성명"
+                        value={selectedProfile.salaryAccountHolder || ""}
+                        onChange={(e) =>
+                          setSelectedProfile({ ...selectedProfile, salaryAccountHolder: e.target.value })
+                        }
+                        disabled={!canEdit}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                    <label style={{ fontSize: "11px", color: "var(--text-secondary)" }}>계좌번호</label>
+                    <input
+                      type="text"
+                      style={{
+                        padding: "5px 8px",
+                        fontSize: "12px",
+                        borderRadius: "4px",
+                        width: "100%",
+                        fontFamily: "monospace",
+                      }}
+                      placeholder="계좌번호 입력 (예: 110-123-456789)"
+                      value={selectedProfile.salaryAccountNo || ""}
+                      onChange={(e) =>
+                        setSelectedProfile({ ...selectedProfile, salaryAccountNo: e.target.value })
+                      }
+                      disabled={!canEdit}
+                    />
+                  </div>
                 </div>
 
                 {/* 급여 정산 권한자 전용 계약 기본급 설정 */}

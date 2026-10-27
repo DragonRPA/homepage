@@ -33,8 +33,8 @@ export async function GET(request: Request) {
         b.created_at as "createdAt"
       FROM erp_rental_billings b
       JOIN erp_rental_contracts c ON b.contract_id = c.id
-      JOIN erp_rental_assets a ON c.asset_id = a.id
-      JOIN erp_rental_products rp ON a.rental_product_id = rp.id
+      LEFT JOIN erp_rental_assets a ON c.asset_id = a.id
+      LEFT JOIN erp_rental_products rp ON a.rental_product_id = rp.id
       LEFT JOIN erp_tax_invoices ti ON b.tax_invoice_id = ti.id
     `;
     const params: any[] = [];

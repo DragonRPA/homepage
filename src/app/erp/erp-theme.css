@@ -128,15 +128,13 @@
 }
 
 /* 1. 배경 계층 매핑 - 순백색 배경 전면 차단 및 웜 페이퍼 질감 강제 */
+[data-theme='light'] [class*="bg-slate-950"],
+[data-theme='light'] [class*="bg-slate-900"],
+[data-theme='light'] [class*="bg-slate-800"],
+[data-theme='light'] [class*="bg-slate-700"],
 [data-theme='light'] .bg-slate-950,
 [data-theme='light'] .bg-slate-900,
-[data-theme='light'] .bg-slate-900\/90,
-[data-theme='light'] .bg-slate-900\/80,
-[data-theme='light'] .bg-slate-900\/60,
 [data-theme='light'] .bg-slate-800,
-[data-theme='light'] .bg-slate-800\/80,
-[data-theme='light'] .bg-slate-800\/60,
-[data-theme='light'] .bg-slate-800\/40,
 [data-theme='light'] .bg-slate-700,
 [data-theme='light'] .bg-white,
 [data-theme='light'] .bg-gray-50,
@@ -149,6 +147,21 @@
   background-repeat: repeat !important;
   border-color: var(--border-color) !important;
   color: var(--text-main) !important;
+}
+
+[data-theme='light'] [class*="bg-slate-950/"],
+[data-theme='light'] [class*="bg-slate-900/"],
+[data-theme='light'] [class*="bg-slate-800/"] {
+  background-color: #f2ede2 !important;
+  background-image: var(--paper-texture) !important;
+  background-repeat: repeat !important;
+  border-color: var(--border-color) !important;
+}
+
+[data-theme='light'] [class*="border-slate-800"],
+[data-theme='light'] [class*="border-slate-700"],
+[data-theme='light'] [class*="border-slate-900"] {
+  border-color: var(--border-color) !important;
 }
 
 /* 인라인 스타일로 유입되는 백색(#ffffff, #fff, white) 및 연회색 배경 원천 차단 */

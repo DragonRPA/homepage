@@ -5,7 +5,7 @@ import {
   Users, ShoppingCart, Truck, Briefcase, FileText, 
   Building2, Shield, CheckSquare, Settings, Calendar, 
   Clock, DollarSign, CreditCard, ChevronDown, ChevronRight,
-  FolderTree, Database, Package, Layers
+  FolderTree, Database, Package, Layers, PackageCheck, PackagePlus, ArrowLeftRight
 } from "lucide-react";
 
 import { ErpLogin } from "./components/ErpLogin";
@@ -35,9 +35,11 @@ import { TradeTab } from "./components/TradeTab";
 import { RentalTab } from "./components/RentalTab";
 import { ServiceTab } from "./components/ServiceTab";
 import { TaxInvoiceTab } from "./components/TaxInvoiceTab";
+import { OutboundRegTab } from "./components/OutboundRegTab";
+import { InboundRegTab } from "./components/InboundRegTab";
 import "./erp-theme.css";
 
-export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "PARTNER" | "ASSET" | "BUSINESS";
+export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "PARTNER" | "ASSET" | "INOUT" | "BUSINESS";
 
 export type ErpMenuKey =
   | "ORG"
@@ -54,6 +56,8 @@ export type ErpMenuKey =
   | "VENDOR"
   | "PRODUCT"
   | "ASSET"
+  | "OUTBOUND_REG"
+  | "INBOUND_REG"
   | "TRADE"
   | "RENTAL"
   | "SERVICES";
@@ -122,6 +126,15 @@ const CATEGORIES: CategoryConfig[] = [
     ],
   },
   {
+    key: "INOUT",
+    label: "입출고관리",
+    icon: ArrowLeftRight,
+    items: [
+      { key: "OUTBOUND_REG", label: "출고등록", icon: PackageCheck },
+      { key: "INBOUND_REG", label: "입고등록", icon: PackagePlus },
+    ],
+  },
+  {
     key: "BUSINESS",
     label: "영업·계약",
     icon: Briefcase,
@@ -149,6 +162,7 @@ export default function ErpMainPage() {
     FINANCE: true,
     PARTNER: true,
     ASSET: true,
+    INOUT: true,
     BUSINESS: true,
   });
 
@@ -253,7 +267,7 @@ export default function ErpMainPage() {
               </span>
             </div>
             <span className="text-[10px] px-2 py-0.5 rounded font-mono font-semibold erp-sidebar-badge">
-              5그룹 15메뉴
+              {CATEGORIES.length}그룹 {CATEGORIES.reduce((s, c) => s + c.items.length, 0)}메뉴
             </span>
           </div>
 
@@ -406,6 +420,16 @@ export default function ErpMainPage() {
               />
             )}
             {activeMenu === "ASSET" && <AssetManagementTab currentUser={currentUser} />}
+            {activeMenu === "OUTBOUND_REG" && (
+              <div className="p-4">
+                <OutboundRegTab currentUser={currentUser} />
+              </div>
+            )}
+            {activeMenu === "INBOUND_REG" && (
+              <div className="p-4">
+                <InboundRegTab currentUser={currentUser} />
+              </div>
+            )}
             {activeMenu === "TRADE" && (
               <TradeTab 
                 currentUser={currentUser} 

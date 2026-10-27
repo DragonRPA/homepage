@@ -37,6 +37,9 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
   const [empRole, setEmpRole] = useState("USER");
   const [empEmail, setEmpEmail] = useState("");
   const [empPhone, setEmpPhone] = useState("");
+  const [empSalaryBankName, setEmpSalaryBankName] = useState("");
+  const [empSalaryAccountNo, setEmpSalaryAccountNo] = useState("");
+  const [empSalaryAccountHolder, setEmpSalaryAccountHolder] = useState("");
   const [empJoinDate, setEmpJoinDate] = useState(new Date().toISOString().split("T")[0]);
   const [empGrantDays, setEmpGrantDays] = useState("15.0");
 
@@ -156,6 +159,9 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
           role: empRole,
           email: empEmail,
           phone: empPhone,
+          salaryBankName: empSalaryBankName,
+          salaryAccountNo: empSalaryAccountNo,
+          salaryAccountHolder: empSalaryAccountHolder || empName,
           joinDate: empJoinDate,
           grantDays: empGrantDays
         })
@@ -168,6 +174,9 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
       setEmpNo("");
       setEmpLoginId("");
       setEmpName("");
+      setEmpSalaryBankName("");
+      setEmpSalaryAccountNo("");
+      setEmpSalaryAccountHolder("");
       fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -406,13 +415,14 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
                 {renderSortTh("부여연차", "grantDays", "right")}
                 {renderSortTh("사용연차", "usedDays", "right")}
                 {renderSortTh("잔여연차", "remainDays", "right")}
+                {renderSortTh("급여계좌", "salaryBankName")}
                 {renderSortTh("연락처 / 이메일", "email")}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {sortedEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-8 text-center text-slate-500">
+                  <td colSpan={12} className="py-8 text-center text-slate-500">
                     {loading ? "사원 데이터를 불러오는 중..." : "등록된 사원 데이터가 없습니다."}
                   </td>
                 </tr>
@@ -446,6 +456,9 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
                     <td className="py-2 px-3 text-right font-mono text-amber-400">{formatErpNumber(e.usedDays)}일</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
                       {formatErpNumber(e.remainDays)}일
+                    </td>
+                    <td className="py-2 px-3 text-slate-300 text-[11px] font-mono">
+                      {e.salaryBankName || e.salaryAccountNo ? `${e.salaryBankName || "-"} ${e.salaryAccountNo || "-"}` : "-"}
                     </td>
                     <td className="py-2 px-3 text-slate-400 text-[11px]">
                       {e.phone || "-"} / {e.email || "-"}
@@ -680,6 +693,39 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
                   onChange={(e) => setEmpPhone(e.target.value)}
                   placeholder="010-0000-0000"
                   className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-slate-400">급여은행</label>
+                <input
+                  type="text"
+                  value={empSalaryBankName}
+                  onChange={(e) => setEmpSalaryBankName(e.target.value)}
+                  placeholder="예: 기업은행"
+                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-slate-400">예금주</label>
+                <input
+                  type="text"
+                  value={empSalaryAccountHolder}
+                  onChange={(e) => setEmpSalaryAccountHolder(e.target.value)}
+                  placeholder="미입력 시 성명 자동 적용"
+                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                />
+              </div>
+
+              <div className="col-span-2 flex flex-col gap-1">
+                <label className="text-slate-400">급여계좌번호</label>
+                <input
+                  type="text"
+                  value={empSalaryAccountNo}
+                  onChange={(e) => setEmpSalaryAccountNo(e.target.value)}
+                  placeholder="계좌번호 입력"
+                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white font-mono"
                 />
               </div>
 

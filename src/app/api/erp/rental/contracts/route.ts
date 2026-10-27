@@ -27,8 +27,8 @@ export async function GET(request: Request) {
         c.memo,
         c.created_at as "createdAt"
       FROM erp_rental_contracts c
-      JOIN erp_rental_assets a ON c.asset_id = a.id
-      JOIN erp_rental_products rp ON a.rental_product_id = rp.id
+      LEFT JOIN erp_rental_assets a ON c.asset_id = a.id
+      LEFT JOIN erp_rental_products rp ON a.rental_product_id = rp.id
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -101,8 +101,8 @@ export async function POST(request: Request) {
 
       // 2. Set asset status to RENTED (헌장 1.3 준수)
       await client.query(
-        "UPDATE erp_rental_assets SET status = 'RENTED', updated_at = NOW() WHERE id = $1",
-        [assetId]
+        "UPDATE erp_rental_assets SET status = 'RENTED', current_customer = $1, current_site = $2, contract_no = $3, updated_at = NOW() WHERE id = $4",
+        [customerName.trim(), siteName || "본사/지정현장", contractNo, assetId]
       );
 
       // 3. Audit log
@@ -152,7 +152,7 @@ export async function PATCH(request: Request) {
 
       // 2. Rollback asset to AVAILABLE
       await client.query(
-        "UPDATE erp_rental_assets SET status = 'AVAILABLE', updated_at = NOW() WHERE id = $1",
+        "UPDATE erp_rental_assets SET status = 'AVAILABLE', current_customer = NULL, current_site = NULL, contract_no = NULL, updated_at = NOW() WHERE id = $1",
         [contract.asset_id]
       );
 

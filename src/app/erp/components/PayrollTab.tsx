@@ -17,6 +17,9 @@ interface PayrollRecord {
   department: string;
   position: string;
   duty?: string;
+  salaryBankName?: string | null;
+  salaryAccountNo?: string | null;
+  salaryAccountHolder?: string | null;
   baseSalary: number;
   otHours: number;
   otPay: number;
@@ -192,7 +195,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   // Export CSV
   const handleExportCsv = () => {
     const headers = [
-      "귀속월", "사번", "성명", "부서", "직급", "기본급", "OT시간", "OT수당", 
+      "귀속월", "사번", "성명", "부서", "직급", "급여은행", "급여계좌번호", "예금주", "기본급", "OT시간", "OT수당", 
       "식대(비과세)", "상여금", "총지급액", "국민연금", "건강보험", "고용보험", 
       "소득세", "지방소득세", "총공제액", "실지급액", "상태"
     ];
@@ -202,6 +205,9 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       r.employeeName,
       r.department,
       r.position,
+      r.salaryBankName || "-",
+      r.salaryAccountNo || "-",
+      r.salaryAccountHolder || r.employeeName || "-",
       r.baseSalary,
       r.otHours,
       r.otPay,
@@ -325,6 +331,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                   {renderSortTh("성명", "employeeName")}
                   {renderSortTh("부서", "department")}
                   {renderSortTh("직급 / 직책", "position")}
+                  {renderSortTh("급여계좌", "salaryBankName")}
                   {renderSortTh("기본급", "baseSalary", "right")}
                   {renderSortTh("OT시간", "otHours", "center")}
                   {renderSortTh("연장수당", "otPay", "right")}
@@ -345,7 +352,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
               <tbody className="divide-y divide-slate-800 font-mono text-[11px]">
                 {sortedRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={19} className="py-16 text-center text-slate-500 font-sans text-xs">
+                    <td colSpan={20} className="py-16 text-center text-slate-500 font-sans text-xs">
                       {selectedMonth} 급여 대장이 생성되지 않았습니다. 상단 &apos;급여 자동 계산 & 대장 생성&apos; 버튼을 클릭하세요.
                     </td>
                   </tr>
@@ -357,6 +364,19 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                       <td className="py-2 px-3 text-slate-300 whitespace-nowrap font-sans">{r.department}</td>
                       <td className="py-2 px-3 text-slate-300 whitespace-nowrap font-sans">
                         {r.position} {r.duty ? `(${r.duty})` : ""}
+                      </td>
+                      <td className="py-2 px-3 text-slate-300 whitespace-nowrap font-sans">
+                        {r.salaryBankName || r.salaryAccountNo ? (
+                          <span>
+                            <span className="font-semibold text-slate-200">{r.salaryBankName || "-"}</span>{" "}
+                            <span className="font-mono text-slate-400">{r.salaryAccountNo || "-"}</span>
+                            {r.salaryAccountHolder && r.salaryAccountHolder !== r.employeeName && (
+                              <span className="text-slate-500 ml-1">({r.salaryAccountHolder})</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )}
                       </td>
                       <td className="py-2 px-3 text-right text-slate-300 whitespace-nowrap">
                         {formatErpCurrency(r.baseSalary)}

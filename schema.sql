@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS employees (
     role VARCHAR(30) DEFAULT 'USER' NOT NULL, -- SUPER_ADMIN(운영자), MANAGER(관리자), USER(일반유저)
     manager_id INTEGER REFERENCES employees(id), -- 직속 결재권자 (유저 ➔ 관리자, 관리자 ➔ 운영자)
     hire_date DATE NOT NULL,
+    salary_bank_name VARCHAR(50),
+    salary_account_no VARCHAR(50),
+    salary_account_holder VARCHAR(50),
     total_annual_leave NUMERIC(4,1) DEFAULT 15.0 NOT NULL,
     used_annual_leave NUMERIC(4,1) DEFAULT 0.0 NOT NULL,
     remaining_annual_leave NUMERIC(4,1) DEFAULT 15.0 NOT NULL,

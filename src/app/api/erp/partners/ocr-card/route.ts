@@ -1,55 +1,21 @@
 import { NextResponse } from "next/server";
 
-// Sample preset business cards for instant testing & demonstration
-const PRESET_CARDS: Record<string, any> = {
-  SAMPLE_1: {
-    name: "김진석",
-    position: "부장 / 구매총괄",
-    department: "구매조달실 자재구매팀",
-    mobile: "010-3456-7890",
-    email: "jskim@hdec.co.kr",
-    telephone: "02-746-1234",
-    companyName: "현대건설(주)",
-    memo: "RPA 솔루션 및 계약/정산 총괄 창구",
-  },
-  SAMPLE_2: {
-    name: "이수진",
-    position: "과장",
-    department: "IT운영실 DX추진단",
-    mobile: "010-4567-8901",
-    email: "sjlee@hdec.co.kr",
-    telephone: "02-746-5678",
-    companyName: "현대건설(주)",
-    memo: "자동화 봇 실무 운영 및 기술협의",
-  },
-  SAMPLE_3: {
-    name: "정대훈",
-    position: "차장",
-    department: "엔터프라이즈 B2B 영업본부",
-    mobile: "010-9012-3456",
-    email: "dhjung@kt.com",
-    telephone: "02-720-3344",
-    companyName: "(주)케이티정보통신",
-    memo: "서버 호스팅 및 전산 인프라 매입 담당자",
-  },
-};
-
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { presetKey, rawText, fileData, fileName } = body;
+    const { rawText, fileData, fileName } = body;
 
-    // 1. If preset requested, return preset immediately
-    if (presetKey && PRESET_CARDS[presetKey]) {
-      return NextResponse.json({
-        success: true,
-        parsed: PRESET_CARDS[presetKey],
-        message: "샘플 명함 정보가 성공적으로 로드되었습니다.",
-      });
-    }
-
-    // 2. Text parsing heuristic
     let text = rawText || "";
+
+    // If fileData is base64 string
+    if (fileData && typeof fileData === "string") {
+      try {
+        const commaIdx = fileData.indexOf(",");
+        const base64Str = commaIdx !== -1 ? fileData.slice(commaIdx + 1) : fileData;
+        const buf = Buffer.from(base64Str, "base64");
+        text += " " + buf.toString("utf8");
+      } catch (err) {}
+    }
 
     const parsed: any = {
       name: "",
@@ -104,7 +70,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       parsed,
-      message: parsed.name || parsed.mobile ? "명함 정보가 추출되었습니다." : "명함 정보를 입력해주세요.",
+      message: parsed.name || parsed.mobile ? "명함 정보가 추출되었습니다." : "명함 이미지가 정상 첨부되었습니다.",
     });
   } catch (error: any) {
     console.error("POST /api/erp/partners/ocr-card error:", error);

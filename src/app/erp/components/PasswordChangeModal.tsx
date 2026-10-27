@@ -73,77 +73,77 @@ export const PasswordChangeModal: React.FC<PasswordChangeModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded shadow-2xl p-5 text-white animate-in fade-in zoom-in-95 duration-150">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+      <div className="bg-[#f4efe4] border border-[#b5a894] w-full max-w-md rounded-xl shadow-2xl p-5 text-[#0f172a] animate-in fade-in zoom-in-95 duration-150 dark:bg-slate-900 dark:border-slate-700 dark:text-white">
+        <div className="flex items-center justify-between pb-3 border-b border-[#b5a894] dark:border-slate-800">
           <div className="flex items-center gap-2">
-            <KeyRound className="w-5 h-5 text-blue-400" />
-            <h3 className="font-bold text-sm text-slate-100">비밀번호 변경</h3>
+            <KeyRound className="w-5 h-5 text-[#1d4ed8] dark:text-blue-400" />
+            <h3 className="font-bold text-sm text-[#0f172a] dark:text-slate-100">비밀번호 변경</h3>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
+          <button onClick={onClose} className="text-[#475569] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {errorMsg && (
-          <div className="mt-3 p-2 bg-rose-950/80 border border-rose-800 rounded text-rose-300 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
+          <div className="mt-3 p-2 bg-[#fef2f2] border border-[#dc2626] rounded text-[#b91c1c] text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-[#dc2626]" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         {successMsg && (
-          <div className="mt-3 p-2 bg-emerald-950/80 border border-emerald-800 rounded text-emerald-300 text-xs flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <div className="mt-3 p-2 bg-[#ecfdf5] border border-[#047857] rounded text-[#065f46] text-xs flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-[#047857]" />
             <span>{successMsg}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-slate-400">현재 비밀번호</label>
+            <label className="text-xs font-semibold text-[#334155] dark:text-slate-400">현재 비밀번호</label>
             <input
               type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               placeholder="현재 비밀번호 입력"
-              className="h-9 px-3 bg-slate-800 border border-slate-700 rounded text-xs text-white focus:outline-none focus:border-blue-500"
+              className="h-9 px-3 bg-[#ebe5d8] border border-[#b5a894] rounded text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
             />
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-slate-400">새 비밀번호 (4자리 이상)</label>
+            <label className="text-xs font-semibold text-[#334155] dark:text-slate-400">새 비밀번호 (4자리 이상)</label>
             <input
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="새 비밀번호 입력"
-              className="h-9 px-3 bg-slate-800 border border-slate-700 rounded text-xs text-white focus:outline-none focus:border-blue-500"
+              className="h-9 px-3 bg-[#ebe5d8] border border-[#b5a894] rounded text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
             />
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-slate-400">새 비밀번호 확인</label>
+            <label className="text-xs font-semibold text-[#334155] dark:text-slate-400">새 비밀번호 확인</label>
             <input
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="새 비밀번호 다시 입력"
-              className="h-9 px-3 bg-slate-800 border border-slate-700 rounded text-xs text-white focus:outline-none focus:border-blue-500"
+              className="h-9 px-3 bg-[#ebe5d8] border border-[#b5a894] rounded text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
             />
           </div>
 
-          <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-800">
+          <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-[#b5a894] dark:border-slate-800">
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 rounded border border-slate-700"
+              className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-xs text-[#334155] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700"
             >
               취소
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded transition disabled:opacity-50"
+              className="px-4 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-xs font-bold text-white rounded transition disabled:opacity-50"
             >
               {loading ? "변경 중..." : "변경 확인"}
             </button>

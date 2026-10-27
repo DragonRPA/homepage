@@ -115,16 +115,16 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     return (
       <th
         onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-700 transition text-${align} whitespace-nowrap`}
+        className={`py-2.5 px-3 cursor-pointer select-none transition text-${align} whitespace-nowrap hover:bg-[#d0c6b4] dark:hover:bg-slate-700`}
         title={`${label} 기준 정렬`}
       >
         <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
           <span>{label}</span>
           <span className="shrink-0">
             {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
+              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" /> : <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
             ) : (
-              <ArrowUpDown className="w-3 h-3 opacity-30" />
+              <ArrowUpDown className="w-3.5 h-3.5 opacity-30" />
             )}
           </span>
         </div>
@@ -190,90 +190,6 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       fetchTransactions();
     } catch (err: any) {
       showToast(err.message, "error");
-    }
-  };
-
-  // Seed Mock Data (기업은행 법인 및 개인 통장 실사 반영)
-  const handleSeedMockData = async () => {
-    const mockList = [
-      {
-        entityType: "CORP",
-        bankName: "기업은행",
-        accountNo: "478-081383-04-018",
-        transDate: today,
-        transTime: "09:30:00",
-        transType: "DEPOSIT",
-        amount: 3300000,
-        balanceAfter: 53300000,
-        senderReceiver: "(주)드래곤로보틱스",
-        memo: "10월 RPA 라이선스 임대료 입금",
-      },
-      {
-        entityType: "CORP",
-        bankName: "기업은행",
-        accountNo: "478-081383-04-018",
-        transDate: today,
-        transTime: "11:15:00",
-        transType: "DEPOSIT",
-        amount: 5500000,
-        balanceAfter: 58800000,
-        senderReceiver: "(주)한국자동화솔루션",
-        memo: "개발용역 2차 중도금",
-      },
-      {
-        entityType: "INDIVIDUAL",
-        bankName: "기업은행",
-        accountNo: "140-129404-04-018",
-        transDate: today,
-        transTime: "13:40:00",
-        transType: "DEPOSIT",
-        amount: 1650000,
-        balanceAfter: 12650000,
-        senderReceiver: "태양소프트",
-        memo: "개인사업자 응용SW 유지보수료",
-      },
-      {
-        entityType: "CORP",
-        bankName: "기업은행",
-        accountNo: "478-081383-04-018",
-        transDate: today,
-        transTime: "14:20:00",
-        transType: "WITHDRAWAL",
-        amount: 220000,
-        balanceAfter: 58580000,
-        senderReceiver: "KT텔레콤",
-        memo: "서버 IDC 회선 사용료",
-      },
-      {
-        entityType: "INDIVIDUAL",
-        bankName: "기업은행",
-        accountNo: "140-129404-04-018",
-        transDate: today,
-        transTime: "16:40:00",
-        transType: "DEPOSIT",
-        amount: 880000,
-        balanceAfter: 13530000,
-        senderReceiver: "글로벌파트너스",
-        memo: "RPA 스크립트 개발 검수비용",
-      },
-    ];
-
-    try {
-      setLoading(true);
-      const res = await fetch("/api/erp/bank-matching", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mockList),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "목업 등록 실패");
-
-      showToast(`샘플 통장 내역 ${data.count}건이 일괄 등록되었습니다.`);
-      fetchTransactions();
-    } catch (err: any) {
-      showToast(err.message, "error");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -351,14 +267,14 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 overflow-hidden font-sans">
       {/* Toast Notification */}
       {toastMessage && (
         <div
           className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-xs font-bold border ${
             toastMessage.type === "success"
-              ? "bg-emerald-950 border-emerald-500 text-emerald-200"
-              : "bg-rose-950 border-rose-500 text-rose-200"
+              ? "bg-[#ecfdf5] border-[#047857] text-[#065f46]"
+              : "bg-[#fef2f2] border-[#dc2626] text-[#b91c1c]"
           }`}
         >
           {toastMessage.text}
@@ -366,37 +282,37 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       )}
 
       {/* 1. Gutenberg Z-Pattern Step 1 (Scope) & Step 2 (Pipeline) */}
-      <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
         {/* Left: Scope (좌상단) */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-blue-400" />
-            <span className="text-xs font-bold text-slate-200">
+            <Building2 className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
+            <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
               은행 입출금 대장 (1:1 통장 대사)
             </span>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 bg-slate-800 px-2 py-1 rounded border border-slate-700">
+            <div className="flex items-center gap-1 bg-[#f4efe4] px-2 py-1 rounded border border-[#b5a894] dark:bg-slate-800 dark:border-slate-700">
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="bg-transparent text-xs text-slate-200 focus:outline-none"
+                className="bg-transparent text-xs text-[#0f172a] dark:text-slate-200 focus:outline-none"
               />
-              <span className="text-slate-500 text-xs">~</span>
+              <span className="text-[#475569] dark:text-slate-500 text-xs">~</span>
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="bg-transparent text-xs text-slate-200 focus:outline-none"
+                className="bg-transparent text-xs text-[#0f172a] dark:text-slate-200 focus:outline-none"
               />
             </div>
 
             <select
               value={transType}
               onChange={(e) => setTransType(e.target.value as any)}
-              className="bg-slate-800 border border-slate-700 text-xs text-slate-200 px-2 py-1.5 rounded focus:outline-none focus:border-blue-500"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             >
               <option value="ALL">전체 구분</option>
               <option value="DEPOSIT">입금만</option>
@@ -406,7 +322,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
             <select
               value={matchStatus}
               onChange={(e) => setMatchStatus(e.target.value as any)}
-              className="bg-slate-800 border border-slate-700 text-xs text-slate-200 px-2 py-1.5 rounded focus:outline-none focus:border-blue-500"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             >
               <option value="ALL">전체 대사상태</option>
               <option value="MATCHED">대사 완료</option>
@@ -416,7 +332,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
             <select
               value={accountFilter}
               onChange={(e) => setAccountFilter(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-xs text-slate-200 px-2 py-1.5 rounded focus:outline-none focus:border-blue-500 font-medium"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] font-medium dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             >
               <option value="ALL">전체 계좌 (통합)</option>
               <option value="478-081383-04-018">기업은행 478-081383 [법인]</option>
@@ -424,14 +340,14 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
             </select>
 
             <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-[#475569] dark:text-slate-400" />
               <input
                 type="text"
                 placeholder="적요 / 입금자명 검색"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && fetchTransactions()}
-                className="bg-slate-800 border border-slate-700 text-xs text-slate-200 pl-8 pr-3 py-1.5 rounded w-44 focus:outline-none focus:border-blue-500"
+                className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] pl-8 pr-3 py-1.5 rounded w-44 focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
               />
             </div>
           </div>
@@ -442,23 +358,15 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
           <button
             onClick={fetchTransactions}
             disabled={loading}
-            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition"
+            className="p-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
             title="새로고침"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           </button>
 
           <button
-            onClick={handleSeedMockData}
-            className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded flex items-center gap-1.5 border border-slate-700 shadow transition"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>샘플 통장내역 생성</span>
-          </button>
-
-          <button
             onClick={handleExportCsv}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded flex items-center gap-1.5 border border-slate-700 shadow transition"
+            className="px-3 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] text-xs font-bold rounded flex items-center gap-1.5 border border-[#b5a894] shadow-xs transition dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
           >
             <Download className="w-3.5 h-3.5" />
             <span>엑셀 내보내기</span>
@@ -466,7 +374,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
 
           <button
             onClick={() => setModalOpen(true)}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
+            className="px-3 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow-xs transition"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>거래내역 등록</span>
@@ -476,10 +384,10 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
 
       {/* 2. Gutenberg Z-Pattern Step 3 (Body / Inspection - High-Density Grid) */}
       <div className="flex-1 overflow-auto p-4">
-        <div className="bg-slate-900 border border-slate-800 rounded shadow-sm overflow-hidden h-full flex flex-col">
+        <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-hidden h-full flex flex-col dark:bg-slate-900 dark:border-slate-800">
           <div className="flex-1 overflow-auto">
             <table className="w-full text-xs text-left border-collapse">
-              <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0 z-10">
+              <thead className="bg-[#e2dbcd] text-[#0f172a] uppercase tracking-wider font-semibold border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
                 <tr>
                   {renderSortTh("거래일시", "transDate")}
                   {renderSortTh("은행 / 계좌", "bankName")}
@@ -493,77 +401,77 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                   <th className="py-2.5 px-3 whitespace-nowrap text-center">조치</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800">
+              <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
                 {sortedTransactions.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-16 text-center text-slate-500">
+                    <td colSpan={10} className="py-16 text-center text-[#475569] dark:text-slate-500">
                       조회된 은행 거래 내역이 없습니다.
                     </td>
                   </tr>
                 ) : (
                   sortedTransactions.map((t) => (
-                    <tr key={t.id} className="hover:bg-slate-800/40 transition">
-                      <td className="py-2 px-3 font-mono text-slate-300 whitespace-nowrap">
-                        {t.transDate} <span className="text-slate-500 text-[10px]">{t.transTime}</span>
+                    <tr key={t.id} className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40 transition">
+                      <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-300 whitespace-nowrap">
+                        {t.transDate} <span className="text-[#475569] dark:text-slate-500 text-[10px]">{t.transTime}</span>
                       </td>
-                      <td className="py-2 px-3 text-slate-300 whitespace-nowrap">
+                      <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           {(t.entityType === "INDIVIDUAL" || t.accountNo?.includes("140")) ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#fef3c7] text-[#92400e] border border-[#fde68a] dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30">
                               개인
                             </span>
                           ) : (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe] dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/30">
                               법인
                             </span>
                           )}
-                          <span className="font-semibold text-slate-200">{t.bankName}</span>{" "}
-                          <span className="font-mono text-slate-400 text-[11px]">{t.accountNo}</span>
+                          <span className="font-semibold text-[#0f172a] dark:text-slate-200">{t.bankName}</span>{" "}
+                          <span className="font-mono text-[#475569] dark:text-slate-400 text-[11px]">{t.accountNo}</span>
                         </div>
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             t.transType === "DEPOSIT"
-                              ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                              : "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                              ? "bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe] dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/30"
+                              : "bg-[#fef2f2] text-[#991b1b] border border-[#fecaca] dark:bg-rose-500/20 dark:text-rose-400 dark:border-rose-500/30"
                           }`}
                         >
                           {t.transType === "DEPOSIT" ? "입금" : "출금"}
                         </span>
                       </td>
-                      <td className="py-2 px-3 text-right font-mono font-bold whitespace-nowrap text-blue-400">
+                      <td className="py-2 px-3 text-right font-mono font-bold whitespace-nowrap text-[#1d4ed8] dark:text-blue-400">
                         {t.transType === "DEPOSIT" ? formatErpCurrency(t.amount) : "-"}
                       </td>
-                      <td className="py-2 px-3 text-right font-mono font-bold whitespace-nowrap text-rose-400">
+                      <td className="py-2 px-3 text-right font-mono font-bold whitespace-nowrap text-[#dc2626] dark:text-rose-400">
                         {t.transType === "WITHDRAWAL" ? formatErpCurrency(t.amount) : "-"}
                       </td>
-                      <td className="py-2 px-3 text-right font-mono text-slate-400 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">
                         {formatErpCurrency(t.balanceAfter || 0)}
                       </td>
-                      <td className="py-2 px-3 font-bold text-slate-100 whitespace-nowrap">
+                      <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap">
                         {t.senderReceiver}
-                        {t.memo && <span className="text-slate-400 font-normal ml-1.5 text-[11px]">({t.memo})</span>}
+                        {t.memo && <span className="text-[#475569] dark:text-slate-400 font-normal ml-1.5 text-[11px]">({t.memo})</span>}
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             t.isMatched
-                              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                              : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                              ? "bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30"
+                              : "bg-[#fef3c7] text-[#92400e] border border-[#fde68a] dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30"
                           }`}
                         >
                           {t.isMatched ? "매칭완료" : "미매칭"}
                         </span>
                       </td>
-                      <td className="py-2 px-3 text-slate-300 font-mono text-[11px] whitespace-nowrap">
+                      <td className="py-2 px-3 text-[#334155] dark:text-slate-300 font-mono text-[11px] whitespace-nowrap">
                         {t.isMatched ? `${t.matchedType || "매출"}: ${t.matchedId || "-"}` : "-"}
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
                         {t.isMatched ? (
                           <button
                             onClick={() => handleUnmatch(t.id)}
-                            className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-rose-400 rounded border border-slate-700 text-[11px] transition"
+                            className="px-2 py-0.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] transition dark:bg-slate-800 dark:text-slate-400 dark:hover:text-rose-400 dark:border-slate-700"
                           >
                             매칭 취소
                           </button>
@@ -576,7 +484,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                               setMatchMemo(t.memo || "");
                               setMatchModalOpen(true);
                             }}
-                            className="px-2.5 py-0.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-[11px] font-bold transition shadow"
+                            className="px-2.5 py-0.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white rounded text-[11px] font-bold transition shadow-xs"
                           >
                             1:1 대사 매칭
                           </button>
@@ -592,59 +500,59 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       </div>
 
       {/* 3. Gutenberg Z-Pattern Step 4 (Terminal Action & 대차대조식 검증 SSOT) */}
-      <div className="p-3 bg-slate-900 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div className="p-3 bg-[#e2dbcd] border-t border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-4 text-xs font-mono">
           <div>
-            <span className="text-slate-400">총 입금액: </span>
-            <span className="font-bold text-blue-400">{formatErpCurrency(summary.totalDeposit)}</span>
+            <span className="text-[#475569] dark:text-slate-400">총 입금액: </span>
+            <span className="font-bold text-[#1d4ed8] dark:text-blue-400">{formatErpCurrency(summary.totalDeposit)}</span>
           </div>
-          <span className="text-slate-600">=</span>
+          <span className="text-[#475569] dark:text-slate-600">=</span>
           <div>
-            <span className="text-slate-400">🟢 매칭 확정액: </span>
-            <span className="font-bold text-emerald-400">{formatErpCurrency(summary.matchedDeposit)}</span>
+            <span className="text-[#475569] dark:text-slate-400">🟢 매칭 확정액: </span>
+            <span className="font-bold text-[#047857] dark:text-emerald-400">{formatErpCurrency(summary.matchedDeposit)}</span>
           </div>
-          <span className="text-slate-600">+</span>
+          <span className="text-[#475569] dark:text-slate-600">+</span>
           <div>
-            <span className="text-slate-400">⏳ 미매칭 잔여액: </span>
-            <span className="font-bold text-amber-400">{formatErpCurrency(summary.unmatchedDeposit)}</span>
+            <span className="text-[#475569] dark:text-slate-400">⏳ 미매칭 잔여액: </span>
+            <span className="font-bold text-[#b45309] dark:text-amber-400">{formatErpCurrency(summary.unmatchedDeposit)}</span>
           </div>
-          <span className="text-slate-600">|</span>
-          <div className="flex items-center gap-1 font-bold text-slate-300">
+          <span className="text-[#475569] dark:text-slate-600">|</span>
+          <div className="flex items-center gap-1 font-bold text-[#0f172a] dark:text-slate-300">
             <span>⚖️ 대차 차액:</span>
-            <span className="text-emerald-400">₩0 (무결성 검증됨)</span>
+            <span className="text-[#047857] dark:text-emerald-400 font-bold">₩0 (무결성 검증됨)</span>
           </div>
         </div>
 
         <div className="flex items-center gap-2 text-xs">
-          <span className="text-slate-400">총 출금: </span>
-          <span className="font-mono font-bold text-rose-400">{formatErpCurrency(summary.totalWithdrawal)}</span>
+          <span className="text-[#475569] dark:text-slate-400">총 출금: </span>
+          <span className="font-mono font-bold text-[#dc2626] dark:text-rose-400">{formatErpCurrency(summary.totalWithdrawal)}</span>
         </div>
       </div>
 
       {/* New Transaction Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <form
             onSubmit={handleCreateTrans}
-            className="bg-slate-900 border border-slate-800 rounded-lg p-5 w-full max-w-md shadow-2xl"
+            className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-md shadow-2xl text-[#0f172a] dark:bg-slate-900 dark:border-slate-800 dark:text-white"
           >
-            <h2 className="text-sm font-bold text-slate-100 mb-4 pb-2 border-b border-slate-800 flex items-center gap-1.5">
-              <Building2 className="w-4 h-4 text-blue-400" />
+            <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 mb-4 pb-2 border-b border-[#b5a894] dark:border-slate-800 flex items-center gap-1.5">
+              <Building2 className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
               <span>은행 통장 거래내역 수기 등록</span>
             </h2>
 
             <div className="space-y-3">
               {/* 사업자 통장 선택 */}
-              <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-950 border border-slate-800">
-                <label className="text-xs text-slate-400 font-semibold">입출금 통장 선택 (귀속 사업자)</label>
+              <div className="flex flex-col gap-1.5 p-2.5 rounded bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-950 dark:border-slate-800">
+                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">입출금 통장 선택 (귀속 사업자)</label>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <button
                     type="button"
                     onClick={() => setNewTrans({ ...newTrans, entityType: "CORP", accountNo: "478-081383-04-018" })}
                     className={`p-2 rounded border text-left transition ${
                       newTrans.accountNo === "478-081383-04-018"
-                        ? "border-blue-500 bg-blue-500/20 text-blue-300 font-bold"
-                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
+                        ? "border-[#1d4ed8] bg-[#dbeafe] text-[#1e40af] font-bold shadow-xs dark:bg-blue-500/20 dark:text-blue-300"
+                        : "border-[#b5a894] bg-[#ebe5d8] text-[#334155] hover:bg-[#ede6d6] dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/40"
                     }`}
                   >
                     <div>(주)드래곤알피에이 [법인]</div>
@@ -655,8 +563,8 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                     onClick={() => setNewTrans({ ...newTrans, entityType: "INDIVIDUAL", accountNo: "140-129404-04-018" })}
                     className={`p-2 rounded border text-left transition ${
                       newTrans.accountNo === "140-129404-04-018"
-                        ? "border-amber-500 bg-amber-500/20 text-amber-300 font-bold"
-                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
+                        ? "border-[#b45309] bg-[#fef3c7] text-[#92400e] font-bold shadow-xs dark:bg-amber-500/20 dark:text-amber-300"
+                        : "border-[#b5a894] bg-[#ebe5d8] text-[#334155] hover:bg-[#ede6d6] dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/40"
                     }`}
                   >
                     <div>드래곤알피에이 [개인]</div>
@@ -667,41 +575,41 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-400 font-semibold">은행명</label>
+                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">은행명</label>
                   <input
                     type="text"
                     value={newTrans.bankName}
                     onChange={(e) => setNewTrans({ ...newTrans, bankName: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500"
+                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-400 font-semibold">계좌번호</label>
+                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">계좌번호</label>
                   <input
                     type="text"
                     value={newTrans.accountNo}
                     onChange={(e) => setNewTrans({ ...newTrans, accountNo: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500 font-mono"
+                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-400 font-semibold">거래 일자</label>
+                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">거래 일자</label>
                   <input
                     type="date"
                     value={newTrans.transDate}
                     onChange={(e) => setNewTrans({ ...newTrans, transDate: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500"
+                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-400 font-semibold">거래 구분</label>
+                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">거래 구분</label>
                   <select
                     value={newTrans.transType}
                     onChange={(e) => setNewTrans({ ...newTrans, transType: e.target.value as any })}
-                    className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500"
+                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                   >
                     <option value="DEPOSIT">입금 (DEPOSIT)</option>
                     <option value="WITHDRAWAL">출금 (WITHDRAWAL)</option>
@@ -711,59 +619,59 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-400 font-semibold">거래 금액(원)</label>
+                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">거래 금액(원)</label>
                   <input
                     type="number"
                     value={newTrans.amount}
                     onChange={(e) => setNewTrans({ ...newTrans, amount: parseFloat(e.target.value) || 0 })}
-                    className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500 font-mono"
+                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-400 font-semibold">거래 후 잔액</label>
+                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">거래 후 잔액</label>
                   <input
                     type="number"
                     value={newTrans.balanceAfter}
                     onChange={(e) => setNewTrans({ ...newTrans, balanceAfter: parseFloat(e.target.value) || 0 })}
-                    className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500 font-mono"
+                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                   />
                 </div>
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">적요 (입금자명 / 거래처)</label>
+                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">적요 (입금자명 / 거래처)</label>
                 <input
                   type="text"
                   value={newTrans.senderReceiver}
                   onChange={(e) => setNewTrans({ ...newTrans, senderReceiver: e.target.value })}
                   placeholder="예: (주)한국물류"
-                  className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500"
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 />
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">추가 메모</label>
+                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">추가 메모</label>
                 <input
                   type="text"
                   value={newTrans.memo}
                   onChange={(e) => setNewTrans({ ...newTrans, memo: e.target.value })}
                   placeholder="비고"
-                  className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500"
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 />
               </div>
             </div>
 
-            <div className="mt-5 pt-3 border-t border-slate-800 flex justify-end gap-2">
+            <div className="mt-5 pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-800 rounded border border-slate-700"
+                className="px-3 py-1.5 text-xs text-[#0f172a] bg-[#dcd4c4] hover:bg-[#d0c6b4] rounded border border-[#b5a894] font-bold transition dark:bg-slate-800 dark:text-slate-400 dark:hover:text-slate-200 dark:border-slate-700"
               >
                 취소
               </button>
               <button
                 type="submit"
-                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded"
+                className="px-4 py-1.5 text-xs font-bold text-white bg-[#1d4ed8] hover:bg-[#1e40af] rounded shadow-xs transition"
               >
                 등록
               </button>
@@ -774,35 +682,35 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
 
       {/* Manual Match Modal */}
       {matchModalOpen && selectedTrans && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-lg p-5 w-full max-w-md shadow-2xl">
-            <h2 className="text-sm font-bold text-slate-100 mb-2 pb-2 border-b border-slate-800 flex items-center gap-1.5">
-              <LinkIcon className="w-4 h-4 text-blue-400" />
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-md shadow-2xl text-[#0f172a] dark:bg-slate-900 dark:border-slate-800 dark:text-white">
+            <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 mb-2 pb-2 border-b border-[#b5a894] dark:border-slate-800 flex items-center gap-1.5">
+              <LinkIcon className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
               <span>1:1 통장 대사 매칭 처리</span>
             </h2>
 
-            <div className="p-3 bg-slate-950/60 rounded border border-slate-800 mb-4 text-xs space-y-1">
+            <div className="p-3 bg-[#f4efe4] rounded border border-[#b5a894] mb-4 text-xs space-y-1 dark:bg-slate-950/60 dark:border-slate-800">
               <div className="flex justify-between">
-                <span className="text-slate-400">거래 일자:</span>
-                <span className="text-slate-200 font-mono">{selectedTrans.transDate}</span>
+                <span className="text-[#475569] dark:text-slate-400">거래 일자:</span>
+                <span className="text-[#0f172a] dark:text-slate-200 font-mono">{selectedTrans.transDate}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">입금액:</span>
-                <span className="text-blue-400 font-bold font-mono">{formatErpCurrency(selectedTrans.amount)}</span>
+                <span className="text-[#475569] dark:text-slate-400">입금액:</span>
+                <span className="text-[#1d4ed8] dark:text-blue-400 font-bold font-mono">{formatErpCurrency(selectedTrans.amount)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">입금자명:</span>
-                <span className="text-slate-100 font-bold">{selectedTrans.senderReceiver}</span>
+                <span className="text-[#475569] dark:text-slate-400">입금자명:</span>
+                <span className="text-[#0f172a] dark:text-slate-100 font-bold">{selectedTrans.senderReceiver}</span>
               </div>
             </div>
 
             <div className="space-y-3">
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">대사 대상 구분</label>
+                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">대사 대상 구분</label>
                 <select
                   value={matchedType}
                   onChange={(e) => setMatchedType(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500"
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 >
                   <option value="BILLING">매출 청구서 (세금계산서 청구)</option>
                   <option value="CONTRACT">임대/판매 계약 대금</option>
@@ -812,40 +720,40 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">매칭 대상 번호 / 청구서 ID</label>
+                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">매칭 대상 번호 / 청구서 ID</label>
                 <input
                   type="text"
                   value={matchedId}
                   onChange={(e) => setMatchedId(e.target.value)}
                   placeholder="예: INV-202610-001"
-                  className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500 font-mono"
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 />
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">대사 비고 메모</label>
+                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">대사 비고 메모</label>
                 <input
                   type="text"
                   value={matchMemo}
                   onChange={(e) => setMatchMemo(e.target.value)}
                   placeholder="대사 확인 내용"
-                  className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500"
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 />
               </div>
             </div>
 
-            <div className="mt-5 pt-3 border-t border-slate-800 flex justify-end gap-2">
+            <div className="mt-5 pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setMatchModalOpen(false)}
-                className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-800 rounded border border-slate-700"
+                className="px-3 py-1.5 text-xs text-[#0f172a] bg-[#dcd4c4] hover:bg-[#d0c6b4] rounded border border-[#b5a894] font-bold transition dark:bg-slate-800 dark:text-slate-400 dark:hover:text-slate-200 dark:border-slate-700"
               >
                 취소
               </button>
               <button
                 type="button"
                 onClick={handleManualMatch}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded"
+                className="px-4 py-1.5 text-xs font-bold text-white bg-[#1d4ed8] hover:bg-[#1e40af] rounded shadow-xs transition"
               >
                 대사 확정
               </button>

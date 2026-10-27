@@ -104,7 +104,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     return (
       <th
         onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-800 transition text-${align}`}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-[#d0c6b4] dark:hover:bg-slate-800 transition text-${align} ${isActive ? "text-[#1d4ed8] dark:text-blue-400 font-bold" : ""}`}
         title={`${label} 기준 정렬`}
       >
         <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
@@ -374,7 +374,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   };
 
   return (
-    <div className="flex flex-col h-full gap-3 p-4 bg-slate-950 text-slate-100 overflow-hidden">
+    <div className="flex flex-col h-full gap-3 p-4 bg-[#ebe5d8] text-[#0f172a] overflow-hidden font-sans dark:bg-slate-950 dark:text-slate-100">
       {toast && (
         <div className={`fixed top-16 right-5 z-50 px-4 py-2 rounded text-xs font-bold text-white shadow-xl ${
           toast.type === "error" ? "bg-rose-600" : "bg-emerald-600"
@@ -384,12 +384,12 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       )}
 
       {/* Sub Tabs */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+      <div className="flex items-center justify-between border-b border-[#b5a894] dark:border-slate-800 pb-2">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSubTab("assets")}
             className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-              subTab === "assets" ? "bg-blue-600 text-white shadow" : "bg-slate-900 text-slate-400 hover:text-white"
+              subTab === "assets" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
@@ -398,7 +398,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           <button
             onClick={() => setSubTab("contracts")}
             className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-              subTab === "contracts" ? "bg-blue-600 text-white shadow" : "bg-slate-900 text-slate-400 hover:text-white"
+              subTab === "contracts" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
             <Truck className="w-3.5 h-3.5" />
@@ -407,7 +407,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           <button
             onClick={() => setSubTab("billings")}
             className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-              subTab === "billings" ? "bg-blue-600 text-white shadow" : "bg-slate-900 text-slate-400 hover:text-white"
+              subTab === "billings" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
             <DollarSign className="w-3.5 h-3.5" />
@@ -416,7 +416,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           <button
             onClick={() => setSubTab("models")}
             className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-              subTab === "models" ? "bg-blue-600 text-white shadow" : "bg-slate-900 text-slate-400 hover:text-white"
+              subTab === "models" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
@@ -483,14 +483,14 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
       {/* Scope / Filter Bar (Z-Pattern ①) */}
       {subTab === "billings" && (
-        <div className="flex items-center gap-3 bg-slate-900/60 p-2.5 rounded border border-slate-800 text-xs">
+        <div className="flex items-center gap-3 bg-[#e2dbcd] p-2.5 rounded border border-[#b5a894] text-xs text-[#0f172a] dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-200">
           <div className="flex items-center gap-2">
             <label className="text-[11px] text-slate-400 font-semibold">정산 연월:</label>
             <input
               type="month"
               value={selectedYm}
               onChange={(e) => setSelectedYm(e.target.value)}
-              className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-xs text-white"
+              className="h-8 px-2 bg-[#f4efe4] border border-[#b5a894] rounded text-xs text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
             />
           </div>
           <span className="text-slate-500 text-[11px]">
@@ -500,10 +500,10 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       )}
 
       {/* Main Inspection Grid (Z-Pattern ③) */}
-      <div className="flex-1 bg-slate-900 border border-slate-800 rounded overflow-auto shadow-inner">
+      <div className="flex-1 bg-[#f4efe4] border border-[#b5a894] rounded overflow-auto shadow-inner dark:bg-slate-900 dark:border-slate-800">
         {subTab === "assets" && (
           <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
+            <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
                 {renderSortTh("자산번호", "assetNo")}
                 {renderSortTh("기종 모델", "modelName")}
@@ -518,7 +518,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 {renderSortTh("자산상태", "status", "center")}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedAssets.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="py-8 text-center text-slate-500">
@@ -527,7 +527,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 </tr>
               ) : (
                 sortedAssets.map((a) => (
-                  <tr key={a.id} className="hover:bg-slate-800/50 transition">
+                  <tr key={a.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3 font-mono font-bold text-blue-400">{a.assetNo}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{a.modelName}</td>
                     <td className="py-2 px-3 text-slate-300">{a.manufacturer}</td>
@@ -558,7 +558,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
         {subTab === "contracts" && (
           <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
+            <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
                 {renderSortTh("귀속 사업자", "entityType")}
                 {renderSortTh("계약번호", "contractNo")}
@@ -572,7 +572,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <th className="py-2.5 px-3 text-center">반납 조치</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedContracts.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-8 text-center text-slate-500">
@@ -581,7 +581,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 </tr>
               ) : (
                 sortedContracts.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-800/50 transition">
+                  <tr key={c.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3">
                       {c.entityType === "INDIVIDUAL" ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
@@ -628,7 +628,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
         {subTab === "billings" && (
           <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
+            <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
                 {renderSortTh("청구번호", "billingNo")}
                 {renderSortTh("고객사", "customerName")}
@@ -641,7 +641,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <th className="py-2.5 px-3 text-center">세금계산서</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedBillings.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-8 text-center text-slate-500">
@@ -650,7 +650,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 </tr>
               ) : (
                 sortedBillings.map((b) => (
-                  <tr key={b.id} className="hover:bg-slate-800/50 transition">
+                  <tr key={b.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3 font-mono text-blue-400">{b.billingNo}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{b.customerName}</td>
                     <td className="py-2 px-3 text-slate-200">{b.assetNo} ({b.modelName})</td>
@@ -692,7 +692,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
         {subTab === "models" && (
           <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
+            <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
                 {renderSortTh("모델 코드", "model_code")}
                 {renderSortTh("모델명", "model_name")}
@@ -703,7 +703,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 {renderSortTh("상태", "status", "center")}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedModels.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-slate-500">
@@ -712,7 +712,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 </tr>
               ) : (
                 sortedModels.map((m) => (
-                  <tr key={m.id} className="hover:bg-slate-800/50 transition">
+                  <tr key={m.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3 font-mono font-bold text-blue-400">{m.model_code}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{m.model_name}</td>
                     <td className="py-2 px-3 text-slate-300">{m.manufacturer}</td>
@@ -733,7 +733,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       </div>
 
       {/* Terminal Summary (Z-Pattern ④) */}
-      <div className="bg-slate-900 border border-slate-800 px-4 py-2.5 rounded flex items-center justify-between text-xs text-slate-300">
+      <div className="bg-[#e2dbcd] border border-[#b5a894] px-4 py-2.5 rounded flex items-center justify-between text-xs text-[#0f172a] dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300">
         <div className="flex items-center gap-4">
           <span>총 자산: <strong className="text-white">{formatErpNumber(assets.length)}대</strong></span>
           <span>임대중: <strong className="text-amber-400">{formatErpNumber(assets.filter(a => a.status === "RENTED").length)}대</strong></span>
@@ -748,7 +748,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       {/* Modal: Acquire Asset */}
       {showAcquireAssetModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded shadow-2xl p-5 text-white">
+          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-blue-400" />
@@ -768,7 +768,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     value={assetNo}
                     onChange={(e) => setAssetNo(e.target.value)}
                     placeholder="예: AST-001"
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -777,7 +777,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                   <select
                     value={assetModelId}
                     onChange={(e) => setAssetModelId(e.target.value)}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   >
                     <option value="">선택하십시오</option>
@@ -796,7 +796,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     value={serialNo}
                     onChange={(e) => setSerialNo(e.target.value)}
                     placeholder="차대번호"
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -805,7 +805,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="date"
                     value={acqDate}
                     onChange={(e) => setAcqDate(e.target.value)}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
               </div>
@@ -817,7 +817,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="number"
                     value={acqCost}
                     onChange={(e) => setAcqCost(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -827,7 +827,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="number"
                     value={salvageValue}
                     onChange={(e) => setSalvageValue(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -836,7 +836,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="number"
                     value={usefulLife}
                     onChange={(e) => setUsefulLife(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
               </div>
@@ -845,7 +845,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <button
                   type="button"
                   onClick={() => setShowAcquireAssetModal(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
+                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
                 >
                   취소
                 </button>
@@ -864,7 +864,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       {/* Modal: Add Model */}
       {showAddModelModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded shadow-2xl p-5 text-white">
+          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
                 <Layers className="w-4 h-4 text-blue-400" />
@@ -884,7 +884,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     value={modelCode}
                     onChange={(e) => setModelCode(e.target.value)}
                     placeholder="예: SJ3219"
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -895,7 +895,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     value={modelName}
                     onChange={(e) => setModelName(e.target.value)}
                     placeholder="예: 스카이잭 8m 배터리형"
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -908,7 +908,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="number"
                     value={modelMonthlyRate}
                     onChange={(e) => setModelMonthlyRate(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -917,7 +917,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="number"
                     value={modelDailyRate}
                     onChange={(e) => setModelDailyRate(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
               </div>
@@ -928,7 +928,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                   type="text"
                   value={modelSpec}
                   onChange={(e) => setModelSpec(e.target.value)}
-                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                 />
               </div>
 
@@ -936,7 +936,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <button
                   type="button"
                   onClick={() => setShowAddModelModal(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
+                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
                 >
                   취소
                 </button>
@@ -955,7 +955,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       {/* Modal: Add Contract */}
       {showAddContractModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded shadow-2xl p-5 text-white">
+          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
                 <Truck className="w-4 h-4 text-blue-400" />
@@ -1005,7 +1005,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                   value={ctCustomer}
                   onChange={(e) => setCtCustomer(e.target.value)}
                   placeholder="예: (주)포스코건설"
-                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
                 />
               </div>
@@ -1017,7 +1017,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                   value={ctSite}
                   onChange={(e) => setCtSite(e.target.value)}
                   placeholder="예: 평택 고덕 플랜트 3공구"
-                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                 />
               </div>
 
@@ -1034,7 +1034,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                       if (mod) setCtMonthlyRate(mod.standard_monthly_rate?.toString() || "600000");
                     }
                   }}
-                  className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
                 >
                   <option value="">선택하십시오</option>
@@ -1053,7 +1053,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="date"
                     value={ctStart}
                     onChange={(e) => setCtStart(e.target.value)}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -1063,7 +1063,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="date"
                     value={ctEnd}
                     onChange={(e) => setCtEnd(e.target.value)}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -1076,7 +1076,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="number"
                     value={ctMonthlyRate}
                     onChange={(e) => setCtMonthlyRate(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -1086,7 +1086,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="number"
                     value={ctDeposit}
                     onChange={(e) => setCtDeposit(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
               </div>
@@ -1095,7 +1095,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <button
                   type="button"
                   onClick={() => setShowAddContractModal(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
+                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
                 >
                   취소
                 </button>
@@ -1114,7 +1114,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       {/* Modal: Add Billing (헌장 4.1 일할 청구 생성) */}
       {showAddBillingModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded shadow-2xl p-5 text-white">
+          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
                 <DollarSign className="w-4 h-4 text-emerald-400" />
@@ -1131,7 +1131,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <select
                   value={blContractId}
                   onChange={(e) => setBlContractId(e.target.value)}
-                  className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
                 >
                   <option value="">선택하십시오</option>
@@ -1150,7 +1150,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="month"
                     value={blYm}
                     onChange={(e) => setBlYm(e.target.value)}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -1162,7 +1162,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     max="31"
                     value={blDays}
                     onChange={(e) => setBlDays(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -1175,7 +1175,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="date"
                     value={blStart}
                     onChange={(e) => setBlStart(e.target.value)}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -1185,7 +1185,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     type="date"
                     value={blEnd}
                     onChange={(e) => setBlEnd(e.target.value)}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -1195,7 +1195,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <button
                   type="button"
                   onClick={() => setShowAddBillingModal(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
+                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
                 >
                   취소
                 </button>
@@ -1239,7 +1239,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <button
                   type="button"
                   onClick={() => setShowDeprecModal(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
+                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
                 >
                   취소
                 </button>

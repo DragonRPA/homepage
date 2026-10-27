@@ -143,16 +143,16 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
     return (
       <th
         onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-700 transition text-${align} whitespace-nowrap`}
+        className={`py-2.5 px-3 cursor-pointer select-none transition text-${align} whitespace-nowrap hover:bg-[#d0c6b4] dark:hover:bg-slate-700`}
         title={`${label} 기준 정렬`}
       >
         <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
           <span>{label}</span>
           <span className="shrink-0">
             {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
+              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" /> : <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
             ) : (
-              <ArrowUpDown className="w-3 h-3 opacity-30" />
+              <ArrowUpDown className="w-3.5 h-3.5 opacity-30" />
             )}
           </span>
         </div>
@@ -273,14 +273,14 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 overflow-hidden font-sans">
       {/* Toast Notification */}
       {toastMessage && (
         <div
           className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-xs font-bold border ${
             toastMessage.type === "success"
-              ? "bg-emerald-950 border-emerald-500 text-emerald-200"
-              : "bg-rose-950 border-rose-500 text-rose-200"
+              ? "bg-[#ecfdf5] border-[#047857] text-[#065f46]"
+              : "bg-[#fef2f2] border-[#dc2626] text-[#b91c1c]"
           }`}
         >
           {toastMessage.text}
@@ -288,11 +288,11 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
       )}
 
       {/* Top Header & Scope (Gutenberg Z-Pattern) */}
-      <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-blue-400" />
-            <span className="text-xs font-bold text-slate-200">
+            <Clock className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
+            <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
               연장근무(OT) 관리 대장
             </span>
           </div>
@@ -302,13 +302,13 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
               type="month"
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-xs text-slate-200 px-2 py-1.5 rounded focus:outline-none focus:border-blue-500 font-mono"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             />
 
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-xs text-slate-200 px-2 py-1.5 rounded focus:outline-none focus:border-blue-500"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             >
               <option value="ALL">전체 상태</option>
               <option value="PENDING">결재 대기</option>
@@ -319,7 +319,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
             <select
               value={deptFilter}
               onChange={(e) => setDeptFilter(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-xs text-slate-200 px-2 py-1.5 rounded focus:outline-none focus:border-blue-500"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             >
               <option value="ALL">전체 부서</option>
               <option value="경영총괄">경영총괄</option>
@@ -329,13 +329,13 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
             </select>
 
             <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-[#475569] dark:text-slate-400" />
               <input
                 type="text"
                 placeholder="사원명 / 사유 검색"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-slate-800 border border-slate-700 text-xs text-slate-200 pl-8 pr-3 py-1.5 rounded w-40 focus:outline-none focus:border-blue-500"
+                className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] pl-8 pr-3 py-1.5 rounded w-40 focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
               />
             </div>
           </div>
@@ -345,7 +345,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
           <button
             onClick={fetchData}
             disabled={loading}
-            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition"
+            className="p-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
             title="새로고침"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
@@ -353,7 +353,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
 
           <button
             onClick={handleExportCsv}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded flex items-center gap-1.5 border border-slate-700 shadow transition"
+            className="px-3 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] text-xs font-bold rounded flex items-center gap-1.5 border border-[#b5a894] shadow transition dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
           >
             <Download className="w-3.5 h-3.5" />
             <span>엑셀 내보내기</span>
@@ -371,7 +371,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
               });
               setOtModalOpen(true);
             }}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
+            className="px-3 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>연장근무 신청</span>
@@ -381,25 +381,25 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
 
       {/* KPI Cards */}
       <div className="px-4 pt-3 pb-1 grid grid-cols-3 gap-3 shrink-0">
-        <div className="bg-slate-900 border border-slate-800 p-2.5 rounded flex items-center justify-between">
-          <span className="text-xs text-slate-400">당월 총 신청 건수</span>
-          <span className="text-base font-bold font-mono text-slate-100">{formatErpNumber(kpis.totalCount)}건</span>
+        <div className="bg-[#f4efe4] border border-[#b5a894] p-2.5 rounded flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
+          <span className="text-xs text-[#475569] dark:text-slate-400">당월 총 신청 건수</span>
+          <span className="text-base font-bold font-mono text-[#0f172a] dark:text-slate-100">{formatErpNumber(kpis.totalCount)}건</span>
         </div>
-        <div className="bg-slate-900 border border-slate-800 p-2.5 rounded flex items-center justify-between">
-          <span className="text-xs text-slate-400">당월 승인 연장근무 합계</span>
-          <span className="text-base font-bold font-mono text-emerald-400">{formatErpNumber(kpis.approvedHours)}시간</span>
+        <div className="bg-[#f4efe4] border border-[#b5a894] p-2.5 rounded flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
+          <span className="text-xs text-[#475569] dark:text-slate-400">당월 승인 연장근무 합계</span>
+          <span className="text-base font-bold font-mono text-[#047857] dark:text-emerald-400">{formatErpNumber(kpis.approvedHours)}시간</span>
         </div>
-        <div className="bg-slate-900 border border-slate-800 p-2.5 rounded flex items-center justify-between">
-          <span className="text-xs text-slate-400">결재 대기</span>
-          <span className="text-base font-bold font-mono text-amber-400">{formatErpNumber(kpis.pendingCount)}건</span>
+        <div className="bg-[#f4efe4] border border-[#b5a894] p-2.5 rounded flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
+          <span className="text-xs text-[#475569] dark:text-slate-400">결재 대기</span>
+          <span className="text-base font-bold font-mono text-[#b45309] dark:text-amber-400">{formatErpNumber(kpis.pendingCount)}건</span>
         </div>
       </div>
 
       {/* Main Table (High Density) */}
       <div className="flex-1 overflow-auto p-4 pt-2">
-        <div className="bg-slate-900 border border-slate-800 rounded shadow-sm overflow-hidden">
+        <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800">
           <table className="w-full text-xs text-left border-collapse">
-            <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0 z-10">
+            <thead className="bg-[#dcd4c4] text-[#0f172a] uppercase tracking-wider font-semibold border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
               <tr>
                 {renderSortTh("근무일자 (요일)", "otDate")}
                 {renderSortTh("사번", "employeeNo")}
@@ -413,46 +413,46 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                 <th className="py-2.5 px-3 whitespace-nowrap text-center">조치 / 관리</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
+            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
               {sortedFilteredOvertimes.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-500">
+                  <td colSpan={10} className="py-12 text-center text-[#475569] dark:text-slate-500">
                     해당 월에 신청된 연장근무 내역이 없습니다.
                   </td>
                 </tr>
               ) : (
                 sortedFilteredOvertimes.map((ot) => (
-                  <tr key={ot.id} className="hover:bg-slate-800/40 transition">
-                    <td className="py-2 px-3 font-mono text-slate-300 whitespace-nowrap">
+                  <tr key={ot.id} className="hover:bg-[#ede6d6] dark:hover:bg-slate-800/40 transition">
+                    <td className="py-2 px-3 font-mono text-[#0f172a] dark:text-slate-300 whitespace-nowrap">
                       {ot.otDate ? ot.otDate.substring(0, 10) : "-"}{" "}
-                      <span className="text-slate-500 font-sans">({getDayOfWeekKr(ot.otDate)})</span>
+                      <span className="text-[#475569] dark:text-slate-500 font-sans">({getDayOfWeekKr(ot.otDate)})</span>
                     </td>
-                    <td className="py-2 px-3 font-mono text-slate-400 whitespace-nowrap">{ot.employeeNo}</td>
-                    <td className="py-2 px-3 font-bold text-slate-100 whitespace-nowrap">{ot.employeeName}</td>
-                    <td className="py-2 px-3 text-slate-300 whitespace-nowrap">{ot.department}</td>
-                    <td className="py-2 px-3 font-mono text-slate-300 whitespace-nowrap">
+                    <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">{ot.employeeNo}</td>
+                    <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap">{ot.employeeName}</td>
+                    <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">{ot.department}</td>
+                    <td className="py-2 px-3 font-mono text-[#0f172a] dark:text-slate-300 whitespace-nowrap">
                       {ot.startTime} ~ {ot.endTime}
                     </td>
-                    <td className="py-2 px-3 text-center font-mono font-bold text-amber-400 whitespace-nowrap">
+                    <td className="py-2 px-3 text-center font-mono font-bold text-[#b45309] dark:text-amber-400 whitespace-nowrap">
                       {formatErpNumber(ot.otHours)}h
                     </td>
-                    <td className="py-2 px-3 text-slate-300 max-w-xs truncate" title={ot.reason}>
+                    <td className="py-2 px-3 text-[#334155] dark:text-slate-300 max-w-xs truncate" title={ot.reason}>
                       {ot.reason}
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           ot.status === "PENDING"
-                            ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                            ? "bg-[#fef3c7] text-[#92400e] border border-[#fde68a]"
                             : ot.status === "APPROVED"
-                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                            : "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                            ? "bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0]"
+                            : "bg-[#fef2f2] text-[#991b1b] border border-[#fecaca]"
                         }`}
                       >
                         {ot.status === "PENDING" ? "대기" : ot.status === "APPROVED" ? "승인" : "반려"}
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-slate-400 whitespace-nowrap">
+                    <td className="py-2 px-3 text-[#475569] dark:text-slate-400 whitespace-nowrap">
                       {ot.approverName || "-"}
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">
@@ -461,13 +461,13 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                           <>
                             <button
                               onClick={() => handleAction(ot.id, "APPROVE")}
-                              className="px-2 py-0.5 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 rounded border border-emerald-800 text-[11px] transition font-bold"
+                              className="px-2 py-0.5 bg-[#ecfdf5] hover:bg-[#d1fae5] text-[#065f46] rounded border border-[#a7f3d0] text-[11px] transition font-bold"
                             >
                               승인
                             </button>
                             <button
                               onClick={() => handleAction(ot.id, "REJECT")}
-                              className="px-2 py-0.5 bg-rose-950 hover:bg-rose-900 text-rose-300 rounded border border-rose-800 text-[11px] transition font-bold"
+                              className="px-2 py-0.5 bg-[#fef2f2] hover:bg-[#fee2e2] text-[#991b1b] rounded border border-[#fecaca] text-[11px] transition font-bold"
                             >
                               반려
                             </button>
@@ -476,7 +476,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                         {(isAdmin || ot.employeeId === currentUserId) && (
                           <button
                             onClick={() => handleDelete(ot.id)}
-                            className="p-1 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded transition"
+                            className="p-1 hover:bg-[#fee2e2] text-[#b91c1c] rounded transition"
                             title="삭제"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -494,24 +494,24 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
 
       {/* New OT Modal */}
       {otModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <form
             onSubmit={handleSubmitOt}
-            className="bg-slate-900 border border-slate-800 rounded-lg p-5 w-full max-w-md shadow-2xl"
+            className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-md shadow-2xl dark:bg-slate-900 dark:border-slate-800"
           >
-            <h2 className="text-sm font-bold text-slate-100 mb-4 pb-2 border-b border-slate-800 flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-blue-400" />
+            <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 mb-4 pb-2 border-b border-[#b5a894] dark:border-slate-800 flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-[#1d4ed8]" />
               <span>연장근무(OT) 신청서 작성</span>
             </h2>
 
             <div className="space-y-3">
               {isAdmin && (
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-400 font-semibold">대상 사원</label>
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">대상 사원</label>
                   <select
                     value={otForm.employeeId}
                     onChange={(e) => setOtForm({ ...otForm, employeeId: parseInt(e.target.value) })}
-                    className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500"
+                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                   >
                     {employees.map((emp) => (
                       <option key={emp.id} value={emp.id}>
@@ -523,53 +523,53 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
               )}
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">근무 일자</label>
+                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">근무 일자</label>
                 <input
                   type="date"
                   value={otForm.otDate}
                   onChange={(e) => setOtForm({ ...otForm, otDate: e.target.value })}
-                  className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500"
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-400 font-semibold">시작 시간</label>
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">시작 시간</label>
                   <input
                     type="time"
                     value={otForm.startTime}
                     onChange={(e) => setOtForm({ ...otForm, startTime: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500 font-mono"
+                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-400 font-semibold">종료 시간</label>
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">종료 시간</label>
                   <input
                     type="time"
                     value={otForm.endTime}
                     onChange={(e) => setOtForm({ ...otForm, endTime: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500 font-mono"
+                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                   />
                 </div>
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">인정 시간 (h)</label>
+                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">인정 시간 (h)</label>
                 <input
                   type="number"
                   step="0.5"
                   value={otForm.otHours}
                   onChange={(e) => setOtForm({ ...otForm, otHours: parseFloat(e.target.value) || 0 })}
-                  className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500 font-mono"
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 />
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">근무 사유 프리셋</label>
+                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">근무 사유 프리셋</label>
                 <select
                   value={otForm.reason}
                   onChange={(e) => setOtForm({ ...otForm, reason: e.target.value })}
-                  className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500"
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 >
                   {OT_REASONS.map((r, idx) => (
                     <option key={idx} value={r}>
@@ -580,28 +580,28 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">상세 근무 사유 입력</label>
+                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">상세 근무 사유 입력</label>
                 <input
                   type="text"
                   value={otForm.reason}
                   onChange={(e) => setOtForm({ ...otForm, reason: e.target.value })}
                   placeholder="구체적인 업무 내용 입력"
-                  className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500"
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 />
               </div>
             </div>
 
-            <div className="mt-5 pt-3 border-t border-slate-800 flex justify-end gap-2">
+            <div className="mt-5 pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setOtModalOpen(false)}
-                className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-800 rounded border border-slate-700"
+                className="px-3 py-1.5 text-xs text-[#0f172a] bg-[#dcd4c4] hover:bg-[#d0c6b4] rounded border border-[#b5a894] dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
               >
                 취소
               </button>
               <button
                 type="submit"
-                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded"
+                className="px-4 py-1.5 text-xs font-bold text-white bg-[#1d4ed8] hover:bg-[#1e40af] rounded shadow"
               >
                 상신 제출
               </button>

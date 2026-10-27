@@ -84,16 +84,16 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
   const renderSortTh = (label: string, colKey: string, align: "left" | "right" | "center" = "left") => (
     <th
       onClick={() => handleSort(colKey)}
-      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none hover:bg-slate-700/60 transition ${
+      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none transition ${
         align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
-      }`}
+      } hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60`}
     >
       <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"}`}>
         <span>{label}</span>
         {sortKey === colKey ? (
-          sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-blue-400" /> : <ArrowDown className="w-3 h-3 text-blue-400" />
+          sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" /> : <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
         ) : (
-          <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100" />
+          <ArrowUpDown className="w-3.5 h-3.5 opacity-30 group-hover:opacity-100" />
         )}
       </div>
     </th>
@@ -189,14 +189,14 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 overflow-hidden font-sans">
       {/* Toast Notification */}
       {toastMessage && (
         <div
           className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-xs font-bold border ${
             toastMessage.type === "success"
-              ? "bg-emerald-950 border-emerald-500 text-emerald-200"
-              : "bg-rose-950 border-rose-500 text-rose-200"
+              ? "bg-[#ecfdf5] border-[#047857] text-[#065f46]"
+              : "bg-[#fef2f2] border-[#dc2626] text-[#b91c1c]"
           }`}
         >
           {toastMessage.text}
@@ -204,11 +204,11 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
       )}
 
       {/* Top Header */}
-      <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-blue-400" />
-            <span className="text-xs font-bold text-slate-200">
+            <Calendar className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
+            <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
               전사 연차 관리 대장
             </span>
           </div>
@@ -217,7 +217,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
             <select
               value={deptFilter}
               onChange={(e) => setDeptFilter(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-xs text-slate-200 px-2 py-1.5 rounded focus:outline-none focus:border-blue-500"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             >
               <option value="ALL">전체 부서</option>
               <option value="경영총괄">경영총괄</option>
@@ -227,13 +227,13 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
             </select>
 
             <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-[#475569] dark:text-slate-400" />
               <input
                 type="text"
                 placeholder="사원명 / 사번 검색"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-slate-800 border border-slate-700 text-xs text-slate-200 pl-8 pr-3 py-1.5 rounded w-44 focus:outline-none focus:border-blue-500"
+                className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] pl-8 pr-3 py-1.5 rounded w-44 focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
               />
             </div>
           </div>
@@ -243,7 +243,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
           <button
             onClick={fetchEmployees}
             disabled={loading}
-            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition"
+            className="p-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
             title="새로고침"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
@@ -251,7 +251,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
 
           <button
             onClick={handleExportCsv}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded flex items-center gap-1.5 border border-slate-700 shadow transition"
+            className="px-3 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] text-xs font-bold rounded flex items-center gap-1.5 border border-[#b5a894] shadow transition dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
           >
             <Download className="w-3.5 h-3.5" />
             <span>엑셀 내보내기</span>
@@ -260,7 +260,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
           {isAdmin && (
             <button
               onClick={handleAnnualReset}
-              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
+              className="px-3 py-1.5 bg-[#b45309] hover:bg-[#92400e] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>연 단위 연차 초기화/재계산</span>
@@ -271,9 +271,9 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
 
       {/* Main Table Area */}
       <div className="flex-1 overflow-auto p-4">
-        <div className="bg-slate-900 border border-slate-800 rounded shadow-sm overflow-auto max-h-[calc(100vh-230px)]">
+        <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-auto max-h-[calc(100vh-230px)] dark:bg-slate-900 dark:border-slate-800">
           <table className="w-full text-xs text-left border-collapse">
-            <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0 z-10 select-none">
+            <thead className="bg-[#dcd4c4] text-[#0f172a] uppercase tracking-wider font-semibold border-b border-[#b5a894] sticky top-0 z-10 select-none dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
               <tr>
                 {renderSortTh("사번", "employeeNo")}
                 {renderSortTh("성명", "name")}
@@ -288,7 +288,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 <th className="py-2.5 px-3 whitespace-nowrap text-center">조정</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
+            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
               {sortedEmployees.map((emp) => {
                 const grant = Number(emp.grantDays || 15);
                 const used = Number(emp.usedDays || 0);
@@ -297,39 +297,39 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 const tenure = getTenureYears(emp.joinDate);
 
                 return (
-                  <tr key={emp.id} className="hover:bg-slate-800/40 transition">
-                    <td className="py-2 px-3 font-mono text-slate-400 whitespace-nowrap">{emp.employeeNo}</td>
-                    <td className="py-2 px-3 font-bold text-slate-100 whitespace-nowrap">{emp.name}</td>
-                    <td className="py-2 px-3 text-slate-300 whitespace-nowrap">{emp.department}</td>
-                    <td className="py-2 px-3 text-slate-300 whitespace-nowrap">
+                  <tr key={emp.id} className="hover:bg-[#ede6d6] dark:hover:bg-slate-800/40 transition">
+                    <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">{emp.employeeNo}</td>
+                    <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap">{emp.name}</td>
+                    <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">{emp.department}</td>
+                    <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
                       {emp.position} {emp.duty ? `(${emp.duty})` : ""}
                     </td>
-                    <td className="py-2 px-3 font-mono text-slate-400 whitespace-nowrap">
+                    <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">
                       {emp.joinDate ? emp.joinDate.substring(0, 10) : "-"}
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">
-                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-800 border border-slate-700 text-slate-300">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-[#dcd4c4] border border-[#b5a894] text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300">
                         {tenure}년차
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-blue-400 whitespace-nowrap">
+                    <td className="py-2 px-3 text-right font-mono font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
                       {formatErpNumber(grant)}일
                     </td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-amber-400 whitespace-nowrap">
+                    <td className="py-2 px-3 text-right font-mono font-bold text-[#b45309] dark:text-amber-400 whitespace-nowrap">
                       {formatErpNumber(used)}일
                     </td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400 whitespace-nowrap">
+                    <td className="py-2 px-3 text-right font-mono font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                       {formatErpNumber(remain)}일
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1.5">
-                        <div className="w-16 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                        <div className="w-16 bg-[#dcd4c4] dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                           <div
-                            className={`h-full ${rate > 80 ? "bg-rose-500" : rate > 50 ? "bg-amber-500" : "bg-blue-500"}`}
+                            className={`h-full ${rate > 80 ? "bg-[#dc2626]" : rate > 50 ? "bg-[#b45309]" : "bg-[#1d4ed8]"}`}
                             style={{ width: `${rate}%` }}
                           />
                         </div>
-                        <span className="font-mono text-[10px] text-slate-400">{formatErpNumber(rate)}%</span>
+                        <span className="font-mono text-[10px] text-[#475569] dark:text-slate-400">{formatErpNumber(rate)}%</span>
                       </div>
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">
@@ -340,7 +340,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                             setNewGrantDays(emp.grantDays);
                             setAdjustModalOpen(true);
                           }}
-                          className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 text-[11px] transition"
+                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
                         >
                           부여 조정
                         </button>
@@ -356,36 +356,36 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
 
       {/* Adjust Modal */}
       {adjustModalOpen && selectedEmp && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-lg p-5 w-full max-w-sm shadow-2xl">
-            <h2 className="text-sm font-bold text-slate-100 mb-2 pb-2 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-sm shadow-2xl dark:bg-slate-900 dark:border-slate-800">
+            <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 mb-2 pb-2 border-b border-[#b5a894] dark:border-slate-800">
               연차 부여일수 직접 조정 ({selectedEmp.name})
             </h2>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className="text-xs text-[#475569] dark:text-slate-400 mb-4">
               입사일: {selectedEmp.joinDate ? selectedEmp.joinDate.substring(0, 10) : "-"} (근속 {getTenureYears(selectedEmp.joinDate)}년차)
             </p>
 
             <div className="flex flex-col gap-1 mb-4">
-              <label className="text-xs text-slate-400 font-semibold">부여 연차 일수</label>
+              <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">부여 연차 일수</label>
               <input
                 type="number"
                 step="0.5"
                 value={newGrantDays}
                 onChange={(e) => setNewGrantDays(parseFloat(e.target.value) || 0)}
-                className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500 font-mono text-center text-base"
+                className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono text-center text-base dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
               />
             </div>
 
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setAdjustModalOpen(false)}
-                className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-800 rounded border border-slate-700"
+                className="px-3 py-1.5 text-xs text-[#0f172a] bg-[#dcd4c4] hover:bg-[#d0c6b4] rounded border border-[#b5a894] dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
               >
                 취소
               </button>
               <button
                 onClick={handleSaveAdjustment}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded"
+                className="px-4 py-1.5 text-xs font-bold text-white bg-[#1d4ed8] hover:bg-[#1e40af] rounded shadow"
               >
                 조정 반영
               </button>

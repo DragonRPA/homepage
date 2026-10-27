@@ -77,7 +77,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     return (
       <th
         onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-800 transition text-${align}`}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-[#d0c6b4] dark:hover:bg-slate-800 transition text-${align} ${isActive ? "text-[#1d4ed8] dark:text-blue-400 font-bold" : ""}`}
         title={`${label} 기준 정렬`}
       >
         <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
@@ -227,7 +227,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   };
 
   return (
-    <div className="flex flex-col h-full gap-3 p-4 bg-slate-950 text-slate-100 overflow-hidden">
+    <div className="flex flex-col h-full gap-3 p-4 bg-[#ebe5d8] text-[#0f172a] overflow-hidden font-sans dark:bg-slate-950 dark:text-slate-100">
       {toast && (
         <div className={`fixed top-16 right-5 z-50 px-4 py-2 rounded text-xs font-bold text-white shadow-xl ${
           toast.type === "error" ? "bg-rose-600" : "bg-emerald-600"
@@ -237,12 +237,12 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       )}
 
       {/* Sub Tabs */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+      <div className="flex items-center justify-between border-b border-[#b5a894] dark:border-slate-800 pb-2">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveType("OPERATIONAL")}
             className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-              activeType === "OPERATIONAL" ? "bg-blue-600 text-white shadow" : "bg-slate-900 text-slate-400 hover:text-white"
+              activeType === "OPERATIONAL" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
             <Briefcase className="w-3.5 h-3.5" />
@@ -251,7 +251,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           <button
             onClick={() => setActiveType("DEVELOPMENT")}
             className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-              activeType === "DEVELOPMENT" ? "bg-blue-600 text-white shadow" : "bg-slate-900 text-slate-400 hover:text-white"
+              activeType === "DEVELOPMENT" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
@@ -297,7 +297,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           </div>
           <div className="flex-1 overflow-auto">
             <table className="w-full text-left text-xs whitespace-nowrap">
-              <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
+              <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
                 <tr>
                   {renderSortTh("귀속", "entityType")}
                   {renderSortTh("계약번호", "contractNo")}
@@ -308,7 +308,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   {renderSortTh("상태", "status", "center")}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60">
+              <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
                 {sortedContracts.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-8 text-center text-slate-500">
@@ -317,7 +317,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   </tr>
                 ) : (
                   sortedContracts.map((c) => (
-                    <tr key={c.id} className="hover:bg-slate-800/50 transition">
+                    <tr key={c.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
                       <td className="py-2 px-3">
                         {c.entityType === "INDIVIDUAL" ? (
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
@@ -361,7 +361,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           </div>
           <div className="flex-1 overflow-auto">
             <table className="w-full text-left text-xs whitespace-nowrap">
-              <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
+              <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
                 <tr>
                   {renderSortTh("청구번호", "billingNo")}
                   {renderSortTh("고객사 / 용역명", "customerName")}
@@ -371,7 +371,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   <th className="py-2.5 px-3 text-center">세금계산서</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60">
+              <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
                 {sortedBillings.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-8 text-center text-slate-500">
@@ -380,7 +380,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   </tr>
                 ) : (
                   sortedBillings.map((b) => (
-                    <tr key={b.id} className="hover:bg-slate-800/50 transition">
+                    <tr key={b.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
                       <td className="py-2 px-3 font-mono text-blue-400">{b.billingNo}</td>
                       <td className="py-2 px-3 font-bold text-slate-100">{b.customerName}</td>
                       <td className="py-2 px-3 text-slate-300">{b.milestoneName}</td>
@@ -408,7 +408,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       </div>
 
       {/* Terminal Summary (Z-Pattern ④) */}
-      <div className="bg-slate-900 border border-slate-800 px-4 py-2.5 rounded flex items-center justify-between text-xs text-slate-300">
+      <div className="bg-[#e2dbcd] border border-[#b5a894] px-4 py-2.5 rounded flex items-center justify-between text-xs text-[#0f172a] dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300">
         <div className="flex items-center gap-4">
           <span>{activeType === "OPERATIONAL" ? "운영용역" : "개발용역"} 계약: <strong className="text-white">{formatErpNumber(contracts.length)}건</strong></span>
           <span>누적 청구건수: <strong className="text-blue-400">{formatErpNumber(billings.length)}건</strong></span>
@@ -422,7 +422,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       {/* Modal: Add Contract */}
       {showAddContractModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded shadow-2xl p-5 text-white">
+          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
                 <Briefcase className="w-4 h-4 text-blue-400" />
@@ -472,7 +472,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   value={ctCustomer}
                   onChange={(e) => setCtCustomer(e.target.value)}
                   placeholder="예: 한국전력공사"
-                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
                 />
               </div>
@@ -484,7 +484,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   value={ctProject}
                   onChange={(e) => setCtProject(e.target.value)}
                   placeholder="예: RPA 시스템 통합 운영 및 기술지원"
-                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
                 />
               </div>
@@ -497,7 +497,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       type="number"
                       value={ctMonthlyFee}
                       onChange={(e) => setCtMonthlyFee(e.target.value)}
-                      className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                      className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                       required
                     />
                   </div>
@@ -509,7 +509,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       max="31"
                       value={ctBillingDay}
                       onChange={(e) => setCtBillingDay(e.target.value)}
-                      className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                      className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     />
                   </div>
                 </div>
@@ -520,7 +520,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                     type="number"
                     value={ctAmount}
                     onChange={(e) => setCtAmount(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -533,7 +533,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                     type="date"
                     value={ctStart}
                     onChange={(e) => setCtStart(e.target.value)}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -543,7 +543,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                     type="date"
                     value={ctEnd}
                     onChange={(e) => setCtEnd(e.target.value)}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -553,7 +553,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                 <button
                   type="button"
                   onClick={() => setShowAddContractModal(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
+                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
                 >
                   취소
                 </button>
@@ -572,7 +572,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       {/* Modal: Add Billing */}
       {showAddBillingModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded shadow-2xl p-5 text-white">
+          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
                 <DollarSign className="w-4 h-4 text-emerald-400" />
@@ -596,7 +596,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       setBlSupplyAmount(ct.monthlyFee?.toString() || "1000000");
                     }
                   }}
-                  className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
                 >
                   <option value="">선택하십시오</option>
@@ -617,7 +617,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   value={blMilestoneName}
                   onChange={(e) => setBlMilestoneName(e.target.value)}
                   placeholder={activeType === "OPERATIONAL" ? "예: 2026년 10월분 정기유지보수료" : "예: 1차 착수금 (30%)"}
-                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                 />
               </div>
 
@@ -628,7 +628,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                     type="number"
                     value={blSupplyAmount}
                     onChange={(e) => setBlSupplyAmount(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -638,7 +638,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                     type="date"
                     value={blDate}
                     onChange={(e) => setBlDate(e.target.value)}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -648,7 +648,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                 <button
                   type="button"
                   onClick={() => setShowAddBillingModal(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
+                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
                 >
                   취소
                 </button>

@@ -49,7 +49,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     return (
       <th
         onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-800 transition text-${align}`}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-[#d0c6b4] dark:hover:bg-slate-800 transition text-${align} ${isActive ? "text-[#1d4ed8] dark:text-blue-400 font-bold" : ""}`}
         title={`${label} 기준 정렬`}
       >
         <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
@@ -302,7 +302,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   };
 
   return (
-    <div className="flex flex-col h-full gap-3 p-4 bg-slate-950 text-slate-100 overflow-hidden">
+    <div className="flex flex-col h-full gap-3 p-4 bg-[#ebe5d8] text-[#0f172a] overflow-hidden font-sans dark:bg-slate-950 dark:text-slate-100">
       {toast && (
         <div className={`fixed top-16 right-5 z-50 px-4 py-2 rounded text-xs font-bold text-white shadow-xl ${
           toast.type === "error" ? "bg-rose-600" : "bg-emerald-600"
@@ -312,12 +312,12 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       )}
 
       {/* Sub Tabs */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+      <div className="flex items-center justify-between border-b border-[#b5a894] dark:border-slate-800 pb-2">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSubTab("products")}
             className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-              subTab === "products" ? "bg-blue-600 text-white shadow" : "bg-slate-900 text-slate-400 hover:text-white"
+              subTab === "products" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
             <Package className="w-3.5 h-3.5" />
@@ -326,7 +326,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           <button
             onClick={() => setSubTab("purchases")}
             className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-              subTab === "purchases" ? "bg-blue-600 text-white shadow" : "bg-slate-900 text-slate-400 hover:text-white"
+              subTab === "purchases" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
             <ShoppingCart className="w-3.5 h-3.5" />
@@ -335,7 +335,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           <button
             onClick={() => setSubTab("sales")}
             className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-              subTab === "sales" ? "bg-blue-600 text-white shadow" : "bg-slate-900 text-slate-400 hover:text-white"
+              subTab === "sales" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
@@ -424,10 +424,10 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       )}
 
       {/* Main Inspection Grid (Z-Pattern ③) */}
-      <div className="flex-1 bg-slate-900 border border-slate-800 rounded overflow-auto shadow-inner">
+      <div className="flex-1 bg-[#f4efe4] border border-[#b5a894] rounded overflow-auto shadow-inner dark:bg-slate-900 dark:border-slate-800">
         {subTab === "products" && (
           <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
+            <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
                 {renderSortTh("SKU 코드", "sku_code")}
                 {renderSortTh("상품명", "name")}
@@ -442,7 +442,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 <th className="py-2.5 px-3 text-center">상태</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedProducts.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="py-8 text-center text-slate-500">
@@ -456,7 +456,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                   const margin = price - cost;
                   const marginRate = price > 0 ? ((margin / price) * 100).toFixed(1) : "0.0";
                   return (
-                    <tr key={p.id} className="hover:bg-slate-800/50 transition">
+                    <tr key={p.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
                       <td className="py-2 px-3 font-mono text-blue-400 font-semibold">{p.sku_code}</td>
                       <td className="py-2 px-3 font-bold text-slate-100">{p.name}</td>
                       <td className="py-2 px-3 text-slate-300">{p.category}</td>
@@ -490,7 +490,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
 
         {subTab === "purchases" && (
           <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
+            <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
                 {renderSortTh("구매번호", "purchaseNo")}
                 {renderSortTh("구매일자", "purchaseDate")}
@@ -502,7 +502,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 <th className="py-2.5 px-3 text-center">입고상태</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedPurchases.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-500">
@@ -511,7 +511,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 </tr>
               ) : (
                 sortedPurchases.map((pu) => (
-                  <tr key={pu.id} className="hover:bg-slate-800/50 transition">
+                  <tr key={pu.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3 font-mono text-blue-400">{pu.purchaseNo}</td>
                     <td className="py-2 px-3 font-mono text-slate-300">{pu.purchaseDate}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{pu.vendorName}</td>
@@ -533,7 +533,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
 
         {subTab === "sales" && (
           <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800 font-semibold select-none z-10">
+            <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
                 {renderSortTh("귀속 사업자", "entityType")}
                 {renderSortTh("판매번호", "saleNo")}
@@ -548,7 +548,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 <th className="py-2.5 px-3 text-center">세금계산서</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedSales.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="py-8 text-center text-slate-500">
@@ -557,7 +557,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 </tr>
               ) : (
                 sortedSales.map((s) => (
-                  <tr key={s.id} className="hover:bg-slate-800/50 transition">
+                  <tr key={s.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
                     <td className="py-2 px-3">
                       {s.entityType === "INDIVIDUAL" ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
@@ -641,7 +641,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     {renderSortTh("마진율", "marginRate", "right")}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60">
+                <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
                   {sortedCustomerBreakdown.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-6 text-center text-slate-500">
@@ -678,7 +678,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       {/* Modal: Add Product */}
       {showAddProductModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded shadow-2xl p-5 text-white">
+          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
                 <Package className="w-4 h-4 text-blue-400" />
@@ -698,7 +698,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     value={skuCode}
                     onChange={(e) => setSkuCode(e.target.value)}
                     placeholder="예: SKU001"
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -709,7 +709,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     value={prodCategory}
                     onChange={(e) => setProdCategory(e.target.value)}
                     placeholder="예: 완제품 / 라이선스"
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
               </div>
@@ -721,7 +721,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                   value={prodName}
                   onChange={(e) => setProdName(e.target.value)}
                   placeholder="예: 매뉴얼 스튜디오 기업용 라이선스"
-                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
                 />
               </div>
@@ -734,7 +734,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     value={prodSpec}
                     onChange={(e) => setProdSpec(e.target.value)}
                     placeholder="예: v2.1.0 Nuitka-C"
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -744,7 +744,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     value={prodUnit}
                     onChange={(e) => setProdUnit(e.target.value)}
                     placeholder="EA / SET / COPY"
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
               </div>
@@ -756,7 +756,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     type="number"
                     value={prodStandardCost}
                     onChange={(e) => setProdStandardCost(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -765,7 +765,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     type="number"
                     value={prodStandardPrice}
                     onChange={(e) => setProdStandardPrice(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
               </div>
@@ -777,7 +777,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     type="number"
                     value={prodSafetyStock}
                     onChange={(e) => setProdSafetyStock(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -786,7 +786,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     type="number"
                     value={prodInitialStock}
                     onChange={(e) => setProdInitialStock(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
               </div>
@@ -795,7 +795,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 <button
                   type="button"
                   onClick={() => setShowAddProductModal(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
+                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
                 >
                   취소
                 </button>
@@ -814,7 +814,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       {/* Modal: Add Purchase */}
       {showAddPurchaseModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded shadow-2xl p-5 text-white">
+          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
                 <ShoppingCart className="w-4 h-4 text-blue-400" />
@@ -834,7 +834,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                   value={poVendor}
                   onChange={(e) => setPoVendor(e.target.value)}
                   placeholder="예: (주)케이티정보통신 (등록 거래처 선택 가능)"
-                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
                 />
                 <datalist id="vendor-datalist">
@@ -858,7 +858,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     const prod = products.find(p => p.id.toString() === id);
                     if (prod) setPoUnitCost(prod.standard_cost?.toString() || "0");
                   }}
-                  className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
                 >
                   <option value="">선택하십시오</option>
@@ -876,7 +876,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     min="1"
                     value={poQty}
                     onChange={(e) => setPoQty(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -886,7 +886,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     type="number"
                     value={poUnitCost}
                     onChange={(e) => setPoUnitCost(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -898,7 +898,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                   type="date"
                   value={poDate}
                   onChange={(e) => setPoDate(e.target.value)}
-                  className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                 />
               </div>
 
@@ -906,7 +906,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 <button
                   type="button"
                   onClick={() => setShowAddPurchaseModal(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
+                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
                 >
                   취소
                 </button>
@@ -925,7 +925,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       {/* Modal: Add Sale */}
       {showAddSaleModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded shadow-2xl p-5 text-white">
+          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
                 <Layers className="w-4 h-4 text-emerald-400" />
@@ -976,7 +976,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                   value={soCustomer}
                   onChange={(e) => setSoCustomer(e.target.value)}
                   placeholder="예: 현대건설(주) (등록 고객사 선택 가능)"
-                  className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
                 />
                 <datalist id="customer-datalist">
@@ -1000,7 +1000,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     const prod = products.find(p => p.id.toString() === id);
                     if (prod) setSoUnitPrice(prod.standard_price?.toString() || "0");
                   }}
-                  className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
                 >
                   <option value="">선택하십시오</option>
@@ -1020,7 +1020,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     min="1"
                     value={soQty}
                     onChange={(e) => setSoQty(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -1030,7 +1030,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     type="number"
                     value={soUnitPrice}
                     onChange={(e) => setSoUnitPrice(e.target.value)}
-                    className="h-8 px-2.5 bg-slate-800 border border-slate-700 rounded text-white"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -1042,7 +1042,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                   type="date"
                   value={soDate}
                   onChange={(e) => setSoDate(e.target.value)}
-                  className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
+                  className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                 />
               </div>
 
@@ -1050,7 +1050,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 <button
                   type="button"
                   onClick={() => setShowAddSaleModal(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
+                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
                 >
                   취소
                 </button>

@@ -315,9 +315,9 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
   ) => (
     <th
       onClick={() => handleSort(colKey)}
-      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none hover:bg-slate-800/60 transition ${
+      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none transition ${
         align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
-      }`}
+      } hover:bg-[#d0c6b4] dark:hover:bg-slate-800/60`}
     >
       <div
         className={`inline-flex items-center gap-1 ${
@@ -326,17 +326,17 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
             : align === "center"
             ? "justify-center"
             : "justify-start"
-        }`}
+        } ${sortKey === colKey ? "text-[#1d4ed8] dark:text-blue-400 font-bold" : ""}`}
       >
         <span>{label}</span>
         {sortKey === colKey ? (
           sortDir === "asc" ? (
-            <ArrowUp className="w-3 h-3 text-blue-400 shrink-0" />
+            <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold shrink-0" />
           ) : (
-            <ArrowDown className="w-3 h-3 text-blue-400 shrink-0" />
+            <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold shrink-0" />
           )
         ) : (
-          <ArrowUpDown className="w-3 h-3 opacity-30 shrink-0" />
+          <ArrowUpDown className="w-3.5 h-3.5 opacity-30 shrink-0" />
         )}
       </div>
     </th>
@@ -389,21 +389,21 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 font-sans text-[#0f172a] dark:text-slate-100">
       {/* Feedback Alert Banner */}
       {feedback && (
         <div
           className={`px-4 py-3 rounded-lg border flex items-center justify-between text-xs font-bold ${
             feedback.type === "success"
-              ? "bg-emerald-950/60 border-emerald-500/50 text-emerald-300"
-              : "bg-rose-950/70 border-rose-500/60 text-rose-300"
+              ? "bg-[#ecfdf5] border-[#047857] text-[#065f46]"
+              : "bg-[#fef2f2] border-[#dc2626] text-[#b91c1c]"
           }`}
         >
           <div className="flex items-center gap-2">
             {feedback.type === "success" ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-[#047857] shrink-0" />
             ) : (
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <AlertCircle className="w-4 h-4 text-[#dc2626] shrink-0" />
             )}
             <span>{feedback.message}</span>
           </div>
@@ -417,20 +417,20 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
       )}
 
       {/* Top Z-Pattern Bar: Scope (Left) & Pipeline Status (Right) */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 rounded-xl p-3.5">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-[#e2dbcd] border border-[#b5a894] rounded-xl p-3.5 dark:bg-slate-900/60 dark:border-slate-800">
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
-            <Truck className="w-5 h-5 text-blue-400 shrink-0" />
-            <span className="text-sm font-bold text-white whitespace-nowrap">렌탈자산 출고등록</span>
+            <Truck className="w-5 h-5 text-[#1d4ed8] dark:text-blue-400 shrink-0" />
+            <span className="text-sm font-bold text-[#0f172a] dark:text-white whitespace-nowrap">렌탈자산 출고등록</span>
           </div>
-          <div className="h-4 w-px bg-slate-800" />
+          <div className="h-4 w-px bg-[#b5a894] dark:bg-slate-800" />
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-400 whitespace-nowrap">임대가능 자산</span>
-            <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono font-bold">
+            <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">임대가능 자산</span>
+            <span className="px-2 py-0.5 rounded bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0] font-mono font-bold dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/30">
               {formatErpNumber(availableAssets.length)}대
             </span>
-            <span className="text-slate-400 whitespace-nowrap ml-2">대여중 자산</span>
-            <span className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30 font-mono font-bold">
+            <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap ml-2">대여중 자산</span>
+            <span className="px-2 py-0.5 rounded bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe] font-mono font-bold dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/30">
               {formatErpNumber(assets.filter((a) => a.status === "RENTED").length)}대
             </span>
           </div>
@@ -438,20 +438,20 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
 
         <div className="flex items-center gap-2">
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-slate-400 font-semibold whitespace-nowrap">
+            <label className="text-[10px] text-[#475569] dark:text-slate-400 font-semibold whitespace-nowrap">
               청구 조회 연월
             </label>
             <input
               type="month"
               value={yearMonth}
               onChange={(e) => setYearMonth(e.target.value)}
-              className="px-2.5 py-1 bg-slate-950 border border-slate-700 rounded text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+              className="px-2.5 py-1 bg-[#ebe5d8] border border-[#b5a894] rounded text-xs text-[#0f172a] font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
             />
           </div>
           <button
             onClick={() => fetchInoutData(yearMonth)}
             disabled={loading}
-            className="mt-4 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded border border-slate-700 text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap transition"
+            className="mt-4 px-3 py-1.5 bg-[#f4efe4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap transition dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             <span>새로고침</span>
@@ -464,14 +464,14 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
         {/* Left: Outbound Registration Panel */}
         <form
           onSubmit={handleSubmitOutbound}
-          className="lg:col-span-4 bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-3.5"
+          className="lg:col-span-4 bg-[#f4efe4] border border-[#b5a894] rounded-xl p-4 space-y-3.5 dark:bg-slate-900/70 dark:border-slate-800"
         >
-          <div className="flex items-center justify-between pb-2.5 border-b border-slate-800">
+          <div className="flex items-center justify-between pb-2.5 border-b border-[#b5a894] dark:border-slate-800">
             <div className="flex items-center gap-2">
-              <PackageCheck className="w-4 h-4 text-blue-400" />
-              <h3 className="text-xs font-bold text-white whitespace-nowrap">출고 및 청구 조건 입력</h3>
+              <PackageCheck className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
+              <h3 className="text-xs font-bold text-[#0f172a] dark:text-white whitespace-nowrap">출고 및 청구 조건 입력</h3>
             </div>
-            <span className="text-[11px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-semibold whitespace-nowrap">
+            <span className="text-[11px] px-2 py-0.5 rounded bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe] font-semibold whitespace-nowrap dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20">
               출고 즉시 당월 청구 반영
             </span>
           </div>
@@ -479,7 +479,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
           {/* 1. 고객사명 & 계약주체 */}
           <div className="grid grid-cols-3 gap-2.5">
             <div className="col-span-2 flex flex-col gap-1">
-              <label className="text-xs font-semibold text-slate-300 whitespace-nowrap">
+              <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
                 출고 고객사명 *
               </label>
               <input
@@ -489,7 +489,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="고객사명 입력 또는 선택"
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
               />
               <datalist id="outbound-customer-list">
                 {customerSuggestions.map((c) => (
@@ -499,13 +499,13 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-slate-300 whitespace-nowrap">
+              <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
                 계약 구분
               </label>
               <select
                 value={entityType}
                 onChange={(e) => setEntityType(e.target.value as "CORP" | "INDIVIDUAL")}
-                className="w-full px-2.5 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500"
+                className="w-full px-2.5 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
               >
                 <option value="CORP">법인</option>
                 <option value="INDIVIDUAL">개인</option>
@@ -515,7 +515,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
 
           {/* 현장명 */}
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-slate-300 whitespace-nowrap">
+            <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
               투입 현장명
             </label>
             <input
@@ -523,20 +523,20 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
               value={siteName}
               onChange={(e) => setSiteName(e.target.value)}
               placeholder="현장명 또는 납품처 주소"
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
             />
           </div>
 
           {/* 2. 출고 렌탈자산 검색 및 선택 */}
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-300 whitespace-nowrap">
+              <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
                 출고 자산 선택 (임대가능 {formatErpNumber(availableAssets.length)}대) *
               </label>
               <button
                 type="button"
                 onClick={() => setActiveView("AVAILABLE_ASSETS")}
-                className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold whitespace-nowrap"
+                className="text-[11px] text-[#1d4ed8] hover:underline dark:text-blue-400 font-semibold whitespace-nowrap"
               >
                 목록에서 선택 ➔
               </button>
@@ -546,7 +546,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
               value={assetFilterQuery}
               onChange={(e) => setAssetFilterQuery(e.target.value)}
               placeholder="자산번호 / 제조번호(S/N) / 모델명 필터"
-              className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-blue-500 mb-1"
+              className="w-full px-3 py-1.5 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] mb-1 dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200 dark:focus:border-blue-500"
             />
             <select
               required
@@ -559,7 +559,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                   setMonthlyRate(String(Math.round(Number(found.standardMonthlyRate))));
                 }
               }}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
             >
               <option value="">-- 출고할 렌탈자산 선택 --</option>
               {filteredAvailableAssets.map((a) => (
@@ -570,12 +570,12 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
               ))}
             </select>
             {selectedAssetObj && (
-              <div className="mt-1 px-2.5 py-1.5 rounded bg-slate-950 border border-slate-800 text-[11px] text-slate-300 flex items-center justify-between">
+              <div className="mt-1 px-2.5 py-1.5 rounded bg-[#ebe5d8] border border-[#b5a894] text-[11px] text-[#334155] flex items-center justify-between dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300">
                 <span className="whitespace-nowrap">
-                  선택자산: <strong className="text-blue-400 font-mono">{selectedAssetObj.assetNo}</strong>{" "}
+                  선택자산: <strong className="text-[#1d4ed8] dark:text-blue-400 font-mono">{selectedAssetObj.assetNo}</strong>{" "}
                   ({selectedAssetObj.modelName})
                 </span>
-                <span className="font-mono text-slate-400 whitespace-nowrap">
+                <span className="font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">
                   S/N: {selectedAssetObj.serialNo || "-"}
                 </span>
               </div>
@@ -585,7 +585,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
           {/* 3. 언제부터 청구할 것인지 (청구 시작일) & 4. 월 단가 */}
           <div className="grid grid-cols-2 gap-2.5">
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-slate-300 whitespace-nowrap">
+              <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
                 청구 시작일 (출고일) *
               </label>
               <input
@@ -593,12 +593,12 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                 required
                 value={billingStartDate}
                 onChange={(e) => setBillingStartDate(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
               />
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-slate-300 whitespace-nowrap">
+              <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
                 월 단가 (원, VAT별도) *
               </label>
               <input
@@ -609,14 +609,14 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                 value={monthlyRate}
                 onChange={(e) => setMonthlyRate(e.target.value)}
                 placeholder="예: 600000"
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-emerald-400 font-mono font-bold text-right focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#047857] font-mono font-bold text-right focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-emerald-400 dark:focus:border-blue-500"
               />
             </div>
           </div>
 
           {/* 비고 */}
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-slate-300 whitespace-nowrap">
+            <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
               출고 비고
             </label>
             <input
@@ -624,30 +624,30 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
               value={memo}
               onChange={(e) => setMemo(e.target.value)}
               placeholder="특약사항 또는 출고 메모"
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
             />
           </div>
 
           {/* 당월 청구 반영액 자동 계산 요약 */}
-          <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1.5">
+          <div className="p-3 rounded-lg bg-[#ebe5d8] border border-[#b5a894] space-y-1.5 dark:bg-slate-950 dark:border-slate-800">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-400 whitespace-nowrap">당월 청구 대상 연월</span>
-              <span className="font-mono font-bold text-slate-200 whitespace-nowrap">
+              <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">당월 청구 대상 연월</span>
+              <span className="font-mono font-bold text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
                 {proRataPreview.targetYm} ({billingStartDate || "-"} ~ {proRataPreview.monthEnd})
               </span>
             </div>
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-400 whitespace-nowrap">당월 가동일수 / 월 단가</span>
-              <span className="font-mono text-slate-300 whitespace-nowrap">
+              <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">당월 가동일수 / 월 단가</span>
+              <span className="font-mono text-[#334155] dark:text-slate-300 whitespace-nowrap">
                 {formatErpNumber(proRataPreview.operatingDays)}일 / ₩
                 {formatErpNumber(Number(monthlyRate || 0))}
               </span>
             </div>
-            <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between">
-              <span className="text-xs font-bold text-blue-400 whitespace-nowrap">
+            <div className="pt-1.5 border-t border-[#b5a894] dark:border-slate-800 flex items-center justify-between">
+              <span className="text-xs font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
                 당월 고객 청구 반영액
               </span>
-              <span className="text-sm font-extrabold font-mono text-emerald-400 whitespace-nowrap">
+              <span className="text-sm font-extrabold font-mono text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                 ₩{formatErpNumber(proRataPreview.proRataAmount)}
               </span>
             </div>
@@ -658,7 +658,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-2 transition whitespace-nowrap"
+              className="w-full py-2.5 px-4 bg-[#1d4ed8] hover:bg-[#1e40af] disabled:opacity-50 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-2 transition whitespace-nowrap"
             >
               <Truck className="w-4 h-4" />
               <span>{submitting ? "출고 및 청구 반영 처리중..." : "출고 등록 및 당월 청구 반영"}</span>
@@ -669,18 +669,18 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
         {/* Right: Customer Monthly Billing Reflection & Assets / Logs Grid */}
         <div className="lg:col-span-8 space-y-3">
           {/* Customer Monthly Billing Summary Cards */}
-          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
+          <div className="bg-[#f4efe4] border border-[#b5a894] rounded-xl p-3.5 dark:bg-slate-900/70 dark:border-slate-800">
             <div className="flex items-center justify-between mb-2.5">
               <div className="flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-bold text-white whitespace-nowrap">
+                <Building2 className="w-4 h-4 text-[#047857] dark:text-emerald-400" />
+                <span className="text-xs font-bold text-[#0f172a] dark:text-white whitespace-nowrap">
                   [{yearMonth}] 고객사별 당월 청구액 집계 현황
                 </span>
               </div>
               {customerFilter !== "ALL" && (
                 <button
                   onClick={() => setCustomerFilter("ALL")}
-                  className="text-[11px] text-blue-400 hover:underline whitespace-nowrap"
+                  className="text-[11px] text-[#1d4ed8] hover:underline whitespace-nowrap dark:text-blue-400"
                 >
                   전체 고객사 보기
                 </button>
@@ -688,7 +688,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
             </div>
 
             {customerSummary.length === 0 ? (
-              <div className="py-4 text-center text-xs text-slate-500">
+              <div className="py-4 text-center text-xs text-[#475569] dark:text-slate-500">
                 해당 연월({yearMonth})에 청구 반영된 출고 내역이 없습니다.
               </div>
             ) : (
@@ -705,19 +705,19 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                       }}
                       className={`p-2.5 rounded-lg border text-left transition flex flex-col justify-between gap-1.5 ${
                         isSelected
-                          ? "bg-blue-950/50 border-blue-500 text-white"
-                          : "bg-slate-950/70 border-slate-800 hover:border-slate-700 text-slate-200"
+                          ? "bg-[#dbeafe] border-[#2563eb] text-[#1e40af] dark:bg-blue-950/50 dark:border-blue-500 dark:text-white"
+                          : "bg-[#ebe5d8] border-[#b5a894] hover:bg-[#f4efe4] text-[#0f172a] dark:bg-slate-950/70 dark:border-slate-800 dark:hover:border-slate-700 dark:text-slate-200"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-bold truncate">{cs.customerName}</span>
-                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-blue-400 whitespace-nowrap shrink-0">
+                        <span className="px-1.5 py-0.5 rounded bg-[#f4efe4] border border-[#b5a894] text-[10px] font-mono text-[#1d4ed8] whitespace-nowrap shrink-0 dark:bg-slate-800 dark:border-transparent dark:text-blue-400">
                           {formatErpNumber(cs.assetCount)}대
                         </span>
                       </div>
-                      <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-800/80">
-                        <span className="text-slate-400 whitespace-nowrap">당월 청구액</span>
-                        <span className="font-mono font-bold text-emerald-400 whitespace-nowrap">
+                      <div className="flex items-center justify-between text-[11px] pt-1 border-t border-[#b5a894] dark:border-slate-800/80">
+                        <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">당월 청구액</span>
+                        <span className="font-mono font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                           ₩{formatErpNumber(cs.totalProRataRevenue)}
                         </span>
                       </div>
@@ -729,16 +729,16 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
           </div>
 
           {/* Sub-Tabs & Search Bar */}
-          <div className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
-            <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+          <div className="bg-[#ebe5d8] border border-[#b5a894] rounded-xl overflow-hidden dark:bg-slate-900/70 dark:border-slate-800">
+            <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] flex flex-wrap items-center justify-between gap-2 dark:bg-slate-900 dark:border-slate-800">
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => setActiveView("BILLINGS")}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${
                     activeView === "BILLINGS"
-                      ? "bg-blue-600 text-white"
-                      : "bg-slate-800 text-slate-400 hover:text-white"
+                      ? "bg-[#1d4ed8] text-white shadow-sm"
+                      : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
                   }`}
                 >
                   당월 청구 반영 명세 ({formatErpNumber(filteredBillings.length)}건)
@@ -748,8 +748,8 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                   onClick={() => setActiveView("AVAILABLE_ASSETS")}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${
                     activeView === "AVAILABLE_ASSETS"
-                      ? "bg-blue-600 text-white"
-                      : "bg-slate-800 text-slate-400 hover:text-white"
+                      ? "bg-[#1d4ed8] text-white shadow-sm"
+                      : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
                   }`}
                 >
                   임대가능 자산 선택 ({formatErpNumber(availableAssets.length)}대)
@@ -759,8 +759,8 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                   onClick={() => setActiveView("LOGS")}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${
                     activeView === "LOGS"
-                      ? "bg-blue-600 text-white"
-                      : "bg-slate-800 text-slate-400 hover:text-white"
+                      ? "bg-[#1d4ed8] text-white shadow-sm"
+                      : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
                   }`}
                 >
                   출고 이력 대장 ({formatErpNumber(logs.length)}건)
@@ -768,13 +768,13 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
               </div>
 
               <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                <Search className="w-3.5 h-3.5 text-[#475569] dark:text-slate-400 absolute left-2.5 top-2" />
                 <input
                   type="text"
                   value={searchKeyword}
                   onChange={(e) => setSearchKeyword(e.target.value)}
                   placeholder="고객사 / 자산번호 / S/N 검색"
-                  className="pl-8 pr-3 py-1 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500 w-52"
+                  className="pl-8 pr-3 py-1 bg-[#f4efe4] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] w-52 dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
                 />
               </div>
             </div>
@@ -783,7 +783,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
             <div className="overflow-x-auto max-h-[480px]">
               {activeView === "BILLINGS" && (
                 <table className="w-full text-xs text-left border-collapse">
-                  <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 sticky top-0 z-10">
+                  <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800">
                     <tr>
                       {renderSortHeader("고객사명", "customerName")}
                       {renderSortHeader("현장명", "siteName")}
@@ -798,52 +798,52 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                       {renderSortHeader("상태", "paymentStatus", "center")}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/70">
+                  <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/70">
                     {filteredBillings.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="py-10 text-center text-slate-500">
+                        <td colSpan={11} className="py-10 text-center text-[#475569] dark:text-slate-500">
                           조회된 당월 청구 내역이 없습니다.
                         </td>
                       </tr>
                     ) : (
                       filteredBillings.map((b) => (
-                        <tr key={b.id} className="hover:bg-slate-800/40 transition">
-                          <td className="py-2.5 px-3 font-bold text-white whitespace-nowrap">
+                        <tr key={b.id} className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40 transition">
+                          <td className="py-2.5 px-3 font-bold text-[#0f172a] dark:text-white whitespace-nowrap">
                             {b.customerName}
                           </td>
-                          <td className="py-2.5 px-3 text-slate-300 whitespace-nowrap">
+                          <td className="py-2.5 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
                             {b.siteName || "-"}
                           </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-blue-400 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
                             {b.assetNo}
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-slate-300 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono text-[#475569] dark:text-slate-300 whitespace-nowrap">
                             {b.serialNo || "-"}
                           </td>
-                          <td className="py-2.5 px-3 text-slate-200 whitespace-nowrap">
+                          <td className="py-2.5 px-3 text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
                             {b.modelName || "-"}
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-center text-slate-300 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono text-center text-[#334155] dark:text-slate-300 whitespace-nowrap">
                             {b.startDate}
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-center text-slate-400 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono text-center text-[#475569] dark:text-slate-400 whitespace-nowrap">
                             {b.endDate}
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-right text-slate-200 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono text-right text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
                             {formatErpNumber(b.operatingDays)}일
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-right text-slate-300 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono text-right text-[#334155] dark:text-slate-300 whitespace-nowrap">
                             ₩{formatErpNumber(b.monthlyRate)}
                           </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-right text-emerald-400 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono font-bold text-right text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                             ₩{formatErpNumber(b.proRataRevenue)}
                           </td>
                           <td className="py-2.5 px-3 text-center whitespace-nowrap">
                             <span
                               className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                                 b.paymentStatus === "PAID"
-                                  ? "bg-emerald-500/20 text-emerald-400"
-                                  : "bg-amber-500/20 text-amber-400"
+                                  ? "bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0] dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-transparent"
+                                  : "bg-[#fffbeb] text-[#b45309] border border-[#fde68a] dark:bg-amber-500/20 dark:text-amber-400 dark:border-transparent"
                               }`}
                             >
                               {b.paymentStatus === "PAID" ? "수납완료" : "청구대기"}
@@ -858,7 +858,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
 
               {activeView === "AVAILABLE_ASSETS" && (
                 <table className="w-full text-xs text-left border-collapse">
-                  <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 sticky top-0 z-10">
+                  <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800">
                     <tr>
                       <th className="py-2.5 px-3 whitespace-nowrap">출고 선택</th>
                       {renderSortHeader("자산번호", "assetNo")}
@@ -870,10 +870,10 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                       {renderSortHeader("상태", "status", "center")}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/70">
+                  <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/70">
                     {sortedAvailableAssets.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-10 text-center text-slate-500">
+                        <td colSpan={8} className="py-10 text-center text-[#475569] dark:text-slate-500">
                           임대가능 상태인 자산이 없습니다.
                         </td>
                       </tr>
@@ -885,7 +885,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                             key={a.id}
                             onClick={() => handleSelectAsset(a)}
                             className={`cursor-pointer transition ${
-                              isChosen ? "bg-blue-950/50" : "hover:bg-slate-800/40"
+                              isChosen ? "bg-[#dbeafe] dark:bg-blue-950/50" : "hover:bg-[#f4efe4] dark:hover:bg-slate-800/40"
                             }`}
                           >
                             <td className="py-2 px-3 whitespace-nowrap">
@@ -897,33 +897,33 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                                 }}
                                 className={`px-2.5 py-1 rounded text-[11px] font-bold transition ${
                                   isChosen
-                                    ? "bg-blue-600 text-white"
-                                    : "bg-slate-800 hover:bg-blue-600/80 text-slate-200 hover:text-white"
+                                    ? "bg-[#1d4ed8] text-white"
+                                    : "bg-[#e2dbcd] hover:bg-[#1d4ed8] text-[#0f172a] hover:text-white border border-[#b5a894] dark:bg-slate-800 dark:border-transparent dark:hover:bg-blue-600/80 dark:text-slate-200"
                                 }`}
                               >
                                 {isChosen ? "선택됨" : "선택 ➔"}
                               </button>
                             </td>
-                            <td className="py-2 px-3 font-mono font-bold text-blue-400 whitespace-nowrap">
+                            <td className="py-2 px-3 font-mono font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
                               {a.assetNo}
                             </td>
-                            <td className="py-2 px-3 font-mono text-slate-200 whitespace-nowrap">
+                            <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-200 whitespace-nowrap">
                               {a.serialNo || "-"}
                             </td>
-                            <td className="py-2 px-3 font-semibold text-white whitespace-nowrap">
+                            <td className="py-2 px-3 font-semibold text-[#0f172a] dark:text-white whitespace-nowrap">
                               {a.modelName || "-"}
                             </td>
-                            <td className="py-2 px-3 text-slate-300 whitespace-nowrap">
+                            <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
                               {a.manufacturer || "-"}
                             </td>
-                            <td className="py-2 px-3 text-slate-400 whitespace-nowrap">
+                            <td className="py-2 px-3 text-[#475569] dark:text-slate-400 whitespace-nowrap">
                               {a.category || "-"}
                             </td>
-                            <td className="py-2 px-3 font-mono font-bold text-right text-emerald-400 whitespace-nowrap">
+                            <td className="py-2 px-3 font-mono font-bold text-right text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                               ₩{formatErpNumber(a.standardMonthlyRate)}
                             </td>
                             <td className="py-2 px-3 text-center whitespace-nowrap">
-                              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
+                              <span className="px-2 py-0.5 rounded bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0] text-[10px] font-bold dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-transparent">
                                 임대가능
                               </span>
                             </td>
@@ -937,7 +937,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
 
               {activeView === "LOGS" && (
                 <table className="w-full text-xs text-left border-collapse">
-                  <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 sticky top-0 z-10">
+                  <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800">
                     <tr>
                       {renderSortHeader("출고(청구시작)일", "eventDate", "center")}
                       {renderSortHeader("자산번호", "assetNo")}
@@ -948,35 +948,35 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                       {renderSortHeader("비고", "memo")}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/70">
+                  <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/70">
                     {sortedLogs.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-10 text-center text-slate-500">
+                        <td colSpan={7} className="py-10 text-center text-[#475569] dark:text-slate-500">
                           출고 이력이 없습니다.
                         </td>
                       </tr>
                     ) : (
                       sortedLogs.map((l) => (
-                        <tr key={l.id} className="hover:bg-slate-800/40 transition">
-                          <td className="py-2.5 px-3 font-mono text-center text-slate-300 whitespace-nowrap">
+                        <tr key={l.id} className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40 transition">
+                          <td className="py-2.5 px-3 font-mono text-center text-[#475569] dark:text-slate-300 whitespace-nowrap">
                             {l.eventDate}
                           </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-blue-400 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
                             {l.assetNo}
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-slate-300 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono text-[#475569] dark:text-slate-300 whitespace-nowrap">
                             {l.serialNo || "-"}
                           </td>
-                          <td className="py-2.5 px-3 text-white whitespace-nowrap">
+                          <td className="py-2.5 px-3 text-[#0f172a] dark:text-white whitespace-nowrap">
                             {l.modelName || "-"}
                           </td>
-                          <td className="py-2.5 px-3 font-bold text-emerald-400 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                             {l.customerName || "-"}
                           </td>
-                          <td className="py-2.5 px-3 text-slate-300 whitespace-nowrap">
+                          <td className="py-2.5 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
                             {l.siteName || "-"}
                           </td>
-                          <td className="py-2.5 px-3 text-slate-400 whitespace-nowrap">
+                          <td className="py-2.5 px-3 text-[#475569] dark:text-slate-400 whitespace-nowrap">
                             {l.memo || "-"}
                           </td>
                         </tr>
@@ -988,26 +988,26 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
             </div>
 
             {/* Bottom Reconciliation Bar (Gutenberg Z-Pattern Terminal Summary) */}
-            <div className="p-3 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 text-slate-400">
-                <Receipt className="w-4 h-4 text-blue-400" />
+            <div className="p-3 bg-[#e2dbcd] border-t border-[#b5a894] flex flex-wrap items-center justify-between gap-3 text-xs dark:bg-slate-950 dark:border-slate-800">
+              <div className="flex items-center gap-2 text-[#475569] dark:text-slate-400">
+                <Receipt className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
                 <span className="whitespace-nowrap">
                   [{yearMonth}] 청구 대상 건수:{" "}
-                  <strong className="text-white font-mono">
+                  <strong className="text-[#0f172a] dark:text-white font-mono">
                     {formatErpNumber(filteredBillings.length)}건
                   </strong>
                 </span>
               </div>
               <div className="flex items-center gap-4 font-mono">
-                <span className="text-slate-400 whitespace-nowrap">
+                <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">
                   월 계약단가 합계:{" "}
-                  <strong className="text-slate-200">
+                  <strong className="text-[#0f172a] dark:text-slate-200">
                     ₩{formatErpNumber(totalMonthContractRate)}
                   </strong>
                 </span>
-                <span className="text-slate-400 whitespace-nowrap">
+                <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">
                   당월 청구 총액:{" "}
-                  <strong className="text-emerald-400 text-sm">
+                  <strong className="text-[#047857] dark:text-emerald-400 text-sm font-extrabold">
                     ₩{formatErpNumber(totalMonthRevenue)}
                   </strong>
                 </span>

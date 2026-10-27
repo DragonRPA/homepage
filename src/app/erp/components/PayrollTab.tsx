@@ -81,7 +81,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     return (
       <th
         onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-700 transition text-${align} whitespace-nowrap ${extraClass}`}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-[#d0c6b4] dark:hover:bg-slate-700 transition text-${align} whitespace-nowrap ${extraClass} ${isActive ? "text-[#1d4ed8] dark:text-blue-400 font-bold" : ""}`}
         title={`${label} 기준 정렬`}
       >
         <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
@@ -238,7 +238,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-full bg-[#ebe5d8] text-[#0f172a] overflow-hidden font-sans dark:bg-slate-950 dark:text-slate-100">
       {/* Toast Notification */}
       {toastMessage && (
         <div
@@ -253,11 +253,11 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       )}
 
       {/* 1. Gutenberg Z-Pattern Step 1 (Scope) & Step 2 (Pipeline) */}
-      <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-blue-400" />
-            <span className="text-xs font-bold text-slate-200">
+            <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
               월별 임직원 급여 정산 대장
             </span>
           </div>
@@ -267,7 +267,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
               type="month"
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-xs text-slate-200 px-2 py-1.5 rounded focus:outline-none focus:border-blue-500 font-mono"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             />
           </div>
         </div>
@@ -276,7 +276,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
           <button
             onClick={fetchPayroll}
             disabled={loading}
-            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition"
+            className="p-1.5 bg-[#f4efe4] hover:bg-[#ebe5d8] text-[#334155] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700"
             title="새로고침"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
@@ -284,7 +284,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
           <button
             onClick={handleExportCsv}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded flex items-center gap-1.5 border border-slate-700 shadow transition"
+            className="px-3 py-1.5 bg-[#f4efe4] hover:bg-[#ebe5d8] text-[#0f172a] text-xs font-bold rounded flex items-center gap-1.5 border border-[#b5a894] shadow transition dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700"
           >
             <Download className="w-3.5 h-3.5" />
             <span>엑셀 내보내기</span>
@@ -294,7 +294,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
             <>
               <button
                 onClick={handleAutoCalculate}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
+                className="px-3 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>급여 자동 계산 & 대장 생성</span>
@@ -302,7 +302,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
               <button
                 onClick={() => handleSetStatusAll("APPROVED")}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
+                className="px-3 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>전체 승인</span>
@@ -310,7 +310,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
               <button
                 onClick={() => handleSetStatusAll("PAID")}
-                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
+                className="px-3 py-1.5 bg-[#6b21a8] hover:bg-[#581c87] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
               >
                 <Lock className="w-3.5 h-3.5" />
                 <span>지급 완료 마감</span>
@@ -322,10 +322,10 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
       {/* 2. Gutenberg Z-Pattern Step 3 (Body / High-Density Grid) */}
       <div className="flex-1 overflow-auto p-4">
-        <div className="bg-slate-900 border border-slate-800 rounded shadow-sm overflow-hidden h-full flex flex-col">
+        <div className="bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 rounded shadow-sm overflow-hidden h-full flex flex-col">
           <div className="flex-1 overflow-auto">
             <table className="w-full text-xs text-left border-collapse">
-              <thead className="bg-slate-800 text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-700 sticky top-0 z-10">
+              <thead className="bg-[#e2dbcd] text-[#0f172a] uppercase tracking-wider font-semibold border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
                 <tr>
                   {renderSortTh("사번", "employeeNo")}
                   {renderSortTh("성명", "employeeName")}
@@ -337,94 +337,94 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                   {renderSortTh("연장수당", "otPay", "right")}
                   {renderSortTh("식대(비과세)", "mealAllowance", "right")}
                   {renderSortTh("상여금", "bonus", "right")}
-                  {renderSortTh("총지급액", "totalGross", "right", "text-blue-300 font-bold bg-slate-800/90")}
+                  {renderSortTh("총지급액", "totalGross", "right", "text-[#1d4ed8] font-bold bg-[#e2dbcd]/50 dark:text-blue-300 dark:bg-slate-800/90")}
                   {renderSortTh("국민연금(4.5%)", "nationalPension", "right")}
                   {renderSortTh("건강보험(3.54%)", "healthInsurance", "right")}
                   {renderSortTh("고용보험(0.9%)", "employmentInsurance", "right")}
                   {renderSortTh("소득세", "incomeTax", "right")}
                   {renderSortTh("지방소득세", "localTax", "right")}
-                  {renderSortTh("총공제액", "totalDeduction", "right", "text-rose-300 font-bold bg-slate-800/90")}
-                  {renderSortTh("실지급액", "netSalary", "right", "text-emerald-400 font-bold bg-slate-800/90")}
+                  {renderSortTh("총공제액", "totalDeduction", "right", "text-[#dc2626] font-bold bg-[#e2dbcd]/50 dark:text-rose-300 dark:bg-slate-800/90")}
+                  {renderSortTh("실지급액", "netSalary", "right", "text-[#047857] font-bold bg-[#e2dbcd]/50 dark:text-emerald-400 dark:bg-slate-800/90")}
                   {renderSortTh("상태", "status", "center")}
                   <th className="py-2.5 px-3 whitespace-nowrap text-center">관리</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800 font-mono text-[11px]">
+              <tbody className="divide-y divide-[#c4b6a0] font-mono text-[11px] dark:divide-slate-800">
                 {sortedRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={20} className="py-16 text-center text-slate-500 font-sans text-xs">
+                    <td colSpan={20} className="py-16 text-center text-[#475569] font-sans text-xs dark:text-slate-500">
                       {selectedMonth} 급여 대장이 생성되지 않았습니다. 상단 &apos;급여 자동 계산 & 대장 생성&apos; 버튼을 클릭하세요.
                     </td>
                   </tr>
                 ) : (
                   sortedRecords.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-800/40 transition">
-                      <td className="py-2 px-3 text-slate-400 whitespace-nowrap font-sans">{r.employeeNo}</td>
-                      <td className="py-2 px-3 font-bold text-slate-100 whitespace-nowrap font-sans">{r.employeeName}</td>
-                      <td className="py-2 px-3 text-slate-300 whitespace-nowrap font-sans">{r.department}</td>
-                      <td className="py-2 px-3 text-slate-300 whitespace-nowrap font-sans">
+                    <tr key={r.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/40 transition">
+                      <td className="py-2 px-3 text-[#475569] dark:text-slate-400 whitespace-nowrap font-sans">{r.employeeNo}</td>
+                      <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap font-sans">{r.employeeName}</td>
+                      <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap font-sans">{r.department}</td>
+                      <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap font-sans">
                         {r.position} {r.duty ? `(${r.duty})` : ""}
                       </td>
-                      <td className="py-2 px-3 text-slate-300 whitespace-nowrap font-sans">
+                      <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap font-sans">
                         {r.salaryBankName || r.salaryAccountNo ? (
                           <span>
-                            <span className="font-semibold text-slate-200">{r.salaryBankName || "-"}</span>{" "}
-                            <span className="font-mono text-slate-400">{r.salaryAccountNo || "-"}</span>
+                            <span className="font-semibold text-[#0f172a] dark:text-slate-200">{r.salaryBankName || "-"}</span>{" "}
+                            <span className="font-mono text-[#475569] dark:text-slate-400">{r.salaryAccountNo || "-"}</span>
                             {r.salaryAccountHolder && r.salaryAccountHolder !== r.employeeName && (
-                              <span className="text-slate-500 ml-1">({r.salaryAccountHolder})</span>
+                              <span className="text-[#94a3b8] dark:text-slate-500 ml-1">({r.salaryAccountHolder})</span>
                             )}
                           </span>
                         ) : (
-                          <span className="text-slate-500">-</span>
+                          <span className="text-[#94a3b8] dark:text-slate-500">-</span>
                         )}
                       </td>
-                      <td className="py-2 px-3 text-right text-slate-300 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right text-[#0f172a] dark:text-slate-300 whitespace-nowrap">
                         {formatErpCurrency(r.baseSalary)}
                       </td>
-                      <td className="py-2 px-3 text-center text-amber-400 font-bold whitespace-nowrap">
+                      <td className="py-2 px-3 text-center text-[#b45309] dark:text-amber-400 font-bold whitespace-nowrap">
                         {formatErpNumber(r.otHours)}h
                       </td>
-                      <td className="py-2 px-3 text-right text-amber-400 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right text-[#b45309] dark:text-amber-400 whitespace-nowrap">
                         {formatErpCurrency(r.otPay)}
                       </td>
-                      <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right text-[#475569] dark:text-slate-400 whitespace-nowrap">
                         {formatErpCurrency(r.mealAllowance)}
                       </td>
-                      <td className="py-2 px-3 text-right text-slate-300 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right text-[#0f172a] dark:text-slate-300 whitespace-nowrap">
                         {formatErpCurrency(r.bonus)}
                       </td>
-                      <td className="py-2 px-3 text-right font-bold text-blue-300 bg-blue-950/20 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right font-bold text-[#1d4ed8] bg-[#dbeafe]/40 dark:text-blue-300 dark:bg-blue-950/20 whitespace-nowrap">
                         {formatErpCurrency(r.totalGross)}
                       </td>
-                      <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right text-[#475569] dark:text-slate-400 whitespace-nowrap">
                         {formatErpCurrency(r.nationalPension)}
                       </td>
-                      <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right text-[#475569] dark:text-slate-400 whitespace-nowrap">
                         {formatErpCurrency(r.healthInsurance)}
                       </td>
-                      <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right text-[#475569] dark:text-slate-400 whitespace-nowrap">
                         {formatErpCurrency(r.employmentInsurance)}
                       </td>
-                      <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right text-[#475569] dark:text-slate-400 whitespace-nowrap">
                         {formatErpCurrency(r.incomeTax)}
                       </td>
-                      <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right text-[#475569] dark:text-slate-400 whitespace-nowrap">
                         {formatErpCurrency(r.localTax)}
                       </td>
-                      <td className="py-2 px-3 text-right font-bold text-rose-300 bg-rose-950/20 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right font-bold text-[#dc2626] bg-[#fee2e2]/40 dark:text-rose-300 dark:bg-rose-950/20 whitespace-nowrap">
                         {formatErpCurrency(r.totalDeduction)}
                       </td>
-                      <td className="py-2 px-3 text-right font-bold text-emerald-400 bg-emerald-950/20 whitespace-nowrap text-xs">
+                      <td className="py-2 px-3 text-right font-bold text-[#047857] bg-[#d1fae5]/40 dark:text-emerald-400 dark:bg-emerald-950/20 whitespace-nowrap text-xs">
                         {formatErpCurrency(r.netSalary)}
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap font-sans">
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             r.status === "DRAFT"
-                              ? "bg-slate-800 text-slate-400 border border-slate-700"
+                              ? "bg-[#f1f5f9] text-[#475569] border border-[#cbd5e1] dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
                               : r.status === "APPROVED"
-                              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                              : "bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                              ? "bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0] dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30"
+                              : "bg-[#f3e8ff] text-[#6b21a8] border border-[#d8b4fe] dark:bg-purple-500/20 dark:text-purple-400 dark:border-purple-500/30"
                           }`}
                         >
                           {r.status === "DRAFT" ? "작성중" : r.status === "APPROVED" ? "승인됨" : "지급완료"}
@@ -439,7 +439,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                               setInputBonus(Number(r.bonus));
                               setEditModalOpen(true);
                             }}
-                            className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 text-[11px] transition"
+                            className="px-2 py-0.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] text-[11px] transition dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700"
                           >
                             수정
                           </button>
@@ -455,79 +455,79 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       </div>
 
       {/* 3. Gutenberg Z-Pattern Step 4 (Terminal Action & 종단 대차대조식 무결성 검증) */}
-      <div className="p-3 bg-slate-900 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div className="p-3 bg-[#e2dbcd] border-t border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-4 text-xs font-mono">
           <div>
-            <span className="text-slate-400">📄 총지급액: </span>
-            <span className="font-bold text-blue-400">{formatErpCurrency(summary.totalGrossSum)}</span>
+            <span className="text-[#475569] dark:text-slate-400">📄 총지급액: </span>
+            <span className="font-bold text-[#1d4ed8] dark:text-blue-400">{formatErpCurrency(summary.totalGrossSum)}</span>
           </div>
-          <span className="text-slate-600">=</span>
+          <span className="text-[#94a3b8] dark:text-slate-600">=</span>
           <div>
-            <span className="text-slate-400">🛡️ 총공제액: </span>
-            <span className="font-bold text-rose-400">{formatErpCurrency(summary.totalDeductionSum)}</span>
+            <span className="text-[#475569] dark:text-slate-400">🛡️ 총공제액: </span>
+            <span className="font-bold text-[#dc2626] dark:text-rose-400">{formatErpCurrency(summary.totalDeductionSum)}</span>
           </div>
-          <span className="text-slate-600">+</span>
+          <span className="text-[#94a3b8] dark:text-slate-600">+</span>
           <div>
-            <span className="text-slate-400">💳 실지급총액: </span>
-            <span className="font-bold text-emerald-400">{formatErpCurrency(summary.netSalarySum)}</span>
+            <span className="text-[#475569] dark:text-slate-400">💳 실지급총액: </span>
+            <span className="font-bold text-[#047857] dark:text-emerald-400">{formatErpCurrency(summary.netSalarySum)}</span>
           </div>
-          <span className="text-slate-600">|</span>
-          <div className="flex items-center gap-1 font-bold text-slate-300">
+          <span className="text-[#94a3b8] dark:text-slate-600">|</span>
+          <div className="flex items-center gap-1 font-bold text-[#0f172a] dark:text-slate-300">
             <span>⚖️ 수지 차액:</span>
-            <span className="text-emerald-400">
+            <span className="text-[#047857] dark:text-emerald-400">
               {formatErpCurrency(Math.abs(summary.totalGrossSum - (summary.totalDeductionSum + summary.netSalarySum)))} (1원도 틀림없이 보존)
             </span>
           </div>
         </div>
 
-        <div className="text-xs text-slate-400">
-          대상 사원: <span className="text-slate-100 font-bold font-mono">{formatErpNumber(summary.count)}명</span>
+        <div className="text-xs text-[#475569] dark:text-slate-400">
+          대상 사원: <span className="text-[#0f172a] dark:text-slate-100 font-bold font-mono">{formatErpNumber(summary.count)}명</span>
         </div>
       </div>
 
       {/* Edit Salary Modal */}
       {editModalOpen && editingRecord && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-lg p-5 w-full max-w-sm shadow-2xl">
-            <h2 className="text-sm font-bold text-slate-100 mb-2 pb-2 border-b border-slate-800">
+          <div className="bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 rounded-lg p-5 w-full max-w-sm shadow-2xl text-[#0f172a] dark:text-slate-100">
+            <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 mb-2 pb-2 border-b border-[#b5a894] dark:border-slate-800">
               급여 개별 항목 조정 ({editingRecord.employeeName})
             </h2>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className="text-xs text-[#475569] dark:text-slate-400 mb-4">
               귀속월: {editingRecord.yearMonth} | 부서: {editingRecord.department}
             </p>
 
             <div className="space-y-3">
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">기본급 (원)</label>
+                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">기본급 (원)</label>
                 <input
                   type="number"
                   value={inputBaseSalary}
                   onChange={(e) => setInputBaseSalary(parseFloat(e.target.value) || 0)}
-                  className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500 font-mono"
+                  className="bg-[#ebe5d8] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 />
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">상여금 (원)</label>
+                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">상여금 (원)</label>
                 <input
                   type="number"
                   value={inputBonus}
                   onChange={(e) => setInputBonus(parseFloat(e.target.value) || 0)}
-                  className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-2 rounded focus:outline-none focus:border-blue-500 font-mono"
+                  className="bg-[#ebe5d8] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 />
               </div>
             </div>
 
-            <div className="mt-5 pt-3 border-t border-slate-800 flex justify-end gap-2">
+            <div className="mt-5 pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2">
               <button
                 onClick={() => setEditModalOpen(false)}
-                className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-800 rounded border border-slate-700"
+                className="px-3 py-1.5 text-xs text-[#334155] hover:text-[#0f172a] bg-[#ebe5d8] hover:bg-[#d0c6b4] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:text-slate-400 dark:hover:text-slate-200 dark:border-slate-700"
               >
                 취소
               </button>
               <button
                 onClick={handleSaveEdit}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded"
+                className="px-4 py-1.5 text-xs font-bold text-white bg-[#1d4ed8] hover:bg-[#1e40af] rounded transition"
               >
                 재계산 및 저장
               </button>

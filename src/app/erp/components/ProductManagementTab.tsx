@@ -133,8 +133,20 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
     return Array.from(new Set(products.map((p) => p.manufacturer).filter(Boolean)));
   }, [products]);
 
+  const DEFAULT_PRODUCT_CATEGORIES = [
+    "IT/워크스테이션",
+    "서버/네트워크",
+    "노트북/태블릿",
+    "모니터/TV/프로젝터",
+    "사무기기/프린터",
+    "렌탈장비/특수",
+    "소프트웨어/솔루션",
+  ];
+
   const uniqueCategories = useMemo(() => {
-    return Array.from(new Set(products.map((p) => p.category).filter(Boolean)));
+    return Array.from(
+      new Set([...DEFAULT_PRODUCT_CATEGORIES, ...products.map((p) => p.category).filter(Boolean)])
+    );
   }, [products]);
 
   // Filtered Products
@@ -702,14 +714,28 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                         />
                       </div>
                       <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">제조사</label>
-                        <input
-                          type="text"
-                          value={editForm.manufacturer || ""}
-                          onChange={(e) => setEditForm({ ...editForm, manufacturer: e.target.value })}
+                        <label className="text-[11px] font-medium">카테고리</label>
+                        <select
+                          value={editForm.category || "IT/워크스테이션"}
+                          onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
                           className="h-7 px-2 border rounded text-xs"
-                        />
+                        >
+                          {uniqueCategories.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
                       </div>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-medium">제조사</label>
+                      <input
+                        type="text"
+                        value={editForm.manufacturer || ""}
+                        onChange={(e) => setEditForm({ ...editForm, manufacturer: e.target.value })}
+                        className="h-7 px-2 border rounded text-xs"
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex flex-col gap-1">
@@ -899,6 +925,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                     <option value="IT/워크스테이션">IT/워크스테이션</option>
                     <option value="서버/네트워크">서버/네트워크</option>
                     <option value="노트북/태블릿">노트북/태블릿</option>
+                    <option value="모니터/TV/프로젝터">모니터/TV/프로젝터</option>
                     <option value="사무기기/프린터">사무기기/프린터</option>
                     <option value="렌탈장비/특수">렌탈장비/특수</option>
                     <option value="소프트웨어/솔루션">소프트웨어/솔루션</option>

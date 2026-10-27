@@ -101,7 +101,7 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/erp/inout");
+      const res = await fetch("/api/erp/inout?mode=INBOUND");
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || "입고 데이터 조회 실패");
@@ -233,7 +233,28 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
         throw new Error(data.error || "입고 등록 처리 실패");
       }
 
-      await fetchData();
+      // Update local state immediately without waiting for another full GET round-trip
+      setAssets((prev) =>
+        prev.map((a) =>
+          a.id === data.assetId || a.assetNo === data.assetNo
+            ? {
+                ...a,
+                status: data.nextStatus,
+                currentCustomer: null,
+                currentSite: null,
+                contractNo: null,
+                activeContractId: null,
+                activeContractNo: null,
+                activeCustomerName: null,
+                activeSiteName: null,
+              }
+            : a
+        )
+      );
+      if (data.createdLog) {
+        setInboundLogs((prev) => [data.createdLog, ...prev]);
+      }
+
       showFeedback(
         `[${data.fromCustomer}] 출고 자산(${data.assetNo}) 입고 등록 완료 (상태: ${
           data.nextStatus === "AVAILABLE" ? "임대가능" : "정비/수리중"

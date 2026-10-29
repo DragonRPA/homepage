@@ -36,6 +36,7 @@ export async function GET() {
         e.role, 
         e.role_code as "roleCode",
         e.base_salary as "baseSalary",
+        COALESCE(e.hourly_wage, ROUND(COALESCE(e.base_salary, 3500000) / 209.0))::numeric as "hourlyWage",
         COALESCE(e.service_contract_amount, 0)::numeric as "serviceContractAmount",
         e.salary_bank_name as "salaryBankName",
         e.salary_account_no as "salaryAccountNo",
@@ -100,6 +101,7 @@ export async function POST(request: Request) {
       birthDate,
       address,
       baseSalary,
+      hourlyWage,
       salaryBankName,
       salaryAccountNo,
       salaryAccountHolder,
@@ -161,6 +163,10 @@ export async function POST(request: Request) {
         role: role || "USER",
         role_code: roleCode || (role === "ADMIN" ? "ADMIN" : role === "MANAGER" ? "MANAGER" : "EMPLOYEE"),
         base_salary: baseSalary !== undefined ? parseFloat(baseSalary) || 0 : 3500000,
+        hourly_wage:
+          hourlyWage !== undefined && Number(hourlyWage) > 0
+            ? Number(hourlyWage)
+            : Math.round((baseSalary !== undefined ? parseFloat(baseSalary) || 3500000 : 3500000) / 209),
         salary_bank_name: salaryBankName ? String(salaryBankName).trim() : null,
         salary_account_no: salaryAccountNo ? String(salaryAccountNo).trim() : null,
         salary_account_holder: salaryAccountHolder ? String(salaryAccountHolder).trim() : null,
@@ -201,6 +207,8 @@ export async function POST(request: Request) {
         tierLevel: data.tier_level ?? 0,
         status: normalizeStatusToEbro(data.employment_status),
         employmentStatus: normalizeStatusToDb(data.employment_status),
+        baseSalary: Number(data.base_salary ?? 3500000),
+        hourlyWage: Number(data.hourly_wage ?? Math.round(Number(data.base_salary ?? 3500000) / 209)),
         salaryBankName: data.salary_bank_name || "",
         salaryAccountNo: data.salary_account_no || "",
         salaryAccountHolder: data.salary_account_holder || "",
@@ -239,6 +247,7 @@ export async function PUT(request: Request) {
       joinDate,
       address,
       baseSalary,
+      hourlyWage,
       salaryBankName,
       salaryAccountNo,
       salaryAccountHolder,
@@ -298,6 +307,7 @@ export async function PUT(request: Request) {
     if (joinDate !== undefined) updatePayload.join_date = joinDate || new Date().toISOString().split("T")[0];
     if (address !== undefined) updatePayload.address = address || null;
     if (baseSalary !== undefined) updatePayload.base_salary = parseFloat(baseSalary) || 0;
+    if (hourlyWage !== undefined) updatePayload.hourly_wage = parseFloat(hourlyWage) || 0;
     if (salaryBankName !== undefined) updatePayload.salary_bank_name = salaryBankName ? String(salaryBankName).trim() : null;
     if (salaryAccountNo !== undefined) updatePayload.salary_account_no = salaryAccountNo ? String(salaryAccountNo).trim() : null;
     if (salaryAccountHolder !== undefined) updatePayload.salary_account_holder = salaryAccountHolder ? String(salaryAccountHolder).trim() : null;
@@ -332,6 +342,8 @@ export async function PUT(request: Request) {
         tierLevel: data.tier_level ?? 0,
         status: normalizeStatusToEbro(data.employment_status),
         employmentStatus: normalizeStatusToDb(data.employment_status),
+        baseSalary: Number(data.base_salary ?? 3500000),
+        hourlyWage: Number(data.hourly_wage ?? Math.round(Number(data.base_salary ?? 3500000) / 209)),
         salaryBankName: data.salary_bank_name || "",
         salaryAccountNo: data.salary_account_no || "",
         salaryAccountHolder: data.salary_account_holder || "",

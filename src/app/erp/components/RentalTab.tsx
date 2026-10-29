@@ -118,6 +118,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [blStart, setBlStart] = useState(new Date().toISOString().slice(0, 7) + "-01");
   const [blEnd, setBlEnd] = useState(new Date().toISOString().split("T")[0]);
   const [blDays, setBlDays] = useState("30");
+  const [blUseProRata, setBlUseProRata] = useState(false); // 원칙: 특별한 경우가 아니면 일할 계산하지 않고 월 임대료 정액 적용
   const [blSupplyAmount, setBlSupplyAmount] = useState("600,000");
   const [blVatAmount, setBlVatAmount] = useState("60,000");
   const [blTaxSpec, setBlTaxSpec] = useState<BuyerTaxSpec>(() =>
@@ -382,11 +383,11 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     }
   };
 
-  // Handle Add Contract
+  // Handle Add Contract (고객별 1건 마스터 임대계약 원칙 - 초기 배정자산은 선택사항)
   const handleAddContract = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ctCustomer || !ctAssetId || !ctStart || !ctEnd) {
-      showToast("고객사, 배정자산, 기간은 필수입니다.", "error");
+    if (!ctCustomer || !ctStart || !ctEnd) {
+      showToast("고객사, 계약 시작일, 종료일은 필수입니다.", "error");
       return;
     }
     try {
@@ -398,7 +399,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           partnerId: ctPartnerId,
           customerName: ctCustomer,
           siteName: ctSite,
-          assetId: ctAssetId,
+          assetId: ctAssetId || null,
           startDate: ctStart,
           endDate: ctEnd,
           monthlyRate: cleanErpNumber(ctMonthlyRate),
@@ -422,15 +423,16 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "계약 등록 실패");
 
-      showToast(`임대계약 등록 완료 (자산 상태: '대여중 RENTED' 전환)`);
+      showToast(`고객 마스터 임대계약 등록 완료 (이후 출고/입고 시 고객 단위로 자동 가감됩니다)`);
       setShowAddContractModal(false);
       setCtPartnerId(null);
       setCtCustomer("");
       setCtCustomerSearch("");
       setCtSite("");
+      setCtAssetId("");
       setCtFileUrl("");
       setCtFileName("");
-      setCtTaxSpec(createDefaultTaxSpec("{1번째 아이템} 외", 600000));
+      setCtTaxSpec(createDefaultTaxSpec("{1번째 아이템} 외", 0));
       fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -638,6 +640,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     });
 
     setBlDays("30");
+    setBlUseProRata(false);
     setBlSupplyAmount(toErpInputString(baseSupply));
     setBlVatAmount(toErpInputString(baseVat));
     setBlTaxSpec({
@@ -678,6 +681,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           startDate: blStart,
           endDate: blEnd,
           operatingDays: blDays,
+          useProRata: blUseProRata,
           supplyAmount: cleanErpNumber(blSupplyAmount),
           vatAmount: cleanErpNumber(blVatAmount),
           taxPurpose: blTaxSpec.taxPurpose,
@@ -998,8 +1002,14 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     <td className="py-2 px-3 font-mono text-blue-400">{c.contractNo}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{c.customerName}</td>
                     <td className="py-2 px-3 text-slate-300">{c.siteName}</td>
-                    <td className="py-2 px-3 font-mono font-bold text-blue-300">{c.assetNo}</td>
-                    <td className="py-2 px-3 text-slate-200">{c.modelName}</td>
+                    <td className="py-2 px-3 font-mono font-bold text-blue-300">
+                      {c.activeAssetCount > 1
+                        ? `${c.assetNo || "-"} 외 ${c.activeAssetCount - 1}대 (총 ${c.activeAssetCount}대)`
+                        : c.assetNo || (Array.isArray(c.taxItems) && c.taxItems.length > 0 ? `품목 ${c.taxItems.length}건` : "출고 대기")}
+                    </td>
+                    <td className="py-2 px-3 text-slate-200">
+                      {c.modelName || (Array.isArray(c.taxItems) && c.taxItems[0]?.itemName) || "-"}
+                    </td>
                     <td className="py-2 px-3 font-mono text-slate-300">{c.startDate ? String(c.startDate).slice(0, 10) : "-"} ~ {c.endDate ? String(c.endDate).slice(0, 10) : "-"}</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(c.monthlyRate)}</td>
                     <td className="py-2 px-3 text-center">
@@ -1519,7 +1529,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2" onClick={() => setShowCustomerDropdown(false)}>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[#1e293b] font-semibold">배정 임대 자산 (임대가능 장비만 노출) *</label>
+                  <label className="text-[#1e293b] font-semibold">초기 배정 임대 자산 (선택사항 - 추후 출고등록으로 가산 가능)</label>
                   <select
                     value={ctAssetId}
                     onChange={(e) => {
@@ -1551,9 +1561,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                       }
                     }}
                     className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-semibold"
-                    required
                   >
-                    <option value="">선택하십시오</option>
+                    <option value="">자산 미지정 (고객 마스터 계약만 선체결)</option>
                     {assets.filter(a => a.status === "AVAILABLE").map(a => (
                       <option key={a.id} value={a.id}>
                         [{a.assetNo}] {a.modelName} ({a.manufacturer})
@@ -2039,7 +2048,29 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[#57534e] font-bold">가동일수(일)</label>
+                    <label className="text-[#57534e] font-bold flex items-center justify-between">
+                      <span>가동일수</span>
+                      <label className="inline-flex items-center gap-1 cursor-pointer text-[10px] text-blue-700">
+                        <input
+                          type="checkbox"
+                          checked={blUseProRata}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setBlUseProRata(checked);
+                            const ct = contracts.find((c) => String(c.id) === blContractId);
+                            if (ct) {
+                              const monthly = Number(ct.monthlyRate || 0);
+                              const daysNum = Math.max(1, parseInt(blDays || "30", 10));
+                              const nextSup = checked ? Math.round((monthly / 30) * daysNum) : Math.round(monthly);
+                              const nextVat = !checked && ct.vatAmount != null ? Number(ct.vatAmount) : Math.round(nextSup * 0.1);
+                              setBlSupplyAmount(toErpInputString(nextSup));
+                              setBlVatAmount(toErpInputString(nextVat));
+                            }
+                          }}
+                        />
+                        <span>특수 일할</span>
+                      </label>
+                    </label>
                     <input
                       type="number"
                       min="1"
@@ -2049,7 +2080,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                         const d = e.target.value;
                         setBlDays(d);
                         const ct = contracts.find((c) => String(c.id) === blContractId);
-                        if (ct) {
+                        if (ct && blUseProRata) {
                           const daysNum = Math.max(1, parseInt(d || "30", 10));
                           const monthly = Number(ct.monthlyRate || 0);
                           const proRata = Math.round((monthly / 30) * daysNum);

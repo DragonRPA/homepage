@@ -85,7 +85,7 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "PERMISSIONS", label: "사용자 및 권한", icon: Shield },
       { key: "LEAVE_APPLY", label: "연차 신청", icon: Calendar },
       { key: "LEAVE_MANAGE", label: "연차 관리", icon: Users },
-      { key: "OT_MANAGE", label: "연장근무 관리", icon: Clock },
+      { key: "OT_MANAGE", label: "초과근무 관리", icon: Clock },
     ],
   },
   {

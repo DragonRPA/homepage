@@ -233,34 +233,38 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. 기본 자동 계산 로직
+    // 2. 기본 자동 계산 로직 (1시간 표준임금 및 일시별 초과근무수당 반영)
     const empRes = await pool.query(`
-      SELECT id, name, base_salary, COALESCE(service_contract_amount, 0) as service_contract_amount
+      SELECT id, name, base_salary, COALESCE(hourly_wage, 0) as hourly_wage, COALESCE(service_contract_amount, 0) as service_contract_amount
       FROM erp_employees 
       WHERE employment_status = 'ACTIVE'
       ORDER BY id ASC
     `);
 
     const otRes = await pool.query(`
-      SELECT employee_id, SUM(ot_hours)::numeric as hours
+      SELECT employee_id, SUM(ot_hours)::numeric as hours, SUM(COALESCE(ot_pay, 0))::bigint as total_ot_pay
       FROM erp_overtimes
       WHERE ot_date::text LIKE $1 || '%' AND status = 'APPROVED'
       GROUP BY employee_id
     `, [yearMonth]);
 
-    const otMap: Record<number, number> = {};
+    const otMap: Record<number, { hours: number; otPay: number }> = {};
     for (const row of otRes.rows) {
-      otMap[row.employee_id] = Number(row.hours);
+      otMap[row.employee_id] = {
+        hours: Number(row.hours || 0),
+        otPay: Number(row.total_ot_pay || 0),
+      };
     }
 
     const insertedRecords = [];
     for (const emp of empRes.rows) {
       const baseSalary = Number(emp.base_salary || 3500000);
       const serviceContractAmount = Number(emp.service_contract_amount || 0);
-      const otHours = otMap[emp.id] || 0;
+      const empOt = otMap[emp.id] || { hours: 0, otPay: 0 };
+      const otHours = empOt.hours;
 
-      const hourlyRate = Math.floor(baseSalary / 209);
-      const otPay = Math.floor(hourlyRate * 1.5 * otHours);
+      const hourlyRate = Number(emp.hourly_wage) > 0 ? Number(emp.hourly_wage) : Math.round(baseSalary / 209);
+      const otPay = empOt.otPay > 0 ? empOt.otPay : Math.round(hourlyRate * 1.5 * otHours);
       const mealAllowance = 200000;
       const vehicleAllowance = 0;
       const annualLeaveAllowance = 0;

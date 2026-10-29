@@ -118,6 +118,10 @@ export async function POST(request: Request) {
       const roleCode = u.roleCode || (role === "ADMIN" ? "ADMIN" : role === "MANAGER" ? "MANAGER" : "EMPLOYEE");
       const dbStatus = normalizeStatusToDb(u.status || u.employmentStatus || "ACTIVE");
       const baseSalary = u.baseSalary !== undefined ? Number(u.baseSalary) || 0 : 3500000;
+      const hourlyWage =
+        u.hourlyWage !== undefined && Number(u.hourlyWage) > 0
+          ? Number(u.hourlyWage)
+          : Math.round((baseSalary || 3500000) / 209);
       const salaryBankName = u.salaryBankName ? String(u.salaryBankName).trim() : null;
       const salaryAccountNo = u.salaryAccountNo ? String(u.salaryAccountNo).trim() : null;
       const salaryAccountHolder = u.salaryAccountHolder ? String(u.salaryAccountHolder).trim() : null;
@@ -148,20 +152,21 @@ export async function POST(request: Request) {
                role_code = $8,
                employment_status = $9,
                base_salary = $10,
-               salary_bank_name = $11,
-               salary_account_no = $12,
-               salary_account_holder = $13,
-               phone = $14,
-               email = $15,
-               birth_date = $16,
-               join_date = $17,
-               leave_date = $18,
-               address = $19,
-               profile_image_url = $20,
-               login_id = COALESCE($21, login_id),
-               password_hash = COALESCE($22, password_hash),
+               hourly_wage = $11,
+               salary_bank_name = $12,
+               salary_account_no = $13,
+               salary_account_holder = $14,
+               phone = $15,
+               email = $16,
+               birth_date = $17,
+               join_date = $18,
+               leave_date = $19,
+               address = $20,
+               profile_image_url = $21,
+               login_id = COALESCE($22, login_id),
+               password_hash = COALESCE($23, password_hash),
                updated_at = NOW()
-           WHERE id = $23`,
+           WHERE id = $24`,
           [
             empName,
             position,
@@ -173,6 +178,7 @@ export async function POST(request: Request) {
             roleCode,
             dbStatus,
             baseSalary,
+            hourlyWage,
             salaryBankName,
             salaryAccountNo,
             salaryAccountHolder,
@@ -200,15 +206,15 @@ export async function POST(request: Request) {
         await client.query(
           `INSERT INTO erp_employees (
             employee_no, login_id, password_hash, name, position, duty, tier_level,
-            department_id, department, role, role_code, employment_status, base_salary,
+            department_id, department, role, role_code, employment_status, base_salary, hourly_wage,
             salary_bank_name, salary_account_no, salary_account_holder,
             phone, email, birth_date, join_date, leave_date, address, profile_image_url,
             annual_leave_grant, must_change_password, created_at, updated_at
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7,
-            $8, $9, $10, $11, $12, $13,
-            $14, $15, $16,
-            $17, $18, $19, $20, $21, $22, $23,
+            $8, $9, $10, $11, $12, $13, $14,
+            $15, $16, $17,
+            $18, $19, $20, $21, $22, $23, $24,
             15.0, true, NOW(), NOW()
           )`,
           [
@@ -225,6 +231,7 @@ export async function POST(request: Request) {
             roleCode,
             dbStatus,
             baseSalary,
+            hourlyWage,
             salaryBankName,
             salaryAccountNo,
             salaryAccountHolder,
@@ -279,6 +286,7 @@ export async function POST(request: Request) {
         e.role, 
         e.role_code as "roleCode",
         e.base_salary as "baseSalary",
+        COALESCE(e.hourly_wage, ROUND(COALESCE(e.base_salary, 3500000) / 209.0))::numeric as "hourlyWage",
         e.salary_bank_name as "salaryBankName",
         e.salary_account_no as "salaryAccountNo",
         e.salary_account_holder as "salaryAccountHolder",

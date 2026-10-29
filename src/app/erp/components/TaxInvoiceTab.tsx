@@ -280,8 +280,8 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     };
   }, [invoices]);
 
-  // Handle Batch Issue from Selected Contract Billings
-  const handleBatchIssue = async () => {
+  // Handle Batch Issue from Selected Contract Billings (Supports Consolidate Mode)
+  const handleBatchIssue = async (consolidate = false) => {
     const selectedList = unissuedBillings.filter((b) => selectedBillingIds.has(getBillingUid(b)));
     if (selectedList.length === 0) {
       showToast("발행할 청구건을 1건 이상 선택해주세요.", "error");
@@ -289,9 +289,11 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     }
 
     const totalSumFormatted = formatErpCurrency(selectedSummary.total);
-    if (!window.confirm(
-      `선택한 ${selectedList.length}건의 계약 청구건에 대해 국세청 전자세금계산서를 즉시 일괄 발행하시겠습니까?\n\n- 발행 대상: ${selectedList.length}건\n- 총 공급가액: ${formatErpCurrency(selectedSummary.supply)}\n- 총 부가세: ${formatErpCurrency(selectedSummary.vat)}\n- 총 합계금액: ${totalSumFormatted}`
-    )) {
+    const confirmMsg = consolidate
+      ? `선택한 ${selectedList.length}건의 청구를 묶어서(동일 고객사별 1장으로 합산) 전자세금계산서를 발행하시겠습니까?\n\n- 선택 청구: ${selectedList.length}건\n- 총 공급가액: ${formatErpCurrency(selectedSummary.supply)}\n- 총 부가세: ${formatErpCurrency(selectedSummary.vat)}\n- 총 합계금액: ${totalSumFormatted}`
+      : `선택한 ${selectedList.length}건의 계약 청구건에 대해 국세청 전자세금계산서를 즉시 일괄 발행하시겠습니까?\n\n- 발행 대상: ${selectedList.length}건\n- 총 공급가액: ${formatErpCurrency(selectedSummary.supply)}\n- 총 부가세: ${formatErpCurrency(selectedSummary.vat)}\n- 총 합계금액: ${totalSumFormatted}`;
+
+    if (!window.confirm(confirmMsg)) {
       return;
     }
 
@@ -302,6 +304,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           batchIssue: true,
+          consolidate,
           billings: selectedList,
         }),
       });
@@ -758,7 +761,21 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
             </div>
 
             <button
-              onClick={handleBatchIssue}
+              onClick={() => handleBatchIssue(true)}
+              disabled={selectedSummary.count < 2 || batchIssuing}
+              className={`flex items-center gap-1.5 h-8 px-3 rounded text-xs font-bold shadow-sm transition ${
+                selectedSummary.count >= 2 && !batchIssuing
+                  ? "bg-indigo-700 hover:bg-indigo-800 text-white border border-indigo-900 cursor-pointer"
+                  : "bg-[#d8d0c2] text-[#a8a29e] border border-[#b5a894] cursor-not-allowed"
+              }`}
+              title="여러 계약의 청구를 고객사별 1장으로 묶어서 합산 세금계산서 발행"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>선택 청구 묶음(합산) 발행 ({selectedSummary.count}건)</span>
+            </button>
+
+            <button
+              onClick={() => handleBatchIssue(false)}
               disabled={selectedSummary.count === 0 || batchIssuing}
               className={`flex items-center gap-1.5 h-8 px-4 rounded text-xs font-bold shadow-sm transition ${
                 selectedSummary.count > 0 && !batchIssuing

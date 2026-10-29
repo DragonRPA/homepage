@@ -233,3 +233,171 @@ export function resolveContractTaxItemsTemplate<T extends Record<string, any> = 
   });
 }
 
+// ============================================================================
+// ⏱️ 초과근무(Overtime) 일시 조건별 수당 자동 산정 엔진 (SSOT)
+// ============================================================================
+
+const KOREAN_SOLAR_HOLIDAYS = new Set([
+  "01-01", // 신정
+  "03-01", // 삼일절
+  "05-01", // 근로자의 날
+  "05-05", // 어린이날
+  "06-06", // 현충일
+  "08-15", // 광복절
+  "10-03", // 개천절
+  "10-09", // 한글날
+  "12-25", // 성탄절
+]);
+
+/**
+ * 일자('YYYY-MM-DD')가 비근무일(주말 토/일 또는 주요 법정공휴일)인지 자동 판별
+ */
+export function isKoreanNonWorkingDay(dateStr?: string | null): boolean {
+  if (!dateStr) return false;
+  const clean = String(dateStr).trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(clean)) return false;
+  const [y, m, d] = clean.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  const dow = dt.getDay(); // 0: 일, 6: 토
+  if (dow === 0 || dow === 6) return true;
+  const mmdd = clean.slice(5, 10);
+  return KOREAN_SOLAR_HOLIDAYS.has(mmdd);
+}
+
+export interface OvertimeBreakdownResult {
+  isHoliday: boolean;
+  otType: "WEEKDAY_OT" | "WEEKDAY_NIGHT_OT" | "NIGHT_OT" | "HOLIDAY_OT" | "HOLIDAY_NIGHT_OT";
+  otTypeLabel: string;
+  otHours: number;
+  regularOtHours: number;
+  holidayHours: number;
+  holidayOver8Hours: number;
+  nightHours: number;
+  hourlyWage: number;
+  appliedMultiplier: number;
+  otPay: number;
+  formulaText: string;
+}
+
+/**
+ * 근무일자, 시작~종료시각, 1시간 표준임금, 비근무일 여부를 기반으로
+ * 평일 초과근무 / 비근무일 출근(8h이내·8h초과) / 심야근무(22:00~06:00) 시간 및 수당액을 자동 계산
+ */
+export function calculateOvertimeBreakdown(params: {
+  otDate: string;
+  startTime: string;
+  endTime: string;
+  hourlyWage: number;
+  overrideIsHoliday?: boolean | null;
+}): OvertimeBreakdownResult {
+  const { otDate, startTime, endTime, overrideIsHoliday } = params;
+  const hourlyWage = Math.max(0, Math.round(Number(params.hourlyWage) || 0));
+  const isHoliday =
+    overrideIsHoliday !== undefined && overrideIsHoliday !== null
+      ? Boolean(overrideIsHoliday)
+      : isKoreanNonWorkingDay(otDate);
+
+  const [sh, sm] = String(startTime || "18:00").split(":").map((v) => parseInt(v, 10) || 0);
+  const [eh, em] = String(endTime || "20:00").split(":").map((v) => parseInt(v, 10) || 0);
+
+  const startMin = sh * 60 + sm;
+  let endMin = eh * 60 + em;
+  if (endMin <= startMin) {
+    // 자정(00:00)을 넘기는 익일 새벽 종료 근무 (예: 21:00 ~ 02:00)
+    endMin += 24 * 60;
+  }
+
+  const totalMin = Math.max(0, endMin - startMin);
+  let nightMin = 0;
+
+  for (let m = startMin; m < endMin; m++) {
+    const clock = ((m % 1440) + 1440) % 1440;
+    // 심야근무 시간대: 22:00 (1320분) ~ 익일 06:00 (360분)
+    if (clock >= 22 * 60 || clock < 6 * 60) {
+      nightMin++;
+    }
+  }
+
+  const otHours = Math.round((totalMin / 60) * 100) / 100;
+  const nightHours = Math.round((nightMin / 60) * 100) / 100;
+
+  let regularOtHours = 0;
+  let holidayHours = 0;
+  let holidayOver8Hours = 0;
+  let otPay = 0;
+  let otType: OvertimeBreakdownResult["otType"] = "WEEKDAY_OT";
+  let otTypeLabel = "평일 초과근무 (1.5배)";
+  const formulaParts: string[] = [];
+
+  if (!isHoliday) {
+    regularOtHours = otHours;
+    const baseOtPay = regularOtHours * hourlyWage * 1.5;
+    const nightExtraPay = nightHours * hourlyWage * 0.5;
+    otPay = Math.round(baseOtPay + nightExtraPay);
+
+    if (nightHours > 0 && nightHours >= otHours) {
+      otType = "NIGHT_OT";
+      otTypeLabel = "심야 초과근무 (2.0배)";
+    } else if (nightHours > 0) {
+      otType = "WEEKDAY_NIGHT_OT";
+      otTypeLabel = "평일 초과 + 심야근무";
+    } else {
+      otType = "WEEKDAY_OT";
+      otTypeLabel = "평일 초과근무 (1.5배)";
+    }
+
+    if (regularOtHours > 0) {
+      formulaParts.push(`평일초과 ${regularOtHours}h × ${hourlyWage.toLocaleString()}원 × 1.5배`);
+    }
+    if (nightHours > 0) {
+      formulaParts.push(`심야가산(22~06시) ${nightHours}h × ${hourlyWage.toLocaleString()}원 × 0.5배`);
+    }
+  } else {
+    holidayHours = Math.min(8, otHours);
+    holidayOver8Hours = Math.max(0, Math.round((otHours - 8) * 100) / 100);
+    const holBasePay = holidayHours * hourlyWage * 1.5;
+    const holOver8Pay = holidayOver8Hours * hourlyWage * 2.0;
+    const nightExtraPay = nightHours * hourlyWage * 0.5;
+    otPay = Math.round(holBasePay + holOver8Pay + nightExtraPay);
+
+    if (nightHours > 0) {
+      otType = "HOLIDAY_NIGHT_OT";
+      otTypeLabel = "비근무일 출근 + 심야";
+    } else {
+      otType = "HOLIDAY_OT";
+      otTypeLabel = holidayOver8Hours > 0 ? "비근무일 출근 (8h초과 포함)" : "비근무일 출근 (1.5배)";
+    }
+
+    if (holidayHours > 0) {
+      formulaParts.push(`비근무일(8h이내) ${holidayHours}h × ${hourlyWage.toLocaleString()}원 × 1.5배`);
+    }
+    if (holidayOver8Hours > 0) {
+      formulaParts.push(`비근무일(8h초과) ${holidayOver8Hours}h × ${hourlyWage.toLocaleString()}원 × 2.0배`);
+    }
+    if (nightHours > 0) {
+      formulaParts.push(`심야가산(22~06시) ${nightHours}h × ${hourlyWage.toLocaleString()}원 × 0.5배`);
+    }
+  }
+
+  const appliedMultiplier =
+    otHours > 0 && hourlyWage > 0
+      ? Math.round((otPay / (otHours * hourlyWage)) * 100) / 100
+      : 1.5;
+
+  return {
+    isHoliday,
+    otType,
+    otTypeLabel,
+    otHours,
+    regularOtHours,
+    holidayHours,
+    holidayOver8Hours,
+    nightHours,
+    hourlyWage,
+    appliedMultiplier,
+    otPay,
+    formulaText: formulaParts.length > 0 ? formulaParts.join(" + ") : "근무시간을 선택하세요",
+  };
+}
+
+

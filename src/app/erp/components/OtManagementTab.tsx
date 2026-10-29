@@ -1,12 +1,27 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { 
-  Clock, Check, X, Plus, Download, RefreshCw, 
-  Search, Calendar, AlertCircle, FileSpreadsheet, Trash2,
-  ArrowUpDown, ArrowUp, ArrowDown
+import {
+  Clock,
+  Plus,
+  Download,
+  RefreshCw,
+  Search,
+  Trash2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Moon,
+  Calendar,
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import {
+  formatErpNumber,
+  formatErpCurrency,
+  sortErpItems,
+  SortDirection,
+  calculateOvertimeBreakdown,
+  isKoreanNonWorkingDay,
+} from "@/lib/erpFormat";
 
 interface Overtime {
   id: number;
@@ -20,6 +35,17 @@ interface Overtime {
   startTime: string;
   endTime: string;
   otHours: number;
+  otType: string;
+  otTypeLabel: string;
+  isHoliday: boolean;
+  regularOtHours: number;
+  holidayHours: number;
+  holidayOver8Hours: number;
+  nightHours: number;
+  hourlyWage: number;
+  appliedMultiplier: number;
+  otPay: number;
+  formulaText?: string;
   reason: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
   approverId: number | null;
@@ -35,6 +61,8 @@ interface Employee {
   name: string;
   department: string;
   position: string;
+  baseSalary?: number;
+  hourlyWage?: number;
 }
 
 const OT_REASONS = [
@@ -42,19 +70,25 @@ const OT_REASONS = [
   "긴급 RPA 시스템 장애 조치",
   "고객사 현장 긴급 기술지원",
   "월말 결산 및 세금계산서 마감",
-  "주말 장비 점검 및 입고 검수",
+  "비근무일 장비 점검 및 입고 검수",
   "신규 프로젝트 릴리즈 배포",
 ];
 
 const getDayOfWeekKr = (dateStr: string) => {
   if (!dateStr) return "";
   const days = ["일", "월", "화", "수", "목", "금", "토"];
-  const dt = new Date(dateStr);
+  const clean = String(dateStr).slice(0, 10);
+  const [y, m, d] = clean.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const dt = new Date(y, m - 1, d);
   return days[dt.getDay()] || "";
 };
 
 export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
-  const isAdmin = currentUser?.role === "ADMIN" || currentUser?.loginId === "admin";
+  const isAdmin =
+    currentUser?.role === "ADMIN" ||
+    currentUser?.role === "SUPER_ADMIN" ||
+    currentUser?.loginId === "admin";
   const currentUserId = currentUser?.id;
 
   const currentMonth = new Date().toISOString().substring(0, 7);
@@ -70,13 +104,17 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
 
   // New OT Modal
   const [otModalOpen, setOtModalOpen] = useState(false);
+  const todayStr = new Date().toISOString().substring(0, 10);
   const [otForm, setOtForm] = useState({
     employeeId: currentUserId || 1,
-    otDate: new Date().toISOString().substring(0, 10),
+    otDate: todayStr,
+    isHoliday: isKoreanNonWorkingDay(todayStr),
     startTime: "18:00",
     endTime: "21:00",
     otHours: 3.0,
+    customOtPay: null as number | null,
     reason: OT_REASONS[0],
+    autoApprove: true,
   });
 
   const [toastMessage, setToastMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -108,6 +146,41 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
     fetchData();
   }, [selectedMonth]);
 
+  // Unique departments from employees + overtimes
+  const departmentList = useMemo(() => {
+    const s = new Set<string>();
+    employees.forEach((e) => {
+      if (e.department) s.add(e.department);
+    });
+    overtimes.forEach((o) => {
+      if (o.department) s.add(o.department);
+    });
+    return Array.from(s);
+  }, [employees, overtimes]);
+
+  // Selected employee in modal & real-time overtime breakdown calculation
+  const selectedModalEmp = useMemo(() => {
+    return employees.find((e) => Number(e.id) === Number(otForm.employeeId)) || employees[0] || null;
+  }, [employees, otForm.employeeId]);
+
+  const modalEmpHourlyWage = useMemo(() => {
+    if (!selectedModalEmp) return 16746;
+    if (selectedModalEmp.hourlyWage && Number(selectedModalEmp.hourlyWage) > 0) {
+      return Math.round(Number(selectedModalEmp.hourlyWage));
+    }
+    return Math.round((Number(selectedModalEmp.baseSalary) || 3500000) / 209);
+  }, [selectedModalEmp]);
+
+  const liveBreakdown = useMemo(() => {
+    return calculateOvertimeBreakdown({
+      otDate: otForm.otDate,
+      startTime: otForm.startTime,
+      endTime: otForm.endTime,
+      hourlyWage: modalEmpHourlyWage,
+      overrideIsHoliday: otForm.isHoliday,
+    });
+  }, [otForm.otDate, otForm.startTime, otForm.endTime, modalEmpHourlyWage, otForm.isHoliday]);
+
   // Filtered
   const filteredOvertimes = useMemo(() => {
     return overtimes.filter((ot) => {
@@ -118,7 +191,8 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
         return (
           ot.employeeName.toLowerCase().includes(q) ||
           ot.employeeNo.toLowerCase().includes(q) ||
-          ot.reason.toLowerCase().includes(q)
+          ot.reason.toLowerCase().includes(q) ||
+          (ot.otTypeLabel || "").toLowerCase().includes(q)
         );
       }
       return true;
@@ -146,11 +220,19 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
         className={`py-2.5 px-3 cursor-pointer select-none transition text-${align} whitespace-nowrap hover:bg-[#d0c6b4] dark:hover:bg-slate-700`}
         title={`${label} 기준 정렬`}
       >
-        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+        <div
+          className={`inline-flex items-center gap-1.5 ${
+            align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"
+          }`}
+        >
           <span>{label}</span>
           <span className="shrink-0">
             {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" /> : <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
+              sortDir === "asc" ? (
+                <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
+              ) : (
+                <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
+              )
             ) : (
               <ArrowUpDown className="w-3.5 h-3.5 opacity-30" />
             )}
@@ -168,17 +250,24 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
   const kpis = useMemo(() => {
     const totalCount = overtimes.length;
     let approvedHours = 0;
+    let approvedOtPay = 0;
+    let totalOtPay = 0;
     let pendingCount = 0;
 
     overtimes.forEach((o) => {
+      const pay = Number(o.otPay || 0);
+      if (o.status !== "REJECTED") {
+        totalOtPay += pay;
+      }
       if (o.status === "APPROVED") {
         approvedHours += Number(o.otHours || 0);
+        approvedOtPay += pay;
       } else if (o.status === "PENDING") {
         pendingCount++;
       }
     });
 
-    return { totalCount, approvedHours, pendingCount };
+    return { totalCount, approvedHours, approvedOtPay, totalOtPay, pendingCount };
   }, [overtimes]);
 
   // Submit OT Form
@@ -189,15 +278,32 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
       return;
     }
     try {
+      const finalPay = otForm.customOtPay !== null ? otForm.customOtPay : liveBreakdown.otPay;
       const res = await fetch("/api/erp/overtimes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(otForm),
+        body: JSON.stringify({
+          employeeId: otForm.employeeId,
+          otDate: otForm.otDate,
+          isHoliday: otForm.isHoliday,
+          startTime: otForm.startTime,
+          endTime: otForm.endTime,
+          otHours: liveBreakdown.otHours,
+          hourlyWage: modalEmpHourlyWage,
+          otPay: finalPay,
+          reason: otForm.reason,
+          autoApprove: isAdmin ? otForm.autoApprove : false,
+          approverId: currentUserId || 1,
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "신청 실패");
 
-      showToast("연장근무 신청이 등록되었습니다.");
+      showToast(
+        isAdmin && otForm.autoApprove
+          ? `초과근무 등록 및 승인 완료 (수당 ${formatErpCurrency(finalPay)})`
+          : `초과근무 신청이 등록되었습니다 (산정 수당 ${formatErpCurrency(finalPay)})`
+      );
       setOtModalOpen(false);
       fetchData();
     } catch (err: any) {
@@ -229,13 +335,12 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
 
   // Delete
   const handleDelete = async (id: number) => {
-    if (!confirm("연장근무 신청 내역을 삭제하시겠습니까?")) return;
     try {
       const res = await fetch(`/api/erp/overtimes?id=${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "삭제 실패");
 
-      showToast("삭제되었습니다.");
+      showToast("초과근무 내역이 삭제되었습니다.");
       fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -244,17 +349,37 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
 
   // Export CSV
   const handleExportCsv = () => {
-    const headers = ["근무일자", "요일", "사번", "성명", "부서", "시작시간", "종료시간", "인정시간", "근무사유", "상태", "승인자"];
+    const headers = [
+      "근무일자",
+      "요일",
+      "사번",
+      "성명",
+      "부서",
+      "근무구분",
+      "시작시간",
+      "종료시간",
+      "인정시간",
+      "심야시간",
+      "1시간표준임금(원)",
+      "초과근무수당(원)",
+      "근무사유",
+      "상태",
+      "승인자",
+    ];
     const rows = filteredOvertimes.map((o) => [
       o.otDate ? o.otDate.substring(0, 10) : "-",
       getDayOfWeekKr(o.otDate),
       o.employeeNo,
       o.employeeName,
       o.department,
+      o.otTypeLabel || (o.isHoliday ? "비근무일 출근" : "평일 초과근무"),
       o.startTime,
       o.endTime,
       `${o.otHours}시간`,
-      o.reason,
+      `${o.nightHours || 0}시간`,
+      o.hourlyWage || 0,
+      o.otPay || 0,
+      `"${(o.reason || "").replace(/"/g, '""')}"`,
       o.status,
       o.approverName || "-",
     ]);
@@ -266,7 +391,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `연장근무대장_${selectedMonth}.csv`);
+    link.setAttribute("download", `초과근무대장_${selectedMonth}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -293,7 +418,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
             <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
-              연장근무(OT) 관리 대장
+              초과근무 관리 대장
             </span>
           </div>
 
@@ -322,10 +447,11 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
               className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             >
               <option value="ALL">전체 부서</option>
-              <option value="경영총괄">경영총괄</option>
-              <option value="기술개발부">기술개발부</option>
-              <option value="영업관리부">영업관리부</option>
-              <option value="고객지원부">고객지원부</option>
+              {departmentList.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
             </select>
 
             <div className="relative">
@@ -335,7 +461,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                 placeholder="사원명 / 사유 검색"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] pl-8 pr-3 py-1.5 rounded w-40 focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] pl-8 pr-3 py-1.5 rounded w-44 focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
               />
             </div>
           </div>
@@ -361,37 +487,54 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
 
           <button
             onClick={() => {
+              const initDate = new Date().toISOString().substring(0, 10);
+              const defaultEmpId = currentUserId || employees[0]?.id || 1;
               setOtForm({
-                employeeId: currentUserId || 1,
-                otDate: new Date().toISOString().substring(0, 10),
+                employeeId: defaultEmpId,
+                otDate: initDate,
+                isHoliday: isKoreanNonWorkingDay(initDate),
                 startTime: "18:00",
                 endTime: "21:00",
                 otHours: 3.0,
+                customOtPay: null,
                 reason: OT_REASONS[0],
+                autoApprove: true,
               });
               setOtModalOpen(true);
             }}
             className="px-3 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>연장근무 신청</span>
+            <span>초과근무 신청</span>
           </button>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="px-4 pt-3 pb-1 grid grid-cols-3 gap-3 shrink-0">
+      <div className="px-4 pt-3 pb-1 grid grid-cols-4 gap-3 shrink-0">
         <div className="bg-[#f4efe4] border border-[#b5a894] p-2.5 rounded flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
           <span className="text-xs text-[#475569] dark:text-slate-400">당월 총 신청 건수</span>
-          <span className="text-base font-bold font-mono text-[#0f172a] dark:text-slate-100">{formatErpNumber(kpis.totalCount)}건</span>
+          <span className="text-base font-bold font-mono text-[#0f172a] dark:text-slate-100">
+            {formatErpNumber(kpis.totalCount)}건
+          </span>
         </div>
         <div className="bg-[#f4efe4] border border-[#b5a894] p-2.5 rounded flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
-          <span className="text-xs text-[#475569] dark:text-slate-400">당월 승인 연장근무 합계</span>
-          <span className="text-base font-bold font-mono text-[#047857] dark:text-emerald-400">{formatErpNumber(kpis.approvedHours)}시간</span>
+          <span className="text-xs text-[#475569] dark:text-slate-400">당월 승인 초과근무 합계</span>
+          <span className="text-base font-bold font-mono text-[#047857] dark:text-emerald-400">
+            {kpis.approvedHours}시간
+          </span>
+        </div>
+        <div className="bg-[#f4efe4] border border-[#b5a894] p-2.5 rounded flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
+          <span className="text-xs text-[#475569] dark:text-slate-400">당월 승인 초과근무수당 합계</span>
+          <span className="text-base font-bold font-mono text-[#1d4ed8] dark:text-blue-400">
+            {formatErpCurrency(kpis.approvedOtPay)}
+          </span>
         </div>
         <div className="bg-[#f4efe4] border border-[#b5a894] p-2.5 rounded flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
           <span className="text-xs text-[#475569] dark:text-slate-400">결재 대기</span>
-          <span className="text-base font-bold font-mono text-[#b45309] dark:text-amber-400">{formatErpNumber(kpis.pendingCount)}건</span>
+          <span className="text-base font-bold font-mono text-[#b45309] dark:text-amber-400">
+            {formatErpNumber(kpis.pendingCount)}건
+          </span>
         </div>
       </div>
 
@@ -405,8 +548,11 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                 {renderSortTh("사번", "employeeNo")}
                 {renderSortTh("성명", "employeeName")}
                 {renderSortTh("부서", "department")}
+                {renderSortTh("근무구분 (조건)", "otType")}
                 {renderSortTh("근무 시간", "startTime")}
-                {renderSortTh("인정시간", "otHours", "center")}
+                {renderSortTh("인정시간 (심야)", "otHours", "center")}
+                {renderSortTh("1시간 표준임금", "hourlyWage", "right")}
+                {renderSortTh("산정 수당액", "otPay", "right")}
                 {renderSortTh("근무 사유", "reason")}
                 {renderSortTh("결재상태", "status", "center")}
                 {renderSortTh("승인자", "approverName")}
@@ -416,8 +562,8 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
               {sortedFilteredOvertimes.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-[#475569] dark:text-slate-500">
-                    해당 월에 신청된 연장근무 내역이 없습니다.
+                  <td colSpan={13} className="py-12 text-center text-[#475569] dark:text-slate-500">
+                    해당 월에 신청된 초과근무 내역이 없습니다.
                   </td>
                 </tr>
               ) : (
@@ -425,16 +571,56 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                   <tr key={ot.id} className="hover:bg-[#ede6d6] dark:hover:bg-slate-800/40 transition">
                     <td className="py-2 px-3 font-mono text-[#0f172a] dark:text-slate-300 whitespace-nowrap">
                       {ot.otDate ? ot.otDate.substring(0, 10) : "-"}{" "}
-                      <span className="text-[#475569] dark:text-slate-500 font-sans">({getDayOfWeekKr(ot.otDate)})</span>
+                      <span
+                        className={`font-sans font-bold ${
+                          ot.isHoliday ? "text-[#dc2626] dark:text-red-400" : "text-[#475569] dark:text-slate-500"
+                        }`}
+                      >
+                        ({getDayOfWeekKr(ot.otDate)})
+                      </span>
                     </td>
-                    <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">{ot.employeeNo}</td>
-                    <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap">{ot.employeeName}</td>
-                    <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">{ot.department}</td>
+                    <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">
+                      {ot.employeeNo}
+                    </td>
+                    <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap">
+                      {ot.employeeName}
+                    </td>
+                    <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                      {ot.department}
+                    </td>
+                    <td className="py-2 px-3 whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold border ${
+                          ot.isHoliday
+                            ? "bg-[#fef2f2] text-[#b91c1c] border-[#fecaca]"
+                            : ot.nightHours > 0
+                            ? "bg-[#eef2ff] text-[#4338ca] border-[#c7d2fe]"
+                            : "bg-[#f0fdf4] text-[#15803d] border-[#bbf7d0]"
+                        }`}
+                      >
+                        {ot.isHoliday ? <Calendar className="w-3 h-3" /> : ot.nightHours > 0 ? <Moon className="w-3 h-3" /> : null}
+                        {ot.otTypeLabel || (ot.isHoliday ? "비근무일 출근" : "평일 초과근무")}
+                      </span>
+                    </td>
                     <td className="py-2 px-3 font-mono text-[#0f172a] dark:text-slate-300 whitespace-nowrap">
                       {ot.startTime} ~ {ot.endTime}
                     </td>
                     <td className="py-2 px-3 text-center font-mono font-bold text-[#b45309] dark:text-amber-400 whitespace-nowrap">
-                      {formatErpNumber(ot.otHours)}h
+                      <span>{ot.otHours}h</span>
+                      {Number(ot.nightHours) > 0 && (
+                        <span className="ml-1 text-[10.5px] text-[#4338ca] dark:text-indigo-400">
+                          (심야 {ot.nightHours}h)
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-right font-mono text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                      {formatErpCurrency(ot.hourlyWage)}
+                    </td>
+                    <td
+                      className="py-2 px-3 text-right font-mono font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap"
+                      title={ot.formulaText || ""}
+                    >
+                      {formatErpCurrency(ot.otPay)}
                     </td>
                     <td className="py-2 px-3 text-[#334155] dark:text-slate-300 max-w-xs truncate" title={ot.reason}>
                       {ot.reason}
@@ -497,77 +683,192 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <form
             onSubmit={handleSubmitOt}
-            className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-md shadow-2xl dark:bg-slate-900 dark:border-slate-800"
+            className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-lg shadow-2xl dark:bg-slate-900 dark:border-slate-800"
           >
             <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 mb-4 pb-2 border-b border-[#b5a894] dark:border-slate-800 flex items-center gap-1.5">
               <Clock className="w-4 h-4 text-[#1d4ed8]" />
-              <span>연장근무(OT) 신청서 작성</span>
+              <span>초과근무 신청 및 수당 자동 계산</span>
             </h2>
 
             <div className="space-y-3">
-              {isAdmin && (
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">대상 사원</label>
-                  <select
-                    value={otForm.employeeId}
-                    onChange={(e) => setOtForm({ ...otForm, employeeId: parseInt(e.target.value) })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                  >
-                    {employees.map((emp) => (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.name} ({emp.department} - {emp.employeeNo})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">근무 일자</label>
-                <input
-                  type="date"
-                  value={otForm.otDate}
-                  onChange={(e) => setOtForm({ ...otForm, otDate: e.target.value })}
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                />
+                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">대상 임직원</label>
+                <select
+                  value={otForm.employeeId}
+                  onChange={(e) =>
+                    setOtForm({
+                      ...otForm,
+                      employeeId: parseInt(e.target.value),
+                      customOtPay: null,
+                    })
+                  }
+                  disabled={!isAdmin}
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-bold dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
+                >
+                  {employees.map((emp) => {
+                    const hw =
+                      emp.hourlyWage && Number(emp.hourlyWage) > 0
+                        ? Math.round(Number(emp.hourlyWage))
+                        : Math.round((Number(emp.baseSalary) || 3500000) / 209);
+                    return (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name} ({emp.department || "미배정"} · {emp.position}) — 1시간 표준임금:{" "}
+                        {hw.toLocaleString()}원
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">시작 시간</label>
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">근무 일자</label>
+                  <input
+                    type="date"
+                    value={otForm.otDate}
+                    onChange={(e) => {
+                      const nextDate = e.target.value;
+                      setOtForm({
+                        ...otForm,
+                        otDate: nextDate,
+                        isHoliday: isKoreanNonWorkingDay(nextDate),
+                        customOtPay: null,
+                      });
+                    }}
+                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">근무일 구분 (자동/수동)</label>
+                  <select
+                    value={otForm.isHoliday ? "HOLIDAY" : "WEEKDAY"}
+                    onChange={(e) =>
+                      setOtForm({
+                        ...otForm,
+                        isHoliday: e.target.value === "HOLIDAY",
+                        customOtPay: null,
+                      })
+                    }
+                    className={`border text-xs px-3 py-2 rounded font-bold focus:outline-none ${
+                      otForm.isHoliday
+                        ? "bg-[#fef2f2] border-[#dc2626] text-[#b91c1c]"
+                        : "bg-[#f4efe4] border-[#b5a894] text-[#0f172a]"
+                    }`}
+                  >
+                    <option value="WEEKDAY">보통 근무일 (평일 초과 1.5배)</option>
+                    <option value="HOLIDAY">비근무일 출근 (8h이내 1.5배 / 초과 2.0배)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
+                    시작 시각 (22:00~06:00 심야 자동인식)
+                  </label>
                   <input
                     type="time"
                     value={otForm.startTime}
-                    onChange={(e) => setOtForm({ ...otForm, startTime: e.target.value })}
+                    onChange={(e) =>
+                      setOtForm({
+                        ...otForm,
+                        startTime: e.target.value,
+                        customOtPay: null,
+                      })
+                    }
                     className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">종료 시간</label>
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
+                    종료 시각 (자정 경과 자동계산)
+                  </label>
                   <input
                     type="time"
                     value={otForm.endTime}
-                    onChange={(e) => setOtForm({ ...otForm, endTime: e.target.value })}
+                    onChange={(e) =>
+                      setOtForm({
+                        ...otForm,
+                        endTime: e.target.value,
+                        customOtPay: null,
+                      })
+                    }
                     className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                   />
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">인정 시간 (h)</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={otForm.otHours}
-                  onChange={(e) => setOtForm({ ...otForm, otHours: parseFloat(e.target.value) || 0 })}
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                />
+              {/* 실시간 초과근무 수당 자동 계산 명세 박스 */}
+              <div className="p-3 rounded border border-[#b5a894] bg-[#f4efe4] dark:bg-slate-950 dark:border-slate-800 space-y-2">
+                <div className="flex items-center justify-between border-b border-[#d0c6b4] pb-1.5">
+                  <span className="text-xs font-bold text-[#1d4ed8] dark:text-blue-400">
+                    초과근무수당 자동 산정 내역 ({liveBreakdown.otTypeLabel})
+                  </span>
+                  <span className="text-[11px] font-mono font-bold text-[#0f172a] dark:text-slate-200">
+                    1시간 표준임금: {formatErpCurrency(modalEmpHourlyWage)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-[11px]">
+                  <div className="bg-[#ebe5d8] dark:bg-slate-900 p-1.5 rounded border border-[#d0c6b4] dark:border-slate-800">
+                    <div className="text-[#475569]">총 초과근무 시간</div>
+                    <div className="font-mono font-bold text-xs text-[#0f172a] dark:text-slate-100">
+                      {liveBreakdown.otHours}시간
+                    </div>
+                  </div>
+                  <div className="bg-[#ebe5d8] dark:bg-slate-900 p-1.5 rounded border border-[#d0c6b4] dark:border-slate-800">
+                    <div className="text-[#475569]">심야 구간 (22~06시)</div>
+                    <div className="font-mono font-bold text-xs text-[#4338ca] dark:text-indigo-400">
+                      {liveBreakdown.nightHours}시간 (+0.5배)
+                    </div>
+                  </div>
+                  <div className="bg-[#ebe5d8] dark:bg-slate-900 p-1.5 rounded border border-[#d0c6b4] dark:border-slate-800">
+                    <div className="text-[#475569]">적용 평균 배율</div>
+                    <div className="font-mono font-bold text-xs text-[#047857] dark:text-emerald-400">
+                      {liveBreakdown.appliedMultiplier}배
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-[#334155] dark:text-slate-400 font-mono bg-[#ebe5d8] dark:bg-slate-900 px-2 py-1.5 rounded border border-dashed border-[#b5a894]">
+                  산식: {liveBreakdown.formulaText}
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
+                      최종 초과근무수당 (원)
+                    </label>
+                    {otForm.customOtPay !== null && (
+                      <button
+                        type="button"
+                        onClick={() => setOtForm({ ...otForm, customOtPay: null })}
+                        className="text-[10.5px] px-1.5 py-0.5 rounded bg-[#dcd4c4] text-[#0f172a] border border-[#b5a894] font-semibold"
+                      >
+                        자동계산 복원
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="number"
+                    step="100"
+                    value={otForm.customOtPay !== null ? otForm.customOtPay : liveBreakdown.otPay}
+                    onChange={(e) =>
+                      setOtForm({
+                        ...otForm,
+                        customOtPay: parseInt(e.target.value, 10) || 0,
+                      })
+                    }
+                    className="w-40 text-right bg-white dark:bg-slate-900 border border-[#1d4ed8] text-sm font-bold font-mono text-[#1d4ed8] px-2.5 py-1 rounded"
+                  />
+                </div>
               </div>
 
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">근무 사유 프리셋</label>
                 <select
-                  value={otForm.reason}
+                  value={OT_REASONS.includes(otForm.reason) ? otForm.reason : OT_REASONS[0]}
                   onChange={(e) => setOtForm({ ...otForm, reason: e.target.value })}
                   className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 >
@@ -589,6 +890,20 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                   className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 />
               </div>
+
+              {isAdmin && (
+                <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={otForm.autoApprove}
+                    onChange={(e) => setOtForm({ ...otForm, autoApprove: e.target.checked })}
+                    className="w-4 h-4 accent-[#1d4ed8]"
+                  />
+                  <span className="text-xs font-bold text-[#047857]">
+                    등록 즉시 승인 완료 처리 (급여 정산 및 용역 청구에 즉시 반영)
+                  </span>
+                </label>
+              )}
             </div>
 
             <div className="mt-5 pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2">
@@ -603,7 +918,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                 type="submit"
                 className="px-4 py-1.5 text-xs font-bold text-white bg-[#1d4ed8] hover:bg-[#1e40af] rounded shadow"
               >
-                상신 제출
+                {isAdmin && otForm.autoApprove ? "초과근무 등록 및 승인" : "초과근무 신청 제출"}
               </button>
             </div>
           </form>

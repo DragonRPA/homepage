@@ -69,7 +69,7 @@ export async function GET(request: Request) {
         (s.contract_file_url IS NOT NULL AND s.contract_file_url <> '') as "hasContractFile",
         s.created_at as "createdAt"
       FROM erp_trade_sales s
-      JOIN erp_trade_products tp ON s.product_id = tp.id
+      LEFT JOIN erp_trade_products tp ON s.product_id = tp.id
       LEFT JOIN erp_partners p ON s.partner_id = p.id OR (s.partner_id IS NULL AND s.customer_name = p.name)
       LEFT JOIN erp_tax_invoices ti ON s.tax_invoice_id = ti.id
       WHERE 1=1
@@ -89,7 +89,7 @@ export async function GET(request: Request) {
   }
 }
 
-// POST: Register a sale/distribution contract, calculate COGS & Margin, deduct stock, save tax invoice fields
+// POST: Register a sale/distribution contract (출고 1건당 1개의 계약, 1건에 여러 종의 제품 포함 가능)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -102,6 +102,7 @@ export async function POST(request: Request) {
       unitPrice,
       supplyAmount,
       vatAmount,
+      items, // 다중 제품 배열: [{ productId, qty, unitPrice, supplyAmount, vatAmount, itemName, spec }]
       memo,
       entityType,
       customerBizNo,
@@ -118,11 +119,15 @@ export async function POST(request: Request) {
       contractFileName,
     } = body;
 
-    if (!customerName || !productId || !qty || unitPrice === undefined) {
-      return NextResponse.json({ error: "고객사, 상품, 수량, 판매단가는 필수입니다." }, { status: 400 });
+    const hasMultiItems = Array.isArray(items) && items.length > 0;
+    if (!customerName || (!hasMultiItems && (!productId || !qty || unitPrice === undefined))) {
+      return NextResponse.json({ error: "고객사 및 최소 1개 이상의 출고 상품 정보는 필수입니다." }, { status: 400 });
     }
 
     const assignedEntity = entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
+    const effectiveSaleDate = saleDate || new Date().toISOString().split("T")[0];
+    const mm = effectiveSaleDate.slice(5, 7);
+    const dd = effectiveSaleDate.slice(8, 10);
 
     const pool = getErpPool();
     const client = await pool.connect();
@@ -130,45 +135,113 @@ export async function POST(request: Request) {
     try {
       await client.query("BEGIN");
 
-      // 1. Fetch product to get current unit standard_cost and check stock
-      const prodRes = await client.query(
-        "SELECT id, standard_cost, current_stock, name, spec FROM erp_trade_products WHERE id = $1 FOR UPDATE",
-        [productId]
-      );
-      if (prodRes.rows.length === 0) {
-        throw new Error("상품을 찾을 수 없습니다.");
-      }
-
-      const prod = prodRes.rows[0];
-      const parsedQty = parseInt(String(qty), 10);
-      const parsedUnitPrice = parseFloat(String(unitPrice));
-      const unitCost = parseFloat(prod.standard_cost || "0");
-
-      const totalAmount = supplyAmount !== undefined && supplyAmount !== null && supplyAmount !== ""
-        ? parseFloat(String(supplyAmount))
-        : parsedQty * parsedUnitPrice;
-      const parsedVat = vatAmount !== undefined && vatAmount !== null && vatAmount !== ""
-        ? parseFloat(String(vatAmount))
-        : Math.round(totalAmount * 0.1);
-      const cogsAmount = parsedQty * unitCost;
-      const marginAmount = totalAmount - cogsAmount;
-      const saleNo = `SO${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-      const normalizedTaxItems = Array.isArray(taxItems) && taxItems.length > 0
-        ? taxItems
+      // 다중 품목 정규화 및 상품별 재고 차감 / 원가(COGS) 합산
+      const lineInputs = hasMultiItems
+        ? items
         : [
             {
-              itemName: prod.name,
-              spec: prod.spec || "",
-              qty: parsedQty,
-              unitPrice: parsedUnitPrice,
-              supplyAmount: totalAmount,
-              vatAmount: parsedVat,
-              remark: "",
+              productId,
+              qty,
+              unitPrice,
+              supplyAmount,
+              vatAmount,
             },
           ];
 
-      // 2. Insert sale
+      let totalQty = 0;
+      let totalSupply = 0;
+      let totalVat = 0;
+      let totalCogs = 0;
+      let primaryProductId: number | null = null;
+      let primaryUnitPrice = 0;
+      let primaryProductName = "판매 상품";
+      const builtTaxItems: any[] = [];
+
+      for (let i = 0; i < lineInputs.length; i++) {
+        const line = lineInputs[i];
+        const lPid = line.productId ? parseInt(String(line.productId), 10) : null;
+        const lQty = Math.max(1, parseInt(String(line.qty || 1), 10));
+        const lPrice = Math.round(parseFloat(String(line.unitPrice ?? line.unitCost ?? 0)));
+        const lSupply = line.supplyAmount !== undefined && line.supplyAmount !== null && line.supplyAmount !== ""
+          ? Math.round(parseFloat(String(line.supplyAmount)))
+          : lQty * lPrice;
+        const lVat = line.vatAmount !== undefined && line.vatAmount !== null && line.vatAmount !== ""
+          ? Math.round(parseFloat(String(line.vatAmount)))
+          : Math.round(lSupply * 0.1);
+
+        let prodName = line.itemName || line.productName || "판매 상품";
+        let prodSpec = line.spec || "";
+        let unitCost = 0;
+
+        if (lPid) {
+          const prodRes = await client.query(
+            "SELECT id, standard_cost, current_stock, name, spec, sku_code FROM erp_trade_products WHERE id = $1 FOR UPDATE",
+            [lPid]
+          );
+          if (prodRes.rows.length === 0) {
+            throw new Error(`상품(ID: ${lPid})을 찾을 수 없습니다.`);
+          }
+          const prod = prodRes.rows[0];
+          prodName = line.itemName || prod.name;
+          prodSpec = line.spec || prod.spec || "";
+          unitCost = parseFloat(prod.standard_cost || "0");
+
+          // 재고 차감
+          await client.query(
+            `UPDATE erp_trade_products
+             SET current_stock = current_stock - $1, updated_at = NOW()
+             WHERE id = $2`,
+            [lQty, lPid]
+          );
+
+          if (!primaryProductId) {
+            primaryProductId = lPid;
+            primaryUnitPrice = lPrice;
+            primaryProductName = prod.name;
+          }
+        }
+
+        totalQty += lQty;
+        totalSupply += lSupply;
+        totalVat += lVat;
+        totalCogs += Math.round(lQty * unitCost);
+
+        builtTaxItems.push({
+          productId: lPid,
+          month: line.month || mm,
+          day: line.day || dd,
+          itemName: prodName,
+          spec: prodSpec,
+          qty: lQty,
+          unitCost: lPrice,
+          unitPrice: lPrice,
+          supplyAmount: lSupply,
+          vatAmount: lVat,
+          note: line.note || line.remark || "",
+        });
+      }
+
+      if (!primaryProductId && productId) {
+        primaryProductId = parseInt(String(productId), 10);
+      }
+
+      const finalTotalAmount = supplyAmount !== undefined && supplyAmount !== null && supplyAmount !== ""
+        ? Math.round(parseFloat(String(supplyAmount)))
+        : totalSupply;
+      const finalVatAmount = vatAmount !== undefined && vatAmount !== null && vatAmount !== ""
+        ? Math.round(parseFloat(String(vatAmount)))
+        : totalVat;
+      const marginAmount = finalTotalAmount - totalCogs;
+      const saleNo = `SO${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const normalizedTaxItems = Array.isArray(taxItems) && taxItems.length > 0
+        ? taxItems.map((ti: any, idx: number) => ({
+            ...ti,
+            productId: ti.productId ?? builtTaxItems[idx]?.productId ?? null,
+          }))
+        : builtTaxItems;
+
+      // Insert 1 sale contract for this outbound (출고 1건당 1개의 계약)
       const insRes = await client.query(
         `INSERT INTO erp_trade_sales 
          (sale_no, entity_type, partner_id, sale_date, customer_name, product_id, qty, unit_price,
@@ -184,14 +257,14 @@ export async function POST(request: Request) {
           saleNo,
           assignedEntity,
           partnerId ? parseInt(String(partnerId), 10) : null,
-          saleDate || new Date().toISOString().split("T")[0],
+          effectiveSaleDate,
           customerName.trim(),
-          productId,
-          parsedQty,
-          parsedUnitPrice,
-          totalAmount,
-          parsedVat,
-          cogsAmount,
+          primaryProductId,
+          totalQty,
+          primaryUnitPrice,
+          finalTotalAmount,
+          finalVatAmount,
+          totalCogs,
           marginAmount,
           memo || "",
           customerBizNo || "",
@@ -202,26 +275,29 @@ export async function POST(request: Request) {
           customerEmail || "",
           customerEmail2 || "",
           taxPurpose || "청구",
-          taxMemo || prod.name,
+          taxMemo || "{1번째 아이템} 외",
           JSON.stringify(normalizedTaxItems),
           contractFileUrl || null,
           contractFileName || null,
         ]
       );
 
-      // 3. Deduct stock
-      await client.query(
-        `UPDATE erp_trade_products
-         SET current_stock = current_stock - $1, updated_at = NOW()
-         WHERE id = $2`,
-        [parsedQty, productId]
-      );
-
-      // 4. Audit log
+      // Audit log
       await client.query(
         `INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
          VALUES ('TRADE', 'SALE', $1, 'ADMIN', $2)`,
-        [saleNo, JSON.stringify({ customerName, productId, qty: parsedQty, totalAmount, marginAmount, entityType: assignedEntity })]
+        [
+          saleNo,
+          JSON.stringify({
+            customerName,
+            itemCount: normalizedTaxItems.length,
+            qty: totalQty,
+            totalAmount: finalTotalAmount,
+            marginAmount,
+            entityType: assignedEntity,
+            primaryProductName,
+          }),
+        ]
       );
 
       await client.query("COMMIT");
@@ -278,9 +354,9 @@ export async function PUT(request: Request) {
       await client.query("BEGIN");
 
       const existingRes = await client.query(
-        `SELECT s.id, s.sale_no, s.product_id, s.qty, tp.standard_cost
+        `SELECT s.id, s.sale_no, s.product_id, s.qty, s.tax_items, tp.standard_cost
          FROM erp_trade_sales s
-         JOIN erp_trade_products tp ON s.product_id = tp.id
+         LEFT JOIN erp_trade_products tp ON s.product_id = tp.id
          WHERE s.id = $1 FOR UPDATE`,
         [parseInt(String(id), 10)]
       );
@@ -400,7 +476,7 @@ export async function DELETE(request: Request) {
     try {
       await client.query("BEGIN");
       const saleRes = await client.query(
-        "SELECT id, sale_no, product_id, qty, tax_invoice_id FROM erp_trade_sales WHERE id = $1 FOR UPDATE",
+        "SELECT id, sale_no, product_id, qty, tax_items, tax_invoice_id FROM erp_trade_sales WHERE id = $1 FOR UPDATE",
         [parseInt(id, 10)]
       );
       if (saleRes.rows.length === 0) {
@@ -415,11 +491,22 @@ export async function DELETE(request: Request) {
         }, { status: 400 });
       }
 
-      // Restore stock
-      await client.query(
-        "UPDATE erp_trade_products SET current_stock = current_stock + $1, updated_at = NOW() WHERE id = $2",
-        [sale.qty, sale.product_id]
-      );
+      // Restore stock for all items in the sale
+      const itemsArr = Array.isArray(sale.tax_items) ? sale.tax_items : [];
+      const itemsWithPid = itemsArr.filter((it: any) => it.productId);
+      if (itemsWithPid.length > 0) {
+        for (const it of itemsWithPid) {
+          await client.query(
+            "UPDATE erp_trade_products SET current_stock = current_stock + $1, updated_at = NOW() WHERE id = $2",
+            [Math.max(1, parseInt(String(it.qty || 1), 10)), parseInt(String(it.productId), 10)]
+          );
+        }
+      } else if (sale.product_id) {
+        await client.query(
+          "UPDATE erp_trade_products SET current_stock = current_stock + $1, updated_at = NOW() WHERE id = $2",
+          [sale.qty, sale.product_id]
+        );
+      }
 
       await client.query("DELETE FROM erp_trade_sales WHERE id = $1", [parseInt(id, 10)]);
       await client.query("COMMIT");

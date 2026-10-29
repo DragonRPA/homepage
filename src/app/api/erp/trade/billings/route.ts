@@ -14,15 +14,16 @@ export async function GET(request: Request) {
         b.id,
         b.billing_no as "billingNo",
         b.sale_id as "saleId",
+        COALESCE(b.sale_ids, '[]'::jsonb) as "saleIds",
         s.sale_no as "saleNo",
         COALESCE(s.entity_type, 'CORP') as "entityType",
         s.partner_id as "partnerId",
         s.customer_name as "customerName",
         s.product_id as "productId",
         tp.sku_code as "skuCode",
-        tp.name as "productName",
-        tp.spec as "productSpec",
-        tp.unit,
+        COALESCE(tp.name, b.tax_items->0->>'itemName', s.tax_items->0->>'itemName', '판매품목') as "productName",
+        COALESCE(tp.spec, b.tax_items->0->>'spec', s.tax_items->0->>'spec', '') as "productSpec",
+        COALESCE(tp.unit, 'EA') as unit,
         s.qty,
         b.billing_date as "billingDate",
         b.milestone_name as "milestoneName",
@@ -50,7 +51,7 @@ export async function GET(request: Request) {
         b.memo,
         b.created_at as "createdAt"
       FROM erp_trade_billings b
-      JOIN erp_trade_sales s ON b.sale_id = s.id
+      LEFT JOIN erp_trade_sales s ON b.sale_id = s.id
       LEFT JOIN erp_trade_products tp ON s.product_id = tp.id
       LEFT JOIN erp_partners p ON s.partner_id = p.id OR (s.partner_id IS NULL AND s.customer_name = p.name)
       LEFT JOIN erp_tax_invoices ti ON b.tax_invoice_id = ti.id
@@ -71,12 +72,13 @@ export async function GET(request: Request) {
   }
 }
 
-// POST: Create a trade billing by pulling items from a distribution/sale contract (erp_trade_sales)
+// POST: Create a trade billing by pulling items from one or multiple distribution/sale contracts (erp_trade_sales)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const {
       saleId,
+      saleIds,
       billingDate,
       milestoneName,
       supplyAmount,
@@ -87,7 +89,13 @@ export async function POST(request: Request) {
       memo,
     } = body;
 
-    if (!saleId) {
+    const targetIds: number[] = Array.isArray(saleIds) && saleIds.length > 0
+      ? saleIds.map((id: any) => parseInt(String(id), 10)).filter((n: number) => !isNaN(n) && n > 0)
+      : saleId
+        ? [parseInt(String(saleId), 10)]
+        : [];
+
+    if (targetIds.length === 0) {
       return NextResponse.json({ error: "대상 유통/판매 계약을 선택해 주십시오." }, { status: 400 });
     }
 
@@ -101,38 +109,46 @@ export async function POST(request: Request) {
         `SELECT s.*, tp.name as product_name, tp.spec as product_spec
          FROM erp_trade_sales s
          LEFT JOIN erp_trade_products tp ON s.product_id = tp.id
-         WHERE s.id = $1`,
-        [saleId]
+         WHERE s.id = ANY($1::int[])
+         ORDER BY s.sale_date ASC, s.id ASC`,
+        [targetIds]
       );
       if (saleRes.rows.length === 0) {
         throw new Error("대상 유통/판매 계약을 찾을 수 없습니다.");
       }
-      const s = saleRes.rows[0];
 
-      const resolvedItems = Array.isArray(taxItems) && taxItems.length > 0
-        ? taxItems
-        : Array.isArray(s.tax_items) && s.tax_items.length > 0
-          ? s.tax_items
-          : [
-              {
-                itemName: s.product_name || "판매 물품",
-                spec: s.product_spec || "",
-                qty: Number(s.qty || 1),
-                unitCost: Number(s.unit_price || s.total_amount || 0),
-                supplyAmount: Number(s.total_amount || 0),
-                vatAmount: Number(s.vat_amount || Math.round(Number(s.total_amount || 0) * 0.1)),
-                note: "",
-              },
-            ];
+      const primarySale = saleRes.rows[0];
+      const mergedItems: any[] = [];
 
-      const itemsSupplySum = resolvedItems.reduce((acc: number, r: any) => acc + Number(r.supplyAmount || 0), 0);
-      const itemsVatSum = resolvedItems.reduce((acc: number, r: any) => acc + Number(r.vatAmount || 0), 0);
+      if (Array.isArray(taxItems) && taxItems.length > 0) {
+        mergedItems.push(...taxItems);
+      } else {
+        for (const s of saleRes.rows) {
+          if (Array.isArray(s.tax_items) && s.tax_items.length > 0) {
+            mergedItems.push(...s.tax_items);
+          } else {
+            mergedItems.push({
+              itemName: s.product_name || "판매 물품",
+              spec: s.product_spec || "",
+              qty: Number(s.qty || 1),
+              unitCost: Number(s.unit_price || s.total_amount || 0),
+              supplyAmount: Number(s.total_amount || 0),
+              vatAmount: Number(s.vat_amount || Math.round(Number(s.total_amount || 0) * 0.1)),
+              note: s.sale_no || "",
+            });
+          }
+        }
+      }
+
+      const itemsSupplySum = mergedItems.reduce((acc: number, r: any) => acc + Number(r.supplyAmount || 0), 0);
+      const itemsVatSum = mergedItems.reduce((acc: number, r: any) => acc + Number(r.vatAmount || 0), 0);
+      const salesSupplySum = saleRes.rows.reduce((acc: number, r: any) => acc + Number(r.total_amount || 0), 0);
 
       const finalSupply = supplyAmount !== undefined && supplyAmount !== null && supplyAmount !== ""
         ? Math.round(parseFloat(String(supplyAmount)))
         : itemsSupplySum > 0
           ? Math.round(itemsSupplySum)
-          : Math.round(parseFloat(s.total_amount || "0"));
+          : Math.round(salesSupplySum);
 
       const finalVat = vatAmount !== undefined && vatAmount !== null && vatAmount !== ""
         ? Math.round(parseFloat(String(vatAmount)))
@@ -146,49 +162,60 @@ export async function POST(request: Request) {
       const dateStr = effectiveDate.slice(2, 10).replace(/-/g, "");
       const billingNo = `TB${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const fallbackFirst = s.product_name || "판매 물품";
-      const finalItems = resolveContractTaxItemsTemplate(resolvedItems, {
+      const fallbackFirst = mergedItems[0]?.itemName || primarySale.product_name || "판매 물품";
+      const finalItems = resolveContractTaxItemsTemplate(mergedItems, {
         dateStr: effectiveDate,
         fallbackFirstItem: fallbackFirst,
       });
 
-      const rawMilestone = milestoneName || s.tax_memo || "{1번째 아이템} 외";
+      const rawMilestone = milestoneName || primarySale.tax_memo || "{1번째 아이템} 외";
       const resolvedMilestone = resolveContractItemTemplate(rawMilestone, {
         dateStr: effectiveDate,
         items: finalItems,
         fallbackFirstItem: finalItems[0]?.itemName || fallbackFirst,
       });
 
-      const rawMemo = taxMemo !== undefined ? taxMemo : (s.tax_memo || rawMilestone);
+      const rawMemo = taxMemo !== undefined ? taxMemo : (primarySale.tax_memo || rawMilestone);
       const resolvedMemo = resolveContractItemTemplate(rawMemo, {
         dateStr: effectiveDate,
         items: finalItems,
         fallbackFirstItem: finalItems[0]?.itemName || fallbackFirst,
       });
 
+      const defaultMemo = targetIds.length > 1
+        ? `묶음 청구 (${saleRes.rows.map((r: any) => r.sale_no).join(", ")})`
+        : "";
+
       const insRes = await client.query(
         `INSERT INTO erp_trade_billings
-         (billing_no, sale_id, billing_date, milestone_name, supply_amount, vat_amount, total_amount,
+         (billing_no, sale_id, sale_ids, billing_date, milestone_name, supply_amount, vat_amount, total_amount,
           tax_purpose, tax_memo, tax_items, payment_status, memo)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, 'UNPAID', $11)
+         VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, 'UNPAID', $12)
          RETURNING *`,
         [
           billingNo,
-          saleId,
+          primarySale.id,
+          JSON.stringify(targetIds),
           effectiveDate,
           resolvedMilestone,
           finalSupply,
           finalVat,
           finalTotal,
-          taxPurpose || s.tax_purpose || "청구",
+          taxPurpose || primarySale.tax_purpose || "청구",
           resolvedMemo,
           JSON.stringify(finalItems),
-          memo || "",
+          memo || defaultMemo,
         ]
       );
 
       await client.query("COMMIT");
-      return NextResponse.json({ success: true, billing: insRes.rows[0] });
+      return NextResponse.json({
+        success: true,
+        billing: insRes.rows[0],
+        message: targetIds.length > 1
+          ? `${targetIds.length}건의 유통계약이 1건의 묶음 청구([${billingNo}])로 생성되었습니다.`
+          : `유통 청구([${billingNo}])가 생성되었습니다.`,
+      });
     } catch (e: any) {
       await client.query("ROLLBACK");
       throw e;

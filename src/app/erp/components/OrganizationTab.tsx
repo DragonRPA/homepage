@@ -193,6 +193,7 @@ export interface UserNode {
   joinDate?: string;
   leaveDate?: string;
   baseSalary?: number;
+  hourlyWage?: number;
   salaryBankName?: string;
   salaryAccountNo?: string;
   salaryAccountHolder?: string;
@@ -429,6 +430,10 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
           joinDate: e.joinDate ? String(e.joinDate).substring(0, 10) : "",
           leaveDate: e.leaveDate ? String(e.leaveDate).substring(0, 10) : "",
           baseSalary: Number(e.baseSalary ?? 3500000),
+          hourlyWage:
+            Number(e.hourlyWage) > 0
+              ? Number(e.hourlyWage)
+              : Math.round(Number(e.baseSalary ?? 3500000) / 209),
           salaryBankName: e.salaryBankName || "",
           salaryAccountNo: e.salaryAccountNo || "",
           salaryAccountHolder: e.salaryAccountHolder || "",
@@ -549,6 +554,10 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
         joinDate: e.joinDate ? String(e.joinDate).substring(0, 10) : "",
         leaveDate: e.leaveDate ? String(e.leaveDate).substring(0, 10) : "",
         baseSalary: Number(e.baseSalary ?? 3500000),
+        hourlyWage:
+          Number(e.hourlyWage) > 0
+            ? Number(e.hourlyWage)
+            : Math.round(Number(e.baseSalary ?? 3500000) / 209),
         salaryBankName: e.salaryBankName || "",
         salaryAccountNo: e.salaryAccountNo || "",
         salaryAccountHolder: e.salaryAccountHolder || "",
@@ -674,6 +683,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       loginId: "",
       passwordHash: "",
       baseSalary: 3500000,
+      hourlyWage: Math.round(3500000 / 209),
       salaryBankName: "",
       salaryAccountNo: "",
       salaryAccountHolder: "",
@@ -917,7 +927,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       "급여은행",
       "급여계좌번호",
       "예금주",
-      ...(canViewPayroll ? ["기본급(원)"] : []),
+      ...(canViewPayroll || canEdit ? ["기본급(원)", "1시간 표준임금(원)"] : []),
     ];
 
     const csvRows = [headers.join(",")];
@@ -946,7 +956,12 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
         u.salaryBankName || "-",
         isPrivileged || canViewPayroll ? (u.salaryAccountNo || "-") : (u.salaryAccountNo ? u.salaryAccountNo.slice(0, 4) + "-****" : "-"),
         isPrivileged || canViewPayroll ? (u.salaryAccountHolder || u.name || "-") : maskName(u.salaryAccountHolder || u.name),
-        ...(canViewPayroll ? [u.baseSalary || 0] : []),
+        ...(canViewPayroll || canEdit
+          ? [
+              u.baseSalary || 0,
+              u.hourlyWage || Math.round((u.baseSalary || 3500000) / 209),
+            ]
+          : []),
       ];
       csvRows.push(cols.join(","));
     });
@@ -1269,6 +1284,11 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
             <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px", whiteSpace: "nowrap" }}>
               {user.position || "직급 미지정"}
               {user.duty ? ` (${user.duty})` : ""} | {user.role}
+              {(canEdit || canViewPayroll) && (
+                <span style={{ marginLeft: "6px", fontSize: "11.5px", color: "var(--primary)", fontWeight: 600 }}>
+                  · 표준시급 {(user.hourlyWage || Math.round((user.baseSalary || 3500000) / 209)).toLocaleString()}원
+                </span>
+              )}
             </div>
             {(user.joinDate || user.leaveDate) && (
               <div
@@ -2484,8 +2504,8 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                   </div>
                 </div>
 
-                {/* 급여 정산 권한자 전용 계약 기본급 설정 */}
-                {canViewPayroll && (
+                {/* 급여 및 1시간 표준임금 설정 (초과근무 수당 자동산정 기준) */}
+                {(canViewPayroll || canEdit) && (
                   <div
                     style={{
                       marginTop: "4px",
@@ -2493,52 +2513,143 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                       backgroundColor: "var(--bg-app)",
                       borderRadius: "6px",
                       border: "1px solid var(--border-color)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "8px",
                     }}
                   >
-                    <label
-                      style={{
-                        marginBottom: "4px",
-                        fontSize: "12px",
-                        fontWeight: "bold",
-                        color: "var(--primary)",
-                        display: "block",
-                      }}
-                    >
-                      💰 계약 기본급 (원) [급여 권한자 전용]
-                    </label>
-                    <input
-                      type="number"
-                      step="10000"
-                      min="0"
-                      style={{
-                        padding: "6px 10px",
-                        fontSize: "13px",
-                        fontWeight: "bold",
-                        width: "100%",
-                        borderRadius: "4px",
-                      }}
-                      placeholder="기본급 입력 (예: 3500000)"
-                      value={selectedProfile.baseSalary || ""}
-                      onChange={(e) =>
-                        setSelectedProfile({
-                          ...selectedProfile,
-                          baseSalary: parseInt(e.target.value) || 0,
-                        })
-                      }
-                      disabled={!canEdit}
-                    />
-                    <span
-                      style={{
-                        fontSize: "11px",
-                        color: "var(--text-muted)",
-                        display: "block",
-                        marginTop: "3px",
-                      }}
-                    >
-                      * 통상시급: 약{" "}
-                      {Math.round((selectedProfile.baseSalary || 3000000) / 209).toLocaleString()}원/시간
-                      (209h 기준)
-                    </span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <label
+                          style={{
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            color: "var(--primary)",
+                          }}
+                        >
+                          1시간 표준임금 (원) [초과근무 산정 기준]
+                        </label>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const calc = Math.round((selectedProfile.baseSalary || 3500000) / 209);
+                              setSelectedProfile({
+                                ...selectedProfile,
+                                hourlyWage: calc,
+                              });
+                            }}
+                            style={{
+                              fontSize: "10.5px",
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              border: "1px solid var(--border-color)",
+                              backgroundColor: "var(--bg-card)",
+                              color: "var(--text-secondary)",
+                              cursor: "pointer",
+                              fontWeight: 600,
+                            }}
+                            title="계약 기본급 ÷ 209시간으로 자동 계산"
+                          >
+                            기본급÷209h 적용
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        step="100"
+                        min="0"
+                        style={{
+                          padding: "6px 10px",
+                          fontSize: "13px",
+                          fontWeight: "bold",
+                          width: "100%",
+                          borderRadius: "4px",
+                        }}
+                        placeholder="1시간 표준임금 입력 (예: 16746)"
+                        value={
+                          selectedProfile.hourlyWage !== undefined
+                            ? selectedProfile.hourlyWage
+                            : Math.round((selectedProfile.baseSalary || 3500000) / 209)
+                        }
+                        onChange={(e) =>
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            hourlyWage: parseInt(e.target.value) || 0,
+                          })
+                        }
+                        disabled={!canEdit}
+                      />
+                      {(() => {
+                        const hw =
+                          selectedProfile.hourlyWage && selectedProfile.hourlyWage > 0
+                            ? selectedProfile.hourlyWage
+                            : Math.round((selectedProfile.baseSalary || 3500000) / 209);
+                        return (
+                          <div
+                            style={{
+                              fontSize: "11px",
+                              color: "var(--text-secondary)",
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: "6px",
+                              marginTop: "2px",
+                              padding: "4px 6px",
+                              backgroundColor: "var(--bg-card)",
+                              borderRadius: "4px",
+                              border: "1px dashed var(--border-color)",
+                            }}
+                          >
+                            <span>평일초과(1.5x): <strong>{Math.round(hw * 1.5).toLocaleString()}원/h</strong></span>
+                            <span>·</span>
+                            <span>비근무일(1.5x/2.0x): <strong>{Math.round(hw * 1.5).toLocaleString()} / {Math.round(hw * 2.0).toLocaleString()}원/h</strong></span>
+                            <span>·</span>
+                            <span>심야가산(+0.5x): <strong>+{Math.round(hw * 0.5).toLocaleString()}원/h</strong></span>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                      <label
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: "bold",
+                          color: "var(--text-main)",
+                          display: "block",
+                        }}
+                      >
+                        계약 기본급 (원)
+                      </label>
+                      <input
+                        type="number"
+                        step="10000"
+                        min="0"
+                        style={{
+                          padding: "6px 10px",
+                          fontSize: "13px",
+                          fontWeight: "bold",
+                          width: "100%",
+                          borderRadius: "4px",
+                        }}
+                        placeholder="기본급 입력 (예: 3500000)"
+                        value={selectedProfile.baseSalary || ""}
+                        onChange={(e) => {
+                          const nextBase = parseInt(e.target.value) || 0;
+                          const prevAuto = Math.round((selectedProfile.baseSalary || 3500000) / 209);
+                          const shouldAutoUpdateHourly =
+                            !selectedProfile.hourlyWage || selectedProfile.hourlyWage === prevAuto;
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            baseSalary: nextBase,
+                            hourlyWage: shouldAutoUpdateHourly
+                              ? Math.round(nextBase / 209)
+                              : selectedProfile.hourlyWage,
+                          });
+                        }}
+                        disabled={!canEdit}
+                      />
+                    </div>
                   </div>
                 )}
               </div>

@@ -110,6 +110,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
   const [billingStartDate, setBillingStartDate] = useState<string>(todayStr);
   const [monthlyRate, setMonthlyRate] = useState<string>("");
   const [entityType, setEntityType] = useState<"CORP" | "INDIVIDUAL">("CORP");
+  const [useProRata, setUseProRata] = useState<boolean>(false); // 원칙: 월 임대료는 출고 시 입력한 단가로 정함 (특수한 경우에만 일할)
   const [memo, setMemo] = useState("");
 
   // Active Grid View Tab
@@ -187,14 +188,14 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
     }
   };
 
-  // Real-time pro-rata calculation preview for the billing start month
+  // Real-time billing calculation preview for the billing start month
   const proRataPreview = useMemo(() => {
     const rate = Number(String(monthlyRate).replace(/,/g, "")) || 0;
     if (!billingStartDate || rate <= 0) {
       return {
         targetYm: billingStartDate ? billingStartDate.slice(0, 7) : yearMonth,
         monthEnd: "-",
-        operatingDays: 0,
+        operatingDays: 30,
         proRataAmount: 0,
       };
     }
@@ -203,6 +204,15 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
     const monthStart = `${ym}-01`;
     const lastDay = new Date(y, m, 0).getDate();
     const monthEnd = `${ym}-${String(lastDay).padStart(2, "0")}`;
+
+    if (!useProRata) {
+      return {
+        targetYm: ym,
+        monthEnd,
+        operatingDays: 30,
+        proRataAmount: Math.round(rate),
+      };
+    }
 
     const sDate = new Date(`${billingStartDate}T00:00:00`);
     const eDate = new Date(`${monthEnd}T00:00:00`);
@@ -221,7 +231,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
       operatingDays,
       proRataAmount,
     };
-  }, [billingStartDate, monthlyRate, yearMonth]);
+  }, [billingStartDate, monthlyRate, yearMonth, useProRata]);
 
   // Unique customer suggestions from partners + existing billings
   const customerSuggestions = useMemo(() => {
@@ -267,6 +277,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
           siteName: siteName.trim(),
           billingStartDate,
           monthlyRate: cleanRate,
+          useProRata,
           entityType,
           memo: memo.trim(),
           actorName: currentUser?.name || "출고담당자",
@@ -282,9 +293,9 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
       await fetchInoutData(targetYm);
 
       showFeedback(
-        `[${customerName.trim()}] 자산(${data.assetNo}) 출고 등록 및 ${targetYm}월 청구액(${formatErpNumber(
-          proRataPreview.proRataAmount
-        )}원) 반영 완료`
+        `[${customerName.trim()}] 단일 임대계약에 자산(${data.assetNo}) 출고 가산(+) 완료 (출고단가 ₩${formatErpNumber(
+          cleanRate
+        )} ➔ 고객 총 ${data.activeAssetCount || 1}대 / 월 ₩${formatErpNumber(data.totalContractMonthlyRate || cleanRate)})`
       );
 
       // Reset asset selection & memo while preserving customer/date for consecutive dispatch convenience
@@ -628,27 +639,34 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
             />
           </div>
 
-          {/* 당월 청구 반영액 자동 계산 요약 */}
+          {/* 당월 청구 반영액 자동 계산 요약 (고객단위 가산 & 월 단가 정액 원칙) */}
           <div className="p-3 rounded-lg bg-[#ebe5d8] border border-[#b5a894] space-y-1.5 dark:bg-slate-950 dark:border-slate-800">
+            <div className="flex items-center justify-between text-xs pb-1 border-b border-[#b5a894]/60 dark:border-slate-800">
+              <span className="font-semibold text-[#1e40af] dark:text-blue-400">
+                고객별 단일 임대계약 자동 가산(+)
+              </span>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-[#475569] dark:text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={useProRata}
+                  onChange={(e) => setUseProRata(e.target.checked)}
+                  className="rounded border-[#b5a894]"
+                />
+                <span>특수 일할계산 적용</span>
+              </label>
+            </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">당월 청구 대상 연월</span>
               <span className="font-mono font-bold text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
-                {proRataPreview.targetYm} ({billingStartDate || "-"} ~ {proRataPreview.monthEnd})
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">당월 가동일수 / 월 단가</span>
-              <span className="font-mono text-[#334155] dark:text-slate-300 whitespace-nowrap">
-                {formatErpNumber(proRataPreview.operatingDays)}일 / ₩
-                {formatErpNumber(Number(monthlyRate || 0))}
+                {proRataPreview.targetYm} ({useProRata ? `${proRataPreview.operatingDays}일 일할` : "월 단가 정액"})
               </span>
             </div>
             <div className="pt-1.5 border-t border-[#b5a894] dark:border-slate-800 flex items-center justify-between">
               <span className="text-xs font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
-                당월 고객 청구 반영액
+                고객 계약 가산 월임대료
               </span>
               <span className="text-sm font-extrabold font-mono text-[#047857] dark:text-emerald-400 whitespace-nowrap">
-                ₩{formatErpNumber(proRataPreview.proRataAmount)}
+                + ₩{formatErpNumber(proRataPreview.proRataAmount)}
               </span>
             </div>
           </div>

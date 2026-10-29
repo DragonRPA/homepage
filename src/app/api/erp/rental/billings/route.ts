@@ -88,14 +88,14 @@ export async function POST(request: Request) {
         throw new Error(`해당 계약의 [${yearMonth}] 정산 청구는 이미 생성되었습니다.`);
       }
 
-      // 1. Fetch contract and asset
+      // 1. Fetch contract and asset (LEFT JOIN since customer master contract may hold multiple assets or asset_id may be null)
       const contractRes = await client.query(
-        `SELECT c.id, c.contract_no, c.monthly_rate, c.daily_rate, c.vat_amount, c.asset_id,
+        `SELECT c.id, c.contract_no, c.customer_name, c.monthly_rate, c.daily_rate, c.vat_amount, c.asset_id,
                 c.tax_purpose, c.tax_memo, c.tax_items,
                 a.asset_no, a.acquisition_cost, a.salvage_value, a.useful_life_years,
                 rp.model_name
          FROM erp_rental_contracts c
-         JOIN erp_rental_assets a ON c.asset_id = a.id
+         LEFT JOIN erp_rental_assets a ON c.asset_id = a.id
          LEFT JOIN erp_rental_products rp ON a.rental_product_id = rp.id
          WHERE c.id = $1`,
         [contractId]
@@ -103,43 +103,79 @@ export async function POST(request: Request) {
       if (contractRes.rows.length === 0) throw new Error("계약을 찾을 수 없습니다.");
       const c = contractRes.rows[0];
 
+      // Fetch all currently rented assets for this customer contract to compute accurate depreciation COGS
+      const rentedAssetsRes = await client.query(
+        `SELECT a.id, a.asset_no, a.current_monthly_rate, a.acquisition_cost, a.salvage_value, a.useful_life_years,
+                rp.model_name, rp.standard_monthly_rate
+         FROM erp_rental_assets a
+         LEFT JOIN erp_rental_products rp ON a.rental_product_id = rp.id
+         WHERE a.status = 'RENTED' AND (a.current_contract_id = $1 OR a.current_customer = $2)
+         ORDER BY a.outbound_date ASC NULLS LAST, a.id ASC`,
+        [c.id, c.customer_name]
+      );
+      const rentedAssets = rentedAssetsRes.rows;
+
       const days = parseInt(operatingDays || "30", 10);
-      const monthlyRate = parseFloat(c.monthly_rate);
+      const monthlyRate = parseFloat(c.monthly_rate || "0");
+      const useProRata = body.useProRata === true;
 
       const resolvedItems = Array.isArray(taxItems) && taxItems.length > 0
         ? taxItems
         : Array.isArray(c.tax_items) && c.tax_items.length > 0
           ? c.tax_items
-          : [];
+          : rentedAssets.map((ra: any) => {
+              const rRate = Math.round(Number(ra.current_monthly_rate || ra.standard_monthly_rate || 0));
+              return {
+                assetId: ra.id,
+                assetNo: ra.asset_no,
+                itemName: `${ra.model_name || "임대장비"} (${ra.asset_no})`,
+                spec: "",
+                qty: 1,
+                unitCost: rRate,
+                supplyAmount: rRate,
+                vatAmount: Math.round(rRate * 0.1),
+                note: "",
+              };
+            });
 
       const itemsSupplySum = resolvedItems.reduce((acc: number, r: any) => acc + Number(r.supplyAmount || 0), 0);
       const itemsVatSum = resolvedItems.reduce((acc: number, r: any) => acc + Number(r.vatAmount || 0), 0);
 
-      // 헌장 4.1 일할 계산 또는 계약에서 끌어온 다중 품목 합계 반영
+      // 원칙: 월 임대료는 출고 시 입력한 단가로 정함 (특별한 경우 useProRata === true 일 때만 일할 계산)
       const proRataRevenue = supplyAmount !== undefined && supplyAmount !== null && supplyAmount !== ""
         ? Math.round(parseFloat(String(supplyAmount)))
-        : itemsSupplySum > 0 && days === 30
-          ? Math.round(itemsSupplySum)
-          : Math.round((monthlyRate / 30) * days);
+        : useProRata
+          ? Math.round((monthlyRate / 30) * days)
+          : itemsSupplySum > 0
+            ? Math.round(itemsSupplySum)
+            : Math.round(monthlyRate);
 
       const vatAmount = customVat !== undefined && customVat !== null && customVat !== ""
         ? Math.round(parseFloat(String(customVat)))
-        : itemsVatSum > 0 && days === 30
+        : !useProRata && itemsVatSum > 0
           ? Math.round(itemsVatSum)
-          : days === 30 && parseFloat(c.vat_amount || "0") > 0
+          : !useProRata && parseFloat(c.vat_amount || "0") > 0
             ? Math.round(parseFloat(c.vat_amount))
             : Math.round(proRataRevenue * 0.1);
 
       const totalAmount = proRataRevenue + vatAmount;
 
-      // 월 감가상각 매출원가
-      const totalMonths = Math.max(1, c.useful_life_years * 12);
-      const deprecCogs = Math.round((parseFloat(c.acquisition_cost) - parseFloat(c.salvage_value)) / totalMonths);
+      // 월 감가상각 매출원가 (고객에게 대여 중인 모든 자산의 월 상각비 합산)
+      const deprecCogs = rentedAssets.length > 0
+        ? rentedAssets.reduce((sum: number, ra: any) => {
+            const totalMonths = Math.max(1, Number(ra.useful_life_years || 5) * 12);
+            return sum + Math.round((Number(ra.acquisition_cost || 0) - Number(ra.salvage_value || 0)) / totalMonths);
+          }, 0)
+        : c.acquisition_cost
+          ? Math.round((parseFloat(c.acquisition_cost) - parseFloat(c.salvage_value || "0")) / Math.max(1, (c.useful_life_years || 5) * 12))
+          : 0;
       const netMargin = proRataRevenue - deprecCogs;
 
       const billingNo = `RB${yearMonth.replace("-", "")}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const fallbackFirst = `${c.model_name || "임대장비"} (${c.asset_no})`;
+      const fallbackFirst = c.model_name
+        ? `${c.model_name}${c.asset_no ? ` (${c.asset_no})` : ""}`
+        : (rentedAssets[0] ? `${rentedAssets[0].model_name || "임대장비"} (${rentedAssets[0].asset_no})` : "임대장비");
       const baseItems = resolvedItems.length > 0
         ? resolvedItems
         : [

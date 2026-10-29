@@ -374,7 +374,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const handleExportCsv = () => {
     const headers = [
       "귀속월", "지급일자", "사번", "성명", "부서", "직급", "입사일",
-      "용역계약금액", "기본급", "식대(비과세)", "차량보조금", "연장근무수당", "연차수당", "상여금", "총지급액",
+      "용역계약금액", "기본급", "식대(비과세)", "차량보조금", "초과근무수당", "연차수당", "상여금", "총지급액",
       "국민연금", "건강보험", "고용보험", "장기요양보험료", "소득세", "지방소득세",
       "연말정산소득세", "연말정산지방세", "고용보험정산분", "총공제액", "차인지급액", "상태"
     ];
@@ -538,7 +538,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                   {renderSortTh("기본급", "baseSalary", "right")}
                   {renderSortTh("식대", "mealAllowance", "right")}
                   {renderSortTh("차량보조금", "vehicleAllowance", "right")}
-                  {renderSortTh("연장수당", "otPay", "right")}
+                  {renderSortTh("초과근무수당", "otPay", "right")}
                   {renderSortTh("연차수당", "annualLeaveAllowance", "right")}
                   {renderSortTh("상여금", "bonus", "right")}
                   {renderSortTh("지급합계", "totalGross", "right", "text-[#1d4ed8] font-bold bg-[#e2dbcd]/70 dark:text-blue-300 dark:bg-slate-800/90")}
@@ -849,7 +849,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                           <th className="py-1.5 px-2 text-right">기본급</th>
                           <th className="py-1.5 px-2 text-right">식대</th>
                           <th className="py-1.5 px-2 text-right">차량</th>
-                          <th className="py-1.5 px-2 text-right">연장</th>
+                          <th className="py-1.5 px-2 text-right">초과근무</th>
                           <th className="py-1.5 px-2 text-right">연차</th>
                           <th className="py-1.5 px-2 text-right text-[#1d4ed8]">지급합계</th>
                           <th className="py-1.5 px-2 text-right text-[#dc2626]">공제합계</th>

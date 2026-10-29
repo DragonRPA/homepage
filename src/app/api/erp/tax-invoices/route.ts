@@ -116,10 +116,11 @@ export async function GET(request: Request) {
           COALESCE(b.billing_date, s.sale_date, b.created_at::date) as "billingDate",
           TO_CHAR(COALESCE(b.billing_date, s.sale_date, b.created_at::date), 'YYYY-MM') as "yearMonth",
           s.id as "contractId",
+          COALESCE(b.sale_ids, '[]'::jsonb) as "saleIds",
           s.sale_no as "contractNo",
           s.customer_name as "customerName",
           COALESCE(s.entity_type, 'CORP') as "entityType",
-          tp.name as "projectName",
+          COALESCE(tp.name, b.tax_items->0->>'itemName', s.tax_items->0->>'itemName', '판매품목') as "projectName",
           COALESCE(b.milestone_name, CONCAT(s.qty, COALESCE(tp.unit, 'EA'))) as "milestoneName",
           COALESCE(NULLIF(s.customer_biz_no, ''), p.business_no, '100-00-00000') as "businessNo",
           COALESCE(NULLIF(s.customer_ceo_name, ''), p.ceo_name, '대표자') as "ceoName",
@@ -142,10 +143,10 @@ export async function GET(request: Request) {
             NULLIF(b.tax_items->0->>'itemName', ''),
             NULLIF(s.tax_items->0->>'itemName', ''),
             b.milestone_name,
-            CONCAT(tp.name, ' (', s.qty, COALESCE(tp.unit, 'EA'), ')')
+            CONCAT(COALESCE(tp.name, '판매품목'), ' (', s.qty, COALESCE(tp.unit, 'EA'), ')')
           ) as "itemName"
         FROM erp_trade_billings b
-        JOIN erp_trade_sales s ON b.sale_id = s.id
+        LEFT JOIN erp_trade_sales s ON b.sale_id = s.id
         LEFT JOIN erp_trade_products tp ON s.product_id = tp.id
         LEFT JOIN erp_partners p ON s.partner_id = p.id OR (s.partner_id IS NULL AND s.customer_name = p.name)
         WHERE b.tax_invoice_id IS NULL
@@ -255,9 +256,10 @@ export async function POST(request: Request) {
     try {
       await client.query("BEGIN");
 
-      // CASE A: Batch Issuance from Selected Contract Billings
+      // CASE A: Batch Issuance from Selected Contract Billings (Supports Consolidated 1-Invoice Issuance per Customer)
       if (body.batchIssue === true && Array.isArray(body.billings)) {
         const { billings } = body;
+        const consolidate = body.consolidate === true;
         if (billings.length === 0) {
           await client.query("ROLLBACK");
           return NextResponse.json({ error: "선택된 청구건이 없습니다." }, { status: 400 });
@@ -266,56 +268,95 @@ export async function POST(request: Request) {
         const issuedInvoices = [];
         const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, "");
 
-        for (let i = 0; i < billings.length; i++) {
-          const item = billings[i];
+        // If consolidate === true, group selected billings by customerName + entityType into consolidated groups
+        const billingGroups: any[][] = [];
+        if (consolidate) {
+          const groupMap = new Map<string, any[]>();
+          for (const b of billings) {
+            const key = `${(b.customerName || "").trim()}__${b.entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP"}`;
+            if (!groupMap.has(key)) groupMap.set(key, []);
+            groupMap.get(key)!.push(b);
+          }
+          for (const grp of groupMap.values()) {
+            billingGroups.push(grp);
+          }
+        } else {
+          for (const b of billings) {
+            billingGroups.push([b]);
+          }
+        }
+
+        for (let i = 0; i < billingGroups.length; i++) {
+          const group = billingGroups[i];
+          const item = group[0];
           const entityType = item.entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
           const entity = getEntity(entityType);
-          const supply = Math.round(parseFloat(item.supplyAmount) || 0);
-          const vat = Math.round(parseFloat(item.vatAmount) || Math.round(supply * 0.1));
-          const total = supply + vat;
+
+          let supply = 0;
+          let vat = 0;
+          const combinedBaseTaxItems: any[] = [];
+
           const writeDateStr = item.issueDate || (item.billingDate ? String(item.billingDate).slice(0, 10) : new Date().toISOString().slice(0, 10));
           const mm = writeDateStr.slice(5, 7);
           const dd = writeDateStr.slice(8, 10);
 
-          const baseTaxItems = Array.isArray(item.taxItems) && item.taxItems.length > 0
-            ? item.taxItems.map((ti: any) => ({
-                month: ti.month || mm,
-                day: ti.day || dd,
-                itemName: ti.itemName || item.itemName,
-                spec: ti.spec || "",
-                qty: Number(ti.qty || 1),
-                unitPrice: Number(ti.unitPrice ?? ti.unitCost ?? ti.supplyAmount ?? supply),
-                supplyAmount: Number(ti.supplyAmount ?? supply),
-                vatAmount: Number(ti.vatAmount ?? vat),
-                remark: ti.remark || ti.note || "",
-              }))
-            : [
-                {
-                  month: mm,
-                  day: dd,
-                  itemName: item.itemName || "렌탈 및 기술용역료",
-                  spec: "",
-                  qty: 1,
-                  unitPrice: supply,
-                  supplyAmount: supply,
-                  vatAmount: vat,
-                  remark: "",
-                },
-              ];
+          for (const bItem of group) {
+            const bSupply = Math.round(parseFloat(bItem.supplyAmount) || 0);
+            const bVat = Math.round(parseFloat(bItem.vatAmount) || Math.round(bSupply * 0.1));
+            supply += bSupply;
+            vat += bVat;
 
-          const normalizedTaxItems = resolveContractTaxItemsTemplate(baseTaxItems, {
+            const bDateStr = bItem.issueDate || (bItem.billingDate ? String(bItem.billingDate).slice(0, 10) : writeDateStr);
+            const bMm = bDateStr.slice(5, 7);
+            const bDd = bDateStr.slice(8, 10);
+
+            if (Array.isArray(bItem.taxItems) && bItem.taxItems.length > 0) {
+              for (const ti of bItem.taxItems) {
+                combinedBaseTaxItems.push({
+                  month: ti.month || bMm,
+                  day: ti.day || bDd,
+                  itemName: ti.itemName || bItem.itemName,
+                  spec: ti.spec || "",
+                  qty: Number(ti.qty || 1),
+                  unitPrice: Number(ti.unitPrice ?? ti.unitCost ?? ti.supplyAmount ?? bSupply),
+                  supplyAmount: Number(ti.supplyAmount ?? bSupply),
+                  vatAmount: Number(ti.vatAmount ?? bVat),
+                  remark: ti.remark || ti.note || (group.length > 1 ? bItem.billingNo || "" : ""),
+                });
+              }
+            } else {
+              combinedBaseTaxItems.push({
+                month: bMm,
+                day: bDd,
+                itemName: bItem.itemName || "렌탈 및 기술용역료",
+                spec: "",
+                qty: 1,
+                unitPrice: bSupply,
+                supplyAmount: bSupply,
+                vatAmount: bVat,
+                remark: group.length > 1 ? bItem.billingNo || "" : "",
+              });
+            }
+          }
+
+          const total = supply + vat;
+
+          const normalizedTaxItems = resolveContractTaxItemsTemplate(combinedBaseTaxItems, {
             dateStr: writeDateStr,
-            fallbackFirstItem: item.modelName || item.projectName || item.itemName,
+            fallbackFirstItem: combinedBaseTaxItems[0]?.itemName || item.modelName || item.projectName || item.itemName,
           });
 
-          const resolvedMemo = resolveContractItemTemplate(item.taxMemo || item.memo || "", {
+          const rawMemoSource = group.length > 1
+            ? "{1번째 아이템} 외"
+            : (item.taxMemo || item.memo || "");
+          const resolvedMemo = resolveContractItemTemplate(rawMemoSource, {
             dateStr: writeDateStr,
             items: normalizedTaxItems,
             fallbackFirstItem: normalizedTaxItems[0]?.itemName || item.itemName,
           });
 
           const rawSummaryItemName =
-            item.taxMemo && /\{[^}]+\}/.test(item.taxMemo)
+            group.length === 1 && item.taxMemo && /\{[^}]+\}/.test(item.taxMemo)
               ? item.taxMemo
               : normalizedTaxItems.length > 1
                 ? "{1번째 아이템} 외"
@@ -411,25 +452,53 @@ export async function POST(request: Request) {
           const savedInvoice = insRes.rows[0];
           issuedInvoices.push(savedInvoice);
 
-          // Link to original billing/sale record
-          if (item.billingId) {
-            if (item.domainType === "RENTAL") {
-              await client.query("UPDATE erp_rental_billings SET tax_invoice_id = $1 WHERE id = $2", [savedInvoice.id, item.billingId]);
-            } else if (item.domainType === "TRADE_SALE") {
-              await client.query("UPDATE erp_trade_billings SET tax_invoice_id = $1 WHERE id = $2", [savedInvoice.id, item.billingId]);
-              if (item.contractId) {
-                await client.query("UPDATE erp_trade_sales SET tax_invoice_id = $1 WHERE id = $2", [savedInvoice.id, item.contractId]);
+          // Link to all original billing/sale records in the group
+          for (const bItem of group) {
+            if (bItem.billingId) {
+              if (bItem.domainType === "RENTAL") {
+                await client.query("UPDATE erp_rental_billings SET tax_invoice_id = $1 WHERE id = $2", [savedInvoice.id, bItem.billingId]);
+              } else if (bItem.domainType === "TRADE_SALE") {
+                const tbUpd = await client.query(
+                  "UPDATE erp_trade_billings SET tax_invoice_id = $1 WHERE id = $2 RETURNING sale_id, sale_ids",
+                  [savedInvoice.id, bItem.billingId]
+                );
+                const linkedSaleIds = new Set<number>();
+                if (bItem.contractId) linkedSaleIds.add(Number(bItem.contractId));
+                if (Array.isArray(bItem.saleIds)) {
+                  bItem.saleIds.forEach((sid: any) => { if (Number(sid) > 0) linkedSaleIds.add(Number(sid)); });
+                }
+                if (tbUpd.rows.length > 0) {
+                  if (tbUpd.rows[0].sale_id) linkedSaleIds.add(Number(tbUpd.rows[0].sale_id));
+                  if (Array.isArray(tbUpd.rows[0].sale_ids)) {
+                    tbUpd.rows[0].sale_ids.forEach((sid: any) => { if (Number(sid) > 0) linkedSaleIds.add(Number(sid)); });
+                  }
+                }
+                if (linkedSaleIds.size > 0) {
+                  await client.query(
+                    "UPDATE erp_trade_sales SET tax_invoice_id = $1 WHERE id = ANY($2::int[])",
+                    [savedInvoice.id, Array.from(linkedSaleIds)]
+                  );
+                }
+              } else {
+                await client.query("UPDATE erp_service_billings SET tax_invoice_id = $1 WHERE id = $2", [savedInvoice.id, bItem.billingId]);
               }
-            } else {
-              await client.query("UPDATE erp_service_billings SET tax_invoice_id = $1 WHERE id = $2", [savedInvoice.id, item.billingId]);
             }
           }
 
           // Audit log for each invoice
           await client.query(
             `INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
-             VALUES ('TAX_INVOICE', 'BATCH_ISSUE', $1, 'ADMIN', $2)`,
-            [invoiceNo, JSON.stringify({ billingId: item.billingId, customerName: item.customerName, total, ntsConfirmNo })]
+             VALUES ('TAX_INVOICE', $1, $2, 'ADMIN', $3)`,
+            [
+              consolidate ? "CONSOLIDATED_ISSUE" : "BATCH_ISSUE",
+              invoiceNo,
+              JSON.stringify({
+                billingIds: group.map((g: any) => g.billingId),
+                customerName: item.customerName,
+                total,
+                ntsConfirmNo,
+              }),
+            ]
           );
         }
 
@@ -437,7 +506,9 @@ export async function POST(request: Request) {
         return NextResponse.json({
           success: true,
           count: issuedInvoices.length,
-          message: `선택한 ${issuedInvoices.length}건의 청구건에 대해 국세청 전자세금계산서가 성공적으로 일괄 발행되었습니다.`,
+          message: consolidate
+            ? `선택한 ${billings.length}건의 청구가 고객사별 합산(${issuedInvoices.length}장)으로 묶음 세금계산서 발행되었습니다.`
+            : `선택한 ${issuedInvoices.length}건의 청구건에 대해 국세청 전자세금계산서가 성공적으로 일괄 발행되었습니다.`,
           invoices: issuedInvoices,
         });
       }
@@ -600,9 +671,16 @@ export async function POST(request: Request) {
         if (domainType === "RENTAL") {
           await client.query("UPDATE erp_rental_billings SET tax_invoice_id = $1 WHERE id = $2", [invoice.id, refId]);
         } else if (domainType === "TRADE_SALE") {
-          const tbUpd = await client.query("UPDATE erp_trade_billings SET tax_invoice_id = $1 WHERE id = $2 RETURNING sale_id", [invoice.id, refId]);
-          if (tbUpd.rows.length > 0 && tbUpd.rows[0].sale_id) {
-            await client.query("UPDATE erp_trade_sales SET tax_invoice_id = $1 WHERE id = $2", [invoice.id, tbUpd.rows[0].sale_id]);
+          const tbUpd = await client.query("UPDATE erp_trade_billings SET tax_invoice_id = $1 WHERE id = $2 RETURNING sale_id, sale_ids", [invoice.id, refId]);
+          if (tbUpd.rows.length > 0) {
+            const linkedSaleIds = new Set<number>();
+            if (tbUpd.rows[0].sale_id) linkedSaleIds.add(Number(tbUpd.rows[0].sale_id));
+            if (Array.isArray(tbUpd.rows[0].sale_ids)) {
+              tbUpd.rows[0].sale_ids.forEach((sid: any) => { if (Number(sid) > 0) linkedSaleIds.add(Number(sid)); });
+            }
+            if (linkedSaleIds.size > 0) {
+              await client.query("UPDATE erp_trade_sales SET tax_invoice_id = $1 WHERE id = ANY($2::int[])", [invoice.id, Array.from(linkedSaleIds)]);
+            }
           } else {
             await client.query("UPDATE erp_trade_sales SET tax_invoice_id = $1 WHERE id = $2", [invoice.id, refId]);
           }

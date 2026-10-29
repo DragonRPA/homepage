@@ -274,6 +274,7 @@ export async function POST(request: Request) {
         deposit,
         memo,
         actorName,
+        useProRata, // 특별한 경우에만 true로 전달받아 일할 계산, 기본은 false(출고 월단가 정액)
       } = body;
 
       if ((!assetId && !assetNo) || !customerName || !billingStartDate || monthlyRate === undefined) {
@@ -283,7 +284,7 @@ export async function POST(request: Request) {
         );
       }
 
-      const numMonthlyRate = Number(monthlyRate);
+      const numMonthlyRate = Math.round(Number(monthlyRate));
       if (isNaN(numMonthlyRate) || numMonthlyRate < 0) {
         return NextResponse.json(
           { error: "유효한 월 단가를 입력해 주십시오." },
@@ -324,36 +325,67 @@ export async function POST(request: Request) {
         );
       }
 
-      // 2. Create rental contract in erp_rental_contracts
-      const contractYear = billingStartDate.slice(0, 4);
-      const contractNo = `RNT-${contractYear}-${String(Math.floor(1000 + Math.random() * 9000))}`;
-      const dailyRate = Math.round(numMonthlyRate / 30);
+      const cleanCustomer = customerName.trim();
       const effectiveEndDate = endDate || "2099-12-31";
+      const dailyRate = Math.round(numMonthlyRate / 30);
 
-      const contractRes = await client.query(
-        `
-        INSERT INTO erp_rental_contracts
-        (contract_no, entity_type, customer_name, site_name, asset_id, start_date, end_date, monthly_rate, daily_rate, deposit, status, memo)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'ACTIVE', $11)
-        RETURNING *
-      `,
-        [
-          contractNo,
-          entityType || "CORP",
-          customerName.trim(),
-          (siteName || "").trim() || null,
-          asset.id,
-          billingStartDate,
-          effectiveEndDate,
-          numMonthlyRate,
-          dailyRate,
-          Number(deposit || 0),
-          memo || null,
-        ]
+      // 2. 고객별 임대계약은 1건 원칙: 기존 고객 마스터 임대계약 조회 (없으면 1건 생성)
+      let contract: any = null;
+      const existingCtRes = await client.query(
+        `SELECT * FROM erp_rental_contracts
+         WHERE customer_name = $1
+         ORDER BY CASE WHEN status = 'ACTIVE' THEN 0 ELSE 1 END, id ASC
+         LIMIT 1`,
+        [cleanCustomer]
       );
-      const contract = contractRes.rows[0];
 
-      // 3. Update asset status to RENTED in erp_rental_assets
+      if (existingCtRes.rows.length > 0) {
+        contract = existingCtRes.rows[0];
+      } else {
+        const pRes = await client.query(
+          `SELECT * FROM erp_partners WHERE name = $1 LIMIT 1`,
+          [cleanCustomer]
+        );
+        const partner = pRes.rows[0] || null;
+        const contractYear = billingStartDate.slice(0, 4);
+        const contractNo = `RC-${contractYear}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+
+        const contractRes = await client.query(
+          `
+          INSERT INTO erp_rental_contracts
+          (contract_no, entity_type, partner_id, customer_name, site_name, asset_id, start_date, end_date,
+           monthly_rate, daily_rate, vat_amount, deposit, status, memo,
+           customer_biz_no, customer_ceo_name, customer_address, customer_biz_type, customer_biz_class, customer_email,
+           tax_purpose, tax_memo, tax_items)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ACTIVE', $13, $14, $15, $16, $17, $18, $19, '청구', '{1번째 아이템} 외', '[]'::jsonb)
+          RETURNING *
+        `,
+          [
+            contractNo,
+            entityType || "CORP",
+            partner ? partner.id : null,
+            cleanCustomer,
+            (siteName || "").trim() || null,
+            asset.id,
+            billingStartDate,
+            effectiveEndDate,
+            numMonthlyRate,
+            dailyRate,
+            Math.round(numMonthlyRate * 0.1),
+            Number(deposit || 0),
+            memo || null,
+            partner?.business_no || "",
+            partner?.ceo_name || "",
+            partner ? [partner.address, partner.address_detail].filter(Boolean).join(" ") : "",
+            partner?.biz_type || "",
+            partner?.biz_item || "",
+            partner?.main_email || "",
+          ]
+        );
+        contract = contractRes.rows[0];
+      }
+
+      // 3. Update asset status to RENTED and save outbound monthlyRate on the asset
       await client.query(
         `
         UPDATE erp_rental_assets
@@ -361,13 +393,87 @@ export async function POST(request: Request) {
             current_customer = $1,
             current_site = $2,
             contract_no = $3,
+            current_contract_id = $4,
+            current_monthly_rate = $5,
+            outbound_date = $6,
             updated_at = NOW()
-        WHERE id = $4
+        WHERE id = $7
       `,
-        [customerName.trim(), (siteName || "").trim() || null, contractNo, asset.id]
+        [
+          cleanCustomer,
+          (siteName || "").trim() || contract.site_name || null,
+          contract.contract_no,
+          contract.id,
+          numMonthlyRate,
+          billingStartDate,
+          asset.id,
+        ]
       );
 
-      // 4. Calculate and insert current month / start month billing in erp_rental_billings
+      // 4. 고객의 현재 출고(대여중)된 전체 자산을 집계하여 마스터 임대계약의 월 임대료 및 품목(tax_items)에 가산(+) 반영
+      const rentedAssetsRes = await client.query(
+        `SELECT a.id, a.asset_no, a.current_monthly_rate, a.outbound_date, a.current_site,
+                a.acquisition_cost, a.salvage_value, a.useful_life_years,
+                p.model_name, p.standard_monthly_rate
+         FROM erp_rental_assets a
+         LEFT JOIN erp_rental_products p ON a.rental_product_id = p.id
+         WHERE a.status = 'RENTED' AND (a.current_contract_id = $1 OR a.current_customer = $2)
+         ORDER BY a.outbound_date ASC NULLS LAST, a.id ASC`,
+        [contract.id, cleanCustomer]
+      );
+
+      const rentedAssets = rentedAssetsRes.rows;
+      const mm = billingStartDate.slice(5, 7);
+      const dd = billingStartDate.slice(8, 10);
+
+      const updatedTaxItems = rentedAssets.map((ra: any) => {
+        const itemRate = Math.round(Number(ra.current_monthly_rate || ra.standard_monthly_rate || numMonthlyRate));
+        const itemVat = Math.round(itemRate * 0.1);
+        const outDt = ra.outbound_date ? String(ra.outbound_date).slice(0, 10) : billingStartDate;
+        return {
+          assetId: ra.id,
+          assetNo: ra.asset_no,
+          month: outDt.slice(5, 7) || mm,
+          day: outDt.slice(8, 10) || dd,
+          itemName: `${ra.model_name || "임대장비"} (${ra.asset_no})`,
+          spec: ra.current_site || (siteName || "").trim() || "",
+          qty: 1,
+          unitCost: itemRate,
+          supplyAmount: itemRate,
+          vatAmount: itemVat,
+          note: `출고일: ${outDt}`,
+        };
+      });
+
+      const totalContractMonthlyRate = updatedTaxItems.reduce((acc: number, it: any) => acc + Number(it.supplyAmount || 0), 0);
+      const totalContractVat = updatedTaxItems.reduce((acc: number, it: any) => acc + Number(it.vatAmount || 0), 0);
+      const firstAssetId = rentedAssets[0]?.id || asset.id;
+
+      const updatedCtRes = await client.query(
+        `UPDATE erp_rental_contracts
+         SET status = 'ACTIVE',
+             asset_id = $1,
+             site_name = COALESCE(NULLIF($2, ''), site_name),
+             monthly_rate = $3,
+             daily_rate = $4,
+             vat_amount = $5,
+             tax_memo = COALESCE(NULLIF(tax_memo, ''), '{1번째 아이템} 외'),
+             tax_items = $6::jsonb
+         WHERE id = $7
+         RETURNING *`,
+        [
+          firstAssetId,
+          (siteName || "").trim(),
+          totalContractMonthlyRate,
+          Math.round(totalContractMonthlyRate / 30),
+          totalContractVat,
+          JSON.stringify(updatedTaxItems),
+          contract.id,
+        ]
+      );
+      contract = updatedCtRes.rows[0];
+
+      // 5. 당월 청구 생성/갱신 (원칙: 특별한 경우가 아니면 일할 임대료를 정하지 않고 출고 단가 정액으로 반영)
       const startYearMonth = billingStartDate.slice(0, 7);
       const now = new Date();
       const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -377,47 +483,124 @@ export async function POST(request: Request) {
         monthsToBill.add(currentYearMonth);
       }
 
+      const totalDeprecCogs = rentedAssets.reduce((sum: number, ra: any) => {
+        const acq = Number(ra.acquisition_cost || 0);
+        const salv = Number(ra.salvage_value || 0);
+        const life = Math.max(1, Number(ra.useful_life_years || 5) * 12);
+        return sum + Math.round((acq - salv) / life);
+      }, 0);
+
       const createdBillings = [];
       for (const ym of monthsToBill) {
-        const calc = computeMonthlyProRata(
-          ym,
-          billingStartDate,
-          effectiveEndDate,
-          numMonthlyRate,
-          Number(asset.acquisition_cost || 0),
-          Number(asset.salvage_value || 0),
-          Number(asset.useful_life_years || 5)
+        const [yNum, mNum] = ym.split("-").map(Number);
+        const lastDay = new Date(yNum, mNum, 0).getDate();
+        const monthStart = `${ym}-01`;
+        const monthEnd = `${ym}-${String(lastDay).padStart(2, "0")}`;
+
+        let targetRevenue = totalContractMonthlyRate;
+        let operatingDays = 30;
+        let effStart = monthStart;
+        let effEnd = monthEnd;
+
+        if (useProRata === true) {
+          const calc = computeMonthlyProRata(
+            ym,
+            billingStartDate,
+            effectiveEndDate,
+            numMonthlyRate,
+            Number(asset.acquisition_cost || 0),
+            Number(asset.salvage_value || 0),
+            Number(asset.useful_life_years || 5)
+          );
+          operatingDays = calc.operatingDays;
+          effStart = calc.effStart;
+          effEnd = calc.effEnd;
+          targetRevenue = calc.proRataRevenue;
+        }
+
+        const targetVat = Math.round(targetRevenue * 0.1);
+        const targetTotal = targetRevenue + targetVat;
+        const netMargin = targetRevenue - totalDeprecCogs;
+
+        const resolvedMemo = resolveContractItemTemplate(contract.tax_memo || "{1번째 아이템} 외", {
+          dateStr: ym,
+          items: updatedTaxItems,
+          fallbackFirstItem: updatedTaxItems[0]?.itemName || `${asset.model_name || "임대장비"} (${asset.asset_no})`,
+        });
+
+        const existingBillRes = await client.query(
+          `SELECT * FROM erp_rental_billings
+           WHERE contract_id = $1 AND year_month = $2 AND tax_invoice_id IS NULL
+           ORDER BY id DESC LIMIT 1`,
+          [contract.id, ym]
         );
 
-        if (calc.operatingDays > 0) {
+        if (existingBillRes.rows.length > 0) {
+          const existingBill = existingBillRes.rows[0];
+          const nextRevenue = useProRata === true
+            ? Math.round(Number(existingBill.pro_rata_revenue || 0)) + targetRevenue
+            : totalContractMonthlyRate;
+          const nextVat = Math.round(nextRevenue * 0.1);
+          const nextTotal = nextRevenue + nextVat;
+
+          const updBillRes = await client.query(
+            `UPDATE erp_rental_billings
+             SET pro_rata_revenue = $1,
+                 vat_amount = $2,
+                 total_amount = $3,
+                 tax_memo = $4,
+                 tax_items = $5::jsonb,
+                 depreciation_cogs = $6,
+                 net_margin = $7
+             WHERE id = $8
+             RETURNING *`,
+            [
+              nextRevenue,
+              nextVat,
+              nextTotal,
+              resolvedMemo,
+              JSON.stringify(updatedTaxItems),
+              totalDeprecCogs,
+              nextRevenue - totalDeprecCogs,
+              existingBill.id,
+            ]
+          );
+          createdBillings.push(updBillRes.rows[0]);
+        } else {
           const billingNo = `RB${ym.replace("-", "")}-${Math.floor(1000 + Math.random() * 9000)}`;
           const billRes = await client.query(
             `
             INSERT INTO erp_rental_billings
-            (billing_no, contract_id, year_month, start_date, end_date, operating_days, pro_rata_revenue, depreciation_cogs, net_margin, billing_date, payment_status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_DATE, 'UNPAID')
+            (billing_no, contract_id, year_month, start_date, end_date, operating_days,
+             pro_rata_revenue, vat_amount, total_amount, tax_purpose, tax_memo, tax_items,
+             depreciation_cogs, net_margin, billing_date, payment_status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '청구', $10, $11::jsonb, $12, $13, CURRENT_DATE, 'UNPAID')
             RETURNING *
           `,
             [
               billingNo,
               contract.id,
               ym,
-              calc.effStart,
-              calc.effEnd,
-              calc.operatingDays,
-              calc.proRataRevenue,
-              calc.depreciationCogs,
-              calc.netMargin,
+              effStart,
+              effEnd,
+              operatingDays,
+              targetRevenue,
+              targetVat,
+              targetTotal,
+              resolvedMemo,
+              JSON.stringify(updatedTaxItems),
+              totalDeprecCogs,
+              netMargin,
             ]
           );
           createdBillings.push(billRes.rows[0]);
         }
       }
 
-      // 5. Record OUTBOUND event in erp_asset_inout_logs
+      // 6. Record OUTBOUND event in erp_asset_inout_logs
       const logMemo =
         memo ||
-        `출고등록 완료 (청구시작: ${billingStartDate}, 월단가: ${numMonthlyRate.toLocaleString()}원, 계약번호: ${contractNo})`;
+        `출고등록 완료 (고객계약: ${contract.contract_no}, 출고단가: ₩${numMonthlyRate.toLocaleString()} 가산 → 고객 총 ${rentedAssets.length}대 / 월 ₩${totalContractMonthlyRate.toLocaleString()})`;
       await client.query(
         `
         INSERT INTO erp_asset_inout_logs
@@ -428,13 +611,13 @@ export async function POST(request: Request) {
           asset.id,
           asset.asset_no,
           billingStartDate,
-          customerName.trim(),
+          cleanCustomer,
           (siteName || "").trim() || null,
           logMemo,
         ]
       );
 
-      // 6. Record Audit Log
+      // 7. Record Audit Log
       await client.query(
         `
         INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
@@ -447,11 +630,13 @@ export async function POST(request: Request) {
             assetId: asset.id,
             assetNo: asset.asset_no,
             serialNo: asset.serial_no,
-            customerName: customerName.trim(),
+            customerName: cleanCustomer,
             siteName: (siteName || "").trim() || null,
             billingStartDate,
             monthlyRate: numMonthlyRate,
-            contractNo,
+            totalContractMonthlyRate,
+            activeAssetCount: rentedAssets.length,
+            contractNo: contract.contract_no,
             billingsCreated: createdBillings.length,
           }),
         ]
@@ -465,6 +650,8 @@ export async function POST(request: Request) {
         billing: createdBillings[0] || null,
         billings: createdBillings,
         assetNo: asset.asset_no,
+        activeAssetCount: rentedAssets.length,
+        totalContractMonthlyRate,
       });
     } else if (action === "INBOUND") {
       const { assetId, queryKey, inboundDate, nextStatus, memo, actorName } = body;
@@ -481,23 +668,27 @@ export async function POST(request: Request) {
 
       await client.query("BEGIN");
 
-      // 1. Find asset + product info + active contract in 1 query
+      // 1. Find asset + product info + customer master contract
       let assetRes;
       if (assetId) {
         assetRes = await client.query(
           `
-          SELECT a.*, p.model_name, p.manufacturer,
+          SELECT a.*, p.model_name, p.manufacturer, p.standard_monthly_rate,
                  c.id AS "active_contract_id",
+                 c.contract_no AS "active_contract_no",
                  c.customer_name AS "active_customer_name",
                  c.site_name AS "active_site_name",
                  c.monthly_rate AS "active_monthly_rate",
+                 c.tax_memo AS "active_tax_memo",
                  TO_CHAR(c.start_date, 'YYYY-MM-DD') AS "start_date_str"
           FROM erp_rental_assets a
           LEFT JOIN erp_rental_products p ON a.rental_product_id = p.id
           LEFT JOIN LATERAL (
             SELECT * FROM erp_rental_contracts rc
-            WHERE rc.asset_id = a.id AND rc.status = 'ACTIVE'
-            ORDER BY rc.id DESC LIMIT 1
+            WHERE (rc.id = a.current_contract_id OR rc.asset_id = a.id OR (a.current_customer IS NOT NULL AND rc.customer_name = a.current_customer))
+              AND rc.status = 'ACTIVE'
+            ORDER BY CASE WHEN rc.id = a.current_contract_id THEN 0 ELSE 1 END, rc.id ASC
+            LIMIT 1
           ) c ON true
           WHERE a.id = $1
           FOR UPDATE OF a
@@ -508,18 +699,22 @@ export async function POST(request: Request) {
         const cleanKey = String(queryKey).trim();
         assetRes = await client.query(
           `
-          SELECT a.*, p.model_name, p.manufacturer,
+          SELECT a.*, p.model_name, p.manufacturer, p.standard_monthly_rate,
                  c.id AS "active_contract_id",
+                 c.contract_no AS "active_contract_no",
                  c.customer_name AS "active_customer_name",
                  c.site_name AS "active_site_name",
                  c.monthly_rate AS "active_monthly_rate",
+                 c.tax_memo AS "active_tax_memo",
                  TO_CHAR(c.start_date, 'YYYY-MM-DD') AS "start_date_str"
           FROM erp_rental_assets a
           LEFT JOIN erp_rental_products p ON a.rental_product_id = p.id
           LEFT JOIN LATERAL (
             SELECT * FROM erp_rental_contracts rc
-            WHERE rc.asset_id = a.id AND rc.status = 'ACTIVE'
-            ORDER BY rc.id DESC LIMIT 1
+            WHERE (rc.id = a.current_contract_id OR rc.asset_id = a.id OR (a.current_customer IS NOT NULL AND rc.customer_name = a.current_customer))
+              AND rc.status = 'ACTIVE'
+            ORDER BY CASE WHEN rc.id = a.current_contract_id THEN 0 ELSE 1 END, rc.id ASC
+            LIMIT 1
           ) c ON true
           WHERE UPPER(a.asset_no) = UPPER($1) OR UPPER(a.serial_no) = UPPER($1)
           ORDER BY CASE WHEN a.status = 'RENTED' THEN 0 ELSE 1 END, a.id ASC
@@ -539,79 +734,136 @@ export async function POST(request: Request) {
       }
 
       const asset = assetRes.rows[0];
-      const activeContractId = asset.active_contract_id || null;
+      const activeContractId = asset.active_contract_id || asset.current_contract_id || null;
       const fromCustomer =
         asset.active_customer_name || asset.current_customer || "미지정 고객사";
       const fromSite = asset.active_site_name || asset.current_site || null;
+      const deductedRate = Math.round(Number(asset.current_monthly_rate || asset.standard_monthly_rate || 0));
 
-      // 2. If activeContract exists, close it as RETURNED and adjust monthly billing up to inboundDate
+      // 2. 먼저 반납된 자산의 상태를 AVAILABLE/REPAIRING으로 전환하고 고객 배정 해제
+      await client.query(
+        `UPDATE erp_rental_assets
+         SET status = $1,
+             current_customer = NULL,
+             current_site = NULL,
+             contract_no = NULL,
+             current_contract_id = NULL,
+             current_monthly_rate = 0,
+             outbound_date = NULL,
+             updated_at = NOW()
+         WHERE id = $2`,
+        [targetNextStatus, asset.id]
+      );
+
+      // 3. 고객의 마스터 임대계약에서 반납된 자산만 차감(-) 업데이트 (계약 자체는 고객 마스터로 ACTIVE 유지)
       let updatedBilling = null;
-      if (activeContractId) {
-        const inboundYm = effectiveInboundDate.slice(0, 7);
-        const contractStartStr = asset.start_date_str || effectiveInboundDate;
+      let remainingAssetCount = 0;
+      let remainingMonthlyRate = 0;
 
-        const calc = computeMonthlyProRata(
-          inboundYm,
-          contractStartStr,
-          effectiveInboundDate,
-          Number(asset.active_monthly_rate || 0),
-          Number(asset.acquisition_cost || 0),
-          Number(asset.salvage_value || 0),
-          Number(asset.useful_life_years || 5)
+      if (activeContractId) {
+        const remainingRes = await client.query(
+          `SELECT a.id, a.asset_no, a.current_monthly_rate, a.outbound_date, a.current_site,
+                  a.acquisition_cost, a.salvage_value, a.useful_life_years,
+                  p.model_name, p.standard_monthly_rate
+           FROM erp_rental_assets a
+           LEFT JOIN erp_rental_products p ON a.rental_product_id = p.id
+           WHERE a.status = 'RENTED' AND (a.current_contract_id = $1 OR a.current_customer = $2)
+           ORDER BY a.outbound_date ASC NULLS LAST, a.id ASC`,
+          [activeContractId, fromCustomer]
         );
 
-        const billingNo = `RB${inboundYm.replace("-", "")}-${Math.floor(1000 + Math.random() * 9000)}`;
-        const closeAndBillRes = await client.query(
-          `
-          WITH closed_contract AS (
-            UPDATE erp_rental_contracts
-            SET status = 'RETURNED', end_date = $1
-            WHERE id = $2
-            RETURNING id
-          ),
-          updated_bill AS (
-            UPDATE erp_rental_billings
-            SET end_date = $3,
-                operating_days = $4,
-                pro_rata_revenue = $5,
-                depreciation_cogs = $6,
-                net_margin = $7
-            WHERE contract_id = $2 AND year_month = $8
-            RETURNING *
-          ),
-          inserted_bill AS (
-            INSERT INTO erp_rental_billings
-            (billing_no, contract_id, year_month, start_date, end_date, operating_days, pro_rata_revenue, depreciation_cogs, net_margin, billing_date, payment_status)
-            SELECT $9, $2, $8, $10, $3, $4, $5, $6, $7, CURRENT_DATE, 'UNPAID'
-            WHERE $4 > 0 AND NOT EXISTS (SELECT 1 FROM updated_bill)
-            RETURNING *
-          )
-          SELECT * FROM updated_bill
-          UNION ALL
-          SELECT * FROM inserted_bill
-          `,
+        const remainingAssets = remainingRes.rows;
+        remainingAssetCount = remainingAssets.length;
+        const mm = effectiveInboundDate.slice(5, 7);
+        const dd = effectiveInboundDate.slice(8, 10);
+
+        const nextTaxItems = remainingAssets.map((ra: any) => {
+          const itemRate = Math.round(Number(ra.current_monthly_rate || ra.standard_monthly_rate || 0));
+          const itemVat = Math.round(itemRate * 0.1);
+          const outDt = ra.outbound_date ? String(ra.outbound_date).slice(0, 10) : effectiveInboundDate;
+          return {
+            assetId: ra.id,
+            assetNo: ra.asset_no,
+            month: outDt.slice(5, 7) || mm,
+            day: outDt.slice(8, 10) || dd,
+            itemName: `${ra.model_name || "임대장비"} (${ra.asset_no})`,
+            spec: ra.current_site || fromSite || "",
+            qty: 1,
+            unitCost: itemRate,
+            supplyAmount: itemRate,
+            vatAmount: itemVat,
+            note: `출고일: ${outDt}`,
+          };
+        });
+
+        remainingMonthlyRate = nextTaxItems.reduce((acc: number, it: any) => acc + Number(it.supplyAmount || 0), 0);
+        const remainingVat = nextTaxItems.reduce((acc: number, it: any) => acc + Number(it.vatAmount || 0), 0);
+        const nextFirstAssetId = remainingAssets[0]?.id || null;
+
+        await client.query(
+          `UPDATE erp_rental_contracts
+           SET asset_id = $1,
+               monthly_rate = $2,
+               daily_rate = $3,
+               vat_amount = $4,
+               tax_items = $5::jsonb
+           WHERE id = $6`,
           [
-            effectiveInboundDate,
+            nextFirstAssetId,
+            remainingMonthlyRate,
+            Math.round(remainingMonthlyRate / 30),
+            remainingVat,
+            JSON.stringify(nextTaxItems),
             activeContractId,
-            calc.effEnd,
-            calc.operatingDays,
-            calc.proRataRevenue,
-            calc.depreciationCogs,
-            calc.netMargin,
-            inboundYm,
-            billingNo,
-            calc.effStart,
           ]
         );
-        updatedBilling = closeAndBillRes.rows[0] || null;
+
+        const inboundYm = effectiveInboundDate.slice(0, 7);
+        const remainingDeprecCogs = remainingAssets.reduce((sum: number, ra: any) => {
+          const acq = Number(ra.acquisition_cost || 0);
+          const salv = Number(ra.salvage_value || 0);
+          const life = Math.max(1, Number(ra.useful_life_years || 5) * 12);
+          return sum + Math.round((acq - salv) / life);
+        }, 0);
+
+        const resolvedMemo = resolveContractItemTemplate(asset.active_tax_memo || "{1번째 아이템} 외", {
+          dateStr: inboundYm,
+          items: nextTaxItems,
+          fallbackFirstItem: nextTaxItems[0]?.itemName || `${asset.model_name || "임대장비"} (${asset.asset_no})`,
+        });
+
+        const updBillRes = await client.query(
+          `UPDATE erp_rental_billings
+           SET end_date = $1,
+               pro_rata_revenue = $2,
+               vat_amount = $3,
+               total_amount = $4,
+               tax_memo = $5,
+               tax_items = $6::jsonb,
+               depreciation_cogs = $7,
+               net_margin = $8
+           WHERE contract_id = $9 AND year_month = $10 AND tax_invoice_id IS NULL
+           RETURNING *`,
+          [
+            effectiveInboundDate,
+            remainingMonthlyRate,
+            remainingVat,
+            remainingMonthlyRate + remainingVat,
+            resolvedMemo,
+            JSON.stringify(nextTaxItems),
+            remainingDeprecCogs,
+            remainingMonthlyRate - remainingDeprecCogs,
+            activeContractId,
+            inboundYm,
+          ]
+        );
+        updatedBilling = updBillRes.rows[0] || null;
       }
 
-      // 3. Update asset status, insert INBOUND log, and insert Audit Log in a single CTE query
+      // 4. Insert INBOUND log and Audit Log
       const logMemo =
         memo ||
-        `[${fromCustomer}${fromSite ? " / " + fromSite : ""}] 입고 완료 (상태전환: ${
-          targetNextStatus === "AVAILABLE" ? "임대가능" : "정비/수리중"
-        })`;
+        `[${fromCustomer}${fromSite ? " / " + fromSite : ""}] 입고 완료 (단가 ₩${deductedRate.toLocaleString()} 차감 → 잔여 ${remainingAssetCount}대 / 월 ₩${remainingMonthlyRate.toLocaleString()})`;
       const auditDetails = JSON.stringify({
         assetId: asset.id,
         assetNo: asset.asset_no,
@@ -620,26 +872,20 @@ export async function POST(request: Request) {
         fromSite,
         inboundDate: effectiveInboundDate,
         nextStatus: targetNextStatus,
+        deductedRate,
+        remainingAssetCount,
+        remainingMonthlyRate,
       });
 
       const finishRes = await client.query(
         `
-        WITH upd_asset AS (
-          UPDATE erp_rental_assets
-          SET status = $1,
-              current_customer = NULL,
-              current_site = NULL,
-              contract_no = NULL,
-              updated_at = NOW()
-          WHERE id = $2
-        ),
-        ins_audit AS (
+        WITH ins_audit AS (
           INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
-          VALUES ('RENTAL_INOUT', 'INBOUND', $3, $4, $5)
+          VALUES ('RENTAL_INOUT', 'INBOUND', $2, $3, $4)
         )
         INSERT INTO erp_asset_inout_logs
         (asset_id, asset_no, event_type, event_date, customer_name, site_name, memo)
-        VALUES ($2, $3, 'INBOUND', $6, $7, $8, $9)
+        VALUES ($1, $2, 'INBOUND', $5, $6, $7, $8)
         RETURNING
           id,
           asset_id AS "assetId",
@@ -652,7 +898,6 @@ export async function POST(request: Request) {
           created_at AS "createdAt"
       `,
         [
-          targetNextStatus,
           asset.id,
           asset.asset_no,
           actorName || "입고담당자",
@@ -684,6 +929,9 @@ export async function POST(request: Request) {
         fromSite,
         inboundDate: effectiveInboundDate,
         nextStatus: targetNextStatus,
+        deductedRate,
+        remainingAssetCount,
+        remainingMonthlyRate,
         updatedBilling,
         createdLog,
       });

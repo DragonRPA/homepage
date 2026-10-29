@@ -115,7 +115,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   const [poUnitCost, setPoUnitCost] = useState("0");
   const [poDate, setPoDate] = useState(new Date().toISOString().split("T")[0]);
 
-  // Add Sale Form
+  // Add Sale Form (Multi-product per outbound contract)
   const [soPartnerId, setSoPartnerId] = useState<number | null>(null);
   const [soCustomer, setSoCustomer] = useState("");
   const [soCustomerSearch, setSoCustomerSearch] = useState("");
@@ -124,6 +124,9 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   const [soQty, setSoQty] = useState("1");
   const [soUnitPrice, setSoUnitPrice] = useState("0");
   const [soVatAmount, setSoVatAmount] = useState("0");
+  const [soItems, setSoItems] = useState<Array<{ productId: string; qty: string; unitPrice: string; vatAmount: string }>>([
+    { productId: "", qty: "1", unitPrice: "0", vatAmount: "0" },
+  ]);
   const [soDate, setSoDate] = useState(new Date().toISOString().split("T")[0]);
   const [soMemo, setSoMemo] = useState("");
   const [soTaxSpec, setSoTaxSpec] = useState<BuyerTaxSpec>(() =>
@@ -132,6 +135,10 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   const [soFileUrl, setSoFileUrl] = useState("");
   const [soFileName, setSoFileName] = useState("");
   const soFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Selection states for consolidated billing & consolidated tax invoice
+  const [selectedSaleIds, setSelectedSaleIds] = useState<number[]>([]);
+  const [selectedBillingIds, setSelectedBillingIds] = useState<number[]>([]);
 
   // Edit Sale Form
   const [editSoId, setEditSoId] = useState<number | null>(null);
@@ -372,14 +379,67 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     }
   };
 
-  // Handle Add Sale
+  // Sync multi-product rows (soItems) to soTaxSpec.taxItems
+  const syncSoItemsToTaxSpec = (rows: Array<{ productId: string; qty: string; unitPrice: string; vatAmount: string }>, dateStr = soDate) => {
+    const mm = dateStr ? dateStr.slice(5, 7) : "";
+    const dd = dateStr ? dateStr.slice(8, 10) : "";
+    const nextTaxItems = rows.map((r) => {
+      const prod = products.find((p) => String(p.id) === String(r.productId));
+      const q = cleanErpNumber(r.qty) || 1;
+      const u = cleanErpNumber(r.unitPrice) || 0;
+      const sup = q * u;
+      const vat = cleanErpNumber(r.vatAmount) || Math.round(sup * 0.1);
+      return {
+        month: mm,
+        day: dd,
+        itemName: prod ? prod.name : "판매 상품",
+        spec: prod ? (prod.spec || "") : "",
+        qty: q,
+        unitCost: u,
+        supplyAmount: sup,
+        vatAmount: vat,
+        note: "",
+      };
+    });
+    const firstRow = rows[0] || { productId: "", qty: "1", unitPrice: "0", vatAmount: "0" };
+    setSoProductId(firstRow.productId);
+    setSoQty(firstRow.qty);
+    setSoUnitPrice(firstRow.unitPrice);
+    const totalVat = nextTaxItems.reduce((acc, it) => acc + Number(it.vatAmount || 0), 0);
+    setSoVatAmount(formatErpInputNumber(String(totalVat)));
+    setSoTaxSpec((prev) => ({
+      ...prev,
+      taxMemo: prev.taxMemo || "{1번째 아이템} 외",
+      taxItems: nextTaxItems,
+    }));
+  };
+
+  // Handle Add Sale (Supports multiple products per single outbound sale contract)
   const handleAddSale = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!soCustomer || !soProductId || !soQty) {
-      showToast("고객사, 상품, 수량은 필수입니다.", "error");
+    const validRows = soItems.filter((r) => r.productId && cleanErpNumber(r.qty) > 0);
+    if (!soCustomer || validRows.length === 0) {
+      showToast("고객사와 최소 1개 이상의 출고 제품 및 수량을 입력해 주십시오.", "error");
       return;
     }
     try {
+      const payloadItems = validRows.map((r) => {
+        const prod = products.find((p) => String(p.id) === String(r.productId));
+        const q = cleanErpNumber(r.qty) || 1;
+        const u = cleanErpNumber(r.unitPrice) || 0;
+        const sup = q * u;
+        const vat = cleanErpNumber(r.vatAmount) || Math.round(sup * 0.1);
+        return {
+          productId: Number(r.productId),
+          itemName: prod ? prod.name : "판매 상품",
+          spec: prod ? (prod.spec || "") : "",
+          qty: q,
+          unitPrice: u,
+          supplyAmount: sup,
+          vatAmount: vat,
+        };
+      });
+
       const res = await fetch("/api/erp/trade/sales", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -388,10 +448,11 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           partnerId: soPartnerId,
           saleDate: soDate,
           customerName: soCustomer,
-          productId: soProductId,
-          qty: cleanErpNumber(soQty),
-          unitPrice: cleanErpNumber(soUnitPrice),
-          vatAmount: cleanErpNumber(soVatAmount),
+          productId: payloadItems[0].productId,
+          qty: payloadItems.reduce((acc, it) => acc + it.qty, 0),
+          unitPrice: payloadItems[0].unitPrice,
+          vatAmount: payloadItems.reduce((acc, it) => acc + it.vatAmount, 0),
+          items: payloadItems,
           memo: soMemo,
           contractFileUrl: soFileUrl || null,
           contractFileName: soFileName || null,
@@ -410,11 +471,16 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "판매 등록 실패");
 
-      showToast(`판매 출고 완료 (재고 차감 및 마진 산출)`);
+      showToast(
+        payloadItems.length > 1
+          ? `판매 출고 계약(${payloadItems.length}종 제품 포함) 등록 완료`
+          : `판매 출고 완료 (재고 차감 및 마진 산출)`
+      );
       setShowAddSaleModal(false);
       setSoPartnerId(null);
       setSoCustomer("");
       setSoCustomerSearch("");
+      setSoItems([{ productId: "", qty: "1", unitPrice: "0", vatAmount: "0" }]);
       setSoMemo("");
       setSoFileUrl("");
       setSoFileName("");
@@ -691,6 +757,110 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     }
   };
 
+  // 여러 유통계약을 선택하여 1건의 묶음 청구 생성
+  const handleCreateConsolidatedBillingFromSales = async () => {
+    const selectedSales = sales.filter((s) => selectedSaleIds.includes(s.id));
+    if (selectedSales.length === 0) {
+      showToast("묶음 청구를 생성할 유통계약을 선택해 주십시오.", "error");
+      return;
+    }
+    const customerSet = new Set(selectedSales.map((s) => (s.customerName || "").trim()));
+    if (customerSet.size > 1) {
+      showToast("동일 고객사의 유통계약만 묶어서 1건의 청구로 생성할 수 있습니다.", "error");
+      return;
+    }
+    const totalSupply = selectedSales.reduce((acc, s) => acc + Number(s.totalAmount || 0), 0);
+    const totalVat = selectedSales.reduce((acc, s) => acc + Number(s.vatAmount || Math.round(Number(s.totalAmount || 0) * 0.1)), 0);
+    const customerName = selectedSales[0].customerName;
+
+    if (!window.confirm(`[선택 계약 묶음 청구 생성]\n고객사: ${customerName}\n선택 계약: ${selectedSales.length}건 (${selectedSales.map((s) => s.saleNo).join(", ")})\n합산 공급가액: ₩${formatErpCurrency(totalSupply)} (세액 ₩${formatErpCurrency(totalVat)})\n\n선택한 계약들을 합쳐 1건의 묶음 청구서를 생성하시겠습니까?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/erp/trade/billings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          saleIds: selectedSaleIds,
+          billingDate: new Date().toISOString().split("T")[0],
+          milestoneName: "{1번째 아이템} 외",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "묶음 청구 생성 실패");
+
+      showToast(data.message || `${selectedSales.length}건의 유통계약이 1건의 묶음 청구로 생성되었습니다.`);
+      setSelectedSaleIds([]);
+      setSubTab("billings");
+      fetchData();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  // 여러 유통 청구건을 선택하여 고객사별 1장의 세금계산서로 묶음(합산) 발행
+  const handleIssueConsolidatedTaxFromBillings = async () => {
+    const selectedBills = billings.filter((b) => selectedBillingIds.includes(b.id) && !b.taxInvoiceId);
+    if (selectedBills.length === 0) {
+      showToast("묶음 발행할 미발행 청구건을 선택해 주십시오.", "error");
+      return;
+    }
+    const totalSupply = selectedBills.reduce((acc, b) => acc + Number(b.supplyAmount || 0), 0);
+    const totalVat = selectedBills.reduce((acc, b) => acc + Number(b.vatAmount || 0), 0);
+    const customers = Array.from(new Set(selectedBills.map((b) => b.customerName)));
+
+    if (!window.confirm(`[여러 계약의 청구 묶음 세금계산서 발행]\n선택 청구: ${selectedBills.length}건\n대상 고객사: ${customers.join(", ")} (고객사별 1장으로 합산 발행)\n총 공급가액: ₩${formatErpCurrency(totalSupply)} (세액 ₩${formatErpCurrency(totalVat)})\n\n선택한 청구건들을 묶어서 전자세금계산서를 발행하시겠습니까?`)) {
+      return;
+    }
+
+    try {
+      const payloadBillings = selectedBills.map((b) => ({
+        billingId: b.id,
+        domainType: "TRADE_SALE",
+        billingNo: b.billingNo,
+        billingDate: b.billingDate,
+        contractId: b.saleId,
+        saleIds: b.saleIds || [],
+        customerName: b.customerName,
+        entityType: b.entityType || "CORP",
+        businessNo: b.customerBizNo || "100-00-00000",
+        ceoName: b.customerCeoName || "대표자",
+        customerAddress: b.customerAddress || "",
+        customerBizType: b.customerBizType || "",
+        customerBizClass: b.customerBizClass || "",
+        customerEmail: b.customerEmail || "",
+        customerEmail2: b.customerEmail2 || "",
+        purposeType: b.taxPurpose || "청구",
+        taxMemo: b.taxMemo || b.milestoneName || "",
+        taxItems: b.taxItems || [],
+        supplyAmount: b.supplyAmount,
+        vatAmount: b.vatAmount,
+        totalAmount: b.totalAmount,
+        itemName: b.milestoneName || b.productName || "판매 물품",
+      }));
+
+      const res = await fetch("/api/erp/tax-invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          batchIssue: true,
+          consolidate: true,
+          billings: payloadBillings,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "묶음 세금계산서 발행 실패");
+
+      showToast(data.message || "선택 청구건 묶음 세금계산서 발행 완료!");
+      setSelectedBillingIds([]);
+      if (onNavigateToTax) onNavigateToTax();
+      fetchData();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
   return (
     <div className="flex flex-col h-full gap-3 p-4 bg-[#ebe5d8] text-[#0f172a] overflow-hidden font-sans dark:bg-slate-950 dark:text-slate-100">
       {toast && (
@@ -773,6 +943,15 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           )}
           {subTab === "sales" && (
             <>
+              {selectedSaleIds.length > 0 && (
+                <button
+                  onClick={handleCreateConsolidatedBillingFromSales}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>선택 계약({selectedSaleIds.length}건) 묶음 청구 생성</span>
+                </button>
+              )}
               <button
                 onClick={() => setShowAddBillingModal(true)}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
@@ -785,18 +964,29 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>판매 계약 등록</span>
+                <span>판매 계약 등록 (다중제품)</span>
               </button>
             </>
           )}
           {subTab === "billings" && (
-            <button
-              onClick={() => setShowAddBillingModal(true)}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>유통 청구서 생성</span>
-            </button>
+            <>
+              {selectedBillingIds.length > 0 && (
+                <button
+                  onClick={handleIssueConsolidatedTaxFromBillings}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>선택 청구({selectedBillingIds.length}건) 묶음 세금계산서 발행</span>
+                </button>
+              )}
+              <button
+                onClick={() => setShowAddBillingModal(true)}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>유통 청구서 생성</span>
+              </button>
+            </>
           )}
           <button
             onClick={fetchData}
@@ -952,12 +1142,24 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
+                <th className="py-2.5 px-2 text-center w-8">
+                  <input
+                    type="checkbox"
+                    checked={sortedSales.length > 0 && selectedSaleIds.length === sortedSales.length}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedSaleIds(sortedSales.map((s) => s.id));
+                      else setSelectedSaleIds([]);
+                    }}
+                    className="rounded border-slate-700"
+                    title="전체 선택 (묶음 청구 생성용)"
+                  />
+                </th>
                 <th className="py-2.5 px-3 text-center">관리</th>
                 {renderSortTh("귀속 사업자", "entityType")}
                 {renderSortTh("판매번호", "saleNo")}
                 {renderSortTh("판매일자", "saleDate")}
                 {renderSortTh("고객사(수요처)", "customerName")}
-                {renderSortTh("판매상품", "productName")}
+                {renderSortTh("판매상품 (출고품목)", "productName")}
                 {renderSortTh("수량", "qty", "right")}
                 {renderSortTh("판매단가", "unitPrice", "right")}
                 {renderSortTh("공급가액", "totalAmount", "right")}
@@ -970,101 +1172,126 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedSales.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="py-8 text-center text-slate-500">
+                  <td colSpan={14} className="py-8 text-center text-slate-500">
                     판매 계약 내역이 없습니다.
                   </td>
                 </tr>
               ) : (
-                sortedSales.map((s) => (
-                  <tr key={s.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
-                    <td className="py-2 px-3 text-center">
-                      <div className="inline-flex items-center gap-1">
-                        <button
-                          onClick={() => handleOpenBillingFromSale(s)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] transition"
-                          title="이 판매 계약의 항목을 끌어와 청구서 생성"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>청구생성</span>
-                        </button>
-                        <button
-                          onClick={() => handleOpenEditSale(s)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 font-bold text-[11px] transition"
-                          title="판매 계약 및 세금계산서 제원 수정"
-                        >
-                          <Edit className="w-3 h-3" />
-                          <span>수정</span>
-                        </button>
-                        <button
-                          onClick={() => handleDeleteSale(s)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-600/20 hover:bg-rose-600/40 border border-rose-500/40 text-rose-300 font-bold text-[11px] transition"
-                          title="판매 계약 삭제"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>삭제</span>
-                        </button>
-                      </div>
-                    </td>
-                    <td className="py-2 px-3">
-                      {s.entityType === "INDIVIDUAL" ? (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                          개인
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                          법인
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2 px-3 font-mono text-blue-400">{s.saleNo}</td>
-                    <td className="py-2 px-3 font-mono text-slate-300">{s.saleDate ? String(s.saleDate).slice(0, 10) : "-"}</td>
-                    <td className="py-2 px-3">
-                      <div className="flex flex-col">
-                        <span className="font-bold text-slate-100">{s.customerName}</span>
-                        {s.customerBizNo && (
-                          <span className="text-[10px] font-mono text-slate-400">
-                            {s.customerBizNo} {s.customerEmail ? `| ${s.customerEmail}` : ""}
+                sortedSales.map((s) => {
+                  const itemCount = Array.isArray(s.taxItems) ? s.taxItems.length : 1;
+                  const firstItemName =
+                    (Array.isArray(s.taxItems) && s.taxItems[0]?.itemName) || s.productName || "판매상품";
+                  return (
+                    <tr key={s.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
+                      <td className="py-2 px-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedSaleIds.includes(s.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedSaleIds((prev) => [...prev, s.id]);
+                            else setSelectedSaleIds((prev) => prev.filter((id) => id !== s.id));
+                          }}
+                          className="rounded border-slate-700"
+                        />
+                      </td>
+                      <td className="py-2 px-3 text-center">
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            onClick={() => handleOpenBillingFromSale(s)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] transition"
+                            title="이 판매 계약의 항목을 끌어와 청구서 생성"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>청구생성</span>
+                          </button>
+                          <button
+                            onClick={() => handleOpenEditSale(s)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 font-bold text-[11px] transition"
+                            title="판매 계약 및 세금계산서 제원 수정"
+                          >
+                            <Edit className="w-3 h-3" />
+                            <span>수정</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSale(s)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-600/20 hover:bg-rose-600/40 border border-rose-500/40 text-rose-300 font-bold text-[11px] transition"
+                            title="판매 계약 삭제"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>삭제</span>
+                          </button>
+                        </div>
+                      </td>
+                      <td className="py-2 px-3">
+                        {s.entityType === "INDIVIDUAL" ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            개인
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                            법인
                           </span>
                         )}
-                      </div>
-                    </td>
-                    <td className="py-2 px-3 text-slate-200">[{s.skuCode}] {s.productName}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-200">{formatErpQty(s.qty, s.unit)}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(s.unitPrice)}</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(s.totalAmount)}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-400">{formatErpCurrency(s.cogsAmount)}</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
-                      {formatErpCurrency(s.marginAmount)} ({s.marginRate}%)
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      {s.hasContractFile ? (
-                        <button
-                          onClick={() => handleOpenSaleFile(s)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-500/40 text-indigo-300 rounded text-[11px] font-semibold transition"
-                        >
-                          <FileText className="w-3 h-3" />
-                          <span>열람</span>
-                        </button>
-                      ) : (
-                        <span className="text-[11px] text-slate-500">미첨부</span>
-                      )}
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      {s.taxInvoiceId ? (
-                        <span className="px-2 py-0.5 bg-emerald-900/40 border border-emerald-500/40 text-emerald-300 rounded text-[11px] font-semibold font-mono">
-                          발행완료 ({s.taxInvoiceNo || `#${s.taxInvoiceId}`})
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => handleOpenBillingFromSale(s)}
-                          className="px-2 py-0.5 bg-emerald-900/50 hover:bg-emerald-800 border border-emerald-600/50 text-emerald-300 rounded text-[11px] font-semibold transition"
-                        >
-                          + 청구생성
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="py-2 px-3 font-mono text-blue-400">{s.saleNo}</td>
+                      <td className="py-2 px-3 font-mono text-slate-300">{s.saleDate ? String(s.saleDate).slice(0, 10) : "-"}</td>
+                      <td className="py-2 px-3">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-slate-100">{s.customerName}</span>
+                          {s.customerBizNo && (
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {s.customerBizNo} {s.customerEmail ? `| ${s.customerEmail}` : ""}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2 px-3 text-slate-200">
+                        <div className="flex items-center gap-1.5">
+                          <span>{s.skuCode ? `[${s.skuCode}] ` : ""}{firstItemName}</span>
+                          {itemCount > 1 && (
+                            <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-[10px] font-bold">
+                              외 {itemCount - 1}종 (총 {itemCount}종)
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono text-slate-200">{formatErpQty(s.qty, s.unit)}</td>
+                      <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(s.unitPrice)}</td>
+                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(s.totalAmount)}</td>
+                      <td className="py-2 px-3 text-right font-mono text-slate-400">{formatErpCurrency(s.cogsAmount)}</td>
+                      <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
+                        {formatErpCurrency(s.marginAmount)} ({s.marginRate}%)
+                      </td>
+                      <td className="py-2 px-3 text-center">
+                        {s.hasContractFile ? (
+                          <button
+                            onClick={() => handleOpenSaleFile(s)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-500/40 text-indigo-300 rounded text-[11px] font-semibold transition"
+                          >
+                            <FileText className="w-3 h-3" />
+                            <span>열람</span>
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-500">미첨부</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-center">
+                        {s.taxInvoiceId ? (
+                          <span className="px-2 py-0.5 bg-emerald-900/40 border border-emerald-500/40 text-emerald-300 rounded text-[11px] font-semibold font-mono">
+                            발행완료 ({s.taxInvoiceNo || `#${s.taxInvoiceId}`})
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleOpenBillingFromSale(s)}
+                            className="px-2 py-0.5 bg-emerald-900/50 hover:bg-emerald-800 border border-emerald-600/50 text-emerald-300 rounded text-[11px] font-semibold transition"
+                          >
+                            + 청구생성
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1074,6 +1301,24 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
+                <th className="py-2.5 px-2 text-center w-8">
+                  <input
+                    type="checkbox"
+                    checked={
+                      sortedBillings.filter((b) => !b.taxInvoiceId).length > 0 &&
+                      selectedBillingIds.length === sortedBillings.filter((b) => !b.taxInvoiceId).length
+                    }
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedBillingIds(sortedBillings.filter((b) => !b.taxInvoiceId).map((b) => b.id));
+                      } else {
+                        setSelectedBillingIds([]);
+                      }
+                    }}
+                    className="rounded border-slate-700"
+                    title="미발행 청구 전체 선택 (묶음 세금계산서 발행용)"
+                  />
+                </th>
                 <th className="py-2.5 px-3 text-center">관리</th>
                 {renderSortTh("귀속 사업자", "entityType")}
                 {renderSortTh("청구번호", "billingNo")}
@@ -1090,13 +1335,26 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedBillings.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-8 text-center text-slate-500">
+                  <td colSpan={12} className="py-8 text-center text-slate-500">
                     생성된 유통 청구 내역이 없습니다. 판매 계약 대장에서 [+ 청구생성]을 눌러 청구를 생성하세요.
                   </td>
                 </tr>
               ) : (
                 sortedBillings.map((b) => (
                   <tr key={b.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
+                    <td className="py-2 px-2 text-center">
+                      {!b.taxInvoiceId && (
+                        <input
+                          type="checkbox"
+                          checked={selectedBillingIds.includes(b.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedBillingIds((prev) => [...prev, b.id]);
+                            else setSelectedBillingIds((prev) => prev.filter((id) => id !== b.id));
+                          }}
+                          className="rounded border-slate-700"
+                        />
+                      )}
+                    </td>
                     <td className="py-2 px-3 text-center">
                       <button
                         onClick={() => handleDeleteBilling(b)}
@@ -1120,7 +1378,14 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     </td>
                     <td className="py-2 px-3 font-mono text-blue-400 font-bold">{b.billingNo}</td>
                     <td className="py-2 px-3 font-mono text-slate-300">{b.billingDate}</td>
-                    <td className="py-2 px-3 font-mono text-slate-400">{b.saleNo}</td>
+                    <td className="py-2 px-3 font-mono text-slate-400">
+                      {b.saleNo}
+                      {Array.isArray(b.saleIds) && b.saleIds.length > 1 && (
+                        <span className="ml-1 px-1.5 py-0.5 rounded bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-[10px] font-bold">
+                          외 {b.saleIds.length - 1}건 묶음
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2 px-3">
                       <div className="flex flex-col">
                         <span className="font-bold text-slate-100">{b.customerName}</span>
@@ -1617,127 +1882,153 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400 font-bold">판매 상품 *</label>
-                  <select
-                    value={soProductId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setSoProductId(id);
-                      const prod = products.find((p) => p.id.toString() === id);
-                      if (prod) {
-                        const unitP = Number(prod.standard_price || 0);
-                        const qtyN = cleanErpNumber(soQty) || 1;
-                        const sup = unitP * qtyN;
-                        const vat = Math.round(sup * 0.1);
-                        setSoUnitPrice(formatErpInputNumber(String(unitP)));
-                        setSoVatAmount(formatErpInputNumber(String(vat)));
-                        setSoTaxSpec((prev) => ({
-                          ...prev,
-                          taxMemo: prev.taxMemo && prev.taxMemo !== "판매 상품" ? prev.taxMemo : "{1번째 아이템} 외",
-                          taxItems: prev.taxItems.map((it, idx) =>
-                            idx === 0
-                              ? {
-                                  ...it,
-                                  itemName: prod.name,
-                                  spec: prod.spec || "",
-                                  qty: qtyN,
-                                  unitCost: unitP,
-                                  supplyAmount: sup,
-                                  vatAmount: vat,
-                                }
-                              : it
-                          ),
-                        }));
-                      }
-                    }}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    required
-                  >
-                    <option value="">선택하십시오</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        [{p.sku_code}] {p.name} (현재고: {formatErpQty(p.current_stock, p.unit)})
-                      </option>
-                    ))}
-                  </select>
+              {/* 판매일자 & 다중 제품 출고 선택 섹션 */}
+              <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-950/60 border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-emerald-400 font-bold text-xs">출고 제품 목록 (1건의 계약에 여러 종의 제품 포함 가능)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-slate-400 font-bold text-[11px]">판매(출고)일자</label>
+                    <input
+                      type="date"
+                      value={soDate}
+                      onChange={(e) => {
+                        setSoDate(e.target.value);
+                        syncSoItemsToTaxSpec(soItems, e.target.value);
+                      }}
+                      className="h-7 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white font-mono text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = [...soItems, { productId: "", qty: "1", unitPrice: "0", vatAmount: "0" }];
+                        setSoItems(next);
+                        syncSoItemsToTaxSpec(next);
+                      }}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-bold flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>제품 행 추가</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400 font-bold">판매일자</label>
-                  <input
-                    type="date"
-                    value={soDate}
-                    onChange={(e) => setSoDate(e.target.value)}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white font-mono"
-                  />
-                </div>
-              </div>
+                <div className="flex flex-col gap-1.5">
+                  {soItems.map((row, rIdx) => {
+                    const rowSupply = (cleanErpNumber(row.qty) || 0) * (cleanErpNumber(row.unitPrice) || 0);
+                    return (
+                      <div key={rIdx} className="grid grid-cols-12 gap-1.5 items-end bg-slate-900/70 p-2 rounded border border-slate-800">
+                        <div className="col-span-5 flex flex-col gap-1">
+                          <label className="text-[10px] text-slate-400 font-semibold">제품 #{rIdx + 1} *</label>
+                          <select
+                            value={row.productId}
+                            onChange={(e) => {
+                              const pid = e.target.value;
+                              const prod = products.find((p) => String(p.id) === pid);
+                              const unitP = prod ? Number(prod.standard_price || 0) : 0;
+                              const q = cleanErpNumber(row.qty) || 1;
+                              const sup = unitP * q;
+                              const vat = Math.round(sup * 0.1);
+                              const next = soItems.map((it, idx) =>
+                                idx === rIdx
+                                  ? {
+                                      productId: pid,
+                                      qty: formatErpInputNumber(String(q)),
+                                      unitPrice: formatErpInputNumber(String(unitP)),
+                                      vatAmount: formatErpInputNumber(String(vat)),
+                                    }
+                                  : it
+                              );
+                              setSoItems(next);
+                              syncSoItemsToTaxSpec(next);
+                            }}
+                            className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white text-xs"
+                            required
+                          >
+                            <option value="">-- 출고 제품 선택 --</option>
+                            {products.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                [{p.sku_code}] {p.name} (현재고: {formatErpQty(p.current_stock, p.unit)})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400 font-bold">판매 수량 *</label>
-                  <input
-                    type="text"
-                    value={soQty}
-                    onChange={(e) => {
-                      const formatted = formatErpInputNumber(e.target.value);
-                      setSoQty(formatted);
-                      const qtyN = cleanErpNumber(formatted);
-                      const unitP = cleanErpNumber(soUnitPrice);
-                      const sup = qtyN * unitP;
-                      const vat = Math.round(sup * 0.1);
-                      setSoVatAmount(formatErpInputNumber(String(vat)));
-                      setSoTaxSpec((prev) => ({
-                        ...prev,
-                        taxItems: prev.taxItems.map((it, idx) =>
-                          idx === 0
-                            ? { ...it, qty: qtyN, unitCost: unitP, supplyAmount: sup, vatAmount: vat }
-                            : it
-                        ),
-                      }));
-                    }}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    placeholder="예: 1"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400 font-bold">판매 단가 (원) *</label>
-                  <input
-                    type="text"
-                    value={soUnitPrice}
-                    onChange={(e) => {
-                      const formatted = formatErpInputNumber(e.target.value);
-                      setSoUnitPrice(formatted);
-                      const unitP = cleanErpNumber(formatted);
-                      const qtyN = cleanErpNumber(soQty);
-                      const sup = qtyN * unitP;
-                      const vat = Math.round(sup * 0.1);
-                      setSoVatAmount(formatErpInputNumber(String(vat)));
-                      setSoTaxSpec((prev) => ({
-                        ...prev,
-                        taxItems: prev.taxItems.map((it, idx) =>
-                          idx === 0
-                            ? { ...it, qty: qtyN, unitCost: unitP, supplyAmount: sup, vatAmount: vat }
-                            : it
-                        ),
-                      }));
-                    }}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    placeholder="예: 50,000"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400 font-bold">세액 (부가세)</label>
-                  <input
-                    type="text"
-                    value={soVatAmount}
-                    onChange={(e) => setSoVatAmount(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  />
+                        <div className="col-span-2 flex flex-col gap-1">
+                          <label className="text-[10px] text-slate-400 font-semibold">수량 *</label>
+                          <input
+                            type="text"
+                            value={row.qty}
+                            onChange={(e) => {
+                              const formatted = formatErpInputNumber(e.target.value);
+                              const q = cleanErpNumber(formatted);
+                              const u = cleanErpNumber(row.unitPrice);
+                              const sup = q * u;
+                              const vat = Math.round(sup * 0.1);
+                              const next = soItems.map((it, idx) =>
+                                idx === rIdx
+                                  ? { ...it, qty: formatted, vatAmount: formatErpInputNumber(String(vat)) }
+                                  : it
+                              );
+                              setSoItems(next);
+                              syncSoItemsToTaxSpec(next);
+                            }}
+                            className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white text-xs"
+                            required
+                          />
+                        </div>
+
+                        <div className="col-span-2 flex flex-col gap-1">
+                          <label className="text-[10px] text-slate-400 font-semibold">단가 (원) *</label>
+                          <input
+                            type="text"
+                            value={row.unitPrice}
+                            onChange={(e) => {
+                              const formatted = formatErpInputNumber(e.target.value);
+                              const u = cleanErpNumber(formatted);
+                              const q = cleanErpNumber(row.qty);
+                              const sup = q * u;
+                              const vat = Math.round(sup * 0.1);
+                              const next = soItems.map((it, idx) =>
+                                idx === rIdx
+                                  ? { ...it, unitPrice: formatted, vatAmount: formatErpInputNumber(String(vat)) }
+                                  : it
+                              );
+                              setSoItems(next);
+                              syncSoItemsToTaxSpec(next);
+                            }}
+                            className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white text-xs"
+                            required
+                          />
+                        </div>
+
+                        <div className="col-span-2 flex flex-col gap-1">
+                          <label className="text-[10px] text-slate-400 font-semibold">공급가액</label>
+                          <div className="h-8 px-2 flex items-center justify-end bg-slate-950 border border-slate-800 rounded font-mono text-emerald-400 font-bold text-xs">
+                            ₩{formatErpCurrency(rowSupply)}
+                          </div>
+                        </div>
+
+                        <div className="col-span-1 flex items-center justify-center">
+                          {soItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = soItems.filter((_, idx) => idx !== rIdx);
+                                setSoItems(next);
+                                syncSoItemsToTaxSpec(next);
+                              }}
+                              className="h-8 w-8 flex items-center justify-center rounded bg-rose-900/40 hover:bg-rose-900/70 text-rose-300 border border-rose-700/40"
+                              title="제품 행 삭제"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

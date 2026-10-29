@@ -256,9 +256,11 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
       }
 
       showFeedback(
-        `[${data.fromCustomer}] 출고 자산(${data.assetNo}) 입고 등록 완료 (상태: ${
-          data.nextStatus === "AVAILABLE" ? "임대가능" : "정비/수리중"
-        })`
+        `[${data.fromCustomer}] 출고 자산(${data.assetNo}) 반납 입고 및 고객 임대계약 차감(-₩${formatErpNumber(
+          data.deductedRate || 0
+        )}) 완료 (잔여 대여: ${formatErpNumber(data.remainingAssetCount || 0)}대 / 월 ₩${formatErpNumber(
+          data.remainingMonthlyRate || 0
+        )})`
       );
 
       setLookupInput("");

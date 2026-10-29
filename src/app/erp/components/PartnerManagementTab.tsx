@@ -183,11 +183,20 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   const [isBankCopyDragging, setIsBankCopyDragging] = useState<boolean>(false);
   const [isDirectBizCertDragging, setIsDirectBizCertDragging] = useState<boolean>(false);
 
-  // OCR Processing States
+  // OCR Processing States (Business Registration Certificate)
   const [ocrLoading, setOcrLoading] = useState<boolean>(false);
   const [ocrResult, setOcrResult] = useState<any>(null);
   const [ocrPreviewFileUrl, setOcrPreviewFileUrl] = useState<string>("");
   const [ocrFileName, setOcrFileName] = useState<string>("");
+
+  // Bankbook OCR Modal & Processing States
+  const [showBankOcrModal, setShowBankOcrModal] = useState<boolean>(false);
+  const [bankOcrLoading, setBankOcrLoading] = useState<boolean>(false);
+  const [bankOcrResult, setBankOcrResult] = useState<any>(null);
+  const [bankOcrPreviewUrl, setBankOcrPreviewUrl] = useState<string>("");
+  const [bankOcrFileName, setBankOcrFileName] = useState<string>("");
+  const [isBankOcrModalDragging, setIsBankOcrModalDragging] = useState<boolean>(false);
+  const bankOcrModalFileInputRef = useRef<HTMLInputElement>(null);
 
   // Partner Form State
   const [partnerForm, setPartnerForm] = useState<any>({
@@ -764,21 +773,216 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     return false;
   };
 
-  // Direct Bank Copy Upload
-  const handleBankCopyFileUpload = async (file: File) => {
-    if (!file) return;
+  // Universal Bankbook Copy OCR Processor
+  const processBankCopyOcr = async (file: File): Promise<{
+    bankName: string;
+    bankAccountNo: string;
+    bankAccountHolder: string;
+    branchName?: string;
+    previewUrl: string;
+  }> => {
+    const isPdf =
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf");
+
+    let imageBase64 = "";
+    let textHint = "";
+
+    if (isPdf) {
+      try {
+        const pdfOut = await extractPdfImageAndText(file);
+        imageBase64 = pdfOut.imageBase64;
+        textHint = pdfOut.textHint;
+      } catch (pdfErr) {
+        console.warn("Client PDF render fallback for bank copy:", pdfErr);
+      }
+    } else {
+      imageBase64 = await resizeImageToBase64(file, 1800);
+    }
+
+    const rawUrl = await readFileAsDataUrl(file);
+
+    const res = await fetch("/api/erp/partners/ocr-bank", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        imageBase64: imageBase64 || undefined,
+        rawText: textHint || undefined,
+        fileName: file.name,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success || !data.parsed) {
+      throw new Error(data?.error || "통장사본 OCR 판독에 실패했습니다.");
+    }
+
+    return {
+      bankName: data.parsed.bankName || "",
+      bankAccountNo: data.parsed.bankAccountNo || "",
+      bankAccountHolder: data.parsed.bankAccountHolder || "",
+      branchName: data.parsed.branchName || "",
+      previewUrl: rawUrl,
+    };
+  };
+
+  // Re-run OCR on currently uploaded bank copy fileData
+  const handleReRunBankOcr = async () => {
+    if (!partnerForm.bankCopyFileUrl) return;
+    setBankOcrLoading(true);
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const res = await fetch("/api/erp/partners/ocr-bank", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileData: partnerForm.bankCopyFileUrl,
+          fileName: partnerForm.bankCopyFileName || "통장사본",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.parsed) {
+        throw new Error(data?.error || "통장사본 OCR 판독 실패");
+      }
+      const p = data.parsed;
       setPartnerForm((prev: any) => ({
         ...prev,
-        bankCopyFileUrl: dataUrl,
-        bankCopyFileName: file.name,
-        bankAccountHolder: prev.bankAccountHolder || prev.name || prev.ceoName || "",
+        bankName: p.bankName || prev.bankName,
+        bankAccountNo: p.bankAccountNo || prev.bankAccountNo,
+        bankAccountHolder: p.bankAccountHolder || prev.bankAccountHolder,
       }));
-      showToast(`통장사본(${file.name})이 첨부되었습니다.`);
+      const details = [
+        p.bankName && `은행: ${p.bankName}`,
+        p.bankAccountNo && `계좌: ${p.bankAccountNo}`,
+        p.bankAccountHolder && `예금주: ${p.bankAccountHolder}`,
+      ].filter(Boolean).join(" | ");
+      showToast(`통장사본 OCR 재판독 완료 (${details || "반영됨"})`);
     } catch (err: any) {
-      showToast("통장사본 파일 읽기 실패", "error");
+      showToast(err.message || "통장사본 OCR 판독 실패", "error");
+    } finally {
+      setBankOcrLoading(false);
     }
+  };
+
+  // Direct Bank Copy Upload with Automatic OCR
+  const handleBankCopyFileUpload = async (file: File) => {
+    if (!file) return;
+    setBankOcrLoading(true);
+    try {
+      const ocr = await processBankCopyOcr(file);
+      setPartnerForm((prev: any) => ({
+        ...prev,
+        bankCopyFileUrl: ocr.previewUrl,
+        bankCopyFileName: file.name,
+        bankName: ocr.bankName || prev.bankName,
+        bankAccountNo: ocr.bankAccountNo || prev.bankAccountNo,
+        bankAccountHolder: ocr.bankAccountHolder || prev.bankAccountHolder || prev.name || prev.ceoName || "",
+      }));
+      const details = [
+        ocr.bankName && `은행: ${ocr.bankName}`,
+        ocr.bankAccountNo && `계좌: ${ocr.bankAccountNo}`,
+        ocr.bankAccountHolder && `예금주: ${ocr.bankAccountHolder}`,
+      ].filter(Boolean).join(", ");
+      showToast(`통장사본 자동 인식 완료 (${details || file.name})`);
+    } catch (err: any) {
+      try {
+        const fallbackUrl = await readFileAsDataUrl(file);
+        setPartnerForm((prev: any) => ({
+          ...prev,
+          bankCopyFileUrl: fallbackUrl,
+          bankCopyFileName: file.name,
+        }));
+        showToast("통장사본 첨부 완료 (OCR 추출 불가로 수기 입력 필요)", "error");
+      } catch (fErr) {
+        showToast("통장사본 파일 읽기 실패", "error");
+      }
+    } finally {
+      setBankOcrLoading(false);
+    }
+  };
+
+  // Bankbook OCR Modal: File Processing
+  const handleBankModalFileUpload = async (file: File) => {
+    if (!file) return;
+    setBankOcrLoading(true);
+    setBankOcrFileName(file.name);
+    setBankOcrResult(null);
+
+    try {
+      const ocr = await processBankCopyOcr(file);
+      setBankOcrPreviewUrl(ocr.previewUrl);
+      setBankOcrResult({
+        bankName: ocr.bankName,
+        bankAccountNo: ocr.bankAccountNo,
+        bankAccountHolder: ocr.bankAccountHolder,
+        branchName: ocr.branchName,
+      });
+      showToast(`통장사본 분석 완료: ${ocr.bankName || "은행"} ${ocr.bankAccountNo || ""}`);
+    } catch (e: any) {
+      showToast(e.message || "통장사본 OCR 판독 실패", "error");
+    } finally {
+      setBankOcrLoading(false);
+    }
+  };
+
+  // Drag Event Handlers for Bank Copy OCR Modal
+  const handleBankOcrDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isBankOcrModalDragging) setIsBankOcrModalDragging(true);
+  };
+
+  const handleBankOcrDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsBankOcrModalDragging(false);
+  };
+
+  const handleBankOcrDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsBankOcrModalDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleBankModalFileUpload(e.dataTransfer.files[0]);
+    }
+  };
+
+  // Apply Bank OCR result to Partner Form (opens CREATE modal as VENDOR)
+  const handleApplyBankOcrToForm = () => {
+    if (!bankOcrResult) return;
+    setPartnerModalMode("CREATE");
+    setPartnerForm({
+      id: 0,
+      partnerType: "VENDOR",
+      partnerCode: "",
+      name: bankOcrResult.bankAccountHolder || "",
+      businessNo: "",
+      corporateNo: "",
+      ceoName: bankOcrResult.bankAccountHolder || "",
+      bizType: "",
+      bizItem: "",
+      address: "",
+      addressDetail: "",
+      mainPhone: "",
+      mainEmail: "",
+      faxNo: "",
+      managerEmployeeId: currentUser?.id ? String(currentUser.id) : "",
+      managerName: currentUser?.name || "",
+      statementClosingDay: "매월 25일",
+      taxInvoiceClosingDay: "익월 10일",
+      paymentDueDay: "익월 15일",
+      status: "ACTIVE",
+      memo: `통장사본 기반 등록 (${bankOcrFileName})`,
+      bizCertFileUrl: "",
+      bizCertFileName: "",
+      bankName: bankOcrResult.bankName || "",
+      bankAccountNo: bankOcrResult.bankAccountNo || "",
+      bankAccountHolder: bankOcrResult.bankAccountHolder || "",
+      bankCopyFileUrl: bankOcrPreviewUrl || "",
+      bankCopyFileName: bankOcrFileName || "",
+    });
+    setShowBankOcrModal(false);
+    setShowPartnerModal(true);
+    showToast("통장사본 정보가 매입거래처 등록 양식에 자동 입력되었습니다.");
   };
 
   // Direct Business Registration Certificate Upload
@@ -1089,6 +1293,21 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
           >
             <FileUp className="w-3.5 h-3.5" />
             <span>사업자등록증 간편등록</span>
+          </button>
+
+          {/* 통장사본 간편 등록 버튼 (매입거래처 OCR) */}
+          <button
+            onClick={() => {
+              setBankOcrResult(null);
+              setBankOcrPreviewUrl("");
+              setBankOcrFileName("");
+              setShowBankOcrModal(true);
+            }}
+            className="px-3 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
+            title="통장사본 OCR로 매입거래처 간편등록"
+          >
+            <Landmark className="w-3.5 h-3.5" />
+            <span>통장사본 간편등록</span>
           </button>
 
           {/* 신규 직접 등록 */}
@@ -2074,11 +2293,25 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                   </div>
                 </div>
 
+                {/* Bank OCR Loading indicator */}
+                {bankOcrLoading && (
+                  <div className="p-2.5 bg-[#ecfdf5] border border-[#a7f3d0] rounded text-[#065f46] flex items-center justify-center gap-2 text-xs font-bold dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 animate-pulse">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>통장사본 AI 판독 중... (은행명, 계좌번호, 예금주 자동 추출)</span>
+                  </div>
+                )}
+
                 {/* 통장사본 드롭존 / 첨부 파일 */}
                 <div className="pt-1">
-                  <label className="text-[#0f172a] dark:text-slate-200 font-semibold block mb-1">
-                    통장사본 원본 파일 (PDF 또는 이미지)
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold block">
+                      통장사본 원본 파일 (PDF 또는 이미지)
+                    </label>
+                    <span className="text-[10px] text-[#047857] dark:text-emerald-400 font-bold flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" />
+                      <span>AI OCR 자동 입력 지원</span>
+                    </span>
+                  </div>
                   <input
                     type="file"
                     ref={bankCopyInputRef}
@@ -2106,6 +2339,16 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          disabled={bankOcrLoading}
+                          onClick={handleReRunBankOcr}
+                          className="px-2 py-1 bg-[#047857] hover:bg-[#065f46] disabled:opacity-50 text-white rounded text-[11px] font-bold flex items-center gap-1 transition shadow-xs"
+                          title="통장사본 OCR 재판독 및 계좌정보 자동추출"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>{bankOcrLoading ? "판독 중..." : "OCR 재판독"}</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
@@ -2160,7 +2403,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                           handleBankCopyFileUpload(e.dataTransfer.files[0]);
                         }
                       }}
-                      className={`p-3 border-2 border-dashed rounded text-center cursor-pointer transition ${
+                      className={`p-3.5 border-2 border-dashed rounded text-center cursor-pointer transition ${
                         isBankCopyDragging
                           ? "border-[#047857] bg-[#ecfdf5] dark:bg-emerald-950/40"
                           : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#ebe5d8] dark:border-slate-700 dark:bg-slate-950"
@@ -2170,8 +2413,8 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                       <p className="text-xs font-semibold text-[#0f172a] dark:text-slate-200">
                         통장사본 파일을 드래그하여 놓거나 클릭하여 선택
                       </p>
-                      <p className="text-[10px] text-[#475569] dark:text-slate-500 font-mono mt-0.5">
-                        PDF 문서, JPG, PNG 파일 지원
+                      <p className="text-[10px] text-[#047857] dark:text-emerald-400 font-bold mt-0.5">
+                        ✨ 파일 첨부 즉시 AI OCR로 은행명·계좌번호·예금주 자동 추출 및 채움
                       </p>
                     </div>
                   )}
@@ -2543,6 +2786,212 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>이 정보로 거래처 등록 양식 채우기</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 2-2. Modal: 통장사본 OCR 간편등록 모달 (Bank Copy Drag-and-Drop & Paper Tone) */}
+      {/* ========================================================================= */}
+      {showBankOcrModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#ebe5d8] border-2 border-[#b5a894] text-[#0f172a] rounded-lg p-5 w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100">
+            {/* Header */}
+            <div className="pb-3 border-b border-[#b5a894] dark:border-slate-800 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <Landmark className="w-4 h-4 text-[#047857] dark:text-emerald-400" />
+                <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100">
+                  통장사본 자동 인식 및 간편 매입거래처 등록
+                </h2>
+              </div>
+              <button
+                onClick={() => setShowBankOcrModal(false)}
+                className="text-[#475569] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto py-3 space-y-4 text-xs">
+              {/* Spacious Full Drag & Drop Zone */}
+              <div
+                onDragOver={handleBankOcrDragOver}
+                onDragEnter={handleBankOcrDragOver}
+                onDragLeave={handleBankOcrDragLeave}
+                onDrop={handleBankOcrDrop}
+                onClick={() => bankOcrModalFileInputRef.current?.click()}
+                className={`p-6 rounded-lg border-2 border-dashed transition cursor-pointer text-center flex flex-col items-center justify-center gap-3 ${
+                  isBankOcrModalDragging
+                    ? "border-[#047857] bg-[#ecfdf5] scale-[1.01]"
+                    : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#ede6d6] hover:border-[#047857]"
+                } dark:bg-slate-900 dark:border-slate-700`}
+              >
+                <input
+                  ref={bankOcrModalFileInputRef}
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleBankModalFileUpload(file);
+                  }}
+                />
+
+                <div className="pointer-events-none flex flex-col items-center justify-center gap-3 w-full">
+                  <div
+                    className={`p-3 rounded-full ${
+                      isBankOcrModalDragging
+                        ? "bg-[#047857] text-white"
+                        : "bg-[#e2dbcd] text-[#047857] dark:bg-slate-800 dark:text-emerald-400"
+                    }`}
+                  >
+                    <Landmark className="w-8 h-8" />
+                  </div>
+
+                  <div>
+                    <span className="font-bold text-sm text-[#0f172a] dark:text-slate-100 block mb-1">
+                      {isBankOcrModalDragging
+                        ? "여기에 통장사본 파일을 내려놓으세요!"
+                        : "통장사본 파일을 여기로 드래그 앤 드롭하세요"}
+                    </span>
+                    <p className="text-xs text-[#475569] dark:text-slate-400">
+                      은행명, 계좌번호, 예금주를 AI OCR로 자동 분석하여 매입거래처 양식에 채워 넣습니다.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 bg-[#047857] text-white rounded font-bold text-xs shadow-xs hover:bg-[#065f46]">
+                      파일 선택
+                    </span>
+                    {bankOcrFileName && (
+                      <span className="text-xs font-mono text-[#047857] font-bold">
+                        선택됨: {bankOcrFileName}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* OCR Loading Indicator */}
+              {bankOcrLoading && (
+                <div className="p-6 bg-[#f4efe4] rounded border border-[#b5a894] text-center text-[#047857] flex flex-col items-center justify-center gap-2 dark:bg-slate-950 dark:border-slate-800">
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                  <span className="font-bold">통장사본을 정밀 분석하여 계좌 정보를 추출하고 있습니다...</span>
+                </div>
+              )}
+
+              {/* OCR Parsing Result Preview (Editable) */}
+              {bankOcrResult && !bankOcrLoading && (
+                <div className="p-4 bg-[#f4efe4] rounded-lg border border-[#b5a894] space-y-3 dark:bg-slate-950 dark:border-slate-800">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#b5a894] dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <Landmark className="w-4 h-4 text-[#047857]" />
+                      <strong className="text-[#0f172a] text-sm dark:text-slate-200">
+                        {bankOcrResult.bankName || "은행 확인 필요"}
+                      </strong>
+                      <span className="text-xs font-mono text-[#1d4ed8] font-bold">
+                        [{bankOcrResult.bankAccountNo || "계좌번호 확인 필요"}]
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {bankOcrPreviewUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDocument({
+                              title: "통장사본 원본",
+                              partnerName: bankOcrResult.bankAccountHolder || "통장사본",
+                              url: bankOcrPreviewUrl,
+                              fileName: bankOcrFileName,
+                            });
+                          }}
+                          className="text-[11px] font-bold text-[#1d4ed8] hover:underline flex items-center gap-1"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>원본 미리보기</span>
+                        </button>
+                      )}
+                      <span className="text-[11px] font-bold text-[#047857] bg-[#ecfdf5] px-2 py-0.5 rounded border border-[#a7f3d0]">
+                        분석 완료
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-xs">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">지급 은행명</label>
+                      <input
+                        type="text"
+                        list="korean-bank-list-modal"
+                        value={bankOcrResult.bankName || ""}
+                        onChange={(e) => setBankOcrResult({ ...bankOcrResult, bankName: e.target.value })}
+                        placeholder="은행명 선택 또는 입력"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-bold focus:outline-none focus:border-[#047857] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
+                      <datalist id="korean-bank-list-modal">
+                        {KOREAN_BANKS.map((b) => (
+                          <option key={b} value={b} />
+                        ))}
+                      </datalist>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">계좌번호</label>
+                      <input
+                        type="text"
+                        value={bankOcrResult.bankAccountNo || ""}
+                        onChange={(e) => setBankOcrResult({ ...bankOcrResult, bankAccountNo: e.target.value })}
+                        placeholder="000-00-000000"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono font-bold focus:outline-none focus:border-[#047857] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">예금주 (상호 / 성명)</label>
+                      <input
+                        type="text"
+                        value={bankOcrResult.bankAccountHolder || ""}
+                        onChange={(e) => setBankOcrResult({ ...bankOcrResult, bankAccountHolder: e.target.value })}
+                        placeholder="예금주 입력"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-semibold focus:outline-none focus:border-[#047857] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[#475569] text-[10px] font-semibold">개설 지점 (관리점)</label>
+                      <input
+                        type="text"
+                        value={bankOcrResult.branchName || ""}
+                        onChange={(e) => setBankOcrResult({ ...bankOcrResult, branchName: e.target.value })}
+                        placeholder="지점명 (선택사항)"
+                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded focus:outline-none focus:border-[#047857] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowBankOcrModal(false)}
+                className="px-3.5 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-xs font-semibold dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+              >
+                닫기
+              </button>
+              <button
+                type="button"
+                disabled={!bankOcrResult}
+                onClick={handleApplyBankOcrToForm}
+                className="px-4 py-1.5 bg-[#047857] hover:bg-[#065f46] disabled:opacity-50 text-white font-bold rounded shadow text-xs flex items-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>이 정보로 매입거래처 등록 양식 채우기</span>
               </button>
             </div>
           </div>

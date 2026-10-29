@@ -170,6 +170,213 @@ export async function POST(request: Request) {
   }
 }
 
+// PUT: Update rental contract
+export async function PUT(request: Request) {
+  try {
+    const body = await request.json();
+    const {
+      id,
+      partnerId,
+      customerName,
+      siteName,
+      startDate,
+      endDate,
+      monthlyRate,
+      dailyRate,
+      deposit,
+      status,
+      memo,
+      entityType,
+      contractFileUrl,
+      contractFileName,
+    } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: "수정할 임대계약 식별자(ID)가 필요합니다." }, { status: 400 });
+    }
+
+    if (!customerName || !startDate || !endDate) {
+      return NextResponse.json({ error: "고객사, 계약 시작일, 종료일은 필수입니다." }, { status: 400 });
+    }
+
+    const pool = getErpPool();
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const contractRes = await client.query(
+        "SELECT id, contract_no, asset_id, entity_type FROM erp_rental_contracts WHERE id = $1 FOR UPDATE",
+        [parseInt(String(id), 10)]
+      );
+      if (contractRes.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return NextResponse.json({ error: "해당 계약을 찾을 수 없습니다." }, { status: 404 });
+      }
+      const existing = contractRes.rows[0];
+
+      const assignedEntity = entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
+
+      const updateRes = await client.query(
+        `
+        UPDATE erp_rental_contracts
+        SET
+          entity_type = COALESCE($1, entity_type),
+          partner_id = $2,
+          customer_name = $3,
+          site_name = $4,
+          start_date = $5,
+          end_date = $6,
+          monthly_rate = $7,
+          daily_rate = $8,
+          deposit = $9,
+          status = COALESCE($10, status),
+          memo = $11,
+          contract_file_url = CASE WHEN $12::text = '__DELETE__' THEN NULL ELSE COALESCE($12, contract_file_url) END,
+          contract_file_name = CASE WHEN $12::text = '__DELETE__' THEN NULL ELSE COALESCE($13, contract_file_name) END
+        WHERE id = $14
+        RETURNING id, contract_no AS "contractNo", customer_name AS "customerName", site_name AS "siteName"
+        `,
+        [
+          assignedEntity,
+          partnerId ? parseInt(String(partnerId), 10) : null,
+          customerName.trim(),
+          siteName || "본사/지정현장",
+          startDate,
+          endDate,
+          parseFloat(monthlyRate || "0"),
+          parseFloat(dailyRate || "0"),
+          parseFloat(deposit || "0"),
+          status || null,
+          memo || "",
+          contractFileUrl || null,
+          contractFileName || null,
+          parseInt(String(id), 10),
+        ]
+      );
+
+      // Sync customer & site to asset
+      if (existing.asset_id) {
+        await client.query(
+          "UPDATE erp_rental_assets SET current_customer = $1, current_site = $2, updated_at = NOW() WHERE id = $3",
+          [customerName.trim(), siteName || "본사/지정현장", existing.asset_id]
+        );
+      }
+
+      // Audit log
+      await client.query(
+        `INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
+         VALUES ('RENTAL_CONTRACT', 'UPDATE', $1, 'ADMIN', $2)`,
+        [existing.contract_no, JSON.stringify({ customerName, siteName, monthlyRate, entityType: assignedEntity })]
+      );
+
+      await client.query("COMMIT");
+      return NextResponse.json({ success: true, contract: updateRes.rows[0], message: "임대계약이 성공적으로 수정되었습니다." });
+    } catch (e: any) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (error: any) {
+    console.error("PUT Rental Contract Error:", error);
+    return NextResponse.json({ error: "임대계약 수정 실패: " + error.message }, { status: 500 });
+  }
+}
+
+// DELETE: Delete rental contract, restore asset to AVAILABLE, and clean unissued billings
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    let idParam = searchParams.get("id");
+
+    if (!idParam) {
+      try {
+        const body = await request.json();
+        idParam = body.id;
+      } catch (e) {
+        // query param was empty and body not provided
+      }
+    }
+
+    if (!idParam) {
+      return NextResponse.json({ error: "삭제할 계약 식별자(ID)가 필요합니다." }, { status: 400 });
+    }
+
+    const contractId = parseInt(String(idParam), 10);
+    const pool = getErpPool();
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      // 1. Verify existence & lock
+      const ctRes = await client.query(
+        "SELECT id, contract_no, customer_name, site_name, asset_id, status FROM erp_rental_contracts WHERE id = $1 FOR UPDATE",
+        [contractId]
+      );
+      if (ctRes.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return NextResponse.json({ error: "삭제할 임대계약을 찾을 수 없습니다." }, { status: 404 });
+      }
+      const ct = ctRes.rows[0];
+
+      // 2. Check if any billings have issued tax invoices
+      const issuedCheck = await client.query(
+        "SELECT id, billing_no FROM erp_rental_billings WHERE contract_id = $1 AND tax_invoice_id IS NOT NULL",
+        [contractId]
+      );
+      if (issuedCheck.rows.length > 0) {
+        await client.query("ROLLBACK");
+        return NextResponse.json({
+          error: `이미 국세청 전자세금계산서가 발행된 청구 내역(청구번호: ${issuedCheck.rows.map(r => r.billing_no).join(", ")})이 존재하여 계약을 삭제할 수 없습니다. 먼저 세금계산서 대장을 확인해 주십시오.`
+        }, { status: 400 });
+      }
+
+      // 3. Delete unissued billings
+      await client.query(
+        "DELETE FROM erp_rental_billings WHERE contract_id = $1 AND tax_invoice_id IS NULL",
+        [contractId]
+      );
+
+      // 4. Restore asset to AVAILABLE (헌장 1.2, 1.3 핵심 준수)
+      if (ct.asset_id) {
+        await client.query(
+          "UPDATE erp_rental_assets SET status = 'AVAILABLE', current_customer = NULL, current_site = NULL, contract_no = NULL, updated_at = NOW() WHERE id = $1",
+          [ct.asset_id]
+        );
+      }
+
+      // 5. Delete the contract
+      await client.query(
+        "DELETE FROM erp_rental_contracts WHERE id = $1",
+        [contractId]
+      );
+
+      // 6. Audit log
+      await client.query(
+        `INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
+         VALUES ('RENTAL_CONTRACT', 'DELETE', $1, 'ADMIN', $2)`,
+        [ct.contract_no, JSON.stringify({ customerName: ct.customer_name, siteName: ct.site_name, assetId: ct.asset_id })]
+      );
+
+      await client.query("COMMIT");
+      return NextResponse.json({
+        success: true,
+        message: `임대계약 [${ct.contract_no}]이 삭제되었으며, 배정 자산이 '대여가능(AVAILABLE)' 상태로 자동 복구되었습니다.`
+      });
+    } catch (e: any) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (error: any) {
+    console.error("DELETE Rental Contract Error:", error);
+    return NextResponse.json({ error: "임대계약 삭제 실패: " + error.message }, { status: 500 });
+  }
+}
+
 // PATCH: Return asset / Terminate contract
 export async function PATCH(request: Request) {
   try {

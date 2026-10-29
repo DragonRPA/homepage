@@ -4,7 +4,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Truck, Plus, Calendar, RefreshCw, FileText, CheckCircle2, 
   RotateCcw, DollarSign, Layers, Search, Wrench, ShieldCheck, X,
-  ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Download
+  ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Download,
+  Edit, Trash2
 } from "lucide-react";
 import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
@@ -33,9 +34,27 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [showAcquireAssetModal, setShowAcquireAssetModal] = useState(false);
   const [showDeprecModal, setShowDeprecModal] = useState(false);
   const [showAddContractModal, setShowAddContractModal] = useState(false);
+  const [showEditContractModal, setShowEditContractModal] = useState(false);
   const [showAddBillingModal, setShowAddBillingModal] = useState(false);
   const [activeDocViewer, setActiveDocViewer] = useState<{ title: string; customerName: string; url: string; fileName: string } | null>(null);
   const contractFileCacheRef = useRef<Record<number, { url: string; fileName: string }>>({});
+
+  // Contract Edit Form States
+  const [editCtId, setEditCtId] = useState<number | null>(null);
+  const [editCtContractNo, setEditCtContractNo] = useState("");
+  const [editCtEntityType, setEditCtEntityType] = useState<"CORP" | "INDIVIDUAL">("CORP");
+  const [editCtPartnerId, setEditCtPartnerId] = useState<number | null>(null);
+  const [editCtCustomer, setEditCtCustomer] = useState("");
+  const [editCtSite, setEditCtSite] = useState("");
+  const [editCtStart, setEditCtStart] = useState("");
+  const [editCtEnd, setEditCtEnd] = useState("");
+  const [editCtMonthlyRate, setEditCtMonthlyRate] = useState("0");
+  const [editCtDailyRate, setEditCtDailyRate] = useState("0");
+  const [editCtDeposit, setEditCtDeposit] = useState("0");
+  const [editCtStatus, setEditCtStatus] = useState("ACTIVE");
+  const [editCtMemo, setEditCtMemo] = useState("");
+  const [editCtFileUrl, setEditCtFileUrl] = useState("");
+  const [editCtFileName, setEditCtFileName] = useState("");
 
   // Contract Form
   const [ctEntityType, setCtEntityType] = useState<"CORP" | "INDIVIDUAL">(
@@ -409,6 +428,109 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     }
   };
 
+  // Open Edit Contract Modal
+  const handleOpenEditContract = (c: any) => {
+    setEditCtId(c.id);
+    setEditCtContractNo(c.contractNo);
+    setEditCtEntityType(c.entityType || "CORP");
+    setEditCtPartnerId(c.partnerId || null);
+    setEditCtCustomer(c.customerName);
+    setEditCtSite(c.siteName || "");
+    setEditCtStart(c.startDate ? String(c.startDate).slice(0, 10) : "");
+    setEditCtEnd(c.endDate ? String(c.endDate).slice(0, 10) : "");
+    setEditCtMonthlyRate(String(c.monthlyRate || "0"));
+    setEditCtDailyRate(String(c.dailyRate || "0"));
+    setEditCtDeposit(String(c.deposit || "0"));
+    setEditCtStatus(c.status || "ACTIVE");
+    setEditCtMemo(c.memo || "");
+    setEditCtFileUrl("");
+    setEditCtFileName(c.contractFileName || "");
+    setShowEditContractModal(true);
+  };
+
+  // Handle Update Contract
+  const handleUpdateContract = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editCtId) return;
+    if (!editCtCustomer || !editCtStart || !editCtEnd) {
+      showToast("고객사, 계약 시작일, 종료일은 필수입니다.", "error");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/erp/rental/contracts", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editCtId,
+          entityType: editCtEntityType,
+          partnerId: editCtPartnerId,
+          customerName: editCtCustomer,
+          siteName: editCtSite,
+          startDate: editCtStart,
+          endDate: editCtEnd,
+          monthlyRate: editCtMonthlyRate,
+          dailyRate: editCtDailyRate,
+          deposit: editCtDeposit,
+          status: editCtStatus,
+          memo: editCtMemo,
+          contractFileUrl: editCtFileUrl || undefined,
+          contractFileName: editCtFileName || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "임대계약 수정 실패");
+
+      showToast(`임대계약 [${editCtContractNo}] 수정 완료`);
+      setShowEditContractModal(false);
+      fetchData();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  // Handle Delete Contract
+  const handleDeleteContract = async (c: any) => {
+    if (!window.confirm(
+      `[임대계약 삭제 확인]\n계약번호: ${c.contractNo}\n고객사: ${c.customerName}\n배정자산: ${c.assetNo || "-"} (${c.modelName || "-"})\n\n해당 임대계약이 삭제되며, 배정된 자산은 '대여가능(AVAILABLE)' 상태로 자동 복구됩니다.\n정말 삭제하시겠습니까?`
+    )) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/erp/rental/contracts?id=${c.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "임대계약 삭제 실패");
+
+      showToast(data.message || `계약 [${c.contractNo}] 삭제 완료`);
+      fetchData();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  // Handle Delete Billing
+  const handleDeleteBilling = async (b: any) => {
+    if (!window.confirm(`임대 청구번호 [${b.billingNo}] (${b.customerName} - ₩${formatErpCurrency(b.proRataRevenue)})\n해당 청구 내역을 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/erp/rental/billings?id=${b.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "청구 삭제 실패");
+
+      showToast(data.message || "임대 청구 내역이 삭제되었습니다.");
+      fetchData();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
   // Handle Add Billing (헌장 4.1 일할 계산)
   const handleAddBilling = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -660,6 +782,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
+                <th className="py-2.5 px-3 text-center sticky left-0 bg-[#e2dbcd] dark:bg-slate-950 z-20 border-r border-[#b5a894] dark:border-slate-800">관리 (CRUD)</th>
                 {renderSortTh("귀속 사업자", "entityType")}
                 {renderSortTh("계약번호", "contractNo")}
                 {renderSortTh("고객사(임차인)", "customerName")}
@@ -676,13 +799,35 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedContracts.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-8 text-center text-slate-500">
+                  <td colSpan={12} className="py-8 text-center text-slate-500">
                     등록된 임대계약이 없습니다.
                   </td>
                 </tr>
               ) : (
                 sortedContracts.map((c) => (
                   <tr key={c.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
+                    <td className="py-2 px-3 text-center sticky left-0 bg-[#f4efe4] dark:bg-slate-900 border-r border-[#b5a894] dark:border-slate-800 z-10 shadow-sm">
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditContract(c)}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 hover:bg-blue-200 border border-blue-400 inline-flex items-center gap-1 transition"
+                          title="계약 정보 수정"
+                        >
+                          <Edit className="w-3 h-3" />
+                          <span>수정</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteContract(c)}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 hover:bg-rose-200 border border-rose-400 inline-flex items-center gap-1 transition"
+                          title="계약 삭제 및 자산 복구"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>삭제</span>
+                        </button>
+                      </div>
+                    </td>
                     <td className="py-2 px-3">
                       {c.entityType === "INDIVIDUAL" ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
@@ -699,7 +844,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     <td className="py-2 px-3 text-slate-300">{c.siteName}</td>
                     <td className="py-2 px-3 font-mono font-bold text-blue-300">{c.assetNo}</td>
                     <td className="py-2 px-3 text-slate-200">{c.modelName}</td>
-                    <td className="py-2 px-3 font-mono text-slate-300">{c.startDate} ~ {c.endDate}</td>
+                    <td className="py-2 px-3 font-mono text-slate-300">{c.startDate ? String(c.startDate).slice(0, 10) : "-"} ~ {c.endDate ? String(c.endDate).slice(0, 10) : "-"}</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(c.monthlyRate)}</td>
                     <td className="py-2 px-3 text-center">
                       {c.hasContractFile ? (
@@ -745,6 +890,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
+                <th className="py-2.5 px-3 text-center sticky left-0 bg-[#e2dbcd] dark:bg-slate-950 z-20 border-r border-[#b5a894] dark:border-slate-800">관리</th>
                 {renderSortTh("청구번호", "billingNo")}
                 {renderSortTh("고객사", "customerName")}
                 {renderSortTh("자산/기종", "assetNo")}
@@ -759,13 +905,28 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedBillings.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-500">
+                  <td colSpan={10} className="py-8 text-center text-slate-500">
                     해당 연월에 생성된 임대 정산 청구서가 없습니다.
                   </td>
                 </tr>
               ) : (
                 sortedBillings.map((b) => (
                   <tr key={b.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
+                    <td className="py-2 px-3 text-center sticky left-0 bg-[#f4efe4] dark:bg-slate-900 border-r border-[#b5a894] dark:border-slate-800 z-10 shadow-sm">
+                      {!b.taxInvoiceId ? (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBilling(b)}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 hover:bg-rose-200 border border-rose-400 inline-flex items-center gap-1 transition"
+                          title="청구 내역 삭제"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>삭제</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-[#78716c] font-mono">발행확정</span>
+                      )}
+                    </td>
                     <td className="py-2 px-3 font-mono text-blue-400">{b.billingNo}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{b.customerName}</td>
                     <td className="py-2 px-3 text-slate-200">{b.assetNo} ({b.modelName})</td>
@@ -1355,6 +1516,172 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                   className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 font-bold text-white rounded"
                 >
                   계약 체결
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Rental Contract */}
+      {showEditContractModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-[#f4efe4] border-2 border-[#b5a894] w-full text-[#1c1917] max-w-lg rounded shadow-2xl p-5">
+            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894]">
+              <h3 className="font-bold text-sm text-[#1c1917] flex items-center gap-2">
+                <Edit className="w-4 h-4 text-blue-700" />
+                <span>임대계약 정보 수정 [{editCtContractNo}]</span>
+              </h3>
+              <button onClick={() => setShowEditContractModal(false)} className="text-[#78716c] hover:text-[#1c1917]">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateContract} className="flex flex-col gap-3 mt-3 text-xs">
+              <div className="flex flex-col gap-1">
+                <label className="text-[#78716c] font-semibold">계약 귀속 사업자</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditCtEntityType("CORP")}
+                    className={`p-2 rounded border text-left font-bold transition ${
+                      editCtEntityType === "CORP"
+                        ? "border-blue-600 bg-blue-50 text-blue-900 ring-1 ring-blue-500"
+                        : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
+                    }`}
+                  >
+                    <div>(주)드래곤알피에이 [법인]</div>
+                    <div className="text-[10px] font-normal font-mono opacity-80">806-88-03266</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditCtEntityType("INDIVIDUAL")}
+                    className={`p-2 rounded border text-left font-bold transition ${
+                      editCtEntityType === "INDIVIDUAL"
+                        ? "border-amber-600 bg-amber-50 text-amber-900 ring-1 ring-amber-500"
+                        : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
+                    }`}
+                  >
+                    <div>드래곤알피에이 [개인]</div>
+                    <div className="text-[10px] font-normal font-mono opacity-80">295-03-02683</div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[#78716c] font-semibold">고객사(임차인) 상호명 *</label>
+                <input
+                  type="text"
+                  value={editCtCustomer}
+                  onChange={(e) => setEditCtCustomer(e.target.value)}
+                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917]"
+                  required
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[#78716c] font-semibold">현장명</label>
+                <input
+                  type="text"
+                  value={editCtSite}
+                  onChange={(e) => setEditCtSite(e.target.value)}
+                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917]"
+                  placeholder="본사/지정현장"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[#78716c] font-semibold">계약 시작일자 *</label>
+                  <input
+                    type="date"
+                    value={editCtStart}
+                    onChange={(e) => setEditCtStart(e.target.value)}
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917]"
+                    required
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[#78716c] font-semibold">계약 종료일자 *</label>
+                  <input
+                    type="date"
+                    value={editCtEnd}
+                    onChange={(e) => setEditCtEnd(e.target.value)}
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917]"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[#78716c] font-semibold">약정 월임대료</label>
+                  <input
+                    type="number"
+                    value={editCtMonthlyRate}
+                    onChange={(e) => setEditCtMonthlyRate(e.target.value)}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono text-right font-bold"
+                    required
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[#78716c] font-semibold">일할단가</label>
+                  <input
+                    type="number"
+                    value={editCtDailyRate}
+                    onChange={(e) => setEditCtDailyRate(e.target.value)}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono text-right"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[#78716c] font-semibold">보증금</label>
+                  <input
+                    type="number"
+                    value={editCtDeposit}
+                    onChange={(e) => setEditCtDeposit(e.target.value)}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono text-right"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[#78716c] font-semibold">계약 상태</label>
+                  <select
+                    value={editCtStatus}
+                    onChange={(e) => setEditCtStatus(e.target.value)}
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917]"
+                  >
+                    <option value="ACTIVE">대여중 (ACTIVE)</option>
+                    <option value="RETURNED">반납완료 (RETURNED)</option>
+                    <option value="TERMINATED">중도해지 (TERMINATED)</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[#78716c] font-semibold">비고 / 특약</label>
+                  <input
+                    type="text"
+                    value={editCtMemo}
+                    onChange={(e) => setEditCtMemo(e.target.value)}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917]"
+                    placeholder="특약 메모"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-2 pt-3 border-t border-[#b5a894]">
+                <button
+                  type="button"
+                  onClick={() => setShowEditContractModal(false)}
+                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#1c1917] rounded border border-[#b5a894]"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-blue-700 hover:bg-blue-800 font-bold text-white rounded shadow-sm"
+                >
+                  수정 내용 저장
                 </button>
               </div>
             </form>

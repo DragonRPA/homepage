@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     const { contractId, yearMonth, startDate, endDate, operatingDays } = body;
 
     if (!contractId || !yearMonth || !startDate || !endDate) {
-      return NextResponse.json({ error: "계약 ID, 정산연월, 시작일, 종료일은 필수입니다." }, { status: 400 });
+      return NextResponse.json({ error: "계약, 정산월, 기간은 필수입니다." }, { status: 400 });
     }
 
     const pool = getErpPool();
@@ -67,6 +67,15 @@ export async function POST(request: Request) {
 
     try {
       await client.query("BEGIN");
+
+      // Check duplicate billing for contract & yearMonth
+      const dupCheck = await client.query(
+        "SELECT id FROM erp_rental_billings WHERE contract_id = $1 AND year_month = $2",
+        [contractId, yearMonth]
+      );
+      if (dupCheck.rows.length > 0) {
+        throw new Error(`해당 계약의 [${yearMonth}] 정산 청구는 이미 생성되었습니다.`);
+      }
 
       // 1. Fetch contract and asset
       const contractRes = await client.query(
@@ -112,5 +121,44 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error("POST Rental Billing Error:", error);
     return NextResponse.json({ error: "임대 정산 청구 등록 실패: " + error.message }, { status: 500 });
+  }
+}
+
+// DELETE: Delete rental billing
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "삭제할 청구 ID가 필요합니다." }, { status: 400 });
+    }
+
+    const pool = getErpPool();
+    const checkRes = await pool.query(
+      "SELECT id, billing_no, tax_invoice_id FROM erp_rental_billings WHERE id = $1",
+      [parseInt(id, 10)]
+    );
+
+    if (checkRes.rows.length === 0) {
+      return NextResponse.json({ error: "해당 청구건을 찾을 수 없습니다." }, { status: 404 });
+    }
+
+    const billing = checkRes.rows[0];
+    if (billing.tax_invoice_id) {
+      return NextResponse.json({
+        error: `해당 청구건은 이미 국세청 전자세금계산서가 발행되어 있어 삭제할 수 없습니다. (세금계산서 대장을 확인해 주십시오)`
+      }, { status: 400 });
+    }
+
+    await pool.query("DELETE FROM erp_rental_billings WHERE id = $1", [parseInt(id, 10)]);
+
+    return NextResponse.json({
+      success: true,
+      message: `임대 청구 [${billing.billing_no}] 내역이 성공적으로 삭제되었습니다.`
+    });
+  } catch (error: any) {
+    console.error("DELETE Rental Billing Error:", error);
+    return NextResponse.json({ error: "임대 청구 삭제 실패: " + error.message }, { status: 500 });
   }
 }

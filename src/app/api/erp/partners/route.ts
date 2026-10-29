@@ -188,14 +188,65 @@ export async function POST(request: Request) {
     try {
       await client.query("BEGIN");
 
-      // Auto generate partner code if not provided
-      let finalCode = partnerCode;
+      // Auto generate unique partner code if not provided
+      let finalCode = (partnerCode || "").trim();
       if (!finalCode) {
         const prefix = partnerType === "VENDOR" ? "VEND" : partnerType === "BOTH" ? "PART" : "CUST";
         const year = new Date().getFullYear();
-        const countRes = await client.query("SELECT COUNT(*)::int AS count FROM erp_partners WHERE partner_type = $1", [partnerType]);
-        const seq = (countRes.rows[0]?.count || 0) + 1;
-        finalCode = `${prefix}-${year}-${String(seq).padStart(3, "0")}`;
+        const codePattern = `${prefix}-${year}-%`;
+
+        // 1. Find all existing partner codes with this prefix and year
+        const existingCodesRes = await client.query(
+          "SELECT partner_code FROM erp_partners WHERE partner_code LIKE $1",
+          [codePattern]
+        );
+
+        let maxSeq = 0;
+        const usedCodes = new Set<string>();
+        for (const row of existingCodesRes.rows) {
+          const code = String(row.partner_code).trim();
+          usedCodes.add(code);
+          const match = code.match(/-([0-9]+)$/);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (!isNaN(num) && num > maxSeq) {
+              maxSeq = num;
+            }
+          }
+        }
+
+        // 2. Determine next available unique sequence number (guarantee no collision)
+        let candidateSeq = maxSeq + 1;
+        while (true) {
+          const candidateCode = `${prefix}-${year}-${String(candidateSeq).padStart(3, "0")}`;
+          if (!usedCodes.has(candidateCode)) {
+            const checkRes = await client.query(
+              "SELECT 1 FROM erp_partners WHERE partner_code = $1",
+              [candidateCode]
+            );
+            if (checkRes.rows.length === 0) {
+              finalCode = candidateCode;
+              break;
+            }
+          }
+          candidateSeq++;
+        }
+      } else {
+        // Check uniqueness if manually entered
+        const checkRes = await client.query(
+          "SELECT 1 FROM erp_partners WHERE partner_code = $1",
+          [finalCode]
+        );
+        if (checkRes.rows.length > 0) {
+          await client.query("ROLLBACK");
+          return NextResponse.json(
+            {
+              success: false,
+              error: `이미 사용 중인 거래처 코드입니다: [${finalCode}]. 코드를 비워두시면 시스템이 고유 코드를 자동으로 채번합니다.`,
+            },
+            { status: 400 }
+          );
+        }
       }
 
       const insRes = await client.query(
@@ -291,6 +342,15 @@ export async function POST(request: Request) {
     }
   } catch (error: any) {
     console.error("POST /api/erp/partners error:", error);
+    if (error.code === "23505" || error.message?.includes("erp_partners_partner_code_key")) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "거래처 코드가 중복되었습니다. 거래처 코드 필드를 비워두시면 시스템이 고유 코드를 자동으로 부여합니다.",
+        },
+        { status: 400 }
+      );
+    }
     return NextResponse.json(
       { success: false, error: error.message || "거래처 등록 실패" },
       { status: 500 }
@@ -342,6 +402,23 @@ export async function PUT(request: Request) {
     }
 
     const pool = getErpPool();
+
+    // Check if new partner_code collides with another partner
+    if (partnerCode && partnerCode.trim()) {
+      const codeCheck = await pool.query(
+        "SELECT id FROM erp_partners WHERE partner_code = $1 AND id <> $2",
+        [partnerCode.trim(), id]
+      );
+      if (codeCheck.rows.length > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `이미 다른 거래처에서 사용 중인 거래처 코드입니다: [${partnerCode.trim()}].`,
+          },
+          { status: 400 }
+        );
+      }
+    }
     const updateRes = await pool.query(
       `
       UPDATE erp_partners
@@ -423,6 +500,12 @@ export async function PUT(request: Request) {
     });
   } catch (error: any) {
     console.error("PUT /api/erp/partners error:", error);
+    if (error.code === "23505" || error.message?.includes("erp_partners_partner_code_key")) {
+      return NextResponse.json(
+        { success: false, error: "중복된 거래처 코드가 존재합니다. 다른 코드를 사용해주세요." },
+        { status: 400 }
+      );
+    }
     return NextResponse.json(
       { success: false, error: error.message || "거래처 정보 수정 실패" },
       { status: 500 }

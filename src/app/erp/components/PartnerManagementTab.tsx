@@ -103,11 +103,16 @@ export interface Partner {
   memo?: string | null;
   bizCertFileUrl?: string | null;
   bizCertFileName?: string | null;
+  hasBizCert?: boolean;
   bankName?: string | null;
   bankAccountNo?: string | null;
   bankAccountHolder?: string | null;
   bankCopyFileUrl?: string | null;
   bankCopyFileName?: string | null;
+  hasBankCopy?: boolean;
+  contractFileUrl?: string | null;
+  contractFileName?: string | null;
+  hasContractFile?: boolean;
   contactCount?: number;
   primaryContact?: {
     id: number;
@@ -126,12 +131,14 @@ export interface Partner {
 interface PartnerManagementTabProps {
   currentUser: any;
   initialType?: "CUSTOMER" | "VENDOR";
+  onSelectTypeTab?: (type: "CUSTOMER" | "VENDOR" | "ALL") => void;
   onNavigateToTax?: () => void;
 }
 
 export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   currentUser,
   initialType = "CUSTOMER",
+  onSelectTypeTab,
   onNavigateToTax,
 }) => {
   const isAdmin = currentUser?.role === "ADMIN" || currentUser?.loginId === "admin";
@@ -152,12 +159,25 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     vendorCount: 0,
     activeCount: 0,
     withBizCertCount: 0,
+    withContractCount: 0,
   });
 
   // Selected Dossier
   const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null);
   const [partnerContacts, setPartnerContacts] = useState<PartnerContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState<boolean>(false);
+  const contactsCacheRef = useRef<Record<number, PartnerContact[]>>({});
+  const filesCacheRef = useRef<
+    Record<
+      number,
+      {
+        bizCertFileUrl?: string | null;
+        bankCopyFileUrl?: string | null;
+        contractFileUrl?: string | null;
+      }
+    >
+  >({});
+  const [docFetching, setDocFetching] = useState<boolean>(false);
 
   // Sorting
   const [sortKey, setSortKey] = useState<string>("id");
@@ -177,11 +197,16 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   const [isCertDragging, setIsCertDragging] = useState<boolean>(false);
   const certFileInputRef = useRef<HTMLInputElement>(null);
 
-  // File Input Refs & Drag States for Partner Modal
+  // File Input Refs & Drag States for Partner Modal & Dossier
   const bankCopyInputRef = useRef<HTMLInputElement>(null);
   const directBizCertInputRef = useRef<HTMLInputElement>(null);
+  const directContractInputRef = useRef<HTMLInputElement>(null);
+  const dossierContractInputRef = useRef<HTMLInputElement>(null);
   const [isBankCopyDragging, setIsBankCopyDragging] = useState<boolean>(false);
   const [isDirectBizCertDragging, setIsDirectBizCertDragging] = useState<boolean>(false);
+  const [isDirectContractDragging, setIsDirectContractDragging] = useState<boolean>(false);
+  const [isDossierContractDragging, setIsDossierContractDragging] = useState<boolean>(false);
+  const [dossierContractSaving, setDossierContractSaving] = useState<boolean>(false);
 
   // OCR Processing States (Business Registration Certificate)
   const [ocrLoading, setOcrLoading] = useState<boolean>(false);
@@ -228,6 +253,8 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     bankAccountHolder: "",
     bankCopyFileUrl: "",
     bankCopyFileName: "",
+    contractFileUrl: "",
+    contractFileName: "",
   });
 
   // Contact Form State
@@ -270,36 +297,17 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     } catch (e) {}
   };
 
-  // Fetch Partners
+  // Fetch all partners once and filter client-side for instant 0ms tab/scope switching
   const fetchPartners = async () => {
     setLoading(true);
     try {
-      let url = `/api/erp/partners?type=${partnerTypeTab}`;
-      if (statusFilter !== "ALL") url += `&status=${statusFilter}`;
-      if (managerFilter !== "ALL") url += `&managerEmployeeId=${managerFilter}`;
-      if (searchQuery.trim()) url += `&search=${encodeURIComponent(searchQuery.trim())}`;
-
-      const res = await fetch(url);
+      const res = await fetch("/api/erp/partners?type=ALL");
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "거래처 목록 조회 실패");
 
       const list: Partner[] = data.partners || [];
       setPartners(list);
       if (data.kpi) setKpi(data.kpi);
-
-      // Keep selection or select first
-      if (selectedPartner) {
-        const found = list.find((p) => p.id === selectedPartner.id);
-        if (found) {
-          setSelectedPartner(found);
-        } else if (list.length > 0) {
-          setSelectedPartner(list[0]);
-        } else {
-          setSelectedPartner(null);
-        }
-      } else if (list.length > 0) {
-        setSelectedPartner(list[0]);
-      }
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -307,14 +315,110 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     }
   };
 
-  // Fetch Contacts for selected partner
-  const fetchContacts = async (partnerId: number) => {
+  // On-demand fetch for heavy Base64 document files (bizCertFileUrl, bankCopyFileUrl, contractFileUrl)
+  const ensurePartnerFiles = async (
+    p: Partner
+  ): Promise<{
+    bizCertFileUrl?: string | null;
+    bankCopyFileUrl?: string | null;
+    contractFileUrl?: string | null;
+  }> => {
+    if (p.bizCertFileUrl || p.bankCopyFileUrl || p.contractFileUrl) {
+      const cached = filesCacheRef.current[p.id] || {};
+      return {
+        bizCertFileUrl: p.bizCertFileUrl || cached.bizCertFileUrl || null,
+        bankCopyFileUrl: p.bankCopyFileUrl || cached.bankCopyFileUrl || null,
+        contractFileUrl: p.contractFileUrl || cached.contractFileUrl || null,
+      };
+    }
+    const cached = filesCacheRef.current[p.id];
+    if (cached) return cached;
+
+    setDocFetching(true);
+    try {
+      const res = await fetch(`/api/erp/partners?id=${p.id}`);
+      const data = await res.json();
+      if (data.success && data.partner) {
+        const loaded = {
+          bizCertFileUrl: data.partner.bizCertFileUrl || null,
+          bankCopyFileUrl: data.partner.bankCopyFileUrl || null,
+          contractFileUrl: data.partner.contractFileUrl || null,
+        };
+        filesCacheRef.current[p.id] = loaded;
+        setPartners((prev) =>
+          prev.map((item) => (item.id === p.id ? { ...item, ...loaded } : item))
+        );
+        setSelectedPartner((prev) => (prev && prev.id === p.id ? { ...prev, ...loaded } : prev));
+        return loaded;
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDocFetching(false);
+    }
+    return { bizCertFileUrl: null, bankCopyFileUrl: null, contractFileUrl: null };
+  };
+
+  const handleOpenPartnerDoc = async (
+    p: Partner,
+    docType: "BIZ_CERT" | "BANK_COPY" | "CONTRACT",
+    mode: "VIEW" | "DOWNLOAD" = "VIEW"
+  ) => {
+    const files = await ensurePartnerFiles(p);
+    const url =
+      docType === "BIZ_CERT"
+        ? files.bizCertFileUrl
+        : docType === "BANK_COPY"
+        ? files.bankCopyFileUrl
+        : files.contractFileUrl;
+    if (!url) {
+      showToast("등록된 원본 서류 데이터를 불러올 수 없습니다.", "error");
+      return;
+    }
+    const fileName =
+      docType === "BIZ_CERT"
+        ? p.bizCertFileName || `${p.name}_사업자등록증`
+        : docType === "BANK_COPY"
+        ? p.bankCopyFileName || `${p.bankName || p.name}_통장사본`
+        : p.contractFileName || `${p.name}_계약서.pdf`;
+
+    if (mode === "DOWNLOAD") {
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
+    setActiveDocument({
+      title:
+        docType === "BIZ_CERT"
+          ? "사업자등록증 원본"
+          : docType === "BANK_COPY"
+          ? "통장사본 원본"
+          : "계약서 원본",
+      partnerName: p.name,
+      url,
+      fileName,
+    });
+  };
+
+  // Fetch Contacts for selected partner (with in-memory cache)
+  const fetchContacts = async (partnerId: number, force = false) => {
+    if (!force && contactsCacheRef.current[partnerId]) {
+      setPartnerContacts(contactsCacheRef.current[partnerId]);
+      return;
+    }
     setContactsLoading(true);
     try {
       const res = await fetch(`/api/erp/partners/contacts?partnerId=${partnerId}`);
       const data = await res.json();
       if (data.success) {
-        setPartnerContacts(data.contacts || []);
+        const list = data.contacts || [];
+        contactsCacheRef.current[partnerId] = list;
+        setPartnerContacts(list);
       }
     } catch (e) {
       console.error(e);
@@ -325,11 +429,8 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
 
   useEffect(() => {
     fetchEmployees();
-  }, []);
-
-  useEffect(() => {
     fetchPartners();
-  }, [partnerTypeTab, statusFilter, managerFilter]);
+  }, []);
 
   useEffect(() => {
     if (selectedPartner?.id) {
@@ -367,9 +468,59 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     </th>
   );
 
+  // Instant 0ms client-side filtering across tabs, status, manager, and search query
+  const filteredPartners = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return partners.filter((p) => {
+      if (partnerTypeTab === "CUSTOMER" && p.partnerType !== "CUSTOMER" && p.partnerType !== "BOTH") {
+        return false;
+      }
+      if (partnerTypeTab === "VENDOR" && p.partnerType !== "VENDOR" && p.partnerType !== "BOTH") {
+        return false;
+      }
+      if (statusFilter !== "ALL" && p.status !== statusFilter) {
+        return false;
+      }
+      if (managerFilter !== "ALL" && String(p.managerEmployeeId || "") !== String(managerFilter)) {
+        return false;
+      }
+      if (q) {
+        const hay = [
+          p.name,
+          p.businessNo,
+          p.ceoName,
+          p.managerName,
+          p.partnerCode,
+          p.primaryContact?.name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [partners, partnerTypeTab, statusFilter, managerFilter, searchQuery]);
+
   const sortedPartners = useMemo(() => {
-    return sortErpItems(partners, sortKey, sortDir);
-  }, [partners, sortKey, sortDir]);
+    return sortErpItems(filteredPartners, sortKey, sortDir);
+  }, [filteredPartners, sortKey, sortDir]);
+
+  // Keep selectedPartner synchronized with current filtered list
+  useEffect(() => {
+    if (sortedPartners.length === 0) {
+      setSelectedPartner(null);
+      return;
+    }
+    if (selectedPartner) {
+      const found = sortedPartners.find((p) => p.id === selectedPartner.id);
+      if (found) {
+        if (found !== selectedPartner) setSelectedPartner(found);
+        return;
+      }
+    }
+    setSelectedPartner(sortedPartners[0]);
+  }, [sortedPartners]);
 
   // Open Create Modal
   const openCreateModal = () => {
@@ -403,13 +554,18 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       bankAccountHolder: "",
       bankCopyFileUrl: "",
       bankCopyFileName: "",
+      contractFileUrl: "",
+      contractFileName: "",
     });
     setShowPartnerModal(true);
   };
 
   // Open Edit Modal
-  const openEditModal = (p: Partner) => {
+  const openEditModal = async (p: Partner) => {
     setPartnerModalMode("EDIT");
+    const hasBiz = Boolean(p.hasBizCert || p.bizCertFileUrl);
+    const hasBank = Boolean(p.hasBankCopy || p.bankCopyFileUrl);
+    const hasContract = Boolean(p.hasContractFile || p.contractFileUrl);
     setPartnerForm({
       id: p.id,
       partnerType: p.partnerType,
@@ -434,13 +590,45 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       memo: p.memo || "",
       bizCertFileUrl: p.bizCertFileUrl || "",
       bizCertFileName: p.bizCertFileName || "",
+      hasBizCert: hasBiz,
       bankName: p.bankName || "",
       bankAccountNo: p.bankAccountNo || "",
       bankAccountHolder: p.bankAccountHolder || "",
       bankCopyFileUrl: p.bankCopyFileUrl || "",
       bankCopyFileName: p.bankCopyFileName || "",
+      hasBankCopy: hasBank,
+      contractFileUrl: p.contractFileUrl || "",
+      contractFileName: p.contractFileName || "",
+      hasContractFile: hasContract,
     });
     setShowPartnerModal(true);
+
+    // Preload original files in background when opening Edit modal so preview/re-run OCR works seamlessly
+    if (
+      (hasBiz && !p.bizCertFileUrl) ||
+      (hasBank && !p.bankCopyFileUrl) ||
+      (hasContract && !p.contractFileUrl)
+    ) {
+      const files = await ensurePartnerFiles(p);
+      setPartnerForm((prev: any) => {
+        if (prev.id !== p.id) return prev;
+        return {
+          ...prev,
+          bizCertFileUrl:
+            prev.bizCertFileUrl === "__DELETE__"
+              ? "__DELETE__"
+              : prev.bizCertFileUrl || files.bizCertFileUrl || "",
+          bankCopyFileUrl:
+            prev.bankCopyFileUrl === "__DELETE__"
+              ? "__DELETE__"
+              : prev.bankCopyFileUrl || files.bankCopyFileUrl || "",
+          contractFileUrl:
+            prev.contractFileUrl === "__DELETE__"
+              ? "__DELETE__"
+              : prev.contractFileUrl || files.contractFileUrl || "",
+        };
+      });
+    }
   };
 
   // Submit Partner Save
@@ -462,6 +650,9 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "거래처 저장 실패");
 
+      if (partnerForm.id) {
+        delete filesCacheRef.current[partnerForm.id];
+      }
       showToast(data.message || "거래처가 성공적으로 저장되었습니다.");
       setShowPartnerModal(false);
       fetchPartners();
@@ -479,6 +670,8 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "삭제 실패");
 
+      delete filesCacheRef.current[id];
+      delete contactsCacheRef.current[id];
       showToast("거래처가 삭제되었습니다.");
       if (selectedPartner?.id === id) setSelectedPartner(null);
       fetchPartners();
@@ -549,7 +742,10 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
 
       showToast(data.message || "담당자(명함)가 저장되었습니다.");
       setShowContactModal(false);
-      if (selectedPartner?.id) fetchContacts(selectedPartner.id);
+      if (selectedPartner?.id) {
+        delete contactsCacheRef.current[selectedPartner.id];
+        fetchContacts(selectedPartner.id, true);
+      }
       fetchPartners();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -566,7 +762,10 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       if (!res.ok || !data.success) throw new Error(data.error || "삭제 실패");
 
       showToast("담당자가 삭제되었습니다.");
-      if (selectedPartner?.id) fetchContacts(selectedPartner.id);
+      if (selectedPartner?.id) {
+        delete contactsCacheRef.current[selectedPartner.id];
+        fetchContacts(selectedPartner.id, true);
+      }
       fetchPartners();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -979,6 +1178,8 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       bankAccountHolder: bankOcrResult.bankAccountHolder || "",
       bankCopyFileUrl: bankOcrPreviewUrl || "",
       bankCopyFileName: bankOcrFileName || "",
+      contractFileUrl: "",
+      contractFileName: "",
     });
     setShowBankOcrModal(false);
     setShowPartnerModal(true);
@@ -998,6 +1199,193 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       showToast(`사업자등록증(${file.name})이 첨부되었습니다.`);
     } catch (err: any) {
       showToast("사업자등록증 파일 읽기 실패", "error");
+    }
+  };
+
+  // Direct Contract PDF Upload in Partner Modal
+  const handleDirectContractUpload = async (file: File) => {
+    if (!file) return;
+    const isPdf =
+      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf && !file.type.startsWith("image/")) {
+      showToast("PDF 또는 이미지 형식의 계약서 파일을 선택해주세요.", "error");
+      return;
+    }
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setPartnerForm((prev: any) => ({
+        ...prev,
+        contractFileUrl: dataUrl,
+        contractFileName: file.name,
+        hasContractFile: true,
+      }));
+      showToast(`계약서(${file.name})가 첨부되었습니다.`);
+    } catch (err: any) {
+      showToast("계약서 파일 읽기 실패", "error");
+    }
+  };
+
+  // Direct Contract PDF Upload & Immediate DB Save from Right-Hand Dossier Panel
+  const handleDossierContractUpload = async (file: File) => {
+    if (!file || !selectedPartner) return;
+    const isPdf =
+      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf && !file.type.startsWith("image/")) {
+      showToast("PDF 또는 이미지 형식의 계약서 파일을 업로드해주세요.", "error");
+      return;
+    }
+    setDossierContractSaving(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const res = await fetch("/api/erp/partners", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: selectedPartner.id,
+          name: selectedPartner.name,
+          partnerType: selectedPartner.partnerType,
+          partnerCode: selectedPartner.partnerCode,
+          businessNo: selectedPartner.businessNo,
+          corporateNo: selectedPartner.corporateNo,
+          ceoName: selectedPartner.ceoName,
+          bizType: selectedPartner.bizType,
+          bizItem: selectedPartner.bizItem,
+          address: selectedPartner.address,
+          addressDetail: selectedPartner.addressDetail,
+          mainPhone: selectedPartner.mainPhone,
+          mainEmail: selectedPartner.mainEmail,
+          faxNo: selectedPartner.faxNo,
+          managerEmployeeId: selectedPartner.managerEmployeeId,
+          managerName: selectedPartner.managerName,
+          statementClosingDay: selectedPartner.statementClosingDay,
+          taxInvoiceClosingDay: selectedPartner.taxInvoiceClosingDay,
+          paymentDueDay: selectedPartner.paymentDueDay,
+          status: selectedPartner.status,
+          memo: selectedPartner.memo,
+          bankName: selectedPartner.bankName,
+          bankAccountNo: selectedPartner.bankAccountNo,
+          bankAccountHolder: selectedPartner.bankAccountHolder,
+          contractFileUrl: dataUrl,
+          contractFileName: file.name,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "계약서 저장 실패");
+      }
+
+      const targetId = selectedPartner.id;
+      const prevCache = filesCacheRef.current[targetId] || {};
+      filesCacheRef.current[targetId] = {
+        ...prevCache,
+        contractFileUrl: dataUrl,
+      };
+      setPartners((prev) =>
+        prev.map((item) =>
+          item.id === targetId
+            ? {
+                ...item,
+                contractFileUrl: dataUrl,
+                contractFileName: file.name,
+                hasContractFile: true,
+              }
+            : item
+        )
+      );
+      setSelectedPartner((prev) =>
+        prev && prev.id === targetId
+          ? {
+              ...prev,
+              contractFileUrl: dataUrl,
+              contractFileName: file.name,
+              hasContractFile: true,
+            }
+          : prev
+      );
+      showToast(`[${selectedPartner.name}] 계약서(${file.name})가 저장되었습니다.`);
+      fetchPartners();
+    } catch (err: any) {
+      showToast(err.message || "계약서 업로드 실패", "error");
+    } finally {
+      setDossierContractSaving(false);
+    }
+  };
+
+  // Delete Contract PDF directly from Right-Hand Dossier Panel
+  const handleDossierContractDelete = async () => {
+    if (!selectedPartner) return;
+    if (!confirm(`[${selectedPartner.name}] 등록된 계약서 파일을 삭제하시겠습니까?`)) return;
+    setDossierContractSaving(true);
+    try {
+      const res = await fetch("/api/erp/partners", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: selectedPartner.id,
+          name: selectedPartner.name,
+          partnerType: selectedPartner.partnerType,
+          partnerCode: selectedPartner.partnerCode,
+          businessNo: selectedPartner.businessNo,
+          corporateNo: selectedPartner.corporateNo,
+          ceoName: selectedPartner.ceoName,
+          bizType: selectedPartner.bizType,
+          bizItem: selectedPartner.bizItem,
+          address: selectedPartner.address,
+          addressDetail: selectedPartner.addressDetail,
+          mainPhone: selectedPartner.mainPhone,
+          mainEmail: selectedPartner.mainEmail,
+          faxNo: selectedPartner.faxNo,
+          managerEmployeeId: selectedPartner.managerEmployeeId,
+          managerName: selectedPartner.managerName,
+          statementClosingDay: selectedPartner.statementClosingDay,
+          taxInvoiceClosingDay: selectedPartner.taxInvoiceClosingDay,
+          paymentDueDay: selectedPartner.paymentDueDay,
+          status: selectedPartner.status,
+          memo: selectedPartner.memo,
+          bankName: selectedPartner.bankName,
+          bankAccountNo: selectedPartner.bankAccountNo,
+          bankAccountHolder: selectedPartner.bankAccountHolder,
+          contractFileUrl: "__DELETE__",
+          contractFileName: "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "계약서 삭제 실패");
+      }
+
+      const targetId = selectedPartner.id;
+      if (filesCacheRef.current[targetId]) {
+        filesCacheRef.current[targetId].contractFileUrl = null;
+      }
+      setPartners((prev) =>
+        prev.map((item) =>
+          item.id === targetId
+            ? {
+                ...item,
+                contractFileUrl: null,
+                contractFileName: null,
+                hasContractFile: false,
+              }
+            : item
+        )
+      );
+      setSelectedPartner((prev) =>
+        prev && prev.id === targetId
+          ? {
+              ...prev,
+              contractFileUrl: null,
+              contractFileName: null,
+              hasContractFile: false,
+            }
+          : prev
+      );
+      showToast(`[${selectedPartner.name}] 계약서 파일이 삭제되었습니다.`);
+      fetchPartners();
+    } catch (err: any) {
+      showToast(err.message || "계약서 삭제 실패", "error");
+    } finally {
+      setDossierContractSaving(false);
     }
   };
 
@@ -1123,6 +1511,8 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       bankAccountHolder: "",
       bankCopyFileUrl: "",
       bankCopyFileName: "",
+      contractFileUrl: "",
+      contractFileName: "",
     });
     setShowBizCertOcrModal(false);
     setShowPartnerModal(true);
@@ -1182,7 +1572,10 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
           {/* Sub-Tabs: 고객 vs 매입거래처 */}
           <div className="flex items-center gap-1 bg-[#dcd4c4] dark:bg-slate-800 p-1 rounded border border-[#b5a894] dark:border-slate-700">
             <button
-              onClick={() => setPartnerTypeTab("CUSTOMER")}
+              onClick={() => {
+                setPartnerTypeTab("CUSTOMER");
+                onSelectTypeTab?.("CUSTOMER");
+              }}
               className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1.5 transition ${
                 partnerTypeTab === "CUSTOMER"
                   ? "bg-[#1d4ed8] text-white shadow"
@@ -1196,7 +1589,10 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
               </span>
             </button>
             <button
-              onClick={() => setPartnerTypeTab("VENDOR")}
+              onClick={() => {
+                setPartnerTypeTab("VENDOR");
+                onSelectTypeTab?.("VENDOR");
+              }}
               className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1.5 transition ${
                 partnerTypeTab === "VENDOR"
                   ? "bg-[#b45309] text-white shadow"
@@ -1210,7 +1606,10 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
               </span>
             </button>
             <button
-              onClick={() => setPartnerTypeTab("ALL")}
+              onClick={() => {
+                setPartnerTypeTab("ALL");
+                onSelectTypeTab?.("ALL");
+              }}
               className={`px-2.5 py-1.5 text-xs font-bold rounded transition ${
                 partnerTypeTab === "ALL"
                   ? "bg-[#504a3f] text-white"
@@ -1344,6 +1743,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
             </div>
 
             <div className="flex items-center gap-3 text-[11px] text-[#475569] dark:text-slate-400 font-mono">
+              <span>계약서 보관: <strong className="text-[#1d4ed8] dark:text-blue-400">{formatErpNumber(kpi.withContractCount || 0)}</strong>개사</span>
               <span>사업자등록증 보관: <strong className="text-[#6d28d9] dark:text-purple-300">{formatErpNumber(kpi.withBizCertCount)}</strong>개사</span>
               <span>정상거래: <strong className="text-[#047857] dark:text-emerald-400">{formatErpNumber(kpi.activeCount)}</strong>개사</span>
             </div>
@@ -1402,17 +1802,13 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                         <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <span>{p.name}</span>
-                            {p.bizCertFileUrl && (
+                            {(p.hasBizCert || p.bizCertFileUrl) && (
                               <button
                                 type="button"
+                                disabled={docFetching}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setActiveDocument({
-                                    title: "사업자등록증 원본",
-                                    partnerName: p.name,
-                                    url: p.bizCertFileUrl!,
-                                    fileName: p.bizCertFileName || "사업자등록증",
-                                  });
+                                  handleOpenPartnerDoc(p, "BIZ_CERT", "VIEW");
                                 }}
                                 title="사업자등록증 열기"
                                 className="px-1.5 py-0.2 rounded text-[10px] bg-[#f5f3ff] hover:bg-[#ede9fe] text-[#6d28d9] border border-[#ddd6fe] font-bold dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 flex items-center gap-1 transition"
@@ -1421,23 +1817,34 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                                 <span>등록증</span>
                               </button>
                             )}
-                            {p.bankCopyFileUrl && (
+                            {(p.hasBankCopy || p.bankCopyFileUrl) && (
                               <button
                                 type="button"
+                                disabled={docFetching}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setActiveDocument({
-                                    title: "통장사본 원본",
-                                    partnerName: p.name,
-                                    url: p.bankCopyFileUrl!,
-                                    fileName: p.bankCopyFileName || `${p.bankName || "거래처"}_통장사본`,
-                                  });
+                                  handleOpenPartnerDoc(p, "BANK_COPY", "VIEW");
                                 }}
                                 title="통장사본 열기"
                                 className="px-1.5 py-0.2 rounded text-[10px] bg-[#ecfdf5] hover:bg-[#d1fae5] text-[#065f46] border border-[#a7f3d0] font-bold dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800 flex items-center gap-1 transition"
                               >
                                 <Landmark className="w-3 h-3" />
                                 <span>통장</span>
+                              </button>
+                            )}
+                            {(p.hasContractFile || p.contractFileUrl) && (
+                              <button
+                                type="button"
+                                disabled={docFetching}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenPartnerDoc(p, "CONTRACT", "VIEW");
+                                }}
+                                title="계약서 원본 열기"
+                                className="px-1.5 py-0.2 rounded text-[10px] bg-[#dbeafe] hover:bg-[#bfdbfe] text-[#1e40af] border border-[#93c5fd] font-bold dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800 flex items-center gap-1 transition"
+                              >
+                                <FileText className="w-3 h-3" />
+                                <span>계약서</span>
                               </button>
                             )}
                           </div>
@@ -1650,7 +2057,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                       <span>사업자등록증 원본 서류</span>
                     </span>
 
-                    {selectedPartner.bizCertFileUrl ? (
+                    {selectedPartner.hasBizCert || selectedPartner.bizCertFileUrl ? (
                       <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#f5f3ff] text-[#6d28d9] border border-[#ddd6fe] font-bold">
                         보관 완료
                       </span>
@@ -1661,7 +2068,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                     )}
                   </div>
 
-                  {selectedPartner.bizCertFileUrl ? (
+                  {selectedPartner.hasBizCert || selectedPartner.bizCertFileUrl ? (
                     <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
                       <div className="flex items-center gap-2 truncate">
                         <FileText className="w-4 h-4 text-[#6d28d9] dark:text-purple-400 shrink-0" />
@@ -1678,31 +2085,22 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
-                          onClick={() => {
-                            if (selectedPartner.bizCertFileUrl) {
-                              setActiveDocument({
-                                title: "사업자등록증 원본",
-                                partnerName: selectedPartner.name,
-                                url: selectedPartner.bizCertFileUrl,
-                                fileName: selectedPartner.bizCertFileName || "사업자등록증",
-                              });
-                            }
-                          }}
+                          disabled={docFetching}
+                          onClick={() => handleOpenPartnerDoc(selectedPartner, "BIZ_CERT", "VIEW")}
                           className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
                         >
                           <Eye className="w-3 h-3" />
                           <span>미리보기</span>
                         </button>
-                        <a
-                          href={selectedPartner.bizCertFileUrl}
-                          download={selectedPartner.bizCertFileName || "사업자등록증"}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          disabled={docFetching}
+                          onClick={() => handleOpenPartnerDoc(selectedPartner, "BIZ_CERT", "DOWNLOAD")}
                           className="p-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
                           title="다운로드"
                         >
                           <Download className="w-3 h-3" />
-                        </a>
+                        </button>
                       </div>
                     </div>
                   ) : (
@@ -1722,6 +2120,130 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                   )}
                 </div>
 
+                {/* 3-2. 매출처 계약서 원본 보관함 (PDF 즉시 업로드/미리보기/다운로드/삭제) */}
+                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2 text-xs dark:bg-slate-900 dark:border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-[#1d4ed8] dark:text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>계약서 원본 서류 (PDF)</span>
+                    </span>
+
+                    {selectedPartner.hasContractFile || selectedPartner.contractFileUrl ? (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe] font-bold">
+                        보관 완료
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#e2dbcd] text-[#475569]">
+                        미등록
+                      </span>
+                    )}
+                  </div>
+
+                  <input
+                    type="file"
+                    ref={dossierContractInputRef}
+                    accept="application/pdf,.pdf,image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleDossierContractUpload(file);
+                      e.target.value = "";
+                    }}
+                  />
+
+                  {selectedPartner.hasContractFile || selectedPartner.contractFileUrl ? (
+                    <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] flex items-center justify-between gap-2 dark:bg-slate-900 dark:border-slate-800">
+                      <div className="flex items-center gap-2 truncate">
+                        <FileText className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400 shrink-0" />
+                        <div className="truncate">
+                          <span className="text-xs font-semibold text-[#0f172a] dark:text-slate-200 block truncate">
+                            {selectedPartner.contractFileName || `${selectedPartner.name}_계약서.pdf`}
+                          </span>
+                          <span className="text-[10px] text-[#475569] dark:text-slate-500 font-mono">
+                            계약서 원본 파일 보관됨
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          disabled={docFetching || dossierContractSaving}
+                          onClick={() => handleOpenPartnerDoc(selectedPartner, "CONTRACT", "VIEW")}
+                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>미리보기</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={docFetching || dossierContractSaving}
+                          onClick={() => handleOpenPartnerDoc(selectedPartner, "CONTRACT", "DOWNLOAD")}
+                          className="p-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                          title="다운로드"
+                        >
+                          <Download className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={dossierContractSaving}
+                          onClick={() => dossierContractInputRef.current?.click()}
+                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                          title="계약서 파일 교체"
+                        >
+                          <Upload className="w-3 h-3" />
+                          <span>변경</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={dossierContractSaving}
+                          onClick={handleDossierContractDelete}
+                          className="p-1 bg-[#fee2e2] hover:bg-[#fecaca] text-[#b91c1c] rounded border border-[#f87171]"
+                          title="계약서 삭제"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => !dossierContractSaving && dossierContractInputRef.current?.click()}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDossierContractDragging(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDossierContractDragging(false);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDossierContractDragging(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) handleDossierContractUpload(file);
+                      }}
+                      className={`p-3 rounded border border-dashed text-center cursor-pointer transition ${
+                        isDossierContractDragging
+                          ? "border-[#1d4ed8] bg-[#dbeafe] dark:bg-blue-950/40"
+                          : "border-[#b5a894] bg-[#ebe5d8] hover:bg-[#e2dbcd] dark:bg-slate-900 dark:border-slate-800"
+                      }`}
+                    >
+                      <p className="text-[11px] text-[#475569] dark:text-slate-400 mb-2">
+                        {dossierContractSaving
+                          ? "계약서 PDF 파일을 저장하는 중..."
+                          : "계약서 PDF 파일을 드래그하여 놓거나 버튼을 눌러 업로드하세요."}
+                      </p>
+                      <span className="px-2.5 py-1 bg-[#1d4ed8] hover:bg-[#1e40af] text-white rounded text-[11px] font-bold inline-flex items-center gap-1 shadow-xs">
+                        <Upload className="w-3 h-3" />
+                        <span>{dossierContractSaving ? "저장 중..." : "계약서 PDF 업로드"}</span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 {/* 4. 대금 지급 계좌 및 통장사본 보관함 */}
                 <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2 text-xs dark:bg-slate-900 dark:border-slate-800">
                   <div className="flex items-center justify-between">
@@ -1730,7 +2252,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                       <span>대금 지급 계좌 및 통장사본</span>
                     </span>
 
-                    {selectedPartner.bankCopyFileUrl ? (
+                    {selectedPartner.hasBankCopy || selectedPartner.bankCopyFileUrl ? (
                       <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] font-bold">
                         통장사본 보관됨
                       </span>
@@ -1782,7 +2304,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                   </div>
 
                   {/* 통장사본 첨부 파일 */}
-                  {selectedPartner.bankCopyFileUrl ? (
+                  {selectedPartner.hasBankCopy || selectedPartner.bankCopyFileUrl ? (
                     <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
                       <div className="flex items-center gap-2 truncate">
                         <Landmark className="w-4 h-4 text-[#047857] dark:text-emerald-400 shrink-0" />
@@ -1799,29 +2321,22 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
-                          onClick={() => {
-                            setActiveDocument({
-                              title: "통장사본 원본",
-                              partnerName: selectedPartner.name,
-                              url: selectedPartner.bankCopyFileUrl!,
-                              fileName: selectedPartner.bankCopyFileName || `${selectedPartner.bankName || "은행"}_통장사본`,
-                            });
-                          }}
+                          disabled={docFetching}
+                          onClick={() => handleOpenPartnerDoc(selectedPartner, "BANK_COPY", "VIEW")}
                           className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
                         >
                           <Eye className="w-3 h-3" />
                           <span>미리보기</span>
                         </button>
-                        <a
-                          href={selectedPartner.bankCopyFileUrl}
-                          download={selectedPartner.bankCopyFileName || "통장사본"}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          disabled={docFetching}
+                          onClick={() => handleOpenPartnerDoc(selectedPartner, "BANK_COPY", "DOWNLOAD")}
                           className="p-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
                           title="다운로드"
                         >
                           <Download className="w-3 h-3" />
-                        </a>
+                        </button>
                       </div>
                     </div>
                   ) : (
@@ -2324,7 +2839,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                     }}
                   />
 
-                  {partnerForm.bankCopyFileUrl ? (
+                  {partnerForm.bankCopyFileUrl && partnerForm.bankCopyFileUrl !== "__DELETE__" ? (
                     <div className="p-2.5 bg-[#f4efe4] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-950 dark:border-slate-700">
                       <div className="flex items-center gap-2 truncate">
                         <Landmark className="w-4 h-4 text-[#047857] shrink-0" />
@@ -2374,7 +2889,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setPartnerForm({ ...partnerForm, bankCopyFileUrl: "", bankCopyFileName: "" })}
+                          onClick={() => setPartnerForm({ ...partnerForm, bankCopyFileUrl: "__DELETE__", bankCopyFileName: "", hasBankCopy: false })}
                           className="p-1 bg-[#fee2e2] hover:bg-[#fecaca] text-[#b91c1c] rounded border border-[#f87171] transition"
                           title="삭제"
                         >
@@ -2440,7 +2955,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                   }}
                 />
 
-                {partnerForm.bizCertFileUrl ? (
+                {partnerForm.bizCertFileUrl && partnerForm.bizCertFileUrl !== "__DELETE__" ? (
                   <div className="p-2.5 bg-[#f4efe4] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-950 dark:border-slate-700">
                     <div className="flex items-center gap-2 truncate">
                       <FileText className="w-4 h-4 text-[#6d28d9] shrink-0" />
@@ -2480,7 +2995,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setPartnerForm({ ...partnerForm, bizCertFileUrl: "", bizCertFileName: "" })}
+                        onClick={() => setPartnerForm({ ...partnerForm, bizCertFileUrl: "__DELETE__", bizCertFileName: "", hasBizCert: false })}
                         className="p-1 bg-[#fee2e2] hover:bg-[#fecaca] text-[#b91c1c] rounded border border-[#f87171] transition"
                         title="삭제"
                       >
@@ -2518,6 +3033,119 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                     <FileUp className="w-5 h-5 mx-auto mb-1 text-[#6d28d9] dark:text-purple-400" />
                     <p className="text-xs font-semibold text-[#0f172a] dark:text-slate-200">
                       사업자등록증 파일을 드래그하여 놓거나 클릭하여 직접 첨부
+                    </p>
+                    <p className="text-[10px] text-[#475569] dark:text-slate-500 font-mono mt-0.5">
+                      PDF 문서, JPG, PNG 파일 지원
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* 계약서 원본 (PDF) 직접 첨부/수정 */}
+              <div className="p-3 bg-[#e2dbcd] border border-[#b5a894] rounded-lg space-y-2 dark:bg-slate-900 dark:border-slate-700">
+                <span className="text-xs font-bold text-[#1d4ed8] dark:text-blue-400 flex items-center gap-1.5 pb-1 border-b border-[#b5a894] dark:border-slate-700">
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>계약서 원본 서류 관리 (PDF)</span>
+                </span>
+
+                <input
+                  type="file"
+                  ref={directContractInputRef}
+                  accept="application/pdf,.pdf,image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleDirectContractUpload(e.target.files[0]);
+                    }
+                    e.target.value = "";
+                  }}
+                />
+
+                {partnerForm.contractFileUrl && partnerForm.contractFileUrl !== "__DELETE__" ? (
+                  <div className="p-2.5 bg-[#f4efe4] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-950 dark:border-slate-700">
+                    <div className="flex items-center gap-2 truncate">
+                      <FileText className="w-4 h-4 text-[#1d4ed8] shrink-0" />
+                      <div className="truncate">
+                        <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200 block truncate">
+                          {partnerForm.contractFileName || "계약서.pdf"}
+                        </span>
+                        <span className="text-[10px] text-[#475569] dark:text-slate-500 font-mono">
+                          {isPdfDocument(partnerForm.contractFileUrl, partnerForm.contractFileName) ? "PDF 문서" : "이미지 서류"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveDocument({
+                            title: "계약서 원본",
+                            partnerName: partnerForm.name || "거래처",
+                            url: partnerForm.contractFileUrl,
+                            fileName: partnerForm.contractFileName || "계약서.pdf",
+                          });
+                        }}
+                        className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                      >
+                        <Eye className="w-3 h-3" />
+                        <span>열어보기</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => directContractInputRef.current?.click()}
+                        className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                      >
+                        <Upload className="w-3 h-3" />
+                        <span>파일 변경</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPartnerForm({
+                            ...partnerForm,
+                            contractFileUrl: "__DELETE__",
+                            contractFileName: "",
+                            hasContractFile: false,
+                          })
+                        }
+                        className="p-1 bg-[#fee2e2] hover:bg-[#fecaca] text-[#b91c1c] rounded border border-[#f87171] transition"
+                        title="삭제"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => directContractInputRef.current?.click()}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDirectContractDragging(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDirectContractDragging(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDirectContractDragging(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                        handleDirectContractUpload(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    className={`p-3 border-2 border-dashed rounded text-center cursor-pointer transition ${
+                      isDirectContractDragging
+                        ? "border-[#1d4ed8] bg-[#dbeafe] dark:bg-blue-950/40"
+                        : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#ebe5d8] dark:border-slate-700 dark:bg-slate-950"
+                    }`}
+                  >
+                    <FileUp className="w-5 h-5 mx-auto mb-1 text-[#1d4ed8] dark:text-blue-400" />
+                    <p className="text-xs font-semibold text-[#0f172a] dark:text-slate-200">
+                      계약서 PDF 파일을 드래그하여 놓거나 클릭하여 직접 첨부
                     </p>
                     <p className="text-[10px] text-[#475569] dark:text-slate-500 font-mono mt-0.5">
                       PDF 문서, JPG, PNG 파일 지원

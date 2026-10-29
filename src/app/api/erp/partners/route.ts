@@ -2,16 +2,50 @@ import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 
 // GET /api/erp/partners
-// Query params: type (CUSTOMER | VENDOR | BOTH | ALL), search, status, managerEmployeeId
+// Query params: id (optional single partner with file blobs), type (CUSTOMER | VENDOR | BOTH | ALL), search, status, managerEmployeeId, includeFiles
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    const idParam = searchParams.get("id");
     const type = searchParams.get("type");
     const search = searchParams.get("search");
     const status = searchParams.get("status");
     const managerEmployeeId = searchParams.get("managerEmployeeId");
+    const includeFiles = searchParams.get("includeFiles") === "1";
 
     const pool = getErpPool();
+
+    // Fast path: Single partner document/detail lookup on-demand
+    if (idParam) {
+      const singleRes = await pool.query(
+        `
+        SELECT 
+          p.id,
+          p.name,
+          p.biz_cert_file_url AS "bizCertFileUrl",
+          p.biz_cert_file_name AS "bizCertFileName",
+          p.bank_copy_file_url AS "bankCopyFileUrl",
+          p.bank_copy_file_name AS "bankCopyFileName",
+          p.contract_file_url AS "contractFileUrl",
+          p.contract_file_name AS "contractFileName"
+        FROM erp_partners p
+        WHERE p.id = $1
+        LIMIT 1
+        `,
+        [parseInt(idParam, 10)]
+      );
+      if (singleRes.rows.length === 0) {
+        return NextResponse.json(
+          { success: false, error: "해당 거래처를 찾을 수 없습니다." },
+          { status: 404 }
+        );
+      }
+      return NextResponse.json({
+        success: true,
+        partner: singleRes.rows[0],
+      });
+    }
+
     let query = `
       SELECT 
         p.id,
@@ -35,34 +69,44 @@ export async function GET(request: Request) {
         p.payment_due_day AS "paymentDueDay",
         p.status,
         p.memo,
-        p.biz_cert_file_url AS "bizCertFileUrl",
+        ${includeFiles ? `p.biz_cert_file_url AS "bizCertFileUrl",` : `NULL AS "bizCertFileUrl",`}
         p.biz_cert_file_name AS "bizCertFileName",
+        (p.biz_cert_file_url IS NOT NULL AND p.biz_cert_file_url <> '') AS "hasBizCert",
         p.bank_name AS "bankName",
         p.bank_account_no AS "bankAccountNo",
         p.bank_account_holder AS "bankAccountHolder",
-        p.bank_copy_file_url AS "bankCopyFileUrl",
+        ${includeFiles ? `p.bank_copy_file_url AS "bankCopyFileUrl",` : `NULL AS "bankCopyFileUrl",`}
         p.bank_copy_file_name AS "bankCopyFileName",
+        (p.bank_copy_file_url IS NOT NULL AND p.bank_copy_file_url <> '') AS "hasBankCopy",
+        ${includeFiles ? `p.contract_file_url AS "contractFileUrl",` : `NULL AS "contractFileUrl",`}
+        p.contract_file_name AS "contractFileName",
+        (p.contract_file_url IS NOT NULL AND p.contract_file_url <> '') AS "hasContractFile",
         p.created_at AS "createdAt",
         p.updated_at AS "updatedAt",
-        COUNT(c.id)::int AS "contactCount",
-        (
-          SELECT json_build_object(
-            'id', pc.id,
-            'name', pc.name,
-            'position', pc.position,
-            'department', pc.department,
-            'mobile', pc.mobile,
-            'email', pc.email,
-            'telephone', pc.telephone,
-            'businessCardFrontUrl', pc.business_card_front_url
-          )
-          FROM erp_partner_contacts pc
-          WHERE pc.partner_id = p.id
-          ORDER BY pc.is_primary DESC, pc.id ASC
-          LIMIT 1
-        ) AS "primaryContact"
+        COALESCE(c_agg.contact_count, 0)::int AS "contactCount",
+        c_agg.primary_contact AS "primaryContact"
       FROM erp_partners p
-      LEFT JOIN erp_partner_contacts c ON c.partner_id = p.id
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*)::int AS contact_count,
+          (
+            SELECT json_build_object(
+              'id', pc.id,
+              'name', pc.name,
+              'position', pc.position,
+              'department', pc.department,
+              'mobile', pc.mobile,
+              'email', pc.email,
+              'telephone', pc.telephone
+            )
+            FROM erp_partner_contacts pc
+            WHERE pc.partner_id = p.id
+            ORDER BY pc.is_primary DESC, pc.id ASC
+            LIMIT 1
+          ) AS primary_contact
+        FROM erp_partner_contacts c
+        WHERE c.partner_id = p.id
+      ) c_agg ON true
       WHERE 1=1
     `;
 
@@ -102,22 +146,22 @@ export async function GET(request: Request) {
     }
 
     query += `
-      GROUP BY p.id
       ORDER BY p.id DESC
     `;
 
-    const res = await pool.query(query, params);
-
-    // Also get KPI metrics
-    const kpiRes = await pool.query(`
-      SELECT 
-        COUNT(*)::int AS "totalCount",
-        COUNT(CASE WHEN partner_type IN ('CUSTOMER', 'BOTH') THEN 1 END)::int AS "customerCount",
-        COUNT(CASE WHEN partner_type IN ('VENDOR', 'BOTH') THEN 1 END)::int AS "vendorCount",
-        COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END)::int AS "activeCount",
-        COUNT(CASE WHEN biz_cert_file_url IS NOT NULL AND biz_cert_file_url <> '' THEN 1 END)::int AS "withBizCertCount"
-      FROM erp_partners
-    `);
+    const [res, kpiRes] = await Promise.all([
+      pool.query(query, params),
+      pool.query(`
+        SELECT 
+          COUNT(*)::int AS "totalCount",
+          COUNT(CASE WHEN partner_type IN ('CUSTOMER', 'BOTH') THEN 1 END)::int AS "customerCount",
+          COUNT(CASE WHEN partner_type IN ('VENDOR', 'BOTH') THEN 1 END)::int AS "vendorCount",
+          COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END)::int AS "activeCount",
+          COUNT(CASE WHEN biz_cert_file_url IS NOT NULL AND biz_cert_file_url <> '' THEN 1 END)::int AS "withBizCertCount",
+          COUNT(CASE WHEN contract_file_url IS NOT NULL AND contract_file_url <> '' THEN 1 END)::int AS "withContractCount"
+        FROM erp_partners
+      `),
+    ]);
 
     return NextResponse.json({
       success: true,
@@ -128,6 +172,7 @@ export async function GET(request: Request) {
         vendorCount: 0,
         activeCount: 0,
         withBizCertCount: 0,
+        withContractCount: 0,
       },
     });
   } catch (error: any) {
@@ -172,6 +217,8 @@ export async function POST(request: Request) {
       bankAccountHolder,
       bankCopyFileUrl,
       bankCopyFileName,
+      contractFileUrl,
+      contractFileName,
       contacts = [],
     } = body;
 
@@ -258,10 +305,11 @@ export async function POST(request: Request) {
           tax_invoice_closing_day, payment_due_day, status, memo,
           biz_cert_file_url, biz_cert_file_name,
           bank_name, bank_account_no, bank_account_holder, bank_copy_file_url, bank_copy_file_name,
+          contract_file_url, contract_file_name,
           created_at, updated_at
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-          $23, $24, $25, $26, $27,
+          $23, $24, $25, $26, $27, $28, $29,
           NOW(), NOW()
         ) RETURNING *
         `,
@@ -293,6 +341,8 @@ export async function POST(request: Request) {
           bankAccountHolder || null,
           bankCopyFileUrl || null,
           bankCopyFileName || null,
+          contractFileUrl || null,
+          contractFileName || null,
         ]
       );
 
@@ -392,6 +442,8 @@ export async function PUT(request: Request) {
       bankAccountHolder,
       bankCopyFileUrl,
       bankCopyFileName,
+      contractFileUrl,
+      contractFileName,
     } = body;
 
     if (!id) {
@@ -443,15 +495,17 @@ export async function PUT(request: Request) {
         payment_due_day = COALESCE($18, payment_due_day),
         status = COALESCE($19, status),
         memo = $20,
-        biz_cert_file_url = COALESCE($21, biz_cert_file_url),
-        biz_cert_file_name = COALESCE($22, biz_cert_file_name),
+        biz_cert_file_url = CASE WHEN $21::text = '__DELETE__' THEN NULL ELSE COALESCE($21, biz_cert_file_url) END,
+        biz_cert_file_name = CASE WHEN $21::text = '__DELETE__' THEN NULL ELSE COALESCE($22, biz_cert_file_name) END,
         bank_name = $23,
         bank_account_no = $24,
         bank_account_holder = $25,
-        bank_copy_file_url = COALESCE($26, bank_copy_file_url),
-        bank_copy_file_name = COALESCE($27, bank_copy_file_name),
+        bank_copy_file_url = CASE WHEN $26::text = '__DELETE__' THEN NULL ELSE COALESCE($26, bank_copy_file_url) END,
+        bank_copy_file_name = CASE WHEN $26::text = '__DELETE__' THEN NULL ELSE COALESCE($27, bank_copy_file_name) END,
+        contract_file_url = CASE WHEN $28::text = '__DELETE__' THEN NULL ELSE COALESCE($28, contract_file_url) END,
+        contract_file_name = CASE WHEN $28::text = '__DELETE__' THEN NULL ELSE COALESCE($29, contract_file_name) END,
         updated_at = NOW()
-      WHERE id = $28
+      WHERE id = $30
       RETURNING *
       `,
       [
@@ -475,13 +529,15 @@ export async function PUT(request: Request) {
         paymentDueDay,
         status,
         memo || null,
-        bizCertFileUrl,
-        bizCertFileName,
+        bizCertFileUrl || null,
+        bizCertFileName || null,
         bankName || null,
         bankAccountNo || null,
         bankAccountHolder || null,
-        bankCopyFileUrl,
-        bankCopyFileName,
+        bankCopyFileUrl || null,
+        bankCopyFileName || null,
+        contractFileUrl || null,
+        contractFileName || null,
         id,
       ]
     );

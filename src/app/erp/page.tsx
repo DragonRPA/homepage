@@ -396,17 +396,16 @@ export default function ErpMainPage() {
                 }}
               />
             )}
-            {activeMenu === "CUSTOMER" && (
+            {(activeMenu === "CUSTOMER" || activeMenu === "VENDOR") && (
               <PartnerManagementTab
                 currentUser={currentUser}
-                initialType="CUSTOMER"
-                onNavigateToTax={navigateToTax}
-              />
-            )}
-            {activeMenu === "VENDOR" && (
-              <PartnerManagementTab
-                currentUser={currentUser}
-                initialType="VENDOR"
+                initialType={activeMenu === "VENDOR" ? "VENDOR" : "CUSTOMER"}
+                onSelectTypeTab={(type) => {
+                  if (type === "CUSTOMER" || type === "VENDOR") {
+                    setActiveMenu(type);
+                    setActiveCategory("PARTNER");
+                  }
+                }}
                 onNavigateToTax={navigateToTax}
               />
             )}

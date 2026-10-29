@@ -18,6 +18,37 @@ export function formatErpNumber(val: number | string | null | undefined): string
 }
 
 /**
+ * 사용자 입력(onChange) 실시간 천단위 콤마 포맷팅 헬퍼
+ * 사용자가 숫자를 칠 때 실시간으로 1,000 단위 콤마를 적용
+ */
+export function formatErpInputNumber(rawInput: string | number): string {
+  if (rawInput === null || rawInput === undefined || rawInput === "") return "";
+  const digits = String(rawInput).replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  const num = parseInt(digits, 10);
+  return isNaN(num) ? "" : num.toLocaleString("ko-KR");
+}
+
+/**
+ * DB에서 가져온 값(예: '2700000.00' 등 소수점 포함)을 입력창용 천단위 콤마 정수 문자열(예: '2,700,000')로 변환
+ */
+export function toErpInputString(val: string | number | null | undefined): string {
+  if (val === null || val === undefined || val === "") return "";
+  const num = typeof val === "number" ? val : parseFloat(String(val).replace(/,/g, ""));
+  if (isNaN(num)) return "";
+  return Math.round(num).toLocaleString("ko-KR");
+}
+
+/**
+ * 콤마가 포함된 문자열을 서버 전송용 정수 숫자로 변환
+ */
+export function cleanErpNumber(val: string | number | null | undefined): number {
+  if (val === null || val === undefined || val === "") return 0;
+  const num = typeof val === "number" ? val : parseFloat(String(val).replace(/,/g, ""));
+  return isNaN(num) ? 0 : Math.round(num);
+}
+
+/**
  * 원화 금액 통화 포맷 (₩ 기호 + 반올림 정수 + 콤마)
  */
 export function formatErpCurrency(val: number | string | null | undefined): string {

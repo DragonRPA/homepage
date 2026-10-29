@@ -9,7 +9,7 @@ import {
   Layers, Briefcase, Truck, ShoppingCart
 } from "lucide-react";
 import { BUSINESS_ENTITIES, EntityType, getEntity } from "@/lib/businessEntities";
-import { formatErpNumber, formatErpCurrency, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, formatErpInputNumber, cleanErpNumber, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface TaxInvoiceTabProps {
   currentUser: any;
@@ -78,7 +78,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const [bizNo, setBizNo] = useState("100-00-00000");
   const [ceoName, setCeoName] = useState("대표자");
   const [itemName, setItemName] = useState("");
-  const [supplyAmt, setSupplyAmt] = useState("1000000");
+  const [supplyAmt, setSupplyAmt] = useState("1,000,000");
   const [issueDate, setIssueDate] = useState(new Date().toISOString().split("T")[0]);
   const [domainType, setDomainType] = useState("TRADE_SALE");
   const [memo, setMemo] = useState("");
@@ -352,7 +352,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
           businessNo: bizNo.trim(),
           ceoName: ceoName.trim(),
           itemName: itemName.trim(),
-          supplyAmount: supplyAmt,
+          supplyAmount: cleanErpNumber(supplyAmt),
           issueDate,
           memo: memo.trim(),
         }),
@@ -1294,23 +1294,24 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-[#78716c]">공급가액 *</label>
                   <input
-                    type="number"
+                    type="text"
                     value={supplyAmt}
-                    onChange={(e) => setSupplyAmt(e.target.value)}
+                    onChange={(e) => setSupplyAmt(formatErpInputNumber(e.target.value))}
                     required
+                    placeholder="예: 1,000,000"
                     className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-[#78716c]">세액 (10%)</label>
                   <div className="h-8 px-2 rounded border border-[#b5a894] bg-[#ded6c5] flex items-center justify-end font-mono text-[#78716c]">
-                    {formatErpCurrency(Math.round(parseFloat(supplyAmt || "0") * 0.1))}
+                    {formatErpCurrency(Math.round(cleanErpNumber(supplyAmt) * 0.1))}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-[#78716c]">합계금액</label>
                   <div className="h-8 px-2 rounded border border-[#b5a894] bg-[#ded6c5] flex items-center justify-end font-mono font-bold text-blue-900">
-                    {formatErpCurrency(Math.round(parseFloat(supplyAmt || "0") * 1.1))}
+                    {formatErpCurrency(Math.round(cleanErpNumber(supplyAmt) * 1.1))}
                   </div>
                 </div>
               </div>

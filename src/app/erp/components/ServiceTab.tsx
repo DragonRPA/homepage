@@ -7,7 +7,7 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Eye, Download,
   Edit, Trash2, AlertCircle
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface ServiceTabProps {
   currentUser: any;
@@ -46,8 +46,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const [ctCustomerSearch, setCtCustomerSearch] = useState("");
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [ctProject, setCtProject] = useState("");
-  const [ctAmount, setCtAmount] = useState("10000000");
-  const [ctMonthlyFee, setCtMonthlyFee] = useState("1000000");
+  const [ctAmount, setCtAmount] = useState("10,000,000");
+  const [ctMonthlyFee, setCtMonthlyFee] = useState("1,000,000");
   const [ctStart, setCtStart] = useState(new Date().toISOString().split("T")[0]);
   const [ctEnd, setCtEnd] = useState(
     new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
@@ -81,7 +81,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   // Billing Form
   const [blContractId, setBlContractId] = useState("");
   const [blMilestoneName, setBlMilestoneName] = useState("");
-  const [blSupplyAmount, setBlSupplyAmount] = useState("1000000");
+  const [blSupplyAmount, setBlSupplyAmount] = useState("1,000,000");
   const [blDate, setBlDate] = useState(new Date().toISOString().split("T")[0]);
 
   // Toast
@@ -270,8 +270,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           partnerId: ctPartnerId,
           customerName: ctCustomer,
           projectName: ctProject,
-          contractAmount: ctAmount,
-          monthlyFee: ctMonthlyFee,
+          contractAmount: cleanErpNumber(ctAmount),
+          monthlyFee: cleanErpNumber(ctMonthlyFee),
           startDate: ctStart,
           endDate: ctEnd,
           billingDay: ctBillingDay,
@@ -306,8 +306,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     setEditCtPartnerId(c.partnerId || null);
     setEditCtCustomer(c.customerName);
     setEditCtProject(c.projectName);
-    setEditCtAmount(String(c.contractAmount || "0"));
-    setEditCtMonthlyFee(String(c.monthlyFee || "0"));
+    setEditCtAmount(toErpInputString(c.contractAmount));
+    setEditCtMonthlyFee(toErpInputString(c.monthlyFee));
     setEditCtStart(c.startDate ? String(c.startDate).slice(0, 10) : "");
     setEditCtEnd(c.endDate ? String(c.endDate).slice(0, 10) : "");
     setEditCtBillingDay(String(c.billingDay || "25"));
@@ -338,8 +338,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           partnerId: editCtPartnerId,
           customerName: editCtCustomer,
           projectName: editCtProject,
-          contractAmount: editCtAmount,
-          monthlyFee: editCtMonthlyFee,
+          contractAmount: cleanErpNumber(editCtAmount),
+          monthlyFee: cleanErpNumber(editCtMonthlyFee),
           startDate: editCtStart,
           endDate: editCtEnd,
           billingDay: editCtBillingDay,
@@ -398,7 +398,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           billingType: activeType === "OPERATIONAL" ? "MONTHLY_RETAINER" : "MILESTONE",
           milestoneName: blMilestoneName || (activeType === "OPERATIONAL" ? "정기 용역료" : "중도금"),
           billingDate: blDate,
-          supplyAmount: blSupplyAmount,
+          supplyAmount: cleanErpNumber(blSupplyAmount),
         }),
       });
       const data = await res.json();
@@ -788,9 +788,10 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   <div className="flex flex-col gap-1">
                     <label className="font-bold text-[#78716c]">월 정기 용역료 (공급가액)</label>
                     <input
-                      type="number"
+                      type="text"
                       value={ctMonthlyFee}
-                      onChange={(e) => setCtMonthlyFee(e.target.value)}
+                      onChange={(e) => setCtMonthlyFee(formatErpInputNumber(e.target.value))}
+                      placeholder="예: 1,000,000"
                       required
                       className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
                     />
@@ -799,9 +800,10 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   <div className="flex flex-col gap-1">
                     <label className="font-bold text-[#78716c]">총 수주 계약금 (공급가액)</label>
                     <input
-                      type="number"
+                      type="text"
                       value={ctAmount}
-                      onChange={(e) => setCtAmount(e.target.value)}
+                      onChange={(e) => setCtAmount(formatErpInputNumber(e.target.value))}
+                      placeholder="예: 10,000,000"
                       required
                       className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
                     />
@@ -955,9 +957,10 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   <div className="flex flex-col gap-1">
                     <label className="font-bold text-[#78716c]">월 정기 용역료</label>
                     <input
-                      type="number"
+                      type="text"
                       value={editCtMonthlyFee}
-                      onChange={(e) => setEditCtMonthlyFee(e.target.value)}
+                      onChange={(e) => setEditCtMonthlyFee(formatErpInputNumber(e.target.value))}
+                      placeholder="예: 1,000,000"
                       required
                       className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
                     />
@@ -966,9 +969,10 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   <div className="flex flex-col gap-1">
                     <label className="font-bold text-[#78716c]">총 계약금</label>
                     <input
-                      type="number"
+                      type="text"
                       value={editCtAmount}
-                      onChange={(e) => setEditCtAmount(e.target.value)}
+                      onChange={(e) => setEditCtAmount(formatErpInputNumber(e.target.value))}
+                      placeholder="예: 10,000,000"
                       required
                       className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
                     />
@@ -1089,7 +1093,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                     const ct = contracts.find((c) => String(c.id) === cid);
                     if (ct) {
                       if (activeType === "OPERATIONAL") {
-                        setBlSupplyAmount(String(ct.monthlyFee || "1000000"));
+                        setBlSupplyAmount(toErpInputString(ct.monthlyFee || 1000000));
                       }
                     }
                   }}
@@ -1131,9 +1135,10 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-[#78716c]">공급가액 *</label>
                   <input
-                    type="number"
+                    type="text"
                     value={blSupplyAmount}
-                    onChange={(e) => setBlSupplyAmount(e.target.value)}
+                    onChange={(e) => setBlSupplyAmount(formatErpInputNumber(e.target.value))}
+                    placeholder="예: 1,000,000"
                     required
                     className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
                   />
@@ -1141,9 +1146,9 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
               </div>
 
               <div className="flex items-center justify-between p-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[11px]">
-                <span className="text-[#78716c]">부가세(10%): ₩{formatErpCurrency(Math.round(parseFloat(blSupplyAmount || "0") * 0.1))}</span>
+                <span className="text-[#78716c]">부가세(10%): {formatErpCurrency(Math.round(cleanErpNumber(blSupplyAmount) * 0.1))}</span>
                 <span className="font-bold text-blue-900">
-                  합계: ₩{formatErpCurrency(Math.round(parseFloat(blSupplyAmount || "0") * 1.1))}
+                  합계: {formatErpCurrency(Math.round(cleanErpNumber(blSupplyAmount) * 1.1))}
                 </span>
               </div>
 

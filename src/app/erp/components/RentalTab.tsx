@@ -7,7 +7,7 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Download,
   Edit, Trash2
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface RentalTabProps {
   currentUser: any;
@@ -70,8 +70,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [modelCode, setModelCode] = useState("");
   const [modelName, setModelName] = useState("");
   const [manufacturer, setManufacturer] = useState("Skyjack");
-  const [modelMonthlyRate, setModelMonthlyRate] = useState("600000");
-  const [modelDailyRate, setModelDailyRate] = useState("30000");
+  const [modelMonthlyRate, setModelMonthlyRate] = useState("600,000");
+  const [modelDailyRate, setModelDailyRate] = useState("30,000");
   const [modelSpec, setModelSpec] = useState("작업높이 8m / 전폭 0.81m");
 
   // Asset Form
@@ -79,8 +79,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [assetModelId, setAssetModelId] = useState("");
   const [serialNo, setSerialNo] = useState("");
   const [acqDate, setAcqDate] = useState(new Date().toISOString().split("T")[0]);
-  const [acqCost, setAcqCost] = useState("12000000");
-  const [salvageValue, setSalvageValue] = useState("1200000");
+  const [acqCost, setAcqCost] = useState("12,000,000");
+  const [salvageValue, setSalvageValue] = useState("1,200,000");
   const [usefulLife, setUsefulLife] = useState("5");
 
   // Contract Form
@@ -94,7 +94,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [ctEnd, setCtEnd] = useState(
     new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
   );
-  const [ctMonthlyRate, setCtMonthlyRate] = useState("600000");
+  const [ctMonthlyRate, setCtMonthlyRate] = useState("600,000");
   const [ctDeposit, setCtDeposit] = useState("0");
   const [ctFileUrl, setCtFileUrl] = useState("");
   const [ctFileName, setCtFileName] = useState("");
@@ -290,8 +290,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           modelName,
           category: "고소작업대",
           manufacturer,
-          standardMonthlyRate: modelMonthlyRate,
-          standardDailyRate: modelDailyRate,
+          standardMonthlyRate: cleanErpNumber(modelMonthlyRate),
+          standardDailyRate: cleanErpNumber(modelDailyRate),
           spec: modelSpec,
         }),
       });
@@ -324,15 +324,15 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           rentalProductId: assetModelId,
           serialNo,
           acquisitionDate: acqDate,
-          acquisitionCost: acqCost,
-          salvageValue,
-          usefulLifeYears: usefulLife,
+          acquisitionCost: cleanErpNumber(acqCost),
+          salvageValue: cleanErpNumber(salvageValue),
+          usefulLifeYears: cleanErpNumber(usefulLife),
         }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "자산 취득 등록 실패");
 
-      showToast(`자산 [${assetNo}] 취득 완료 (장부가액 ${formatErpCurrency(acqCost)})`);
+      showToast(`자산 [${assetNo}] 취득 완료 (장부가액 ${formatErpCurrency(cleanErpNumber(acqCost))})`);
       setShowAcquireAssetModal(false);
       setAssetNo("");
       fetchData();
@@ -384,8 +384,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           assetId: ctAssetId,
           startDate: ctStart,
           endDate: ctEnd,
-          monthlyRate: ctMonthlyRate,
-          deposit: ctDeposit,
+          monthlyRate: cleanErpNumber(ctMonthlyRate),
+          deposit: cleanErpNumber(ctDeposit),
           contractFileUrl: ctFileUrl || null,
           contractFileName: ctFileName || null,
         }),
@@ -438,9 +438,9 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     setEditCtSite(c.siteName || "");
     setEditCtStart(c.startDate ? String(c.startDate).slice(0, 10) : "");
     setEditCtEnd(c.endDate ? String(c.endDate).slice(0, 10) : "");
-    setEditCtMonthlyRate(String(c.monthlyRate || "0"));
-    setEditCtDailyRate(String(c.dailyRate || "0"));
-    setEditCtDeposit(String(c.deposit || "0"));
+    setEditCtMonthlyRate(toErpInputString(c.monthlyRate));
+    setEditCtDailyRate(toErpInputString(c.dailyRate));
+    setEditCtDeposit(toErpInputString(c.deposit));
     setEditCtStatus(c.status || "ACTIVE");
     setEditCtMemo(c.memo || "");
     setEditCtFileUrl("");
@@ -469,9 +469,9 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           siteName: editCtSite,
           startDate: editCtStart,
           endDate: editCtEnd,
-          monthlyRate: editCtMonthlyRate,
-          dailyRate: editCtDailyRate,
-          deposit: editCtDeposit,
+          monthlyRate: cleanErpNumber(editCtMonthlyRate),
+          dailyRate: cleanErpNumber(editCtDailyRate),
+          deposit: cleanErpNumber(editCtDeposit),
           status: editCtStatus,
           memo: editCtMemo,
           contractFileUrl: editCtFileUrl || undefined,
@@ -1090,20 +1090,22 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <div className="flex flex-col gap-1">
                   <label className="text-slate-400">취득원가 (원)</label>
                   <input
-                    type="number"
+                    type="text"
                     value={acqCost}
-                    onChange={(e) => setAcqCost(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setAcqCost(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 12,000,000"
                     required
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-slate-400">잔존가치 (원)</label>
                   <input
-                    type="number"
+                    type="text"
                     value={salvageValue}
-                    onChange={(e) => setSalvageValue(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setSalvageValue(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 1,200,000"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -1181,19 +1183,21 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <div className="flex flex-col gap-1">
                   <label className="text-slate-400">기준 월임대료</label>
                   <input
-                    type="number"
+                    type="text"
                     value={modelMonthlyRate}
-                    onChange={(e) => setModelMonthlyRate(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setModelMonthlyRate(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 600,000"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-slate-400">기준 일일단가</label>
                   <input
-                    type="number"
+                    type="text"
                     value={modelDailyRate}
-                    onChange={(e) => setModelDailyRate(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setModelDailyRate(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 30,000"
                   />
                 </div>
               </div>
@@ -1418,20 +1422,22 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <div className="flex flex-col gap-1">
                   <label className="text-[#1e293b] dark:text-slate-400 font-semibold">약정 월임대료 (원)</label>
                   <input
-                    type="number"
+                    type="text"
                     value={ctMonthlyRate}
-                    onChange={(e) => setCtMonthlyRate(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setCtMonthlyRate(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 600,000"
                     required
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[#1e293b] dark:text-slate-400 font-semibold">임대 보증금 (원)</label>
                   <input
-                    type="number"
+                    type="text"
                     value={ctDeposit}
-                    onChange={(e) => setCtDeposit(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setCtDeposit(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 0"
                   />
                 </div>
               </div>
@@ -1617,29 +1623,32 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <div className="flex flex-col gap-1">
                   <label className="text-[#78716c] font-semibold">약정 월임대료</label>
                   <input
-                    type="number"
+                    type="text"
                     value={editCtMonthlyRate}
-                    onChange={(e) => setEditCtMonthlyRate(e.target.value)}
+                    onChange={(e) => setEditCtMonthlyRate(formatErpInputNumber(e.target.value))}
                     className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono text-right font-bold"
+                    placeholder="예: 600,000"
                     required
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[#78716c] font-semibold">일할단가</label>
                   <input
-                    type="number"
+                    type="text"
                     value={editCtDailyRate}
-                    onChange={(e) => setEditCtDailyRate(e.target.value)}
+                    onChange={(e) => setEditCtDailyRate(formatErpInputNumber(e.target.value))}
                     className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono text-right"
+                    placeholder="예: 20,000"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[#78716c] font-semibold">보증금</label>
                   <input
-                    type="number"
+                    type="text"
                     value={editCtDeposit}
-                    onChange={(e) => setEditCtDeposit(e.target.value)}
+                    onChange={(e) => setEditCtDeposit(formatErpInputNumber(e.target.value))}
                     className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono text-right"
+                    placeholder="예: 0"
                   />
                 </div>
               </div>

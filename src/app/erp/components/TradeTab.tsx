@@ -6,7 +6,7 @@ import {
   Search, Download, DollarSign, Layers, FileText, CheckCircle2, AlertCircle, X,
   ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
 interface TradeTabProps {
   currentUser: any;
@@ -189,10 +189,10 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           category: prodCategory,
           spec: prodSpec,
           unit: prodUnit,
-          standardCost: prodStandardCost,
-          standardPrice: prodStandardPrice,
-          safetyStock: prodSafetyStock,
-          initialStock: prodInitialStock,
+          standardCost: cleanErpNumber(prodStandardCost),
+          standardPrice: cleanErpNumber(prodStandardPrice),
+          safetyStock: cleanErpNumber(prodSafetyStock),
+          initialStock: cleanErpNumber(prodInitialStock),
         }),
       });
       const data = await res.json();
@@ -223,8 +223,8 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           purchaseDate: poDate,
           vendorName: poVendor,
           productId: poProductId,
-          qty: poQty,
-          unitCost: poUnitCost,
+          qty: cleanErpNumber(poQty),
+          unitCost: cleanErpNumber(poUnitCost),
         }),
       });
       const data = await res.json();
@@ -255,8 +255,8 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           saleDate: soDate,
           customerName: soCustomer,
           productId: soProductId,
-          qty: soQty,
-          unitPrice: soUnitPrice,
+          qty: cleanErpNumber(soQty),
+          unitPrice: cleanErpNumber(soUnitPrice),
         }),
       });
       const data = await res.json();
@@ -753,19 +753,21 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 <div className="flex flex-col gap-1">
                   <label className="text-slate-400">기준매입단가 (원)</label>
                   <input
-                    type="number"
+                    type="text"
                     value={prodStandardCost}
-                    onChange={(e) => setProdStandardCost(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setProdStandardCost(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 0"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-slate-400">기준판매단가 (원)</label>
                   <input
-                    type="number"
+                    type="text"
                     value={prodStandardPrice}
-                    onChange={(e) => setProdStandardPrice(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setProdStandardPrice(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 0"
                   />
                 </div>
               </div>
@@ -872,21 +874,22 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 <div className="flex flex-col gap-1">
                   <label className="text-slate-400">입고 수량</label>
                   <input
-                    type="number"
-                    min="1"
+                    type="text"
                     value={poQty}
-                    onChange={(e) => setPoQty(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setPoQty(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 1"
                     required
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-slate-400">매입 단가 (원)</label>
                   <input
-                    type="number"
+                    type="text"
                     value={poUnitCost}
-                    onChange={(e) => setPoUnitCost(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setPoUnitCost(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 0"
                     required
                   />
                 </div>
@@ -1016,21 +1019,22 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 <div className="flex flex-col gap-1">
                   <label className="text-slate-400">판매 수량</label>
                   <input
-                    type="number"
-                    min="1"
+                    type="text"
                     value={soQty}
-                    onChange={(e) => setSoQty(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setSoQty(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 1"
                     required
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-slate-400">판매 단가 (원)</label>
                   <input
-                    type="number"
+                    type="text"
                     value={soUnitPrice}
-                    onChange={(e) => setSoUnitPrice(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onChange={(e) => setSoUnitPrice(formatErpInputNumber(e.target.value))}
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: 0"
                     required
                   />
                 </div>

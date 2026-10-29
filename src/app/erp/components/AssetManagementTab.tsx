@@ -326,11 +326,29 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
     }
   };
 
+  // 자산 취득 시 자동채번 헬퍼: "DR" + yymm + 3-digit 순번 (예: DR2610001)
+  const computeNextAssetNo = (dateStr: string, assetList: AssetRecord[] = assets) => {
+    const cleanDate = (dateStr || new Date().toISOString().split("T")[0]).replace(/-/g, "");
+    const yymm = cleanDate.length >= 6 ? cleanDate.slice(2, 6) : new Date().toISOString().slice(2, 7).replace("-", "");
+    const prefix = `DR${yymm}`;
+    let maxSeq = 0;
+    for (const a of assetList) {
+      const no = String(a.assetNo || "").toUpperCase();
+      if (no.startsWith(prefix)) {
+        const suffix = no.slice(prefix.length).replace(/[^0-9]/g, "");
+        const n = parseInt(suffix, 10);
+        if (!isNaN(n) && n > maxSeq) maxSeq = n;
+      }
+    }
+    return `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
+  };
+
   // Handle Add New Asset
   const handleAddAsset = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addForm.assetNo.trim() || !addForm.rentalProductId) {
-      showToast("자산번호와 제품 모델을 입력해 주십시오.", "error");
+    const targetAssetNo = addForm.assetNo.trim() || computeNextAssetNo(addForm.acquisitionDate);
+    if (!addForm.rentalProductId) {
+      showToast("제품 모델을 선택해 주십시오.", "error");
       return;
     }
 
@@ -338,31 +356,15 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
       const res = await fetch("/api/erp/assets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(addForm),
+        body: JSON.stringify({ ...addForm, assetNo: targetAssetNo }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "자산 취득 등록 실패");
 
-      showToast(`자산 ${addForm.assetNo}이(가) 신규 취득 등록되었습니다.`);
+      const issuedNo = data.asset?.asset_no || targetAssetNo;
+      showToast(`자산 [${issuedNo}]이(가) 신규 취득 등록되었습니다.`);
       setShowAddModal(false);
-      setAddForm({
-        assetNo: "",
-        rentalProductId: products.length > 0 ? products[0].id.toString() : "",
-        serialNo: "",
-        ownerType: "OWNED",
-        acquisitionDate: new Date().toISOString().split("T")[0],
-        acquisitionCost: "3200000",
-        salvageValue: "320000",
-        usefulLifeYears: "4",
-        supplier: "(주)컴퓨존 B2B",
-        renter: "",
-        currentCustomer: "",
-        currentSite: "",
-        contractNo: "",
-        customSpec: "",
-        memo: "",
-      });
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -571,7 +573,21 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
 
           {isAdmin && (
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => {
+                const todayStr = new Date().toISOString().split("T")[0];
+                const autoNo = computeNextAssetNo(todayStr, assets);
+                setAddForm((prev) => ({
+                  ...prev,
+                  assetNo: autoNo,
+                  acquisitionDate: todayStr,
+                  rentalProductId: prev.rentalProductId || (products.length > 0 ? products[0].id.toString() : ""),
+                  serialNo: "",
+                  currentCustomer: "",
+                  currentSite: "",
+                  memo: "",
+                }));
+                setShowAddModal(true);
+              }}
               className="h-8 px-3 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5 shadow-sm transition"
             >
               <Plus className="w-3.5 h-3.5 text-white" />
@@ -1039,14 +1055,14 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
             <form onSubmit={handleAddAsset} className="flex flex-col gap-3 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="font-semibold">자산번호 (고유 관리번호) *</label>
+                  <label className="font-semibold">자산번호 (자동채번: DR + yymm + 3자리) *</label>
                   <input
                     type="text"
                     required
                     value={addForm.assetNo}
                     onChange={(e) => setAddForm({ ...addForm, assetNo: e.target.value })}
-                    placeholder="예: DR-AST-010"
-                    className="h-8 px-2.5 border rounded font-mono font-bold"
+                    placeholder="예: DR2610001"
+                    className="h-8 px-2.5 border rounded font-mono font-bold text-blue-700"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -1097,33 +1113,37 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                   <input
                     type="date"
                     value={addForm.acquisitionDate}
-                    onChange={(e) => setAddForm({ ...addForm, acquisitionDate: e.target.value })}
+                    onChange={(e) => {
+                      const nextDate = e.target.value;
+                      const nextNo = computeNextAssetNo(nextDate, assets);
+                      setAddForm({ ...addForm, acquisitionDate: nextDate, assetNo: nextNo });
+                    }}
                     className="h-8 px-2 border rounded"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="font-semibold">취득 원가 (원)</label>
                   <input
-                    type="number"
-                    value={addForm.acquisitionCost}
+                    type="text"
+                    value={formatErpNumber(addForm.acquisitionCost)}
                     onChange={(e) => {
-                      const cost = e.target.value;
+                      const raw = e.target.value.replace(/[^0-9]/g, "");
                       setAddForm({
                         ...addForm,
-                        acquisitionCost: cost,
-                        salvageValue: Math.round(parseFloat(cost || "0") * 0.1).toString(),
+                        acquisitionCost: raw,
+                        salvageValue: Math.round(parseFloat(raw || "0") * 0.1).toString(),
                       });
                     }}
-                    className="h-8 px-2.5 border rounded font-mono font-bold"
+                    className="h-8 px-2.5 border rounded font-mono font-bold text-right"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="font-semibold">잔존 가치 (원)</label>
                   <input
-                    type="number"
-                    value={addForm.salvageValue}
-                    onChange={(e) => setAddForm({ ...addForm, salvageValue: e.target.value })}
-                    className="h-8 px-2.5 border rounded font-mono"
+                    type="text"
+                    value={formatErpNumber(addForm.salvageValue)}
+                    onChange={(e) => setAddForm({ ...addForm, salvageValue: e.target.value.replace(/[^0-9]/g, "") })}
+                    className="h-8 px-2.5 border rounded font-mono text-right"
                   />
                 </div>
               </div>

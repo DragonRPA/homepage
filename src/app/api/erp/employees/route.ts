@@ -39,6 +39,10 @@ export async function GET() {
         COALESCE(e.hourly_wage, ROUND(COALESCE(e.base_salary, 3500000) / 209.0))::numeric as "hourlyWage",
         COALESCE(e.meal_allowance, 200000)::numeric as "mealAllowance",
         COALESCE(e.vehicle_allowance, 0)::numeric as "vehicleAllowance",
+        COALESCE(e.ins_national_pension, TRUE) as "insNationalPension",
+        COALESCE(e.ins_health_insurance, TRUE) as "insHealthInsurance",
+        COALESCE(e.ins_employment_insurance, TRUE) as "insEmploymentInsurance",
+        COALESCE(e.ins_industrial_accident, TRUE) as "insIndustrialAccident",
         COALESCE(e.service_contract_amount, 0)::numeric as "serviceContractAmount",
         e.salary_bank_name as "salaryBankName",
         e.salary_account_no as "salaryAccountNo",
@@ -106,6 +110,10 @@ export async function POST(request: Request) {
       hourlyWage,
       mealAllowance,
       vehicleAllowance,
+      insNationalPension,
+      insHealthInsurance,
+      insEmploymentInsurance,
+      insIndustrialAccident,
       salaryBankName,
       salaryAccountNo,
       salaryAccountHolder,
@@ -173,6 +181,10 @@ export async function POST(request: Request) {
             : Math.round((baseSalary !== undefined ? parseFloat(baseSalary) || 3500000 : 3500000) / 209),
         meal_allowance: mealAllowance !== undefined ? parseFloat(mealAllowance) || 0 : 200000,
         vehicle_allowance: vehicleAllowance !== undefined ? parseFloat(vehicleAllowance) || 0 : 0,
+        ins_national_pension: insNationalPension !== undefined ? Boolean(insNationalPension) : true,
+        ins_health_insurance: insHealthInsurance !== undefined ? Boolean(insHealthInsurance) : true,
+        ins_employment_insurance: insEmploymentInsurance !== undefined ? Boolean(insEmploymentInsurance) : true,
+        ins_industrial_accident: insIndustrialAccident !== undefined ? Boolean(insIndustrialAccident) : true,
         salary_bank_name: salaryBankName ? String(salaryBankName).trim() : null,
         salary_account_no: salaryAccountNo ? String(salaryAccountNo).trim() : null,
         salary_account_holder: salaryAccountHolder ? String(salaryAccountHolder).trim() : null,
@@ -217,6 +229,10 @@ export async function POST(request: Request) {
         hourlyWage: Number(data.hourly_wage ?? Math.round(Number(data.base_salary ?? 3500000) / 209)),
         mealAllowance: Number(data.meal_allowance ?? 200000),
         vehicleAllowance: Number(data.vehicle_allowance ?? 0),
+        insNationalPension: data.ins_national_pension ?? true,
+        insHealthInsurance: data.ins_health_insurance ?? true,
+        insEmploymentInsurance: data.ins_employment_insurance ?? true,
+        insIndustrialAccident: data.ins_industrial_accident ?? true,
         salaryBankName: data.salary_bank_name || "",
         salaryAccountNo: data.salary_account_no || "",
         salaryAccountHolder: data.salary_account_holder || "",
@@ -258,6 +274,10 @@ export async function PUT(request: Request) {
       hourlyWage,
       mealAllowance,
       vehicleAllowance,
+      insNationalPension,
+      insHealthInsurance,
+      insEmploymentInsurance,
+      insIndustrialAccident,
       salaryBankName,
       salaryAccountNo,
       salaryAccountHolder,
@@ -320,6 +340,10 @@ export async function PUT(request: Request) {
     if (hourlyWage !== undefined) updatePayload.hourly_wage = parseFloat(hourlyWage) || 0;
     if (mealAllowance !== undefined) updatePayload.meal_allowance = parseFloat(mealAllowance) || 0;
     if (vehicleAllowance !== undefined) updatePayload.vehicle_allowance = parseFloat(vehicleAllowance) || 0;
+    if (insNationalPension !== undefined) updatePayload.ins_national_pension = Boolean(insNationalPension);
+    if (insHealthInsurance !== undefined) updatePayload.ins_health_insurance = Boolean(insHealthInsurance);
+    if (insEmploymentInsurance !== undefined) updatePayload.ins_employment_insurance = Boolean(insEmploymentInsurance);
+    if (insIndustrialAccident !== undefined) updatePayload.ins_industrial_accident = Boolean(insIndustrialAccident);
     if (salaryBankName !== undefined) updatePayload.salary_bank_name = salaryBankName ? String(salaryBankName).trim() : null;
     if (salaryAccountNo !== undefined) updatePayload.salary_account_no = salaryAccountNo ? String(salaryAccountNo).trim() : null;
     if (salaryAccountHolder !== undefined) updatePayload.salary_account_holder = salaryAccountHolder ? String(salaryAccountHolder).trim() : null;
@@ -358,6 +382,10 @@ export async function PUT(request: Request) {
         hourlyWage: Number(data.hourly_wage ?? Math.round(Number(data.base_salary ?? 3500000) / 209)),
         mealAllowance: Number(data.meal_allowance ?? 200000),
         vehicleAllowance: Number(data.vehicle_allowance ?? 0),
+        insNationalPension: data.ins_national_pension ?? true,
+        insHealthInsurance: data.ins_health_insurance ?? true,
+        insEmploymentInsurance: data.ins_employment_insurance ?? true,
+        insIndustrialAccident: data.ins_industrial_accident ?? true,
         salaryBankName: data.salary_bank_name || "",
         salaryAccountNo: data.salary_account_no || "",
         salaryAccountHolder: data.salary_account_holder || "",

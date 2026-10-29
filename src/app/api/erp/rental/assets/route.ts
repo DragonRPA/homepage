@@ -45,21 +45,56 @@ export async function POST(request: Request) {
       acquisitionCost, salvageValue, usefulLifeYears, memo 
     } = body;
 
-    if (!assetNo || !rentalProductId || !acquisitionCost) {
-      return NextResponse.json({ error: "자산번호, 모델, 취득원가는 필수입니다." }, { status: 400 });
+    if (!rentalProductId || !acquisitionCost) {
+      return NextResponse.json({ error: "제품 모델과 취득원가는 필수입니다." }, { status: 400 });
     }
 
     const cost = parseFloat(acquisitionCost);
     const salvage = parseFloat(salvageValue || "0");
     const lifeYears = parseInt(usefulLifeYears || "5", 10);
+    const dateStr = acquisitionDate || new Date().toISOString().split("T")[0];
+
+    const pool = getErpPool();
+    let finalAssetNo = (assetNo || "").trim().toUpperCase();
+    const yymm = dateStr.replace(/-/g, "").slice(2, 6);
+    const prefix = `DR${yymm}`;
+
+    if (!finalAssetNo) {
+      const seqRes = await pool.query(
+        `SELECT asset_no FROM erp_rental_assets WHERE asset_no LIKE $1 ORDER BY asset_no DESC`,
+        [`${prefix}%`]
+      );
+      let maxSeq = 0;
+      for (const row of seqRes.rows) {
+        const suffix = String(row.asset_no || "").slice(prefix.length).replace(/[^0-9]/g, "");
+        const n = parseInt(suffix, 10);
+        if (!isNaN(n) && n > maxSeq) maxSeq = n;
+      }
+      finalAssetNo = `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
+    } else {
+      const dupRes = await pool.query(`SELECT id FROM erp_rental_assets WHERE asset_no = $1`, [finalAssetNo]);
+      if (dupRes.rows.length > 0 && finalAssetNo.startsWith(prefix)) {
+        const seqRes = await pool.query(
+          `SELECT asset_no FROM erp_rental_assets WHERE asset_no LIKE $1 ORDER BY asset_no DESC`,
+          [`${prefix}%`]
+        );
+        let maxSeq = 0;
+        for (const row of seqRes.rows) {
+          const suffix = String(row.asset_no || "").slice(prefix.length).replace(/[^0-9]/g, "");
+          const n = parseInt(suffix, 10);
+          if (!isNaN(n) && n > maxSeq) maxSeq = n;
+        }
+        finalAssetNo = `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
+      }
+    }
 
     const { data, error } = await supabaseErp
       .from("erp_rental_assets")
       .insert({
-        asset_no: assetNo.trim().toUpperCase(),
+        asset_no: finalAssetNo,
         rental_product_id: rentalProductId,
         serial_no: serialNo || "",
-        acquisition_date: acquisitionDate || new Date().toISOString().split("T")[0],
+        acquisition_date: dateStr,
         acquisition_cost: cost,
         salvage_value: salvage,
         useful_life_years: lifeYears,
@@ -83,7 +118,7 @@ export async function POST(request: Request) {
     await supabaseErp.from("erp_audit_logs").insert({
       domain: "RENTAL_ASSET",
       action_type: "ACQUIRE",
-      record_id: assetNo,
+      record_id: finalAssetNo,
       actor_name: "ADMIN",
       details: { cost, salvage, lifeYears }
     });

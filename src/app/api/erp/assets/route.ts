@@ -74,14 +74,51 @@ export async function POST(request: Request) {
       supplier, renter, currentCustomer, currentSite, contractNo, customSpec, memo 
     } = body;
 
-    if (!assetNo || !rentalProductId) {
-      return NextResponse.json({ error: "자산번호와 제품 모델은 필수입니다." }, { status: 400 });
+    if (!rentalProductId) {
+      return NextResponse.json({ error: "제품 모델은 필수입니다." }, { status: 400 });
     }
 
     const cost = parseFloat(acquisitionCost || "0");
     const salvage = parseFloat(salvageValue || "0");
     const lifeYears = parseInt(usefulLifeYears || "5", 10);
     const dateStr = acquisitionDate || new Date().toISOString().split("T")[0];
+
+    const pool = getErpPool();
+
+    // 자산번호 자동채번: "DR" + yymm + 3-digit 순번 (예: DR2610001)
+    let finalAssetNo = (assetNo || "").trim().toUpperCase();
+    const yymm = dateStr.replace(/-/g, "").slice(2, 6);
+    const prefix = `DR${yymm}`;
+
+    if (!finalAssetNo) {
+      const seqRes = await pool.query(
+        `SELECT asset_no FROM erp_rental_assets WHERE asset_no LIKE $1 ORDER BY asset_no DESC`,
+        [`${prefix}%`]
+      );
+      let maxSeq = 0;
+      for (const row of seqRes.rows) {
+        const suffix = String(row.asset_no || "").slice(prefix.length).replace(/[^0-9]/g, "");
+        const n = parseInt(suffix, 10);
+        if (!isNaN(n) && n > maxSeq) maxSeq = n;
+      }
+      finalAssetNo = `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
+    } else {
+      // 중복 체크 후 만약 동일 번호가 이미 있으면 다음 순번으로 자동 보정 (자동채번 충돌 방지)
+      const dupRes = await pool.query(`SELECT id FROM erp_rental_assets WHERE asset_no = $1`, [finalAssetNo]);
+      if (dupRes.rows.length > 0 && finalAssetNo.startsWith(prefix)) {
+        const seqRes = await pool.query(
+          `SELECT asset_no FROM erp_rental_assets WHERE asset_no LIKE $1 ORDER BY asset_no DESC`,
+          [`${prefix}%`]
+        );
+        let maxSeq = 0;
+        for (const row of seqRes.rows) {
+          const suffix = String(row.asset_no || "").slice(prefix.length).replace(/[^0-9]/g, "");
+          const n = parseInt(suffix, 10);
+          if (!isNaN(n) && n > maxSeq) maxSeq = n;
+        }
+        finalAssetNo = `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
+      }
+    }
 
     // 정액법 감가상각 계산
     const acqDateObj = new Date(dateStr);
@@ -94,7 +131,6 @@ export async function POST(request: Request) {
     const bookVal = Math.max(salvage, cost - accumDeprec);
 
     const initialStatus = currentCustomer ? "RENTED" : "AVAILABLE";
-    const pool = getErpPool();
 
     const insertQuery = `
       INSERT INTO erp_rental_assets (
@@ -108,7 +144,7 @@ export async function POST(request: Request) {
     `;
 
     const res = await pool.query(insertQuery, [
-      assetNo.trim().toUpperCase(),
+      finalAssetNo,
       rentalProductId,
       serialNo || "",
       ownerType || "OWNED",

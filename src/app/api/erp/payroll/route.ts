@@ -217,13 +217,33 @@ export async function POST(request: Request) {
         );
         savedIds.push(upsertRes.rows[0].id);
 
-        // erp_employees에도 service_contract_amount 업데이트 (값이 있을 경우)
-        if (Number(r.serviceContractAmount) > 0) {
-          await pool.query(
-            `UPDATE erp_employees SET service_contract_amount = $1 WHERE id = $2`,
-            [Number(r.serviceContractAmount), employeeId]
-          );
-        }
+        // erp_employees에도 기본급, 식대, 차량보조금, 4대보험 가입여부 및 용역계약금액 동기화
+        const hasNatPension = Number(r.nationalPension || 0) > 0;
+        const hasHealthIns = Number(r.healthInsurance || 0) > 0;
+        const hasEmpIns = Number(r.employmentInsurance || 0) > 0;
+        await pool.query(
+          `UPDATE erp_employees
+           SET base_salary = CASE WHEN $1 > 0 THEN $1 ELSE base_salary END,
+               meal_allowance = $2,
+               vehicle_allowance = $3,
+               ins_national_pension = $4,
+               ins_health_insurance = $5,
+               ins_employment_insurance = $6,
+               ins_industrial_accident = $6,
+               service_contract_amount = CASE WHEN $7 > 0 THEN $7 ELSE service_contract_amount END,
+               updated_at = NOW()
+           WHERE id = $8`,
+          [
+            Number(r.baseSalary || 0),
+            Number(r.mealAllowance || 0),
+            Number(r.vehicleAllowance || 0),
+            hasNatPension,
+            hasHealthIns,
+            hasEmpIns,
+            Number(r.serviceContractAmount || 0),
+            employeeId,
+          ]
+        );
       }
 
       return NextResponse.json({
@@ -233,12 +253,16 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. 기본 자동 계산 로직 (1시간 표준임금, 식대, 차량보조금 및 일시별 초과근무수당 반영)
+    // 2. 기본 자동 계산 로직 (1시간 표준임금, 식대, 차량보조금, 4대보험 가입여부 및 일시별 초과근무수당 반영)
     const empRes = await pool.query(`
       SELECT id, name, base_salary,
              COALESCE(hourly_wage, 0) as hourly_wage,
              COALESCE(meal_allowance, 200000) as meal_allowance,
              COALESCE(vehicle_allowance, 0) as vehicle_allowance,
+             COALESCE(ins_national_pension, TRUE) as ins_national_pension,
+             COALESCE(ins_health_insurance, TRUE) as ins_health_insurance,
+             COALESCE(ins_employment_insurance, TRUE) as ins_employment_insurance,
+             COALESCE(ins_industrial_accident, TRUE) as ins_industrial_accident,
              COALESCE(service_contract_amount, 0) as service_contract_amount
       FROM erp_employees 
       WHERE employment_status = 'ACTIVE'
@@ -277,10 +301,10 @@ export async function POST(request: Request) {
 
       const taxable = Math.max(0, totalGross - mealAllowance - vehicleAllowance);
 
-      const nationalPension = Math.floor(taxable * 0.045);
-      const healthInsurance = Math.floor(taxable * 0.03545);
-      const longTermCareInsurance = Math.floor(healthInsurance * 0.1295); // 장기요양보험료
-      const employmentInsurance = Math.floor(taxable * 0.009);
+      const nationalPension = emp.ins_national_pension !== false ? Math.floor(taxable * 0.045) : 0;
+      const healthInsurance = emp.ins_health_insurance !== false ? Math.floor(taxable * 0.03545) : 0;
+      const longTermCareInsurance = emp.ins_health_insurance !== false ? Math.floor(healthInsurance * 0.1295) : 0; // 장기요양보험료
+      const employmentInsurance = emp.ins_employment_insurance !== false ? Math.floor(taxable * 0.009) : 0;
 
       let incomeTax = Math.floor(taxable * 0.025);
       if (taxable < 2000000) incomeTax = Math.floor(taxable * 0.012);
@@ -414,10 +438,24 @@ export async function PATCH(request: Request) {
     const totalGross = newBaseSalary + otPay + newMealAllowance + newVehicleAllowance + annualLeaveAllowance + newBonus;
     const taxable = Math.max(0, totalGross - newMealAllowance - newVehicleAllowance);
 
-    const nationalPension = Math.floor(taxable * 0.045);
-    const healthInsurance = Math.floor(taxable * 0.03545);
-    const longTermCareInsurance = Math.floor(healthInsurance * 0.1295);
-    const employmentInsurance = Math.floor(taxable * 0.009);
+    // 임직원 4대보험 가입여부 조회
+    const empInsRes = await pool.query(
+      `SELECT COALESCE(ins_national_pension, TRUE) as ins_national_pension,
+              COALESCE(ins_health_insurance, TRUE) as ins_health_insurance,
+              COALESCE(ins_employment_insurance, TRUE) as ins_employment_insurance
+       FROM erp_employees WHERE id = $1`,
+      [rec.employee_id]
+    );
+    const empIns = empInsRes.rows[0] || {
+      ins_national_pension: true,
+      ins_health_insurance: true,
+      ins_employment_insurance: true,
+    };
+
+    const nationalPension = empIns.ins_national_pension !== false ? Math.floor(taxable * 0.045) : 0;
+    const healthInsurance = empIns.ins_health_insurance !== false ? Math.floor(taxable * 0.03545) : 0;
+    const longTermCareInsurance = empIns.ins_health_insurance !== false ? Math.floor(healthInsurance * 0.1295) : 0;
+    const employmentInsurance = empIns.ins_employment_insurance !== false ? Math.floor(taxable * 0.009) : 0;
 
     let incomeTax = Math.floor(taxable * 0.025);
     if (taxable < 2000000) incomeTax = Math.floor(taxable * 0.012);

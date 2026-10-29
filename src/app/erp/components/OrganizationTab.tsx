@@ -196,6 +196,10 @@ export interface UserNode {
   hourlyWage?: number;
   mealAllowance?: number;
   vehicleAllowance?: number;
+  insNationalPension?: boolean;
+  insHealthInsurance?: boolean;
+  insEmploymentInsurance?: boolean;
+  insIndustrialAccident?: boolean;
   salaryBankName?: string;
   salaryAccountNo?: string;
   salaryAccountHolder?: string;
@@ -438,6 +442,10 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
               : Math.round(Number(e.baseSalary ?? 3500000) / 209),
           mealAllowance: Number(e.mealAllowance ?? 200000),
           vehicleAllowance: Number(e.vehicleAllowance ?? 0),
+          insNationalPension: e.insNationalPension !== undefined ? Boolean(e.insNationalPension) : true,
+          insHealthInsurance: e.insHealthInsurance !== undefined ? Boolean(e.insHealthInsurance) : true,
+          insEmploymentInsurance: e.insEmploymentInsurance !== undefined ? Boolean(e.insEmploymentInsurance) : true,
+          insIndustrialAccident: e.insIndustrialAccident !== undefined ? Boolean(e.insIndustrialAccident) : true,
           salaryBankName: e.salaryBankName || "",
           salaryAccountNo: e.salaryAccountNo || "",
           salaryAccountHolder: e.salaryAccountHolder || "",
@@ -564,6 +572,10 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
             : Math.round(Number(e.baseSalary ?? 3500000) / 209),
         mealAllowance: Number(e.mealAllowance ?? 200000),
         vehicleAllowance: Number(e.vehicleAllowance ?? 0),
+        insNationalPension: e.insNationalPension !== undefined ? Boolean(e.insNationalPension) : true,
+        insHealthInsurance: e.insHealthInsurance !== undefined ? Boolean(e.insHealthInsurance) : true,
+        insEmploymentInsurance: e.insEmploymentInsurance !== undefined ? Boolean(e.insEmploymentInsurance) : true,
+        insIndustrialAccident: e.insIndustrialAccident !== undefined ? Boolean(e.insIndustrialAccident) : true,
         salaryBankName: e.salaryBankName || "",
         salaryAccountNo: e.salaryAccountNo || "",
         salaryAccountHolder: e.salaryAccountHolder || "",
@@ -692,6 +704,10 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       hourlyWage: Math.round(3500000 / 209),
       mealAllowance: 200000,
       vehicleAllowance: 0,
+      insNationalPension: true,
+      insHealthInsurance: true,
+      insEmploymentInsurance: true,
+      insIndustrialAccident: true,
       salaryBankName: "",
       salaryAccountNo: "",
       salaryAccountHolder: "",
@@ -935,7 +951,18 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       "급여은행",
       "급여계좌번호",
       "예금주",
-      ...(canViewPayroll || canEdit ? ["기본급(원)", "식대(원)", "차량보조금(원)", "1시간 표준임금(원)"] : []),
+      ...(canViewPayroll || canEdit
+        ? [
+            "기본급(원)",
+            "식대(원)",
+            "차량보조금(원)",
+            "1시간 표준임금(원)",
+            "국민연금",
+            "건강보험",
+            "고용보험",
+            "산재보험",
+          ]
+        : []),
     ];
 
     const csvRows = [headers.join(",")];
@@ -970,6 +997,10 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
               u.mealAllowance ?? 200000,
               u.vehicleAllowance ?? 0,
               u.hourlyWage || Math.round((u.baseSalary || 3500000) / 209),
+              u.insNationalPension !== false ? "가입" : "미가입",
+              u.insHealthInsurance !== false ? "가입" : "미가입",
+              u.insEmploymentInsurance !== false ? "가입" : "미가입",
+              u.insIndustrialAccident !== false ? "가입" : "미가입",
             ]
           : []),
       ];
@@ -2758,6 +2789,225 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                         ).toLocaleString()}
                         원
                       </strong>
+                    </div>
+
+                    {/* 4대보험 가입여부 항목별 체크박스 */}
+                    <div
+                      style={{
+                        marginTop: "2px",
+                        padding: "8px",
+                        backgroundColor: "var(--bg-card)",
+                        borderRadius: "4px",
+                        border: "1px solid var(--border-color)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "6px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <label
+                          style={{
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            color: "var(--text-main)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          4대보험 가입여부
+                        </label>
+                        {canEdit && (
+                          <div style={{ display: "flex", gap: "4px" }}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedProfile({
+                                  ...selectedProfile,
+                                  insNationalPension: true,
+                                  insHealthInsurance: true,
+                                  insEmploymentInsurance: true,
+                                  insIndustrialAccident: true,
+                                })
+                              }
+                              style={{
+                                fontSize: "10px",
+                                padding: "1.5px 6px",
+                                borderRadius: "3px",
+                                border: "1px solid var(--border-color)",
+                                backgroundColor: "var(--bg-app)",
+                                color: "var(--text-secondary)",
+                                cursor: "pointer",
+                                fontWeight: 600,
+                              }}
+                            >
+                              전체선택
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedProfile({
+                                  ...selectedProfile,
+                                  insNationalPension: false,
+                                  insHealthInsurance: false,
+                                  insEmploymentInsurance: false,
+                                  insIndustrialAccident: false,
+                                })
+                              }
+                              style={{
+                                fontSize: "10px",
+                                padding: "1.5px 6px",
+                                borderRadius: "3px",
+                                border: "1px solid var(--border-color)",
+                                backgroundColor: "var(--bg-app)",
+                                color: "var(--text-secondary)",
+                                cursor: "pointer",
+                                fontWeight: 600,
+                              }}
+                            >
+                              전체해제
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: "6px",
+                        }}
+                      >
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "5px 8px",
+                            borderRadius: "4px",
+                            border: `1px solid ${
+                              selectedProfile.insNationalPension !== false ? "var(--primary)" : "var(--border-color)"
+                            }`,
+                            backgroundColor:
+                              selectedProfile.insNationalPension !== false ? "var(--bg-app)" : "transparent",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            cursor: canEdit ? "pointer" : "default",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedProfile.insNationalPension !== false}
+                            onChange={(e) =>
+                              setSelectedProfile({
+                                ...selectedProfile,
+                                insNationalPension: e.target.checked,
+                              })
+                            }
+                            disabled={!canEdit}
+                            style={{ width: "14px", height: "14px", accentColor: "var(--primary)", cursor: canEdit ? "pointer" : "default" }}
+                          />
+                          <span>국민연금</span>
+                        </label>
+
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "5px 8px",
+                            borderRadius: "4px",
+                            border: `1px solid ${
+                              selectedProfile.insHealthInsurance !== false ? "var(--primary)" : "var(--border-color)"
+                            }`,
+                            backgroundColor:
+                              selectedProfile.insHealthInsurance !== false ? "var(--bg-app)" : "transparent",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            cursor: canEdit ? "pointer" : "default",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedProfile.insHealthInsurance !== false}
+                            onChange={(e) =>
+                              setSelectedProfile({
+                                ...selectedProfile,
+                                insHealthInsurance: e.target.checked,
+                              })
+                            }
+                            disabled={!canEdit}
+                            style={{ width: "14px", height: "14px", accentColor: "var(--primary)", cursor: canEdit ? "pointer" : "default" }}
+                          />
+                          <span>건강보험 (장기요양)</span>
+                        </label>
+
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "5px 8px",
+                            borderRadius: "4px",
+                            border: `1px solid ${
+                              selectedProfile.insEmploymentInsurance !== false ? "var(--primary)" : "var(--border-color)"
+                            }`,
+                            backgroundColor:
+                              selectedProfile.insEmploymentInsurance !== false ? "var(--bg-app)" : "transparent",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            cursor: canEdit ? "pointer" : "default",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedProfile.insEmploymentInsurance !== false}
+                            onChange={(e) =>
+                              setSelectedProfile({
+                                ...selectedProfile,
+                                insEmploymentInsurance: e.target.checked,
+                              })
+                            }
+                            disabled={!canEdit}
+                            style={{ width: "14px", height: "14px", accentColor: "var(--primary)", cursor: canEdit ? "pointer" : "default" }}
+                          />
+                          <span>고용보험</span>
+                        </label>
+
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "5px 8px",
+                            borderRadius: "4px",
+                            border: `1px solid ${
+                              selectedProfile.insIndustrialAccident !== false ? "var(--primary)" : "var(--border-color)"
+                            }`,
+                            backgroundColor:
+                              selectedProfile.insIndustrialAccident !== false ? "var(--bg-app)" : "transparent",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            cursor: canEdit ? "pointer" : "default",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedProfile.insIndustrialAccident !== false}
+                            onChange={(e) =>
+                              setSelectedProfile({
+                                ...selectedProfile,
+                                insIndustrialAccident: e.target.checked,
+                              })
+                            }
+                            disabled={!canEdit}
+                            style={{ width: "14px", height: "14px", accentColor: "var(--primary)", cursor: canEdit ? "pointer" : "default" }}
+                          />
+                          <span>산재보험</span>
+                        </label>
+                      </div>
                     </div>
                   </div>
                 )}

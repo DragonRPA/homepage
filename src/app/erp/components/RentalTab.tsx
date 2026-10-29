@@ -326,11 +326,29 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     }
   };
 
+  // 자산 취득 시 자동채번 헬퍼: "DR" + yymm + 3-digit 순번 (예: DR2610001)
+  const computeNextRentalAssetNo = (dateStr: string, assetList: any[] = assets) => {
+    const cleanDate = (dateStr || new Date().toISOString().split("T")[0]).replace(/-/g, "");
+    const yymm = cleanDate.length >= 6 ? cleanDate.slice(2, 6) : new Date().toISOString().slice(2, 7).replace("-", "");
+    const prefix = `DR${yymm}`;
+    let maxSeq = 0;
+    for (const a of assetList) {
+      const no = String(a.assetNo || a.asset_no || "").toUpperCase();
+      if (no.startsWith(prefix)) {
+        const suffix = no.slice(prefix.length).replace(/[^0-9]/g, "");
+        const n = parseInt(suffix, 10);
+        if (!isNaN(n) && n > maxSeq) maxSeq = n;
+      }
+    }
+    return `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
+  };
+
   // Handle Acquire Asset
   const handleAcquireAsset = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!assetNo || !assetModelId || !acqCost) {
-      showToast("자산번호, 모델, 취득원가는 필수입니다.", "error");
+    const targetAssetNo = assetNo.trim() || computeNextRentalAssetNo(acqDate, assets);
+    if (!assetModelId || !acqCost) {
+      showToast("모델과 취득원가는 필수입니다.", "error");
       return;
     }
     try {
@@ -338,7 +356,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          assetNo,
+          assetNo: targetAssetNo,
           rentalProductId: assetModelId,
           serialNo,
           acquisitionDate: acqDate,
@@ -350,7 +368,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "자산 취득 등록 실패");
 
-      showToast(`자산 [${assetNo}] 취득 완료 (장부가액 ${formatErpCurrency(cleanErpNumber(acqCost))})`);
+      const issuedNo = data.asset?.asset_no || targetAssetNo;
+      showToast(`자산 [${issuedNo}] 취득 완료 (장부가액 ${formatErpCurrency(cleanErpNumber(acqCost))})`);
       setShowAcquireAssetModal(false);
       setAssetNo("");
       fetchData();
@@ -809,7 +828,12 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 <span>당월 감가상각 마감 실행</span>
               </button>
               <button
-                onClick={() => setShowAcquireAssetModal(true)}
+                onClick={() => {
+                  const todayStr = new Date().toISOString().split("T")[0];
+                  setAcqDate(todayStr);
+                  setAssetNo(computeNextRentalAssetNo(todayStr, assets));
+                  setShowAcquireAssetModal(true);
+                }}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -1204,13 +1228,13 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
             <form onSubmit={handleAcquireAsset} className="mt-4 flex flex-col gap-3 text-xs">
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">자산번호 (필수)</label>
+                  <label className="text-slate-400">자산번호 (자동채번: DR + yymm + 3자리)</label>
                   <input
                     type="text"
                     value={assetNo}
                     onChange={(e) => setAssetNo(e.target.value)}
-                    placeholder="예: AST-001"
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    placeholder="예: DR2610001"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     required
                   />
                 </div>
@@ -1246,7 +1270,11 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                   <input
                     type="date"
                     value={acqDate}
-                    onChange={(e) => setAcqDate(e.target.value)}
+                    onChange={(e) => {
+                      const nextDate = e.target.value;
+                      setAcqDate(nextDate);
+                      setAssetNo(computeNextRentalAssetNo(nextDate, assets));
+                    }}
                     className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>

@@ -124,6 +124,10 @@ export async function POST(request: Request) {
           : Math.round((baseSalary || 3500000) / 209);
       const mealAllowance = u.mealAllowance !== undefined ? Number(u.mealAllowance) || 0 : 200000;
       const vehicleAllowance = u.vehicleAllowance !== undefined ? Number(u.vehicleAllowance) || 0 : 0;
+      const insNationalPension = u.insNationalPension !== undefined ? Boolean(u.insNationalPension) : true;
+      const insHealthInsurance = u.insHealthInsurance !== undefined ? Boolean(u.insHealthInsurance) : true;
+      const insEmploymentInsurance = u.insEmploymentInsurance !== undefined ? Boolean(u.insEmploymentInsurance) : true;
+      const insIndustrialAccident = u.insIndustrialAccident !== undefined ? Boolean(u.insIndustrialAccident) : true;
       const salaryBankName = u.salaryBankName ? String(u.salaryBankName).trim() : null;
       const salaryAccountNo = u.salaryAccountNo ? String(u.salaryAccountNo).trim() : null;
       const salaryAccountHolder = u.salaryAccountHolder ? String(u.salaryAccountHolder).trim() : null;
@@ -157,20 +161,24 @@ export async function POST(request: Request) {
                hourly_wage = $11,
                meal_allowance = $12,
                vehicle_allowance = $13,
-               salary_bank_name = $14,
-               salary_account_no = $15,
-               salary_account_holder = $16,
-               phone = $17,
-               email = $18,
-               birth_date = $19,
-               join_date = $20,
-               leave_date = $21,
-               address = $22,
-               profile_image_url = $23,
-               login_id = COALESCE($24, login_id),
-               password_hash = COALESCE($25, password_hash),
+               ins_national_pension = $14,
+               ins_health_insurance = $15,
+               ins_employment_insurance = $16,
+               ins_industrial_accident = $17,
+               salary_bank_name = $18,
+               salary_account_no = $19,
+               salary_account_holder = $20,
+               phone = $21,
+               email = $22,
+               birth_date = $23,
+               join_date = $24,
+               leave_date = $25,
+               address = $26,
+               profile_image_url = $27,
+               login_id = COALESCE($28, login_id),
+               password_hash = COALESCE($29, password_hash),
                updated_at = NOW()
-           WHERE id = $26`,
+           WHERE id = $30`,
           [
             empName,
             position,
@@ -185,6 +193,10 @@ export async function POST(request: Request) {
             hourlyWage,
             mealAllowance,
             vehicleAllowance,
+            insNationalPension,
+            insHealthInsurance,
+            insEmploymentInsurance,
+            insIndustrialAccident,
             salaryBankName,
             salaryAccountNo,
             salaryAccountHolder,
@@ -214,6 +226,7 @@ export async function POST(request: Request) {
             employee_no, login_id, password_hash, name, position, duty, tier_level,
             department_id, department, role, role_code, employment_status, base_salary, hourly_wage,
             meal_allowance, vehicle_allowance,
+            ins_national_pension, ins_health_insurance, ins_employment_insurance, ins_industrial_accident,
             salary_bank_name, salary_account_no, salary_account_holder,
             phone, email, birth_date, join_date, leave_date, address, profile_image_url,
             annual_leave_grant, must_change_password, created_at, updated_at
@@ -221,8 +234,9 @@ export async function POST(request: Request) {
             $1, $2, $3, $4, $5, $6, $7,
             $8, $9, $10, $11, $12, $13, $14,
             $15, $16,
-            $17, $18, $19,
-            $20, $21, $22, $23, $24, $25, $26,
+            $17, $18, $19, $20,
+            $21, $22, $23,
+            $24, $25, $26, $27, $28, $29, $30,
             15.0, true, NOW(), NOW()
           )`,
           [
@@ -242,6 +256,10 @@ export async function POST(request: Request) {
             hourlyWage,
             mealAllowance,
             vehicleAllowance,
+            insNationalPension,
+            insHealthInsurance,
+            insEmploymentInsurance,
+            insIndustrialAccident,
             salaryBankName,
             salaryAccountNo,
             salaryAccountHolder,
@@ -299,6 +317,10 @@ export async function POST(request: Request) {
         COALESCE(e.hourly_wage, ROUND(COALESCE(e.base_salary, 3500000) / 209.0))::numeric as "hourlyWage",
         COALESCE(e.meal_allowance, 200000)::numeric as "mealAllowance",
         COALESCE(e.vehicle_allowance, 0)::numeric as "vehicleAllowance",
+        COALESCE(e.ins_national_pension, TRUE) as "insNationalPension",
+        COALESCE(e.ins_health_insurance, TRUE) as "insHealthInsurance",
+        COALESCE(e.ins_employment_insurance, TRUE) as "insEmploymentInsurance",
+        COALESCE(e.ins_industrial_accident, TRUE) as "insIndustrialAccident",
         e.salary_bank_name as "salaryBankName",
         e.salary_account_no as "salaryAccountNo",
         e.salary_account_holder as "salaryAccountHolder",

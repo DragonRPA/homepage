@@ -141,6 +141,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
     "사무기기/프린터",
     "렌탈장비/특수",
     "소프트웨어/솔루션",
+    "기타",
   ];
 
   const uniqueCategories = useMemo(() => {
@@ -929,6 +930,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                     <option value="사무기기/프린터">사무기기/프린터</option>
                     <option value="렌탈장비/특수">렌탈장비/특수</option>
                     <option value="소프트웨어/솔루션">소프트웨어/솔루션</option>
+                    <option value="기타">기타</option>
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">

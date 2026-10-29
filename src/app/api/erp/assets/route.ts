@@ -64,61 +64,26 @@ export async function GET(request: Request) {
   }
 }
 
-// POST: 신규 자산 취득 / 대장 등록 (감가상각 정액법 자동 계산 및 이력 무누락 저장: 헌장 1.2 & 4.1)
+// POST: 신규 자산 취득 / 대장 등록 (수량 입력을 통한 일괄 취득 및 DR+yymm+3자리 순번 자동채번, 감가상각 정액법 자동 계산 및 이력 무누락 저장: 헌장 1.2 & 4.1)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { 
       assetNo, rentalProductId, serialNo, ownerType,
       acquisitionDate, acquisitionCost, salvageValue, usefulLifeYears,
-      supplier, renter, currentCustomer, currentSite, contractNo, customSpec, memo 
+      supplier, renter, currentCustomer, currentSite, contractNo, customSpec, memo,
+      qty
     } = body;
 
     if (!rentalProductId) {
       return NextResponse.json({ error: "제품 모델은 필수입니다." }, { status: 400 });
     }
 
+    const batchQty = Math.min(200, Math.max(1, parseInt(String(qty || "1"), 10) || 1));
     const cost = parseFloat(acquisitionCost || "0");
     const salvage = parseFloat(salvageValue || "0");
     const lifeYears = parseInt(usefulLifeYears || "5", 10);
     const dateStr = acquisitionDate || new Date().toISOString().split("T")[0];
-
-    const pool = getErpPool();
-
-    // 자산번호 자동채번: "DR" + yymm + 3-digit 순번 (예: DR2610001)
-    let finalAssetNo = (assetNo || "").trim().toUpperCase();
-    const yymm = dateStr.replace(/-/g, "").slice(2, 6);
-    const prefix = `DR${yymm}`;
-
-    if (!finalAssetNo) {
-      const seqRes = await pool.query(
-        `SELECT asset_no FROM erp_rental_assets WHERE asset_no LIKE $1 ORDER BY asset_no DESC`,
-        [`${prefix}%`]
-      );
-      let maxSeq = 0;
-      for (const row of seqRes.rows) {
-        const suffix = String(row.asset_no || "").slice(prefix.length).replace(/[^0-9]/g, "");
-        const n = parseInt(suffix, 10);
-        if (!isNaN(n) && n > maxSeq) maxSeq = n;
-      }
-      finalAssetNo = `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
-    } else {
-      // 중복 체크 후 만약 동일 번호가 이미 있으면 다음 순번으로 자동 보정 (자동채번 충돌 방지)
-      const dupRes = await pool.query(`SELECT id FROM erp_rental_assets WHERE asset_no = $1`, [finalAssetNo]);
-      if (dupRes.rows.length > 0 && finalAssetNo.startsWith(prefix)) {
-        const seqRes = await pool.query(
-          `SELECT asset_no FROM erp_rental_assets WHERE asset_no LIKE $1 ORDER BY asset_no DESC`,
-          [`${prefix}%`]
-        );
-        let maxSeq = 0;
-        for (const row of seqRes.rows) {
-          const suffix = String(row.asset_no || "").slice(prefix.length).replace(/[^0-9]/g, "");
-          const n = parseInt(suffix, 10);
-          if (!isNaN(n) && n > maxSeq) maxSeq = n;
-        }
-        finalAssetNo = `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
-      }
-    }
 
     // 정액법 감가상각 계산
     const acqDateObj = new Date(dateStr);
@@ -132,72 +97,146 @@ export async function POST(request: Request) {
 
     const initialStatus = currentCustomer ? "RENTED" : "AVAILABLE";
 
-    const insertQuery = `
-      INSERT INTO erp_rental_assets (
-        asset_no, rental_product_id, serial_no, owner_type, status,
-        acquisition_date, acquisition_cost, salvage_value, useful_life_years,
-        depreciation_method, accumulated_depreciation, book_value, monthly_depreciation,
-        supplier, renter, current_customer, current_site, contract_no, custom_spec, memo
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'STRAIGHT_LINE', $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-      RETURNING *
-    `;
+    const pool = getErpPool();
+    const client = await pool.connect();
 
-    const res = await pool.query(insertQuery, [
-      finalAssetNo,
-      rentalProductId,
-      serialNo || "",
-      ownerType || "OWNED",
-      initialStatus,
-      dateStr,
-      cost,
-      salvage,
-      lifeYears,
-      accumDeprec,
-      bookVal,
-      monthlyDeprec,
-      supplier || null,
-      renter || null,
-      currentCustomer || null,
-      currentSite || null,
-      contractNo || null,
-      customSpec || null,
-      memo || null
-    ]);
+    try {
+      await client.query("BEGIN");
 
-    const newAsset = res.rows[0];
+      // 자산번호 자동채번: "DR" + yymm + 3-digit 순번 (예: DR2610001)
+      const yymm = dateStr.replace(/-/g, "").slice(2, 6);
+      const prefix = `DR${yymm}`;
 
-    // 무누락 이력 감사 로그 기록 (ACQUISITION)
-    await pool.query(`
-      INSERT INTO erp_asset_inout_logs 
-      (asset_id, asset_no, event_type, event_date, customer_name, site_name, memo)
-      VALUES ($1, $2, 'ACQUISITION', $3, $4, $5, $6)
-    `, [
-      newAsset.id,
-      newAsset.asset_no,
-      dateStr,
-      supplier || renter || "공급처",
-      "본사 장부",
-      `신규 자산 취득 등록 (취득원가: ${cost.toLocaleString()}원, 잔존가: ${salvage.toLocaleString()}원)`
-    ]);
+      const seqRes = await client.query(
+        `SELECT asset_no FROM erp_rental_assets WHERE asset_no LIKE $1 ORDER BY asset_no DESC`,
+        [`${prefix}%`]
+      );
+      let maxSeq = 0;
+      for (const row of seqRes.rows) {
+        const suffix = String(row.asset_no || "").slice(prefix.length).replace(/[^0-9]/g, "");
+        const n = parseInt(suffix, 10);
+        if (!isNaN(n) && n > maxSeq) maxSeq = n;
+      }
 
-    // 대여중 상태로 등록된 경우 출고 로그 추가
-    if (initialStatus === "RENTED" && currentCustomer) {
-      await pool.query(`
-        INSERT INTO erp_asset_inout_logs 
-        (asset_id, asset_no, event_type, event_date, customer_name, site_name, memo)
-        VALUES ($1, $2, 'OUTBOUND', $3, $4, $5, $6)
-      `, [
-        newAsset.id,
-        newAsset.asset_no,
-        dateStr,
-        currentCustomer,
-        currentSite || "현장",
-        `초기 등록 시 계약(${contractNo || "-"}) 출고 상태 설정`
-      ]);
+      let startSeq = maxSeq + 1;
+      const requestedNo = (assetNo || "").trim().toUpperCase();
+      if (batchQty === 1 && requestedNo && !requestedNo.startsWith(prefix)) {
+        // 사용자가 직접 커스텀 자산번호 1건을 지정한 경우 중복 여부 확인
+        const dupRes = await client.query(`SELECT id FROM erp_rental_assets WHERE asset_no = $1`, [requestedNo]);
+        if (dupRes.rows.length > 0) {
+          throw new Error("이미 동일한 자산번호가 등록되어 있습니다.");
+        }
+      } else if (requestedNo && requestedNo.startsWith(prefix)) {
+        const reqSuffix = requestedNo.slice(prefix.length).replace(/[^0-9]/g, "");
+        const reqNum = parseInt(reqSuffix, 10);
+        if (!isNaN(reqNum) && reqNum > maxSeq) {
+          startSeq = reqNum;
+        }
+      }
+
+      // 시리얼번호 다중 구분자(쉼표/줄바꿈) 지원
+      const serialList = String(serialNo || "")
+        .split(/[\n,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const insertQuery = `
+        INSERT INTO erp_rental_assets (
+          asset_no, rental_product_id, serial_no, owner_type, status,
+          acquisition_date, acquisition_cost, salvage_value, useful_life_years,
+          depreciation_method, accumulated_depreciation, book_value, monthly_depreciation,
+          supplier, renter, current_customer, current_site, contract_no, custom_spec, memo
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'STRAIGHT_LINE', $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        RETURNING *
+      `;
+
+      const createdAssets: any[] = [];
+
+      for (let i = 0; i < batchQty; i++) {
+        const currentAssetNo =
+          batchQty === 1 && requestedNo && !requestedNo.startsWith(prefix)
+            ? requestedNo
+            : `${prefix}${String(startSeq + i).padStart(3, "0")}`;
+
+        const itemSerial =
+          serialList.length > 1
+            ? (serialList[i] || "")
+            : serialList.length === 1
+              ? (batchQty === 1 ? serialList[0] : `${serialList[0]}-${String(i + 1).padStart(2, "0")}`)
+              : "";
+
+        const res = await client.query(insertQuery, [
+          currentAssetNo,
+          rentalProductId,
+          itemSerial,
+          ownerType || "OWNED",
+          initialStatus,
+          dateStr,
+          cost,
+          salvage,
+          lifeYears,
+          accumDeprec,
+          bookVal,
+          monthlyDeprec,
+          supplier || null,
+          renter || null,
+          currentCustomer || null,
+          currentSite || null,
+          contractNo || null,
+          customSpec || null,
+          memo || null,
+        ]);
+
+        const newAsset = res.rows[0];
+        createdAssets.push(newAsset);
+
+        // 무누락 이력 감사 로그 기록 (ACQUISITION)
+        await client.query(
+          `INSERT INTO erp_asset_inout_logs 
+           (asset_id, asset_no, event_type, event_date, customer_name, site_name, memo)
+           VALUES ($1, $2, 'ACQUISITION', $3, $4, $5, $6)`,
+          [
+            newAsset.id,
+            newAsset.asset_no,
+            dateStr,
+            supplier || renter || "공급처",
+            "본사 장부",
+            `신규 자산 취득 등록 (${batchQty > 1 ? `일괄 ${batchQty}대 중 ${i + 1}번째, ` : ""}취득원가: ${cost.toLocaleString()}원, 잔존가: ${salvage.toLocaleString()}원)`,
+          ]
+        );
+
+        // 대여중 상태로 등록된 경우 출고 로그 추가
+        if (initialStatus === "RENTED" && currentCustomer) {
+          await client.query(
+            `INSERT INTO erp_asset_inout_logs 
+             (asset_id, asset_no, event_type, event_date, customer_name, site_name, memo)
+             VALUES ($1, $2, 'OUTBOUND', $3, $4, $5, $6)`,
+            [
+              newAsset.id,
+              newAsset.asset_no,
+              dateStr,
+              currentCustomer,
+              currentSite || "현장",
+              `초기 등록 시 계약(${contractNo || "-"}) 출고 상태 설정`,
+            ]
+          );
+        }
+      }
+
+      await client.query("COMMIT");
+      return NextResponse.json({
+        success: true,
+        asset: createdAssets[0],
+        assets: createdAssets,
+        count: createdAssets.length,
+      });
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      client.release();
     }
-
-    return NextResponse.json({ success: true, asset: newAsset });
   } catch (error: any) {
     console.error("POST Asset Error:", error);
     if (error.code === "23505") {

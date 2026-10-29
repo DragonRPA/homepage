@@ -82,6 +82,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
   // Asset Form
   const [assetNo, setAssetNo] = useState("");
+  const [assetQty, setAssetQty] = useState("1");
   const [assetModelId, setAssetModelId] = useState("");
   const [serialNo, setSerialNo] = useState("");
   const [acqDate, setAcqDate] = useState(new Date().toISOString().split("T")[0]);
@@ -343,10 +344,11 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     return `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
   };
 
-  // Handle Acquire Asset
+  // Handle Acquire Asset (supports batch acquisition by assetQty)
   const handleAcquireAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     const targetAssetNo = assetNo.trim() || computeNextRentalAssetNo(acqDate, assets);
+    const batchCount = Math.max(1, parseInt(assetQty || "1", 10) || 1);
     if (!assetModelId || !acqCost) {
       showToast("모델과 취득원가는 필수입니다.", "error");
       return;
@@ -357,6 +359,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           assetNo: targetAssetNo,
+          qty: batchCount,
           rentalProductId: assetModelId,
           serialNo,
           acquisitionDate: acqDate,
@@ -368,10 +371,17 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "자산 취득 등록 실패");
 
-      const issuedNo = data.asset?.asset_no || targetAssetNo;
-      showToast(`자산 [${issuedNo}] 취득 완료 (장부가액 ${formatErpCurrency(cleanErpNumber(acqCost))})`);
+      const createdList = Array.isArray(data.assets) ? data.assets : [data.asset];
+      const firstNo = createdList[0]?.asset_no || targetAssetNo;
+      const lastNo = createdList[createdList.length - 1]?.asset_no || firstNo;
+      showToast(
+        createdList.length > 1
+          ? `자산 ${createdList.length}대([${firstNo} ~ ${lastNo}]) 일괄 취득 완료`
+          : `자산 [${firstNo}] 취득 완료 (장부가액 ${formatErpCurrency(cleanErpNumber(acqCost))})`
+      );
       setShowAcquireAssetModal(false);
       setAssetNo("");
+      setAssetQty("1");
       fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -1226,9 +1236,9 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
             </div>
 
             <form onSubmit={handleAcquireAsset} className="mt-4 flex flex-col gap-3 text-xs">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">자산번호 (자동채번: DR + yymm + 3자리)</label>
+              <div className="grid grid-cols-12 gap-2">
+                <div className="col-span-5 flex flex-col gap-1">
+                  <label className="text-slate-400">시작 자산번호 (DR + yymm + 3자리)</label>
                   <input
                     type="text"
                     value={assetNo}
@@ -1238,7 +1248,19 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     required
                   />
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="col-span-2 flex flex-col gap-1">
+                  <label className="text-slate-400">취득 수량(대)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={assetQty}
+                    onChange={(e) => setAssetQty(e.target.value)}
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono font-bold text-right dark:bg-slate-800 dark:border-slate-700 dark:text-emerald-400"
+                    required
+                  />
+                </div>
+                <div className="col-span-5 flex flex-col gap-1">
                   <label className="text-slate-400">기종 모델</label>
                   <select
                     value={assetModelId}

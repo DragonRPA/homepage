@@ -86,6 +86,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState({
     assetNo: "",
+    qty: "1",
     rentalProductId: "",
     serialNo: "",
     ownerType: "OWNED",
@@ -343,10 +344,23 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
     return `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
   };
 
+  const getAssetNoRangePreview = (startNo: string, qtyStr: string, dateStr: string) => {
+    const count = Math.max(1, parseInt(qtyStr || "1", 10) || 1);
+    const baseNo = (startNo || "").trim() || computeNextAssetNo(dateStr);
+    if (count === 1) return baseNo;
+    const cleanDate = (dateStr || new Date().toISOString().split("T")[0]).replace(/-/g, "");
+    const yymm = cleanDate.length >= 6 ? cleanDate.slice(2, 6) : new Date().toISOString().slice(2, 7).replace("-", "");
+    const prefix = `DR${yymm}`;
+    const startSeq = parseInt(baseNo.slice(prefix.length).replace(/[^0-9]/g, ""), 10) || 1;
+    const endNo = `${prefix}${String(startSeq + count - 1).padStart(3, "0")}`;
+    return `${baseNo} ~ ${endNo} (총 ${count}대)`;
+  };
+
   // Handle Add New Asset
   const handleAddAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     const targetAssetNo = addForm.assetNo.trim() || computeNextAssetNo(addForm.acquisitionDate);
+    const batchCount = Math.max(1, parseInt(addForm.qty || "1", 10) || 1);
     if (!addForm.rentalProductId) {
       showToast("제품 모델을 선택해 주십시오.", "error");
       return;
@@ -356,13 +370,19 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
       const res = await fetch("/api/erp/assets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...addForm, assetNo: targetAssetNo }),
+        body: JSON.stringify({ ...addForm, assetNo: targetAssetNo, qty: batchCount }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "자산 취득 등록 실패");
 
-      const issuedNo = data.asset?.asset_no || targetAssetNo;
-      showToast(`자산 [${issuedNo}]이(가) 신규 취득 등록되었습니다.`);
+      const createdList = Array.isArray(data.assets) ? data.assets : [data.asset];
+      const firstNo = createdList[0]?.asset_no || targetAssetNo;
+      const lastNo = createdList[createdList.length - 1]?.asset_no || firstNo;
+      showToast(
+        createdList.length > 1
+          ? `자산 ${createdList.length}대([${firstNo} ~ ${lastNo}])가 일괄 취득 등록되었습니다.`
+          : `자산 [${firstNo}]이(가) 신규 취득 등록되었습니다.`
+      );
       setShowAddModal(false);
       await fetchData();
     } catch (err: any) {
@@ -579,6 +599,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                 setAddForm((prev) => ({
                   ...prev,
                   assetNo: autoNo,
+                  qty: "1",
                   acquisitionDate: todayStr,
                   rentalProductId: prev.rentalProductId || (products.length > 0 ? products[0].id.toString() : ""),
                   serialNo: "",
@@ -1053,9 +1074,9 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
             </div>
 
             <form onSubmit={handleAddAsset} className="flex flex-col gap-3 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold">자산번호 (자동채번: DR + yymm + 3자리) *</label>
+              <div className="grid grid-cols-12 gap-3">
+                <div className="col-span-5 flex flex-col gap-1">
+                  <label className="font-semibold">시작 자산번호 (DR + yymm + 3자리) *</label>
                   <input
                     type="text"
                     required
@@ -1065,7 +1086,19 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                     className="h-8 px-2.5 border rounded font-mono font-bold text-blue-700"
                   />
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="col-span-2 flex flex-col gap-1">
+                  <label className="font-semibold">취득 수량 (대) *</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    required
+                    value={addForm.qty}
+                    onChange={(e) => setAddForm({ ...addForm, qty: e.target.value })}
+                    className="h-8 px-2 border rounded font-mono font-bold text-right text-emerald-700"
+                  />
+                </div>
+                <div className="col-span-5 flex flex-col gap-1">
                   <label className="font-semibold">매핑 제품 모델 *</label>
                   <select
                     required
@@ -1083,14 +1116,25 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                 </div>
               </div>
 
+              {parseInt(addForm.qty || "1", 10) > 1 && (
+                <div className="px-3 py-1.5 rounded bg-blue-500/10 border border-blue-500/30 text-[11px] font-mono flex items-center justify-between">
+                  <span className="font-semibold text-blue-700">
+                    일괄 채번 구간: {getAssetNoRangePreview(addForm.assetNo, addForm.qty, addForm.acquisitionDate)}
+                  </span>
+                  <span className="font-bold text-emerald-700">
+                    총 취득원가 합계: {formatErpCurrency((parseFloat(addForm.acquisitionCost || "0") || 0) * (parseInt(addForm.qty || "1", 10) || 1))}
+                  </span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="font-semibold">기물 시리얼 번호 (S/N)</label>
+                  <label className="font-semibold">기물 시리얼 번호 (S/N, 다중 취득 시 쉼표 구분 가능)</label>
                   <input
                     type="text"
                     value={addForm.serialNo}
                     onChange={(e) => setAddForm({ ...addForm, serialNo: e.target.value })}
-                    placeholder="예: SN-2026-9918"
+                    placeholder={parseInt(addForm.qty || "1", 10) > 1 ? "예: SN-001, SN-002 (또는 공란)" : "예: SN-2026-9918"}
                     className="h-8 px-2.5 border rounded"
                   />
                 </div>
@@ -1122,7 +1166,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="font-semibold">취득 원가 (원)</label>
+                  <label className="font-semibold">대당 취득 원가 (원)</label>
                   <input
                     type="text"
                     value={formatErpNumber(addForm.acquisitionCost)}
@@ -1138,7 +1182,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="font-semibold">잔존 가치 (원)</label>
+                  <label className="font-semibold">대당 잔존 가치 (원)</label>
                   <input
                     type="text"
                     value={formatErpNumber(addForm.salvageValue)}
@@ -1213,7 +1257,9 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                   type="submit"
                   className="px-4 py-1.5 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-sm"
                 >
-                  자산 취득 확정
+                  {parseInt(addForm.qty || "1", 10) > 1
+                    ? `자산 ${addForm.qty}대 일괄 취득 확정`
+                    : "자산 취득 확정"}
                 </button>
               </div>
             </form>

@@ -36,31 +36,35 @@ export async function GET() {
   }
 }
 
-// POST: Acquire / Register new asset
+// POST: Acquire / Register new asset (supports batch acquisition by qty)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { 
       assetNo, rentalProductId, serialNo, acquisitionDate, 
-      acquisitionCost, salvageValue, usefulLifeYears, memo 
+      acquisitionCost, salvageValue, usefulLifeYears, memo, qty
     } = body;
 
     if (!rentalProductId || !acquisitionCost) {
       return NextResponse.json({ error: "제품 모델과 취득원가는 필수입니다." }, { status: 400 });
     }
 
+    const batchQty = Math.min(200, Math.max(1, parseInt(String(qty || "1"), 10) || 1));
     const cost = parseFloat(acquisitionCost);
     const salvage = parseFloat(salvageValue || "0");
     const lifeYears = parseInt(usefulLifeYears || "5", 10);
     const dateStr = acquisitionDate || new Date().toISOString().split("T")[0];
 
     const pool = getErpPool();
-    let finalAssetNo = (assetNo || "").trim().toUpperCase();
-    const yymm = dateStr.replace(/-/g, "").slice(2, 6);
-    const prefix = `DR${yymm}`;
+    const client = await pool.connect();
 
-    if (!finalAssetNo) {
-      const seqRes = await pool.query(
+    try {
+      await client.query("BEGIN");
+
+      const yymm = dateStr.replace(/-/g, "").slice(2, 6);
+      const prefix = `DR${yymm}`;
+
+      const seqRes = await client.query(
         `SELECT asset_no FROM erp_rental_assets WHERE asset_no LIKE $1 ORDER BY asset_no DESC`,
         [`${prefix}%`]
       );
@@ -70,60 +74,84 @@ export async function POST(request: Request) {
         const n = parseInt(suffix, 10);
         if (!isNaN(n) && n > maxSeq) maxSeq = n;
       }
-      finalAssetNo = `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
-    } else {
-      const dupRes = await pool.query(`SELECT id FROM erp_rental_assets WHERE asset_no = $1`, [finalAssetNo]);
-      if (dupRes.rows.length > 0 && finalAssetNo.startsWith(prefix)) {
-        const seqRes = await pool.query(
-          `SELECT asset_no FROM erp_rental_assets WHERE asset_no LIKE $1 ORDER BY asset_no DESC`,
-          [`${prefix}%`]
-        );
-        let maxSeq = 0;
-        for (const row of seqRes.rows) {
-          const suffix = String(row.asset_no || "").slice(prefix.length).replace(/[^0-9]/g, "");
-          const n = parseInt(suffix, 10);
-          if (!isNaN(n) && n > maxSeq) maxSeq = n;
+
+      let startSeq = maxSeq + 1;
+      const requestedNo = (assetNo || "").trim().toUpperCase();
+      if (batchQty === 1 && requestedNo && !requestedNo.startsWith(prefix)) {
+        const dupRes = await client.query(`SELECT id FROM erp_rental_assets WHERE asset_no = $1`, [requestedNo]);
+        if (dupRes.rows.length > 0) {
+          throw new Error("이미 존재하는 자산번호입니다.");
         }
-        finalAssetNo = `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
+      } else if (requestedNo && requestedNo.startsWith(prefix)) {
+        const reqSuffix = requestedNo.slice(prefix.length).replace(/[^0-9]/g, "");
+        const reqNum = parseInt(reqSuffix, 10);
+        if (!isNaN(reqNum) && reqNum > maxSeq) {
+          startSeq = reqNum;
+        }
       }
-    }
 
-    const { data, error } = await supabaseErp
-      .from("erp_rental_assets")
-      .insert({
-        asset_no: finalAssetNo,
-        rental_product_id: rentalProductId,
-        serial_no: serialNo || "",
-        acquisition_date: dateStr,
-        acquisition_cost: cost,
-        salvage_value: salvage,
-        useful_life_years: lifeYears,
-        depreciation_method: "STRAIGHT_LINE",
-        accumulated_depreciation: 0,
-        book_value: cost,
-        status: "AVAILABLE",
-        memo: memo || "",
-      })
-      .select()
-      .single();
+      const serialList = String(serialNo || "")
+        .split(/[\n,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
 
-    if (error) {
-      if (error.code === "23505") {
-        return NextResponse.json({ error: "이미 존재하는 자산번호입니다." }, { status: 409 });
+      const createdAssets: any[] = [];
+
+      for (let i = 0; i < batchQty; i++) {
+        const currentAssetNo =
+          batchQty === 1 && requestedNo && !requestedNo.startsWith(prefix)
+            ? requestedNo
+            : `${prefix}${String(startSeq + i).padStart(3, "0")}`;
+
+        const itemSerial =
+          serialList.length > 1
+            ? (serialList[i] || "")
+            : serialList.length === 1
+              ? (batchQty === 1 ? serialList[0] : `${serialList[0]}-${String(i + 1).padStart(2, "0")}`)
+              : "";
+
+        const insRes = await client.query(
+          `INSERT INTO erp_rental_assets
+           (asset_no, rental_product_id, serial_no, acquisition_date, acquisition_cost,
+            salvage_value, useful_life_years, depreciation_method, accumulated_depreciation,
+            book_value, status, memo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'STRAIGHT_LINE', 0, $8, 'AVAILABLE', $9)
+           RETURNING *`,
+          [
+            currentAssetNo,
+            rentalProductId,
+            itemSerial,
+            dateStr,
+            cost,
+            salvage,
+            lifeYears,
+            cost,
+            memo || "",
+          ]
+        );
+        const newAsset = insRes.rows[0];
+        createdAssets.push(newAsset);
+
+        await client.query(
+          `INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
+           VALUES ('RENTAL_ASSET', 'ACQUIRE', $1, 'ADMIN', $2::jsonb)`,
+          [currentAssetNo, JSON.stringify({ cost, salvage, lifeYears, batchQty, index: i + 1 })]
+        );
       }
-      throw error;
+
+      await client.query("COMMIT");
+      return NextResponse.json({
+        success: true,
+        asset: createdAssets[0],
+        assets: createdAssets,
+        count: createdAssets.length,
+      });
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      client.release();
     }
-
-    // Insert Audit log (헌장 1.2 무누락 저장)
-    await supabaseErp.from("erp_audit_logs").insert({
-      domain: "RENTAL_ASSET",
-      action_type: "ACQUIRE",
-      record_id: finalAssetNo,
-      actor_name: "ADMIN",
-      details: { cost, salvage, lifeYears }
-    });
-
-    return NextResponse.json({ success: true, asset: data });
   } catch (error: any) {
     console.error("POST Rental Asset Error:", error);
     return NextResponse.json({ error: "자산 등록 실패: " + error.message }, { status: 500 });

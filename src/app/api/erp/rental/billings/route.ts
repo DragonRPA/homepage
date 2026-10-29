@@ -14,6 +14,7 @@ export async function GET(request: Request) {
         b.billing_no as "billingNo",
         b.contract_id as "contractId",
         c.contract_no as "contractNo",
+        c.entity_type as "entityType",
         c.customer_name as "customerName",
         c.site_name as "siteName",
         a.asset_no as "assetNo",
@@ -23,6 +24,15 @@ export async function GET(request: Request) {
         b.end_date as "endDate",
         b.operating_days as "operatingDays",
         b.pro_rata_revenue as "proRataRevenue",
+        COALESCE(NULLIF(b.vat_amount, 0), ROUND(b.pro_rata_revenue * 0.1)) as "vatAmount",
+        COALESCE(NULLIF(b.total_amount, 0), ROUND(b.pro_rata_revenue * 1.1)) as "totalAmount",
+        COALESCE(NULLIF(b.tax_purpose, ''), c.tax_purpose, '청구') as "taxPurpose",
+        COALESCE(NULLIF(b.tax_memo, ''), c.tax_memo, '') as "taxMemo",
+        CASE 
+          WHEN b.tax_items IS NOT NULL AND jsonb_array_length(b.tax_items) > 0 THEN b.tax_items
+          WHEN c.tax_items IS NOT NULL AND jsonb_array_length(c.tax_items) > 0 THEN c.tax_items
+          ELSE '[]'::jsonb
+        END as "taxItems",
         b.depreciation_cogs as "depreciationCogs",
         b.net_margin as "netMargin",
         b.billing_date as "billingDate",
@@ -56,7 +66,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { contractId, yearMonth, startDate, endDate, operatingDays } = body;
+    const { contractId, yearMonth, startDate, endDate, operatingDays, supplyAmount, vatAmount: customVat, taxPurpose, taxMemo, taxItems } = body;
 
     if (!contractId || !yearMonth || !startDate || !endDate) {
       return NextResponse.json({ error: "계약, 정산월, 기간은 필수입니다." }, { status: 400 });
@@ -79,10 +89,13 @@ export async function POST(request: Request) {
 
       // 1. Fetch contract and asset
       const contractRes = await client.query(
-        `SELECT c.id, c.contract_no, c.monthly_rate, c.daily_rate, c.asset_id,
-                a.acquisition_cost, a.salvage_value, a.useful_life_years
+        `SELECT c.id, c.contract_no, c.monthly_rate, c.daily_rate, c.vat_amount, c.asset_id,
+                c.tax_purpose, c.tax_memo, c.tax_items,
+                a.asset_no, a.acquisition_cost, a.salvage_value, a.useful_life_years,
+                rp.model_name
          FROM erp_rental_contracts c
          JOIN erp_rental_assets a ON c.asset_id = a.id
+         LEFT JOIN erp_rental_products rp ON a.rental_product_id = rp.id
          WHERE c.id = $1`,
         [contractId]
       );
@@ -91,8 +104,32 @@ export async function POST(request: Request) {
 
       const days = parseInt(operatingDays || "30", 10);
       const monthlyRate = parseFloat(c.monthly_rate);
-      // 헌장 4.1 일할 계산: 월임대료 / 30 * 가동일수
-      const proRataRevenue = Math.round((monthlyRate / 30) * days);
+
+      const resolvedItems = Array.isArray(taxItems) && taxItems.length > 0
+        ? taxItems
+        : Array.isArray(c.tax_items) && c.tax_items.length > 0
+          ? c.tax_items
+          : [];
+
+      const itemsSupplySum = resolvedItems.reduce((acc: number, r: any) => acc + Number(r.supplyAmount || 0), 0);
+      const itemsVatSum = resolvedItems.reduce((acc: number, r: any) => acc + Number(r.vatAmount || 0), 0);
+
+      // 헌장 4.1 일할 계산 또는 계약에서 끌어온 다중 품목 합계 반영
+      const proRataRevenue = supplyAmount !== undefined && supplyAmount !== null && supplyAmount !== ""
+        ? Math.round(parseFloat(String(supplyAmount)))
+        : itemsSupplySum > 0 && days === 30
+          ? Math.round(itemsSupplySum)
+          : Math.round((monthlyRate / 30) * days);
+
+      const vatAmount = customVat !== undefined && customVat !== null && customVat !== ""
+        ? Math.round(parseFloat(String(customVat)))
+        : itemsVatSum > 0 && days === 30
+          ? Math.round(itemsVatSum)
+          : days === 30 && parseFloat(c.vat_amount || "0") > 0
+            ? Math.round(parseFloat(c.vat_amount))
+            : Math.round(proRataRevenue * 0.1);
+
+      const totalAmount = proRataRevenue + vatAmount;
 
       // 월 감가상각 매출원가
       const totalMonths = Math.max(1, c.useful_life_years * 12);
@@ -101,13 +138,43 @@ export async function POST(request: Request) {
 
       const billingNo = `RB${yearMonth.replace("-", "")}-${Math.floor(1000 + Math.random() * 9000)}`;
 
+      const finalItems = resolvedItems.length > 0
+        ? resolvedItems
+        : [
+            {
+              itemName: `${c.model_name || "임대장비"} (${c.asset_no}) ${yearMonth}`,
+              spec: `${days}일`,
+              qty: 1,
+              unitCost: proRataRevenue,
+              supplyAmount: proRataRevenue,
+              vatAmount,
+              note: "",
+            },
+          ];
+
       const insRes = await client.query(
         `INSERT INTO erp_rental_billings
          (billing_no, contract_id, year_month, start_date, end_date, operating_days, 
-          pro_rata_revenue, depreciation_cogs, net_margin, billing_date, payment_status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_DATE, 'UNPAID')
+          pro_rata_revenue, vat_amount, total_amount, tax_purpose, tax_memo, tax_items,
+          depreciation_cogs, net_margin, billing_date, payment_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, CURRENT_DATE, 'UNPAID')
          RETURNING *`,
-        [billingNo, contractId, yearMonth, startDate, endDate, days, proRataRevenue, deprecCogs, netMargin]
+        [
+          billingNo,
+          contractId,
+          yearMonth,
+          startDate,
+          endDate,
+          days,
+          proRataRevenue,
+          vatAmount,
+          totalAmount,
+          taxPurpose || c.tax_purpose || "청구",
+          taxMemo !== undefined ? taxMemo : (c.tax_memo || `임대료-${c.model_name || c.asset_no}`),
+          JSON.stringify(finalItems),
+          deprecCogs,
+          netMargin,
+        ]
       );
 
       await client.query("COMMIT");

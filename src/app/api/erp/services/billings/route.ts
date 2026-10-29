@@ -15,6 +15,7 @@ export async function GET(request: Request) {
         b.contract_id as "contractId",
         c.contract_no as "contractNo",
         c.service_type as "serviceType",
+        c.entity_type as "entityType",
         c.customer_name as "customerName",
         c.project_name as "projectName",
         b.billing_type as "billingType",
@@ -23,6 +24,13 @@ export async function GET(request: Request) {
         b.supply_amount as "supplyAmount",
         b.vat_amount as "vatAmount",
         b.total_amount as "totalAmount",
+        COALESCE(NULLIF(b.tax_purpose, ''), c.tax_purpose, '청구') as "taxPurpose",
+        COALESCE(NULLIF(b.tax_memo, ''), c.tax_memo, b.memo, '') as "taxMemo",
+        CASE 
+          WHEN b.tax_items IS NOT NULL AND jsonb_array_length(b.tax_items) > 0 THEN b.tax_items
+          WHEN c.tax_items IS NOT NULL AND jsonb_array_length(c.tax_items) > 0 THEN c.tax_items
+          ELSE '[]'::jsonb
+        END as "taxItems",
         b.payment_status as "paymentStatus",
         b.tax_invoice_id as "taxInvoiceId",
         ti.invoice_no as "taxInvoiceNo",
@@ -51,16 +59,41 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { contractId, billingType, milestoneName, billingDate, supplyAmount, memo } = body;
+    const { contractId, billingType, milestoneName, billingDate, supplyAmount, vatAmount, taxPurpose, taxMemo, taxItems, memo } = body;
 
     if (!contractId || !supplyAmount) {
       return NextResponse.json({ error: "계약 ID와 공급가액은 필수입니다." }, { status: 400 });
     }
 
+    const pool = getErpPool();
+    const ctRes = await pool.query(
+      "SELECT id, project_name, tax_purpose, tax_memo, tax_items, vat_amount FROM erp_service_contracts WHERE id = $1",
+      [parseInt(String(contractId), 10)]
+    );
+    const ct = ctRes.rows[0] || {};
+
     const supply = parseFloat(supplyAmount);
-    const vat = Math.round(supply * 0.1);
+    const vat = vatAmount !== undefined && vatAmount !== null && vatAmount !== ""
+      ? Math.round(parseFloat(vatAmount))
+      : Math.round(supply * 0.1);
     const total = supply + vat;
     const billingNo = `SB${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const resolvedItems = Array.isArray(taxItems) && taxItems.length > 0
+      ? taxItems
+      : Array.isArray(ct.tax_items) && ct.tax_items.length > 0
+        ? ct.tax_items
+        : [
+            {
+              itemName: milestoneName || ct.project_name || "정기 용역료",
+              spec: "",
+              qty: 1,
+              unitPrice: supply,
+              supplyAmount: supply,
+              vatAmount: vat,
+              remark: "",
+            },
+          ];
 
     const { data, error } = await supabaseErp
       .from("erp_service_billings")
@@ -73,6 +106,9 @@ export async function POST(request: Request) {
         supply_amount: supply,
         vat_amount: vat,
         total_amount: total,
+        tax_purpose: taxPurpose || ct.tax_purpose || "청구",
+        tax_memo: taxMemo !== undefined ? taxMemo : (ct.tax_memo || milestoneName || ""),
+        tax_items: resolvedItems,
         payment_status: "UNPAID",
         memo: memo || "",
       })

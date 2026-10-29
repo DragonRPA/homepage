@@ -35,36 +35,48 @@ export async function GET(request: Request) {
 
     let query = `
       SELECT 
-        id,
-        contract_no as "contractNo",
-        entity_type as "entityType",
-        service_type as "serviceType",
-        partner_id as "partnerId",
-        customer_name as "customerName",
-        project_name as "projectName",
-        contract_amount as "contractAmount",
-        monthly_fee as "monthlyFee",
-        start_date as "startDate",
-        end_date as "endDate",
-        billing_day as "billingDay",
-        status,
-        memo,
-        contract_file_name as "contractFileName",
-        (contract_file_url IS NOT NULL AND contract_file_url <> '') as "hasContractFile",
-        created_at as "createdAt"
-      FROM erp_service_contracts
+        c.id,
+        c.contract_no as "contractNo",
+        c.entity_type as "entityType",
+        c.service_type as "serviceType",
+        c.partner_id as "partnerId",
+        c.customer_name as "customerName",
+        c.project_name as "projectName",
+        c.contract_amount as "contractAmount",
+        c.monthly_fee as "monthlyFee",
+        c.vat_amount as "vatAmount",
+        c.start_date as "startDate",
+        c.end_date as "endDate",
+        c.billing_day as "billingDay",
+        c.status,
+        c.memo,
+        COALESCE(NULLIF(c.customer_biz_no, ''), p.business_no, '') as "customerBizNo",
+        COALESCE(NULLIF(c.customer_ceo_name, ''), p.ceo_name, '') as "customerCeoName",
+        COALESCE(NULLIF(c.customer_address, ''), CONCAT_WS(' ', p.address, p.address_detail), '') as "customerAddress",
+        COALESCE(NULLIF(c.customer_biz_type, ''), p.biz_type, '') as "customerBizType",
+        COALESCE(NULLIF(c.customer_biz_class, ''), p.biz_item, '') as "customerBizClass",
+        COALESCE(NULLIF(c.customer_email, ''), p.main_email, '') as "customerEmail",
+        COALESCE(c.customer_email2, '') as "customerEmail2",
+        COALESCE(c.tax_purpose, '청구') as "taxPurpose",
+        COALESCE(c.tax_memo, '') as "taxMemo",
+        COALESCE(c.tax_items, '[]'::jsonb) as "taxItems",
+        c.contract_file_name as "contractFileName",
+        (c.contract_file_url IS NOT NULL AND c.contract_file_url <> '') as "hasContractFile",
+        c.created_at as "createdAt"
+      FROM erp_service_contracts c
+      LEFT JOIN erp_partners p ON c.partner_id = p.id OR (c.partner_id IS NULL AND c.customer_name = p.name)
       WHERE 1=1
     `;
     const params: any[] = [];
     if (serviceType && serviceType !== "ALL") {
       params.push(serviceType);
-      query += ` AND service_type = $${params.length}`;
+      query += ` AND c.service_type = $${params.length}`;
     }
     if (entityType && entityType !== "ALL") {
       params.push(entityType);
-      query += ` AND entity_type = $${params.length}`;
+      query += ` AND c.entity_type = $${params.length}`;
     }
-    query += " ORDER BY start_date DESC, id DESC";
+    query += " ORDER BY c.start_date DESC, c.id DESC";
 
     const res = await pool.query(query, params);
     return NextResponse.json({ success: true, contracts: res.rows });
@@ -85,11 +97,22 @@ export async function POST(request: Request) {
       projectName,
       contractAmount,
       monthlyFee,
+      vatAmount,
       startDate,
       endDate,
       billingDay,
       memo,
       entityType,
+      customerBizNo,
+      customerCeoName,
+      customerAddress,
+      customerBizType,
+      customerBizClass,
+      customerEmail,
+      customerEmail2,
+      taxPurpose,
+      taxMemo,
+      taxItems,
       contractFileUrl,
       contractFileName,
     } = body;
@@ -102,15 +125,39 @@ export async function POST(request: Request) {
     const prefix = serviceType === "OPERATIONAL" ? "OP" : "DEV";
     const contractNo = `${prefix}${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
 
+    const parsedAmount = parseFloat(contractAmount || "0");
+    const parsedMonthly = parseFloat(monthlyFee || "0");
+    const baseSupply = serviceType === "OPERATIONAL" ? parsedMonthly : parsedAmount;
+    const parsedVat = vatAmount !== undefined && vatAmount !== null && vatAmount !== ""
+      ? parseFloat(vatAmount)
+      : Math.round(baseSupply * 0.1);
+
+    const normalizedTaxItems = Array.isArray(taxItems) && taxItems.length > 0
+      ? taxItems
+      : [
+          {
+            itemName: projectName.trim(),
+            spec: "",
+            qty: 1,
+            unitPrice: baseSupply,
+            supplyAmount: baseSupply,
+            vatAmount: parsedVat,
+            remark: "",
+          },
+        ];
+
     const pool = getErpPool();
     const insRes = await pool.query(
       `
       INSERT INTO erp_service_contracts (
         contract_no, entity_type, service_type, partner_id, customer_name, project_name,
-        contract_amount, monthly_fee, start_date, end_date, billing_day, status, memo,
+        contract_amount, monthly_fee, vat_amount, start_date, end_date, billing_day, status, memo,
+        customer_biz_no, customer_ceo_name, customer_address, customer_biz_type, customer_biz_class,
+        customer_email, customer_email2, tax_purpose, tax_memo, tax_items,
         contract_file_url, contract_file_name
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'ACTIVE', $12, $13, $14
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ACTIVE', $13,
+        $14, $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb, $24, $25
       ) RETURNING id, contract_no AS "contractNo", customer_name AS "customerName", project_name AS "projectName"
       `,
       [
@@ -120,12 +167,23 @@ export async function POST(request: Request) {
         partnerId ? parseInt(String(partnerId), 10) : null,
         customerName.trim(),
         projectName.trim(),
-        parseFloat(contractAmount || "0"),
-        parseFloat(monthlyFee || "0"),
+        parsedAmount,
+        parsedMonthly,
+        parsedVat,
         startDate,
         endDate,
         parseInt(billingDay || "25", 10),
         memo || "",
+        customerBizNo || "",
+        customerCeoName || "",
+        customerAddress || "",
+        customerBizType || "",
+        customerBizClass || "",
+        customerEmail || "",
+        customerEmail2 || "",
+        taxPurpose || "청구",
+        taxMemo || projectName.trim(),
+        JSON.stringify(normalizedTaxItems),
         contractFileUrl || null,
         contractFileName || null,
       ]
@@ -157,12 +215,23 @@ export async function PUT(request: Request) {
       projectName,
       contractAmount,
       monthlyFee,
+      vatAmount,
       startDate,
       endDate,
       billingDay,
       status,
       memo,
       entityType,
+      customerBizNo,
+      customerCeoName,
+      customerAddress,
+      customerBizType,
+      customerBizClass,
+      customerEmail,
+      customerEmail2,
+      taxPurpose,
+      taxMemo,
+      taxItems,
       contractFileUrl,
       contractFileName,
     } = body;
@@ -177,6 +246,14 @@ export async function PUT(request: Request) {
 
     const pool = getErpPool();
     const assignedEntity = entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
+    const parsedAmount = parseFloat(contractAmount || "0");
+    const parsedMonthly = parseFloat(monthlyFee || "0");
+    const baseSupply = serviceType === "OPERATIONAL" ? parsedMonthly : parsedAmount;
+    const parsedVat = vatAmount !== undefined && vatAmount !== null && vatAmount !== ""
+      ? parseFloat(vatAmount)
+      : Math.round(baseSupply * 0.1);
+
+    const normalizedTaxItems = Array.isArray(taxItems) ? JSON.stringify(taxItems) : null;
 
     const updateRes = await pool.query(
       `
@@ -189,14 +266,25 @@ export async function PUT(request: Request) {
         project_name = $5,
         contract_amount = $6,
         monthly_fee = $7,
-        start_date = $8,
-        end_date = $9,
-        billing_day = $10,
-        status = COALESCE($11, status),
-        memo = $12,
-        contract_file_url = CASE WHEN $13::text = '__DELETE__' THEN NULL ELSE COALESCE($13, contract_file_url) END,
-        contract_file_name = CASE WHEN $13::text = '__DELETE__' THEN NULL ELSE COALESCE($14, contract_file_name) END
-      WHERE id = $15
+        vat_amount = $8,
+        start_date = $9,
+        end_date = $10,
+        billing_day = $11,
+        status = COALESCE($12, status),
+        memo = $13,
+        customer_biz_no = COALESCE($14, customer_biz_no),
+        customer_ceo_name = COALESCE($15, customer_ceo_name),
+        customer_address = COALESCE($16, customer_address),
+        customer_biz_type = COALESCE($17, customer_biz_type),
+        customer_biz_class = COALESCE($18, customer_biz_class),
+        customer_email = COALESCE($19, customer_email),
+        customer_email2 = COALESCE($20, customer_email2),
+        tax_purpose = COALESCE($21, tax_purpose),
+        tax_memo = COALESCE($22, tax_memo),
+        tax_items = COALESCE($23::jsonb, tax_items),
+        contract_file_url = CASE WHEN $24::text = '__DELETE__' THEN NULL ELSE COALESCE($24, contract_file_url) END,
+        contract_file_name = CASE WHEN $24::text = '__DELETE__' THEN NULL ELSE COALESCE($25, contract_file_name) END
+      WHERE id = $26
       RETURNING id, contract_no AS "contractNo", customer_name AS "customerName", project_name AS "projectName"
       `,
       [
@@ -205,13 +293,24 @@ export async function PUT(request: Request) {
         partnerId ? parseInt(String(partnerId), 10) : null,
         customerName.trim(),
         projectName.trim(),
-        parseFloat(contractAmount || "0"),
-        parseFloat(monthlyFee || "0"),
+        parsedAmount,
+        parsedMonthly,
+        parsedVat,
         startDate,
         endDate,
         parseInt(billingDay || "25", 10),
         status || null,
         memo || "",
+        customerBizNo !== undefined ? customerBizNo : null,
+        customerCeoName !== undefined ? customerCeoName : null,
+        customerAddress !== undefined ? customerAddress : null,
+        customerBizType !== undefined ? customerBizType : null,
+        customerBizClass !== undefined ? customerBizClass : null,
+        customerEmail !== undefined ? customerEmail : null,
+        customerEmail2 !== undefined ? customerEmail2 : null,
+        taxPurpose || "청구",
+        taxMemo !== undefined ? taxMemo : null,
+        normalizedTaxItems,
         contractFileUrl || null,
         contractFileName || null,
         parseInt(String(id), 10),

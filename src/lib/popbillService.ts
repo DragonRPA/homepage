@@ -22,6 +22,18 @@ popbill.config({
 
 export const popbillTaxService = popbill.TaxinvoiceService();
 
+export interface PopbillTaxItem {
+  month?: string;
+  day?: string;
+  itemName: string;
+  spec?: string;
+  qty?: number;
+  unitPrice?: number;
+  supplyAmount: number;
+  vatAmount: number;
+  remark?: string;
+}
+
 export interface PopbillIssueParams {
   corpNum?: string; // 공급자 사업자등록번호 (기본값: 법인 8068803266)
   supplierCorpName?: string;
@@ -32,15 +44,21 @@ export interface PopbillIssueParams {
   supplierEmail?: string;
   invoicerMgtKey: string; // 우리 시스템 세금계산서 관리번호 (TX...)
   writeDate: string; // 작성일자 YYYYMMDD
+  purposeType?: string; // '청구' | '영수'
   customerName: string; // 공급받는자 상호
   customerBizNo: string; // 공급받는자 사업자번호
   customerCeoName?: string; // 공급받는자 대표자명
-  customerEmail?: string; // 공급받는자 담당자 이메일
-  itemName: string; // 품목명
-  supplyAmount: number; // 공급가액
-  vatAmount: number; // 부가세
+  customerAddr?: string; // 공급받는자 사업장 주소
+  customerBizType?: string; // 공급받는자 업태
+  customerBizClass?: string; // 공급받는자 종목
+  customerEmail?: string; // 공급받는자 담당자 이메일 1
+  customerEmail2?: string; // 공급받는자 담당자 이메일 2
+  itemName: string; // 대표 품목명
+  supplyAmount: number; // 공급가액 합계
+  vatAmount: number; // 부가세 합계
   totalAmount: number; // 합계금액
-  memo?: string;
+  memo?: string; // 세금계산서 상단 비고란
+  taxItems?: PopbillTaxItem[]; // 다중 품목 명세 리스트
 }
 
 /**
@@ -52,11 +70,46 @@ export interface PopbillIssueParams {
 export async function registIssuePopbill(params: PopbillIssueParams): Promise<any> {
   const defaultEntity = BUSINESS_ENTITIES.CORP;
   const corpNum = (params.corpNum || defaultEntity.bizNumRaw).replace(/[^0-9]/g, "");
+  const cleanWriteDate = params.writeDate.replace(/-/g, "");
+  const defaultY = cleanWriteDate.slice(0, 4);
+  const defaultM = cleanWriteDate.slice(4, 6);
+  const defaultD = cleanWriteDate.slice(6, 8);
+
+  const detailList = Array.isArray(params.taxItems) && params.taxItems.length > 0
+    ? params.taxItems.map((it, idx) => {
+        const mm = it.month ? String(it.month).padStart(2, "0") : defaultM;
+        const dd = it.day ? String(it.day).padStart(2, "0") : defaultD;
+        return {
+          serialNum: idx + 1,
+          purchaseDT: `${defaultY}${mm}${dd}`,
+          itemName: it.itemName || params.itemName,
+          spec: it.spec || "",
+          qty: it.qty !== undefined ? String(it.qty) : "1",
+          unitCost: it.unitPrice !== undefined ? String(Math.round(it.unitPrice)) : String(Math.round(it.supplyAmount || 0)),
+          supplyCost: String(Math.round(it.supplyAmount || 0)),
+          tax: String(Math.round(it.vatAmount || 0)),
+          remark: it.remark || "",
+        };
+      })
+    : [
+        {
+          serialNum: 1,
+          purchaseDT: cleanWriteDate,
+          itemName: params.itemName,
+          spec: "",
+          qty: "1",
+          unitCost: Math.round(params.supplyAmount).toString(),
+          supplyCost: Math.round(params.supplyAmount).toString(),
+          tax: Math.round(params.vatAmount).toString(),
+          remark: "",
+        },
+      ];
 
   const taxinvoiceObj = {
-    writeDate: params.writeDate.replace(/-/g, ""),
+    writeDate: cleanWriteDate,
     chargeDirection: "정과금",
     issueType: "정발행",
+    purposeType: params.purposeType === "영수" ? "영수" : "청구",
     issueTiming: "직접발행",
     taxType: "과세",
     invoicerCorpNum: corpNum,
@@ -72,8 +125,12 @@ export async function registIssuePopbill(params: PopbillIssueParams): Promise<an
     invoiceeCorpNum: (params.customerBizNo || "100-00-00000").replace(/[^0-9]/g, "") || "1000000000",
     invoiceeCorpName: params.customerName,
     invoiceeCEOName: params.customerCeoName || "대표자",
+    invoiceeAddr: params.customerAddr || "",
+    invoiceeBizType: params.customerBizType || "",
+    invoiceeBizClass: params.customerBizClass || "",
     invoiceeContactName1: params.customerCeoName || "담당자",
     invoiceeEmail1: params.customerEmail || defaultEntity.email,
+    invoiceeEmail2: params.customerEmail2 || "",
 
     supplyCostTotal: Math.round(params.supplyAmount).toString(),
     taxTotal: Math.round(params.vatAmount).toString(),
@@ -81,15 +138,7 @@ export async function registIssuePopbill(params: PopbillIssueParams): Promise<an
     invoicerMgtKey: params.invoicerMgtKey,
     memo: params.memo || "",
 
-    detailList: [
-      {
-        serialNum: 1,
-        purchaseDT: params.writeDate.replace(/-/g, ""),
-        itemName: params.itemName,
-        supplyCost: Math.round(params.supplyAmount).toString(),
-        tax: Math.round(params.vatAmount).toString(),
-      },
-    ],
+    detailList,
   };
 
   return new Promise((resolve, reject) => {

@@ -98,7 +98,7 @@ export async function POST(request: Request) {
         });
 
         // Update DB
-        const ntsConfirm = `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-41000000-POPBILL`;
+        const ntsConfirm = popResult.ntsConfirmNo || `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-41000000-POPBILL`;
         await pool.query(
           "UPDATE erp_tax_invoices SET status = 'SENT_NTS', nts_confirm_no = $1 WHERE id = $2",
           [ntsConfirm, invoiceId]

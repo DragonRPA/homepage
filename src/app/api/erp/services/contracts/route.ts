@@ -1,20 +1,45 @@
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
 
-// GET: List all service contracts (filter by service_type: 'OPERATIONAL' or 'DEVELOPMENT' & entityType)
+// GET: List all service contracts (filter by service_type: 'OPERATIONAL' or 'DEVELOPMENT' & entityType, or id for single contract file)
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    const idParam = searchParams.get("id");
     const serviceType = searchParams.get("serviceType");
     const entityType = searchParams.get("entityType");
 
     const pool = getErpPool();
+
+    if (idParam) {
+      const singleRes = await pool.query(
+        `
+        SELECT 
+          id,
+          contract_no AS "contractNo",
+          customer_name AS "customerName",
+          project_name AS "projectName",
+          contract_file_url AS "contractFileUrl",
+          contract_file_name AS "contractFileName"
+        FROM erp_service_contracts
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [parseInt(idParam, 10)]
+      );
+      if (singleRes.rows.length === 0) {
+        return NextResponse.json({ error: "해당 계약을 찾을 수 없습니다." }, { status: 404 });
+      }
+      return NextResponse.json({ success: true, contract: singleRes.rows[0] });
+    }
+
     let query = `
       SELECT 
         id,
         contract_no as "contractNo",
         entity_type as "entityType",
         service_type as "serviceType",
+        partner_id as "partnerId",
         customer_name as "customerName",
         project_name as "projectName",
         contract_amount as "contractAmount",
@@ -24,6 +49,8 @@ export async function GET(request: Request) {
         billing_day as "billingDay",
         status,
         memo,
+        contract_file_name as "contractFileName",
+        (contract_file_url IS NOT NULL AND contract_file_url <> '') as "hasContractFile",
         created_at as "createdAt"
       FROM erp_service_contracts
       WHERE 1=1
@@ -51,7 +78,21 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { serviceType, customerName, projectName, contractAmount, monthlyFee, startDate, endDate, billingDay, memo, entityType } = body;
+    const {
+      serviceType,
+      partnerId,
+      customerName,
+      projectName,
+      contractAmount,
+      monthlyFee,
+      startDate,
+      endDate,
+      billingDay,
+      memo,
+      entityType,
+      contractFileUrl,
+      contractFileName,
+    } = body;
 
     if (!serviceType || !customerName || !projectName || !startDate || !endDate) {
       return NextResponse.json({ error: "용역 구분, 고객사, 프로젝트명, 계약 기간은 필수입니다." }, { status: 400 });
@@ -61,27 +102,36 @@ export async function POST(request: Request) {
     const prefix = serviceType === "OPERATIONAL" ? "OP" : "DEV";
     const contractNo = `${prefix}${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const { data, error } = await supabaseErp
-      .from("erp_service_contracts")
-      .insert({
-        contract_no: contractNo,
-        entity_type: assignedEntity,
-        service_type: serviceType,
-        customer_name: customerName.trim(),
-        project_name: projectName.trim(),
-        contract_amount: parseFloat(contractAmount || "0"),
-        monthly_fee: parseFloat(monthlyFee || "0"),
-        start_date: startDate,
-        end_date: endDate,
-        billing_day: parseInt(billingDay || "25", 10),
-        status: "ACTIVE",
-        memo: memo || "",
-      })
-      .select()
-      .single();
+    const pool = getErpPool();
+    const insRes = await pool.query(
+      `
+      INSERT INTO erp_service_contracts (
+        contract_no, entity_type, service_type, partner_id, customer_name, project_name,
+        contract_amount, monthly_fee, start_date, end_date, billing_day, status, memo,
+        contract_file_url, contract_file_name
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'ACTIVE', $12, $13, $14
+      ) RETURNING id, contract_no AS "contractNo", customer_name AS "customerName", project_name AS "projectName"
+      `,
+      [
+        contractNo,
+        assignedEntity,
+        serviceType,
+        partnerId ? parseInt(String(partnerId), 10) : null,
+        customerName.trim(),
+        projectName.trim(),
+        parseFloat(contractAmount || "0"),
+        parseFloat(monthlyFee || "0"),
+        startDate,
+        endDate,
+        parseInt(billingDay || "25", 10),
+        memo || "",
+        contractFileUrl || null,
+        contractFileName || null,
+      ]
+    );
 
-    if (error) throw error;
-    return NextResponse.json({ success: true, contract: data });
+    return NextResponse.json({ success: true, contract: insRes.rows[0] });
   } catch (error: any) {
     console.error("POST Service Contract Error:", error);
     return NextResponse.json({ error: "용역 계약 등록 실패: " + error.message }, { status: 500 });

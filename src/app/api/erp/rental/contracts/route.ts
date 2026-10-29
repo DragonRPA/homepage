@@ -1,18 +1,43 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 
-// GET: List all rental contracts (optionally filter by entityType)
+// GET: List all rental contracts (optionally filter by entityType, or id for single contract file)
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    const idParam = searchParams.get("id");
     const entityType = searchParams.get("entityType");
 
     const pool = getErpPool();
+
+    if (idParam) {
+      const singleRes = await pool.query(
+        `
+        SELECT 
+          id,
+          contract_no AS "contractNo",
+          customer_name AS "customerName",
+          site_name AS "siteName",
+          contract_file_url AS "contractFileUrl",
+          contract_file_name AS "contractFileName"
+        FROM erp_rental_contracts
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [parseInt(idParam, 10)]
+      );
+      if (singleRes.rows.length === 0) {
+        return NextResponse.json({ error: "해당 임대계약을 찾을 수 없습니다." }, { status: 404 });
+      }
+      return NextResponse.json({ success: true, contract: singleRes.rows[0] });
+    }
+
     let query = `
       SELECT 
         c.id,
         c.contract_no as "contractNo",
         c.entity_type as "entityType",
+        c.partner_id as "partnerId",
         c.customer_name as "customerName",
         c.site_name as "siteName",
         c.asset_id as "assetId",
@@ -25,6 +50,8 @@ export async function GET(request: Request) {
         c.deposit,
         c.status,
         c.memo,
+        c.contract_file_name as "contractFileName",
+        (c.contract_file_url IS NOT NULL AND c.contract_file_url <> '') as "hasContractFile",
         c.created_at as "createdAt"
       FROM erp_rental_contracts c
       LEFT JOIN erp_rental_assets a ON c.asset_id = a.id
@@ -50,7 +77,21 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { customerName, siteName, assetId, startDate, endDate, monthlyRate, dailyRate, deposit, memo, entityType } = body;
+    const {
+      partnerId,
+      customerName,
+      siteName,
+      assetId,
+      startDate,
+      endDate,
+      monthlyRate,
+      dailyRate,
+      deposit,
+      memo,
+      entityType,
+      contractFileUrl,
+      contractFileName,
+    } = body;
 
     if (!customerName || !assetId || !startDate || !endDate) {
       return NextResponse.json({ error: "고객사, 자산, 계약시작일, 종료일은 필수입니다." }, { status: 400 });
@@ -81,12 +122,13 @@ export async function POST(request: Request) {
       // 1. Insert contract
       const insRes = await client.query(
         `INSERT INTO erp_rental_contracts
-         (contract_no, entity_type, customer_name, site_name, asset_id, start_date, end_date, monthly_rate, daily_rate, deposit, status, memo)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'ACTIVE', $11)
-         RETURNING *`,
+         (contract_no, entity_type, partner_id, customer_name, site_name, asset_id, start_date, end_date, monthly_rate, daily_rate, deposit, status, memo, contract_file_url, contract_file_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'ACTIVE', $12, $13, $14)
+         RETURNING id, contract_no AS "contractNo", customer_name AS "customerName"`,
         [
           contractNo, 
           assignedEntity,
+          partnerId ? parseInt(String(partnerId), 10) : null,
           customerName.trim(), 
           siteName || "본사/지정현장", 
           assetId, 
@@ -95,7 +137,9 @@ export async function POST(request: Request) {
           parseFloat(monthlyRate || "0"), 
           parseFloat(dailyRate || "0"), 
           parseFloat(deposit || "0"), 
-          memo || ""
+          memo || "",
+          contractFileUrl || null,
+          contractFileName || null,
         ]
       );
 

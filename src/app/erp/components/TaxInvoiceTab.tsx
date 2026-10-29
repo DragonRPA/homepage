@@ -5,7 +5,8 @@ import {
   FileText, Plus, RefreshCw, Download, Search, 
   CheckCircle2, Printer, AlertCircle, X, ExternalLink, Send,
   Building2, UserCheck, ShieldCheck, Check, Info,
-  ArrowUpDown, ArrowUp, ArrowDown
+  ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square,
+  Layers, Briefcase, Truck, ShoppingCart
 } from "lucide-react";
 import { BUSINESS_ENTITIES, EntityType, getEntity } from "@/lib/businessEntities";
 import { formatErpNumber, formatErpCurrency, sortErpItems, SortDirection } from "@/lib/erpFormat";
@@ -21,13 +22,29 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   selectedEntity = "ALL",
   onSelectEntity
 }) => {
+  // Sub-tabs: UNISSUED (발행 대기 청구건) | ISSUED (발행 완료 대장)
+  const [activeSubTab, setActiveSubTab] = useState<"UNISSUED" | "ISSUED">("UNISSUED");
+
+  // Invoices & Billings State
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [unissuedBillings, setUnissuedBillings] = useState<any[]>([]);
+  const [selectedBillingIds, setSelectedBillingIds] = useState<Set<number>>(new Set());
+
+  // Loading States
   const [loading, setLoading] = useState(false);
+  const [unissuedLoading, setUnissuedLoading] = useState(false);
+  const [batchIssuing, setBatchIssuing] = useState(false);
+
+  // Filters & Sorting
   const [domainFilter, setDomainFilter] = useState("ALL");
   const [entityFilter, setEntityFilter] = useState<"ALL" | "CORP" | "INDIVIDUAL">(selectedEntity);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortKey, setSortKey] = useState<string>("issueDate");
   const [sortDir, setSortDir] = useState<SortDirection>("desc");
+
+  // Unissued Sorting
+  const [unissuedSortKey, setUnissuedSortKey] = useState<string>("billingDate");
+  const [unissuedSortDir, setUnissuedSortDir] = useState<SortDirection>("desc");
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -38,15 +55,22 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     }
   };
 
+  const handleUnissuedSort = (key: string) => {
+    if (unissuedSortKey === key) {
+      setUnissuedSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setUnissuedSortKey(key);
+      setUnissuedSortDir("desc");
+    }
+  };
+
   // Keep entityFilter in sync when parent header changes
   useEffect(() => {
     setEntityFilter(selectedEntity);
   }, [selectedEntity]);
 
-  // Modal State
+  // Modal State for Manual Issuance
   const [showIssueModal, setShowIssueModal] = useState(false);
-
-  // Form State
   const [modalSupplierEntity, setModalSupplierEntity] = useState<EntityType>(
     selectedEntity === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP"
   );
@@ -66,7 +90,8 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     setTimeout(() => setToast(null), 3500);
   };
 
-  const fetchData = async () => {
+  // 1. Fetch Issued Tax Invoices (대장)
+  const fetchIssuedInvoices = async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -77,9 +102,9 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       const res = await fetch(url);
       const data = await res.json();
       if (data.success) {
-        setInvoices(data.invoices);
+        setInvoices(data.invoices || []);
       } else {
-        throw new Error(data.error || "세금계산서 조회 실패");
+        throw new Error(data.error || "세금계산서 대장 조회 실패");
       }
     } catch (err: any) {
       console.error(err);
@@ -89,32 +114,122 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     }
   };
 
+  // 2. Fetch Unissued Billings (계약 청구 대기 목록)
+  const fetchUnissuedBillings = async () => {
+    setUnissuedLoading(true);
+    try {
+      const res = await fetch("/api/erp/tax-invoices?type=UNISSUED_BILLINGS");
+      const data = await res.json();
+      if (data.success) {
+        setUnissuedBillings(data.billings || []);
+        // Retain only valid selected IDs
+        const existingIds = new Set((data.billings || []).map((b: any) => b.billingId));
+        setSelectedBillingIds((prev) => {
+          const next = new Set<number>();
+          prev.forEach((id) => {
+            if (existingIds.has(id)) next.add(id);
+          });
+          return next;
+        });
+      } else {
+        throw new Error(data.error || "미발행 청구 목록 조회 실패");
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || "미발행 청구 목록 조회 실패", "error");
+    } finally {
+      setUnissuedLoading(false);
+    }
+  };
+
+  // Initial load & filter change
   useEffect(() => {
-    fetchData();
+    fetchIssuedInvoices();
+    fetchUnissuedBillings();
   }, [domainFilter, entityFilter]);
 
-  // Filtered by Search Term
+  // Filtered Unissued Billings
+  const filteredUnissued = useMemo(() => {
+    return unissuedBillings.filter((b) => {
+      // Domain filter
+      if (domainFilter !== "ALL") {
+        if (domainFilter === "RENTAL" && b.domainType !== "RENTAL") return false;
+        if (domainFilter === "OP_SERVICE" && b.domainType !== "OP_SERVICE") return false;
+        if (domainFilter === "DEV_SERVICE" && b.domainType !== "DEV_SERVICE") return false;
+      }
+      // Entity filter
+      if (entityFilter !== "ALL" && b.entityType !== entityFilter) return false;
+
+      // Search term
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      return (
+        b.customerName?.toLowerCase().includes(term) ||
+        b.itemName?.toLowerCase().includes(term) ||
+        b.billingNo?.toLowerCase().includes(term) ||
+        b.contractNo?.toLowerCase().includes(term) ||
+        b.businessNo?.includes(term) ||
+        b.siteName?.toLowerCase().includes(term) ||
+        b.projectName?.toLowerCase().includes(term)
+      );
+    });
+  }, [unissuedBillings, domainFilter, entityFilter, searchTerm]);
+
+  // Sorted Unissued Billings
+  const sortedUnissued = useMemo(() => {
+    return sortErpItems(filteredUnissued, unissuedSortKey, unissuedSortDir);
+  }, [filteredUnissued, unissuedSortKey, unissuedSortDir]);
+
+  // Filtered Issued Invoices
   const filteredInvoices = useMemo(() => {
     return invoices.filter((i) => {
       const term = searchTerm.toLowerCase();
-      const matchSearch =
+      return (
         !term ||
         i.customerName?.toLowerCase().includes(term) ||
         i.itemName?.toLowerCase().includes(term) ||
         i.invoiceNo?.toLowerCase().includes(term) ||
         i.ntsConfirmNo?.toLowerCase().includes(term) ||
         i.supplierCorpName?.toLowerCase().includes(term) ||
-        i.businessNo?.includes(term);
-      return matchSearch;
+        i.businessNo?.includes(term)
+      );
     });
   }, [invoices, searchTerm]);
 
-  // Sorted items with robust numeric/string/date sorting
+  // Sorted Issued Invoices
   const sortedInvoices = useMemo(() => {
     return sortErpItems(filteredInvoices, sortKey, sortDir);
   }, [filteredInvoices, sortKey, sortDir]);
 
-  // KPI Calculations (헌장 4.1 회계 보존: 통합 = 법인 + 개인)
+  // Selection Logic for Unissued Billings
+  const toggleSelectAll = () => {
+    if (selectedBillingIds.size === filteredUnissued.length && filteredUnissued.length > 0) {
+      setSelectedBillingIds(new Set());
+    } else {
+      setSelectedBillingIds(new Set(filteredUnissued.map((b) => b.billingId)));
+    }
+  };
+
+  const toggleSelectBilling = (id: number) => {
+    setSelectedBillingIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Selected Summary
+  const selectedSummary = useMemo(() => {
+    const list = unissuedBillings.filter((b) => selectedBillingIds.has(b.billingId));
+    const count = list.length;
+    const supply = list.reduce((acc, cur) => acc + Number(cur.supplyAmount || 0), 0);
+    const vat = list.reduce((acc, cur) => acc + Number(cur.vatAmount || 0), 0);
+    const total = list.reduce((acc, cur) => acc + Number(cur.totalAmount || 0), 0);
+    return { count, supply, vat, total };
+  }, [unissuedBillings, selectedBillingIds]);
+
+  // KPI Calculations for Issued Invoices (헌장 4.1 회계 보존: 통합 = 법인 + 개인)
   const kpiStats = useMemo(() => {
     const totalCount = invoices.length;
     const totalSupply = invoices.reduce((s, i) => s + Number(i.supplyAmount || 0), 0);
@@ -146,7 +261,79 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     };
   }, [invoices]);
 
-  // Handle Manual Issue
+  // Handle Batch Issue from Selected Contract Billings
+  const handleBatchIssue = async () => {
+    const selectedList = unissuedBillings.filter((b) => selectedBillingIds.has(b.billingId));
+    if (selectedList.length === 0) {
+      showToast("발행할 청구건을 1건 이상 선택해주세요.", "error");
+      return;
+    }
+
+    const totalSumFormatted = formatErpCurrency(selectedSummary.total);
+    if (!window.confirm(
+      `선택한 ${selectedList.length}건의 계약 청구건에 대해 국세청 전자세금계산서를 즉시 일괄 발행하시겠습니까?\n\n- 발행 대상: ${selectedList.length}건\n- 총 공급가액: ${formatErpCurrency(selectedSummary.supply)}\n- 총 부가세: ${formatErpCurrency(selectedSummary.vat)}\n- 총 합계금액: ${totalSumFormatted}`
+    )) {
+      return;
+    }
+
+    setBatchIssuing(true);
+    try {
+      const res = await fetch("/api/erp/tax-invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          batchIssue: true,
+          billings: selectedList,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "일괄 세금계산서 발행 실패");
+
+      showToast(data.message || `선택한 ${selectedList.length}건의 전자세금계산서가 성공적으로 발행되었습니다.`);
+      setSelectedBillingIds(new Set());
+      await fetchUnissuedBillings();
+      await fetchIssuedInvoices();
+      setActiveSubTab("ISSUED"); // Automatically switch to issued tab to view results
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setBatchIssuing(false);
+    }
+  };
+
+  // Handle Single Issue from Unissued Table
+  const handleSingleIssueFromBilling = async (billing: any) => {
+    if (!window.confirm(
+      `[${billing.customerName}] ${billing.itemName}\n공급가액: ${formatErpCurrency(billing.supplyAmount)} (합계: ${formatErpCurrency(billing.totalAmount)})\n국세청 전자세금계산서를 즉시 발행하시겠습니까?`
+    )) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const res = await fetch("/api/erp/tax-invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          batchIssue: true,
+          billings: [billing],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "세금계산서 발행 실패");
+
+      showToast(`[${billing.customerName}] 전자세금계산서 발행 완료`);
+      await fetchUnissuedBillings();
+      await fetchIssuedInvoices();
+      setActiveSubTab("ISSUED");
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle Manual Issue Modal Submit
   const handleManualIssue = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!custName.trim() || !itemName.trim() || !supplyAmt) {
@@ -178,7 +365,8 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       setCustName("");
       setItemName("");
       setMemo("");
-      fetchData();
+      fetchIssuedInvoices();
+      setActiveSubTab("ISSUED");
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -205,7 +393,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       if (!res.ok || !data.success) throw new Error(data.error || "팝빌 전자발행 실패");
 
       showToast(data.message);
-      fetchData();
+      fetchIssuedInvoices();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -269,7 +457,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       if (!res.ok || !data.success) throw new Error(data.error || "상태 동기화 실패");
 
       showToast(`[${inv.invoiceNo}] 팝빌 국세청 상태 동기화 완료`);
-      fetchData();
+      fetchIssuedInvoices();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -278,7 +466,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const activeSupplier = getEntity(modalSupplierEntity);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden select-none">
+    <div className="flex flex-col h-full overflow-hidden select-none bg-[#f4efe4] text-[#1c1917]">
       {/* Toast Alert */}
       {toast && (
         <div
@@ -293,118 +481,173 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         </div>
       )}
 
-      {/* 1. Gutenberg Z-Pattern Scope: 3대 멀티엔티티 대차대조 KPI 헤더 */}
-      <div className="p-3 border-b flex flex-wrap items-center gap-3 shrink-0">
-        {/* 통합 합계 카드 */}
-        <div 
-          onClick={() => {
-            setEntityFilter("ALL");
-            if (onSelectEntity) onSelectEntity("ALL");
-          }}
-          className={`flex items-center gap-3 px-3 py-2 rounded border flex-1 min-w-[200px] cursor-pointer transition ${
-            entityFilter === "ALL" ? "ring-2 ring-blue-500 bg-blue-50/30" : "hover:opacity-90"
-          }`}
-        >
-          <div className="w-9 h-9 rounded bg-blue-600 flex items-center justify-center text-white shrink-0">
-            <FileText className="w-5 h-5" />
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[11px] opacity-75 flex items-center gap-1 font-semibold">
-              통합 세금계산서 전체
-              <span className="text-[10px] px-1 rounded bg-blue-100 text-blue-800 font-bold">
-                {kpiStats.totalCount}건
-              </span>
+      {/* 1. Top Sub-Tabs Navigation (선택 청구 발행 vs 기발행 대장) */}
+      <div className="px-3 pt-2.5 pb-0 border-b border-[#b5a894] bg-[#ebe5d8] flex items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setActiveSubTab("UNISSUED")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-t font-bold text-xs transition border-t border-l border-r ${
+              activeSubTab === "UNISSUED"
+                ? "bg-[#f4efe4] border-[#b5a894] text-[#1c1917] border-b-transparent shadow-sm"
+                : "bg-[#e2dbcd] border-transparent text-[#78716c] hover:text-[#1c1917]"
+            }`}
+          >
+            <CheckSquare className="w-4 h-4 text-blue-700" />
+            <span>발행 대기 청구 목록</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 font-mono">
+              {unissuedBillings.length}건
             </span>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-base font-bold text-blue-700">
-                {formatErpCurrency(kpiStats.totalGross)}
-              </span>
-              <span className="text-[10px] opacity-60">
-                (공급가 {formatErpCurrency(kpiStats.totalSupply)})
-              </span>
-            </div>
-          </div>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab("ISSUED")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-t font-bold text-xs transition border-t border-l border-r ${
+              activeSubTab === "ISSUED"
+                ? "bg-[#f4efe4] border-[#b5a894] text-[#1c1917] border-b-transparent shadow-sm"
+                : "bg-[#e2dbcd] border-transparent text-[#78716c] hover:text-[#1c1917]"
+            }`}
+          >
+            <FileText className="w-4 h-4 text-emerald-700" />
+            <span>세금계산서 발행 대장</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 font-mono">
+              {invoices.length}건
+            </span>
+          </button>
         </div>
 
-        {/* 주식회사 드래곤알피에이 [법인] 카드 */}
-        <div 
-          onClick={() => {
-            setEntityFilter("CORP");
-            if (onSelectEntity) onSelectEntity("CORP");
-          }}
-          className={`flex items-center gap-3 px-3 py-2 rounded border flex-1 min-w-[220px] cursor-pointer transition ${
-            entityFilter === "CORP" ? "ring-2 ring-indigo-500 bg-indigo-50/30" : "hover:opacity-90"
-          }`}
-        >
-          <div className="w-9 h-9 rounded bg-indigo-600 flex items-center justify-center text-white shrink-0">
-            <Building2 className="w-5 h-5" />
+        {/* Popbill Mode & Status Badge */}
+        <div className="flex items-center gap-2 pb-1.5 text-[11px]">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-[#b5a894] bg-[#ebe5d8]">
+            <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+            <span className="font-semibold text-[#57534e]">팝빌 연동:</span>
+            <span className="font-mono font-bold text-blue-700">DRAGONRP (테스트 모드)</span>
           </div>
-          <div className="flex flex-col">
-            <span className="text-[11px] opacity-75 flex items-center gap-1 font-semibold">
-              (주)드래곤알피에이 [법인]
-              <span className="text-[10px] px-1 rounded bg-indigo-100 text-indigo-800 font-bold">
-                {formatErpNumber(kpiStats.corpCount)}건
-              </span>
-            </span>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-base font-bold text-indigo-700">
-                {formatErpCurrency(kpiStats.corpGross)}
-              </span>
-              <span className="text-[10px] opacity-60 font-mono">
-                806-88-03266
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* 드래곤알피에이 [개인] 카드 */}
-        <div 
-          onClick={() => {
-            setEntityFilter("INDIVIDUAL");
-            if (onSelectEntity) onSelectEntity("INDIVIDUAL");
-          }}
-          className={`flex items-center gap-3 px-3 py-2 rounded border flex-1 min-w-[220px] cursor-pointer transition ${
-            entityFilter === "INDIVIDUAL" ? "ring-2 ring-amber-500 bg-amber-50/30" : "hover:opacity-90"
-          }`}
-        >
-          <div className="w-9 h-9 rounded bg-amber-600 flex items-center justify-center text-white shrink-0">
-            <UserCheck className="w-5 h-5" />
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[11px] opacity-75 flex items-center gap-1 font-semibold">
-              드래곤알피에이 [개인]
-              <span className="text-[10px] px-1 rounded bg-amber-100 text-amber-800 font-bold">
-                {formatErpNumber(kpiStats.indivCount)}건
-              </span>
-            </span>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-base font-bold text-amber-700">
-                {formatErpCurrency(kpiStats.indivGross)}
-              </span>
-              <span className="text-[10px] opacity-60 font-mono">
-                295-03-02683
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* 회계 보존 대차 차액 검증 배지 */}
-        <div className="hidden 2xl:flex items-center gap-2 px-3 py-2 rounded border shrink-0 bg-card">
-          <ShieldCheck className="w-5 h-5 text-emerald-600" />
-          <div className="flex flex-col text-[11px]">
-            <span className="opacity-70">대차대조 보존검증</span>
-            <span className="font-bold text-emerald-700 font-mono">
-              대차차액 {formatErpCurrency(kpiStats.balanceDiff)}
-            </span>
-          </div>
+          <button
+            onClick={() => setShowIssueModal(true)}
+            className="flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 border border-blue-900 shadow-sm"
+            title="계약 외 수동 직접 발행"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>수동 직접 발행</span>
+          </button>
         </div>
       </div>
 
-      {/* 2. Gutenberg Z-Pattern Pipeline: 툴바 & 필터 패널 */}
-      <div className="p-3 border-b flex flex-wrap items-center justify-between gap-2 shrink-0">
+      {/* 2. Top KPI Cards: Shown in ISSUED tab */}
+      {activeSubTab === "ISSUED" && (
+        <div className="p-3 border-b border-[#b5a894] bg-[#ebe5d8] flex flex-wrap items-center gap-3 shrink-0">
+          {/* 통합 합계 카드 */}
+          <div 
+            onClick={() => {
+              setEntityFilter("ALL");
+              if (onSelectEntity) onSelectEntity("ALL");
+            }}
+            className={`flex items-center gap-3 px-3 py-2 rounded border border-[#b5a894] flex-1 min-w-[200px] cursor-pointer transition ${
+              entityFilter === "ALL" ? "ring-2 ring-blue-600 bg-[#f4efe4]" : "bg-[#ebe5d8] hover:bg-[#e2dbcd]"
+            }`}
+          >
+            <div className="w-9 h-9 rounded bg-blue-600 flex items-center justify-center text-white shrink-0">
+              <FileText className="w-5 h-5" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[11px] text-[#78716c] flex items-center gap-1 font-semibold">
+                통합 세금계산서 전체
+                <span className="text-[10px] px-1 rounded bg-blue-100 text-blue-800 font-bold font-mono">
+                  {kpiStats.totalCount}건
+                </span>
+              </span>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-base font-bold text-blue-800 font-mono">
+                  {formatErpCurrency(kpiStats.totalGross)}
+                </span>
+                <span className="text-[10px] text-[#78716c] font-mono">
+                  (공급가 {formatErpCurrency(kpiStats.totalSupply)})
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 주식회사 드래곤알피에이 [법인] 카드 */}
+          <div 
+            onClick={() => {
+              setEntityFilter("CORP");
+              if (onSelectEntity) onSelectEntity("CORP");
+            }}
+            className={`flex items-center gap-3 px-3 py-2 rounded border border-[#b5a894] flex-1 min-w-[220px] cursor-pointer transition ${
+              entityFilter === "CORP" ? "ring-2 ring-indigo-600 bg-[#f4efe4]" : "bg-[#ebe5d8] hover:bg-[#e2dbcd]"
+            }`}
+          >
+            <div className="w-9 h-9 rounded bg-indigo-600 flex items-center justify-center text-white shrink-0">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[11px] text-[#78716c] flex items-center gap-1 font-semibold">
+                (주)드래곤알피에이 [법인]
+                <span className="text-[10px] px-1 rounded bg-indigo-100 text-indigo-800 font-bold font-mono">
+                  {formatErpNumber(kpiStats.corpCount)}건
+                </span>
+              </span>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-base font-bold text-indigo-800 font-mono">
+                  {formatErpCurrency(kpiStats.corpGross)}
+                </span>
+                <span className="text-[10px] text-[#78716c] font-mono">
+                  806-88-03266
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 드래곤알피에이 [개인] 카드 */}
+          <div 
+            onClick={() => {
+              setEntityFilter("INDIVIDUAL");
+              if (onSelectEntity) onSelectEntity("INDIVIDUAL");
+            }}
+            className={`flex items-center gap-3 px-3 py-2 rounded border border-[#b5a894] flex-1 min-w-[220px] cursor-pointer transition ${
+              entityFilter === "INDIVIDUAL" ? "ring-2 ring-amber-600 bg-[#f4efe4]" : "bg-[#ebe5d8] hover:bg-[#e2dbcd]"
+            }`}
+          >
+            <div className="w-9 h-9 rounded bg-amber-600 flex items-center justify-center text-white shrink-0">
+              <UserCheck className="w-5 h-5" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[11px] text-[#78716c] flex items-center gap-1 font-semibold">
+                드래곤알피에이 [개인]
+                <span className="text-[10px] px-1 rounded bg-amber-100 text-amber-800 font-bold font-mono">
+                  {formatErpNumber(kpiStats.indivCount)}건
+                </span>
+              </span>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-base font-bold text-amber-800 font-mono">
+                  {formatErpCurrency(kpiStats.indivGross)}
+                </span>
+                <span className="text-[10px] text-[#78716c] font-mono">
+                  295-03-02683
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 회계 보존 대차 차액 검증 배지 */}
+          <div className="hidden 2xl:flex items-center gap-2 px-3 py-2 rounded border border-[#b5a894] shrink-0 bg-[#ebe5d8]">
+            <ShieldCheck className="w-5 h-5 text-emerald-700" />
+            <div className="flex flex-col text-[11px]">
+              <span className="text-[#78716c]">대차대조 보존검증</span>
+              <span className="font-bold text-emerald-800 font-mono">
+                대차차액 {formatErpCurrency(kpiStats.balanceDiff)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Filter & Pipeline Toolbar */}
+      <div className="p-3 border-b border-[#b5a894] bg-[#f4efe4] flex flex-wrap items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2 flex-wrap">
           {/* Entity Filter Dropdown */}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-bold text-[#78716c]">사업자 구분</span>
             <select
               value={entityFilter}
               onChange={(e) => {
@@ -412,585 +655,690 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                 setEntityFilter(val);
                 if (onSelectEntity) onSelectEntity(val);
               }}
-              className="h-8 px-2.5 rounded text-xs font-bold border bg-card text-main"
+              className="h-8 px-2.5 rounded text-xs font-bold border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
             >
-              <option value="ALL">🏢 전체 사업자 (통합 세금계산서)</option>
-              <option value="CORP">🏛️ (주)드래곤알피에이 [법인]</option>
-              <option value="INDIVIDUAL">👤 드래곤알피에이 [개인]</option>
+              <option value="ALL">전체 사업자 (통합)</option>
+              <option value="CORP">(주)드래곤알피에이 [법인]</option>
+              <option value="INDIVIDUAL">드래곤알피에이 [개인]</option>
             </select>
           </div>
 
           {/* Domain Filter */}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-bold text-[#78716c]">매출 분과</span>
             <select
               value={domainFilter}
               onChange={(e) => setDomainFilter(e.target.value)}
-              className="h-8 px-2 rounded text-xs border bg-card text-main"
+              className="h-8 px-2 rounded text-xs border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
             >
               <option value="ALL">전체 매출 분과</option>
-              <option value="TRADE_SALE">판매 (유통 커머스)</option>
               <option value="RENTAL">임대 (장비 렌탈)</option>
               <option value="OP_SERVICE">운영용역 (정기유지보수)</option>
               <option value="DEV_SERVICE">개발용역 (SI 프로젝트)</option>
+              {activeSubTab === "ISSUED" && <option value="TRADE_SALE">판매 (유통 커머스)</option>}
             </select>
           </div>
 
           {/* Search Box */}
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 opacity-50" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="거래처명, 품목, 관리번호 검색..."
-              className="h-8 pl-8 pr-3 rounded text-xs border bg-card text-main w-56"
-            />
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-bold text-[#78716c]">검색</span>
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#78716c]" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="거래처명, 품목, 관리번호 검색..."
+                className="h-8 pl-8 pr-3 rounded text-xs border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] w-64"
+              />
+            </div>
           </div>
 
           <button
-            onClick={fetchData}
-            disabled={loading}
-            className="p-1.5 rounded border hover:bg-slate-500/10 transition"
+            onClick={() => {
+              if (activeSubTab === "UNISSUED") fetchUnissuedBillings();
+              else fetchIssuedInvoices();
+            }}
+            className="flex items-center gap-1 h-8 px-2.5 rounded text-xs font-semibold border border-[#b5a894] bg-[#ebe5d8] hover:bg-[#e2dbcd] mt-4"
             title="새로고침"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${(loading || unissuedLoading) ? "animate-spin" : ""}`} />
+            <span>조회</span>
           </button>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          <span className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded border text-[11px] font-mono">
-            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
-            팝빌 연동: DRAGONRP (TEST)
-          </span>
+        {/* Sub-tab 1 Specific Actions: Batch Issue Summary Bar & Button */}
+        {activeSubTab === "UNISSUED" && (
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded border border-[#b5a894] bg-[#ebe5d8] text-xs font-medium">
+              <span className="text-[#78716c]">선택:</span>
+              <span className="font-bold text-blue-800 font-mono">{selectedSummary.count}건</span>
+              <span className="text-[#b5a894]">|</span>
+              <span className="text-[#78716c]">공급가액:</span>
+              <span className="font-bold font-mono">{formatErpCurrency(selectedSummary.supply)}</span>
+              <span className="text-[#b5a894]">|</span>
+              <span className="text-[#78716c]">세액:</span>
+              <span className="font-bold font-mono">{formatErpCurrency(selectedSummary.vat)}</span>
+              <span className="text-[#b5a894]">|</span>
+              <span className="text-[#78716c]">합계:</span>
+              <span className="font-bold text-emerald-800 font-mono">{formatErpCurrency(selectedSummary.total)}</span>
+            </div>
 
-          <button
-            onClick={() => {
-              setModalSupplierEntity(entityFilter === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP");
-              setShowIssueModal(true);
-            }}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 font-bold text-xs text-white rounded flex items-center gap-1.5 shadow-sm transition"
-          >
-            <Plus className="w-3.5 h-3.5 text-white" />
-            <span className="text-white">직접 발행</span>
-          </button>
-        </div>
+            <button
+              onClick={handleBatchIssue}
+              disabled={selectedSummary.count === 0 || batchIssuing}
+              className={`flex items-center gap-1.5 h-8 px-4 rounded text-xs font-bold shadow-sm transition ${
+                selectedSummary.count > 0 && !batchIssuing
+                  ? "bg-blue-700 hover:bg-blue-800 text-white border border-blue-900 cursor-pointer"
+                  : "bg-[#d8d0c2] text-[#a8a29e] border border-[#b5a894] cursor-not-allowed"
+              }`}
+            >
+              <Send className={`w-3.5 h-3.5 ${batchIssuing ? "animate-pulse" : ""}`} />
+              <span>선택 청구건 세금계산서 일괄 발행 ({selectedSummary.count}건)</span>
+            </button>
+          </div>
+        )}
+
+        {/* Sub-tab 2 Specific Actions */}
+        {activeSubTab === "ISSUED" && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (invoices.length === 0) {
+                  showToast("내보낼 세금계산서 데이터가 없습니다.", "error");
+                  return;
+                }
+                const csvHeader = "계산서번호,발행일자,공급자,매출분과,공급받는자,사업자번호,품목명,공급가액,세액,합계금액,국세청승인번호,상태\n";
+                const csvRows = invoices.map(i => [
+                  i.invoiceNo,
+                  i.issueDate ? i.issueDate.slice(0, 10) : "",
+                  i.supplierCorpName || "",
+                  i.domainType || "",
+                  `"${(i.customerName || '').replace(/"/g, '""')}"`,
+                  i.businessNo || "",
+                  `"${(i.itemName || '').replace(/"/g, '""')}"`,
+                  Math.round(i.supplyAmount || 0),
+                  Math.round(i.vatAmount || 0),
+                  Math.round(i.totalAmount || 0),
+                  i.ntsConfirmNo || "",
+                  i.status || "",
+                ].join(",")).join("\n");
+
+                const blob = new Blob(["\uFEFF" + csvHeader + csvRows], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `세금계산서_대장_${new Date().toISOString().slice(0, 10)}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast("세금계산서 대장이 CSV로 내보내졌습니다.");
+              }}
+              className="flex items-center gap-1 h-8 px-2.5 rounded text-xs font-semibold border border-[#b5a894] bg-[#ebe5d8] hover:bg-[#e2dbcd]"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>엑셀 내보내기</span>
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* 3. Gutenberg Z-Pattern Inspection: 고밀도 슬림 대사 그리드 (세로 스크롤 & 컬럼 정렬) */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <table className="w-full text-left text-xs whitespace-nowrap border-collapse">
-          <thead className="sticky top-0 border-b font-semibold select-none z-10 bg-card">
-            <tr>
-              <th
-                onClick={() => handleSort("supplierCorpName")}
-                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
-                title="발행 사업자 기준 정렬"
-              >
-                <div className="inline-flex items-center gap-1.5">
-                  <span>발행 사업자</span>
-                  <span className="shrink-0">
-                    {sortKey === "supplierCorpName" ? (
-                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 opacity-30" />
-                    )}
-                  </span>
-                </div>
-              </th>
+      {/* 4. Body Content Area */}
+      <div className="flex-1 overflow-auto p-3">
+        {/* ============================================================== */}
+        {/* SUB-TAB 1: UNISSUED BILLINGS (발행 대기 청구 목록)            */}
+        {/* ============================================================== */}
+        {activeSubTab === "UNISSUED" && (
+          <div className="border border-[#b5a894] rounded bg-[#ebe5d8] overflow-hidden flex flex-col h-full shadow-sm">
+            <div className="p-2 border-b border-[#b5a894] bg-[#dfd7c7] flex items-center justify-between text-xs font-bold text-[#57534e]">
+              <div className="flex items-center gap-2">
+                <span>계약 청구 발행 대기 목록</span>
+                <span className="text-[11px] font-normal text-[#78716c]">
+                  (실제 렌탈/용역 계약에서 생성된 청구 중 미발행 건)
+                </span>
+              </div>
+              <div className="text-[11px] text-[#78716c]">
+                총 {sortedUnissued.length}건 대기 중
+              </div>
+            </div>
 
-              <th
-                onClick={() => handleSort("invoiceNo")}
-                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
-                title="계산서번호 기준 정렬"
-              >
-                <div className="inline-flex items-center gap-1.5">
-                  <span>계산서번호</span>
-                  <span className="shrink-0">
-                    {sortKey === "invoiceNo" ? (
-                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 opacity-30" />
-                    )}
-                  </span>
-                </div>
-              </th>
-
-              <th
-                onClick={() => handleSort("issueDate")}
-                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
-                title="발행일자 기준 정렬"
-              >
-                <div className="inline-flex items-center gap-1.5">
-                  <span>발행일자</span>
-                  <span className="shrink-0">
-                    {sortKey === "issueDate" ? (
-                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 opacity-30" />
-                    )}
-                  </span>
-                </div>
-              </th>
-
-              <th
-                onClick={() => handleSort("domainType")}
-                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
-                title="매출 분과 기준 정렬"
-              >
-                <div className="inline-flex items-center gap-1.5">
-                  <span>매출 분과</span>
-                  <span className="shrink-0">
-                    {sortKey === "domainType" ? (
-                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 opacity-30" />
-                    )}
-                  </span>
-                </div>
-              </th>
-
-              <th
-                onClick={() => handleSort("customerName")}
-                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
-                title="공급받는자 기준 정렬"
-              >
-                <div className="inline-flex items-center gap-1.5">
-                  <span>공급받는자 (거래처)</span>
-                  <span className="shrink-0">
-                    {sortKey === "customerName" ? (
-                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 opacity-30" />
-                    )}
-                  </span>
-                </div>
-              </th>
-
-              <th
-                onClick={() => handleSort("itemName")}
-                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
-                title="품목명 기준 정렬"
-              >
-                <div className="inline-flex items-center gap-1.5">
-                  <span>품목명</span>
-                  <span className="shrink-0">
-                    {sortKey === "itemName" ? (
-                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 opacity-30" />
-                    )}
-                  </span>
-                </div>
-              </th>
-
-              <th
-                onClick={() => handleSort("supplyAmount")}
-                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-right"
-                title="공급가액 기준 정렬"
-              >
-                <div className="inline-flex items-center justify-end w-full gap-1.5">
-                  <span>공급가액</span>
-                  <span className="shrink-0">
-                    {sortKey === "supplyAmount" ? (
-                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 opacity-30" />
-                    )}
-                  </span>
-                </div>
-              </th>
-
-              <th
-                onClick={() => handleSort("vatAmount")}
-                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-right"
-                title="세액 기준 정렬"
-              >
-                <div className="inline-flex items-center justify-end w-full gap-1.5">
-                  <span>세액 (VAT)</span>
-                  <span className="shrink-0">
-                    {sortKey === "vatAmount" ? (
-                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 opacity-30" />
-                    )}
-                  </span>
-                </div>
-              </th>
-
-              <th
-                onClick={() => handleSort("totalAmount")}
-                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-right"
-                title="합계금액 기준 정렬"
-              >
-                <div className="inline-flex items-center justify-end w-full gap-1.5">
-                  <span>합계금액</span>
-                  <span className="shrink-0">
-                    {sortKey === "totalAmount" ? (
-                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 opacity-30" />
-                    )}
-                  </span>
-                </div>
-              </th>
-
-              <th
-                onClick={() => handleSort("ntsConfirmNo")}
-                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition"
-                title="국세청 승인번호 기준 정렬"
-              >
-                <div className="inline-flex items-center gap-1.5">
-                  <span>국세청 승인번호</span>
-                  <span className="shrink-0">
-                    {sortKey === "ntsConfirmNo" ? (
-                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 opacity-30" />
-                    )}
-                  </span>
-                </div>
-              </th>
-
-              <th
-                onClick={() => handleSort("status")}
-                className="py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-center"
-                title="전송상태 기준 정렬"
-              >
-                <div className="inline-flex items-center justify-center w-full gap-1.5">
-                  <span>전송상태</span>
-                  <span className="shrink-0">
-                    {sortKey === "status" ? (
-                      sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 opacity-30" />
-                    )}
-                  </span>
-                </div>
-              </th>
-
-              <th className="py-2.5 px-3 text-center">팝빌 연동 조치</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-400/20">
-            {sortedInvoices.length === 0 ? (
-              <tr>
-                <td colSpan={12} className="py-12 text-center opacity-60">
-                  {loading ? "세금계산서 대장을 불러오는 중입니다..." : "발행된 세금계산서 데이터가 없습니다."}
-                </td>
-              </tr>
-            ) : (
-              sortedInvoices.map((inv) => {
-                const isCorp = (inv.supplierEntityType || "CORP") === "CORP";
-                return (
-                  <tr key={inv.id} className="hover:bg-slate-500/5 transition">
-                    {/* 공급자 사업자 배지 */}
-                    <td className="py-2 px-3">
-                      {isCorp ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300">
-                          <Building2 className="w-3 h-3" />
-                          (주)드래곤알피에이 [법인]
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                          <UserCheck className="w-3 h-3" />
-                          드래곤알피에이 [개인]
-                        </span>
-                      )}
-                    </td>
-
-                    <td className="py-2 px-3 font-mono font-bold text-blue-600">
-                      {inv.invoiceNo}
-                    </td>
-                    <td className="py-2 px-3 font-mono opacity-80">
-                      {inv.issueDate}
-                    </td>
-                    <td className="py-2 px-3">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold border">
-                        {inv.domainType === "TRADE_SALE" ? "판매" :
-                         inv.domainType === "RENTAL" ? "임대" :
-                         inv.domainType === "OP_SERVICE" ? "운영용역" : "개발용역"}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 font-bold">
-                      <div className="flex flex-col">
-                        <span>{inv.customerName}</span>
-                        <span className="text-[10px] font-mono opacity-60 font-normal">
-                          {inv.businessNo || "100-00-00000"}
-                        </span>
+            <div className="flex-1 overflow-auto">
+              <table className="w-full text-xs border-collapse">
+                <thead className="sticky top-0 bg-[#ded6c5] border-b border-[#b5a894] text-[#44403c] font-bold z-10">
+                  <tr>
+                    <th className="p-2 w-10 text-center border-r border-[#b5a894]">
+                      <button
+                        onClick={toggleSelectAll}
+                        className="flex items-center justify-center p-0.5 rounded hover:bg-[#cecaa8]"
+                        title={selectedBillingIds.size === filteredUnissued.length ? "전체 해제" : "전체 선택"}
+                      >
+                        {selectedBillingIds.size > 0 && selectedBillingIds.size === filteredUnissued.length ? (
+                          <CheckSquare className="w-4 h-4 text-blue-700" />
+                        ) : (
+                          <Square className="w-4 h-4 text-[#78716c]" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="p-2 text-left w-20 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleUnissuedSort("domainType")}>
+                        <span>매출분과</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
                       </div>
-                    </td>
-                    <td className="py-2 px-3">{inv.itemName}</td>
-                    <td className="py-2 px-3 text-right font-mono opacity-80">
-                      {formatErpCurrency(inv.supplyAmount)}
-                    </td>
-                    <td className="py-2 px-3 text-right font-mono opacity-60">
-                      {formatErpCurrency(inv.vatAmount)}
-                    </td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
-                      {formatErpCurrency(inv.totalAmount)}
-                    </td>
-                    <td className="py-2 px-3 font-mono text-[11px] opacity-70">
-                      {inv.ntsConfirmNo}
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold">
-                        국세청전송완료
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => handleOpenPopbillView(inv)}
-                          className="px-2 py-0.5 rounded text-[10px] font-semibold border hover:bg-slate-500/10 flex items-center gap-1 transition"
-                          title="팝빌 공식 전자세금계산서 양식 팝업 열기"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                          <span>국세청 서식</span>
-                        </button>
-                        <button
-                          onClick={() => handleOpenPopbillPrint(inv)}
-                          className="px-2 py-0.5 rounded text-[10px] font-semibold border hover:bg-slate-500/10 flex items-center gap-1 transition"
-                          title="즉시 인쇄"
-                        >
-                          <Printer className="w-3 h-3" />
-                          <span>인쇄</span>
-                        </button>
-                        <button
-                          onClick={() => handlePopbillIssue(inv)}
-                          className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex items-center gap-1 transition shadow-sm"
-                          title="팝빌 API 국세청 전자발행 전송"
-                        >
-                          <Send className="w-3 h-3 text-white" />
-                          <span className="text-white">전자발행</span>
-                        </button>
+                    </th>
+                    <th className="p-2 text-left w-28 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleUnissuedSort("billingNo")}>
+                        <span>청구번호</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
                       </div>
-                    </td>
+                    </th>
+                    <th className="p-2 text-left w-24 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleUnissuedSort("billingDate")}>
+                        <span>청구일자</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-left border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleUnissuedSort("customerName")}>
+                        <span>공급받는자 (거래처)</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-left border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleUnissuedSort("itemName")}>
+                        <span>품목명 / 프로젝트</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-right w-28 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleUnissuedSort("supplyAmount")}>
+                        <span>공급가액</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-right w-24 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleUnissuedSort("vatAmount")}>
+                        <span>세액 (VAT)</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-right w-28 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleUnissuedSort("totalAmount")}>
+                        <span>합계금액</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-center w-28 border-r border-[#b5a894] whitespace-nowrap">
+                      <span>발행사업자</span>
+                    </th>
+                    <th className="p-2 text-center w-24 whitespace-nowrap">
+                      <span>단건발행</span>
+                    </th>
                   </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                </thead>
+                <tbody className="divide-y divide-[#b5a894]">
+                  {sortedUnissued.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="p-8 text-center text-[#78716c]">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <CheckCircle2 className="w-8 h-8 text-[#a8a29e]" />
+                          <span className="font-semibold text-sm">발행 대기 중인 계약 청구 내역이 없습니다.</span>
+                          <span className="text-xs text-[#78716c]">
+                            임대 계약/청구 및 용역 관리 메뉴에서 청구를 생성하면 자동으로 이곳에 반영됩니다.
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedUnissued.map((b) => {
+                      const isSelected = selectedBillingIds.has(b.billingId);
+                      const isRental = b.domainType === "RENTAL";
+                      return (
+                        <tr 
+                          key={`${b.domainType}-${b.billingId}`}
+                          className={`hover:bg-[#dfd7c7] transition ${
+                            isSelected ? "bg-blue-50/50" : ""
+                          }`}
+                        >
+                          <td className="p-2 text-center border-r border-[#b5a894]">
+                            <button
+                              onClick={() => toggleSelectBilling(b.billingId)}
+                              className="p-0.5 rounded hover:bg-[#cecaa8]"
+                            >
+                              {isSelected ? (
+                                <CheckSquare className="w-4 h-4 text-blue-700" />
+                              ) : (
+                                <Square className="w-4 h-4 text-[#78716c]" />
+                              )}
+                            </button>
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                              isRental 
+                                ? "bg-blue-100 text-blue-800" 
+                                : b.domainType === "DEV_SERVICE" 
+                                ? "bg-purple-100 text-purple-800" 
+                                : "bg-teal-100 text-teal-800"
+                            }`}>
+                              {isRental ? "장비임대" : b.domainType === "DEV_SERVICE" ? "개발용역" : "운영용역"}
+                            </span>
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] font-mono text-[11px] whitespace-nowrap text-[#44403c]">
+                            {b.billingNo}
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] font-mono text-[11px] whitespace-nowrap text-[#44403c]">
+                            {b.billingDate ? String(b.billingDate).slice(0, 10) : b.yearMonth}
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-[#1c1917]">{b.customerName}</span>
+                              <span className="text-[10px] text-[#78716c] font-mono">
+                                {b.businessNo || "100-00-00000"} | {b.ceoName || "대표자"}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-[#1c1917]">{b.itemName}</span>
+                              <span className="text-[10px] text-[#78716c]">
+                                {b.contractNo} {b.siteName ? `| 현장: ${b.siteName}` : ""}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="p-2 text-right border-r border-[#b5a894] font-mono font-bold whitespace-nowrap text-[#1c1917]">
+                            {formatErpCurrency(b.supplyAmount)}
+                          </td>
+                          <td className="p-2 text-right border-r border-[#b5a894] font-mono text-[#78716c] whitespace-nowrap">
+                            {formatErpCurrency(b.vatAmount)}
+                          </td>
+                          <td className="p-2 text-right border-r border-[#b5a894] font-mono font-bold text-blue-900 whitespace-nowrap">
+                            {formatErpCurrency(b.totalAmount)}
+                          </td>
+                          <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              b.entityType === "INDIVIDUAL" 
+                                ? "bg-amber-100 text-amber-800" 
+                                : "bg-indigo-100 text-indigo-800"
+                            }`}>
+                              {b.entityType === "INDIVIDUAL" ? "개인사업자" : "(주)법인"}
+                            </span>
+                          </td>
+                          <td className="p-2 text-center whitespace-nowrap">
+                            <button
+                              onClick={() => handleSingleIssueFromBilling(b)}
+                              className="px-2 py-1 rounded text-[11px] font-bold bg-blue-700 hover:bg-blue-800 text-white shadow-sm"
+                            >
+                              즉시 발행
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* SUB-TAB 2: ISSUED TAX INVOICES (세금계산서 발행 대장)          */}
+        {/* ============================================================== */}
+        {activeSubTab === "ISSUED" && (
+          <div className="border border-[#b5a894] rounded bg-[#ebe5d8] overflow-hidden flex flex-col h-full shadow-sm">
+            <div className="p-2 border-b border-[#b5a894] bg-[#dfd7c7] flex items-center justify-between text-xs font-bold text-[#57534e]">
+              <div className="flex items-center gap-2">
+                <span>국세청 세금계산서 발행 대장</span>
+                <span className="text-[11px] font-normal text-[#78716c]">
+                  (팝빌 API 실시간 연동 및 국세청 승인번호 완결)
+                </span>
+              </div>
+              <div className="text-[11px] text-[#78716c]">
+                총 {sortedInvoices.length}건 발행 완료
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-auto">
+              <table className="w-full text-xs border-collapse">
+                <thead className="sticky top-0 bg-[#ded6c5] border-b border-[#b5a894] text-[#44403c] font-bold z-10">
+                  <tr>
+                    <th className="p-2 text-center w-24 border-r border-[#b5a894] whitespace-nowrap">
+                      <span>발행 사업자</span>
+                    </th>
+                    <th className="p-2 text-left w-32 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleSort("invoiceNo")}>
+                        <span>계산서번호</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-left w-24 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleSort("issueDate")}>
+                        <span>발행일자</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-left w-20 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleSort("domainType")}>
+                        <span>매출 분과</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-left border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleSort("customerName")}>
+                        <span>공급받는자 (거래처)</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-left border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleSort("itemName")}>
+                        <span>품목명</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-right w-28 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleSort("supplyAmount")}>
+                        <span>공급가액</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-right w-24 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleSort("vatAmount")}>
+                        <span>세액 (VAT)</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-right w-28 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleSort("totalAmount")}>
+                        <span>합계금액</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-left w-40 border-r border-[#b5a894] whitespace-nowrap">
+                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleSort("ntsConfirmNo")}>
+                        <span>국세청 승인번호</span>
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      </div>
+                    </th>
+                    <th className="p-2 text-center w-24 border-r border-[#b5a894] whitespace-nowrap">
+                      <span>전송상태</span>
+                    </th>
+                    <th className="p-2 text-center w-36 whitespace-nowrap">
+                      <span>팝빌 연동 조치</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#b5a894]">
+                  {sortedInvoices.length === 0 ? (
+                    <tr>
+                      <td colSpan={12} className="p-8 text-center text-[#78716c]">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <FileText className="w-8 h-8 text-[#a8a29e]" />
+                          <span className="font-semibold text-sm">발행된 세금계산서 내역이 없습니다.</span>
+                          <span className="text-xs text-[#78716c]">
+                            상단의 [발행 대기 청구 목록]에서 청구건을 선택하여 일괄 발행해 주십시오.
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedInvoices.map((inv) => {
+                      const isCorp = (inv.supplierEntityType || "CORP") === "CORP";
+                      return (
+                        <tr key={inv.id} className="hover:bg-[#dfd7c7] transition">
+                          <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              isCorp 
+                                ? "bg-indigo-100 text-indigo-800" 
+                                : "bg-amber-100 text-amber-800"
+                            }`}>
+                              {isCorp ? "드래곤알피에이 [법인]" : "드래곤알피에이 [개인]"}
+                            </span>
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] font-mono font-bold text-[11px] whitespace-nowrap text-[#1c1917]">
+                            {inv.invoiceNo}
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] font-mono text-[11px] whitespace-nowrap text-[#44403c]">
+                            {inv.issueDate ? String(inv.issueDate).slice(0, 10) : "-"}
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#dfd7c7] text-[#44403c]">
+                              {inv.domainType === "RENTAL" ? "장비임대" : inv.domainType === "DEV_SERVICE" ? "개발용역" : inv.domainType === "OP_SERVICE" ? "운영용역" : "판매"}
+                            </span>
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-[#1c1917]">{inv.customerName}</span>
+                              <span className="text-[10px] text-[#78716c] font-mono">
+                                {inv.businessNo || "-"}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap font-medium text-[#1c1917]">
+                            {inv.itemName}
+                          </td>
+                          <td className="p-2 text-right border-r border-[#b5a894] font-mono font-bold whitespace-nowrap text-[#1c1917]">
+                            {formatErpCurrency(inv.supplyAmount)}
+                          </td>
+                          <td className="p-2 text-right border-r border-[#b5a894] font-mono text-[#78716c] whitespace-nowrap">
+                            {formatErpCurrency(inv.vatAmount)}
+                          </td>
+                          <td className="p-2 text-right border-r border-[#b5a894] font-mono font-bold text-emerald-900 whitespace-nowrap">
+                            {formatErpCurrency(inv.totalAmount)}
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] font-mono text-[11px] whitespace-nowrap text-[#44403c]">
+                            {inv.ntsConfirmNo ? (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px]">
+                                {inv.ntsConfirmNo}
+                              </span>
+                            ) : (
+                              <span className="text-[#a8a29e]">-</span>
+                            )}
+                          </td>
+                          <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                              국세청전송완료
+                            </span>
+                          </td>
+                          <td className="p-2 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                onClick={() => handleOpenPopbillView(inv)}
+                                className="px-1.5 py-1 rounded text-[10px] font-semibold border border-[#b5a894] bg-[#f4efe4] hover:bg-[#e2dbcd]"
+                                title="국세청 서식 뷰어"
+                              >
+                                서식
+                              </button>
+                              <button
+                                onClick={() => handleOpenPopbillPrint(inv)}
+                                className="px-1.5 py-1 rounded text-[10px] font-semibold border border-[#b5a894] bg-[#f4efe4] hover:bg-[#e2dbcd]"
+                                title="인쇄 및 PDF"
+                              >
+                                인쇄
+                              </button>
+                              <button
+                                onClick={() => handleSyncStatus(inv)}
+                                className="px-1.5 py-1 rounded text-[10px] font-semibold border border-[#b5a894] bg-[#f4efe4] hover:bg-[#e2dbcd]"
+                                title="상태 동기화"
+                              >
+                                동기화
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* 4. Gutenberg Z-Pattern Terminal Summary: 대차대조 무결성 종결 푸터 */}
-      <div className="border-t px-4 py-2.5 flex flex-wrap items-center justify-between text-xs bg-card shrink-0 gap-2">
-        <div className="flex items-center gap-4 flex-wrap">
-          <span>
-            선택 대장: <strong>{formatErpNumber(filteredInvoices.length)}건</strong>
-          </span>
-          <span>
-            공급가액 소계: <strong className="text-blue-700">{formatErpCurrency(filteredInvoices.reduce((s, i) => s + Number(i.supplyAmount || 0), 0))}</strong>
-          </span>
-          <span>
-            부가세: <strong className="opacity-75">{formatErpCurrency(filteredInvoices.reduce((s, i) => s + Number(i.vatAmount || 0), 0))}</strong>
-          </span>
-          <span>
-            합계총액: <strong className="text-emerald-700 text-sm">{formatErpCurrency(filteredInvoices.reduce((s, i) => s + Number(i.totalAmount || 0), 0))}</strong>
-          </span>
-        </div>
-        <div className="flex items-center gap-3 text-[11px] opacity-75 font-mono">
-          <span>법인(806-88-03266): {formatErpCurrency(kpiStats.corpGross)}</span>
-          <span>|</span>
-          <span>개인(295-03-02683): {formatErpCurrency(kpiStats.indivGross)}</span>
-          <span>|</span>
-          <span className="font-bold text-emerald-700">대차차액 {formatErpCurrency(kpiStats.balanceDiff)}</span>
-        </div>
-      </div>
-
-      {/* 직접 발행 모달 (Direct Issue Modal) */}
+      {/* Manual Issue Modal */}
       {showIssueModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-card border w-full max-w-lg rounded shadow-2xl p-5 text-main">
-            <div className="flex items-center justify-between pb-3 border-b">
-              <h3 className="font-bold text-sm flex items-center gap-2">
-                <FileText className="w-4 h-4 text-blue-600" />
-                <span>전자세금계산서 직접 발행</span>
-              </h3>
-              <button 
-                onClick={() => setShowIssueModal(false)}
-                className="p-1 rounded hover:bg-slate-500/10"
-              >
-                <X className="w-4 h-4" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-[#f4efe4] border-2 border-[#b5a894] rounded-lg max-w-lg w-full p-5 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894] mb-4">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-blue-700" />
+                <h3 className="font-bold text-sm text-[#1c1917]">수동 직접 세금계산서 발행</h3>
+              </div>
+              <button onClick={() => setShowIssueModal(false)} className="text-[#78716c] hover:text-[#1c1917]">
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleManualIssue} className="mt-4 flex flex-col gap-3 text-xs">
-              {/* 1. 발행 사업자 (공급자) 선택 SSOT */}
-              <div className="flex flex-col gap-1.5 p-3 rounded border bg-slate-500/5">
-                <label className="font-bold text-[11px] text-blue-700 flex items-center gap-1">
-                  <Building2 className="w-3.5 h-3.5" />
-                  발행 사업자 (공급자 선택)
-                </label>
+            <form onSubmit={handleManualIssue} className="flex flex-col gap-3 text-xs">
+              <div className="flex flex-col gap-1">
+                <label className="font-bold text-[#78716c]">발행 사업자 주체</label>
                 <div className="grid grid-cols-2 gap-2">
-                  <label className={`flex items-start gap-2 p-2 rounded border cursor-pointer transition ${
-                    modalSupplierEntity === "CORP" ? "border-blue-600 bg-blue-50/50" : "hover:bg-slate-500/5"
-                  }`}>
-                    <input
-                      type="radio"
-                      name="modalSupplierEntity"
-                      value="CORP"
-                      checked={modalSupplierEntity === "CORP"}
-                      onChange={() => setModalSupplierEntity("CORP")}
-                      className="mt-0.5"
-                    />
-                    <div className="flex flex-col">
-                      <span className="font-bold text-blue-900">(주)드래곤알피에이 [법인]</span>
-                      <span className="font-mono text-[10px] opacity-75">806-88-03266</span>
-                      <span className="text-[10px] opacity-60">기업은행 478-081383</span>
-                    </div>
-                  </label>
-
-                  <label className={`flex items-start gap-2 p-2 rounded border cursor-pointer transition ${
-                    modalSupplierEntity === "INDIVIDUAL" ? "border-amber-600 bg-amber-50/50" : "hover:bg-slate-500/5"
-                  }`}>
-                    <input
-                      type="radio"
-                      name="modalSupplierEntity"
-                      value="INDIVIDUAL"
-                      checked={modalSupplierEntity === "INDIVIDUAL"}
-                      onChange={() => setModalSupplierEntity("INDIVIDUAL")}
-                      className="mt-0.5"
-                    />
-                    <div className="flex flex-col">
-                      <span className="font-bold text-amber-900">드래곤알피에이 [개인]</span>
-                      <span className="font-mono text-[10px] opacity-75">295-03-02683</span>
-                      <span className="text-[10px] opacity-60">기업은행 140-129404</span>
-                    </div>
-                  </label>
-                </div>
-
-                {/* 공급자 상세 정보 확인 박스 */}
-                <div className="text-[10px] opacity-75 p-2 rounded bg-slate-500/10 flex flex-col gap-0.5 font-mono">
-                  <div>대표자: {activeSupplier.ceoName} | 이메일: {activeSupplier.email}</div>
-                  <div>소재지: {activeSupplier.address}</div>
-                  <div>업태: {activeSupplier.bizType} / 종목: {activeSupplier.bizClass}</div>
+                  <button
+                    type="button"
+                    onClick={() => setModalSupplierEntity("CORP")}
+                    className={`p-2 rounded border text-left font-bold transition ${
+                      modalSupplierEntity === "CORP"
+                        ? "border-blue-600 bg-blue-50 text-blue-900 ring-1 ring-blue-500"
+                        : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
+                    }`}
+                  >
+                    <div>(주)드래곤알피에이 [법인]</div>
+                    <div className="text-[10px] font-normal font-mono opacity-80">806-88-03266</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalSupplierEntity("INDIVIDUAL")}
+                    className={`p-2 rounded border text-left font-bold transition ${
+                      modalSupplierEntity === "INDIVIDUAL"
+                        ? "border-amber-600 bg-amber-50 text-amber-900 ring-1 ring-amber-500"
+                        : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
+                    }`}
+                  >
+                    <div>드래곤알피에이 [개인]</div>
+                    <div className="text-[10px] font-normal font-mono opacity-80">295-03-02683</div>
+                  </button>
                 </div>
               </div>
 
-              {/* 2. 매출 분과 선택 */}
-              <div className="flex flex-col gap-1">
-                <label className="font-semibold text-slate-700">매출 분과</label>
-                <select
-                  value={domainType}
-                  onChange={(e) => setDomainType(e.target.value)}
-                  className="h-8 px-2 border rounded bg-card text-main"
-                >
-                  <option value="TRADE_SALE">판매 (유통 커머스)</option>
-                  <option value="RENTAL">임대 (장비 렌탈)</option>
-                  <option value="OP_SERVICE">운영용역 (정기유지보수)</option>
-                  <option value="DEV_SERVICE">개발용역 (SI 프로젝트)</option>
-                </select>
-              </div>
-
-              {/* 3. 공급받는자 (거래처) 정보 */}
-              <div className="flex flex-col gap-1">
-                <label className="font-semibold text-slate-700">공급받는자 (거래처 상호명) *</label>
-                <input
-                  type="text"
-                  value={custName}
-                  onChange={(e) => setCustName(e.target.value)}
-                  placeholder="예: 현대건설(주)"
-                  className="h-8 px-2.5 border rounded bg-card text-main"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="font-semibold text-slate-700">사업자등록번호</label>
-                  <input
-                    type="text"
-                    value={bizNo}
-                    onChange={(e) => setBizNo(e.target.value)}
-                    placeholder="000-00-00000"
-                    className="h-8 px-2.5 border rounded bg-card text-main font-mono"
-                  />
+                  <label className="font-bold text-[#78716c]">매출 분과</label>
+                  <select
+                    value={domainType}
+                    onChange={(e) => setDomainType(e.target.value)}
+                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
+                  >
+                    <option value="TRADE_SALE">판매 (유통 커머스)</option>
+                    <option value="RENTAL">임대 (장비 렌탈)</option>
+                    <option value="OP_SERVICE">운영용역 (유지보수)</option>
+                    <option value="DEV_SERVICE">개발용역 (SI 구축)</option>
+                  </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="font-semibold text-slate-700">대표자명</label>
-                  <input
-                    type="text"
-                    value={ceoName}
-                    onChange={(e) => setCeoName(e.target.value)}
-                    className="h-8 px-2.5 border rounded bg-card text-main"
-                  />
-                </div>
-              </div>
-
-              {/* 4. 품목명 & 금액 */}
-              <div className="flex flex-col gap-1">
-                <label className="font-semibold text-slate-700">품목명 *</label>
-                <input
-                  type="text"
-                  value={itemName}
-                  onChange={(e) => setItemName(e.target.value)}
-                  placeholder="예: 소프트웨어 공급 및 컨설팅 용역"
-                  className="h-8 px-2.5 border rounded bg-card text-main"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold text-slate-700">공급가액 (원) *</label>
-                  <input
-                    type="number"
-                    value={supplyAmt}
-                    onChange={(e) => setSupplyAmt(e.target.value)}
-                    className="h-8 px-2.5 border rounded bg-card text-main font-mono font-bold"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold text-slate-700">발행일자</label>
+                  <label className="font-bold text-[#78716c]">발행일자</label>
                   <input
                     type="date"
                     value={issueDate}
                     onChange={(e) => setIssueDate(e.target.value)}
-                    className="h-8 px-2 border rounded bg-card text-main font-mono"
+                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
                   />
                 </div>
               </div>
 
-              {/* 합계금액 프리뷰 */}
-              <div className="p-2.5 rounded bg-blue-50/50 border border-blue-200 flex items-center justify-between text-xs">
-                <div className="flex flex-col">
-                  <span className="text-[11px] opacity-75">공급가: {formatErpCurrency(supplyAmt)} | 부가세: {formatErpCurrency(Math.round(Number(supplyAmt || 0) * 0.1))}</span>
-                  <span className="font-bold text-blue-900">
-                    합계금액: {formatErpCurrency(Math.round(Number(supplyAmt || 0) * 1.1))}
-                  </span>
+              <div className="flex flex-col gap-1">
+                <label className="font-bold text-[#78716c]">공급받는자 상호 (거래처명) *</label>
+                <input
+                  type="text"
+                  value={custName}
+                  onChange={(e) => setCustName(e.target.value)}
+                  placeholder="예: (주)테스트파트너스"
+                  required
+                  className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="font-bold text-[#78716c]">사업자등록번호</label>
+                  <input
+                    type="text"
+                    value={bizNo}
+                    onChange={(e) => setBizNo(e.target.value)}
+                    placeholder="100-00-00000"
+                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
+                  />
                 </div>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-blue-600 text-white font-bold">
-                  VAT 10% 자동계산
-                </span>
+                <div className="flex flex-col gap-1">
+                  <label className="font-bold text-[#78716c]">대표자 성명</label>
+                  <input
+                    type="text"
+                    value={ceoName}
+                    onChange={(e) => setCeoName(e.target.value)}
+                    placeholder="대표자"
+                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
+                  />
+                </div>
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="font-semibold text-slate-700">비고 / 입금계좌 안내 메모</label>
+                <label className="font-bold text-[#78716c]">품목명 *</label>
+                <input
+                  type="text"
+                  value={itemName}
+                  onChange={(e) => setItemName(e.target.value)}
+                  placeholder="예: 2026-10 렌탈료 1식"
+                  required
+                  className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="font-bold text-[#78716c]">공급가액 *</label>
+                  <input
+                    type="number"
+                    value={supplyAmt}
+                    onChange={(e) => setSupplyAmt(e.target.value)}
+                    required
+                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="font-bold text-[#78716c]">세액 (10%)</label>
+                  <div className="h-8 px-2 rounded border border-[#b5a894] bg-[#ded6c5] flex items-center justify-end font-mono text-[#78716c]">
+                    {formatErpCurrency(Math.round(parseFloat(supplyAmt || "0") * 0.1))}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="font-bold text-[#78716c]">합계금액</label>
+                  <div className="h-8 px-2 rounded border border-[#b5a894] bg-[#ded6c5] flex items-center justify-end font-mono font-bold text-blue-900">
+                    {formatErpCurrency(Math.round(parseFloat(supplyAmt || "0") * 1.1))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="font-bold text-[#78716c]">비고 / 메모</label>
                 <input
                   type="text"
                   value={memo}
                   onChange={(e) => setMemo(e.target.value)}
-                  placeholder={`입금: ${activeSupplier.bankName} ${activeSupplier.bankAccountNo} (${activeSupplier.bankHolder})`}
-                  className="h-8 px-2.5 border rounded bg-card text-main"
+                  placeholder="특이사항 메모"
+                  className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 mt-2 pt-3 border-t">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#b5a894] mt-2">
                 <button
                   type="button"
                   onClick={() => setShowIssueModal(false)}
-                  className="px-3 py-1.5 border rounded hover:bg-slate-500/10 text-xs font-semibold"
+                  className="h-8 px-3 rounded font-bold border border-[#b5a894] bg-[#ebe5d8] hover:bg-[#e2dbcd]"
                 >
                   취소
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 font-bold text-white rounded text-xs shadow-sm transition"
+                  className="h-8 px-4 rounded font-bold text-white bg-blue-700 hover:bg-blue-800 shadow-sm"
                 >
-                  국세청 전자발행 확정
+                  국세청 전자세금계산서 발행
                 </button>
               </div>
             </form>

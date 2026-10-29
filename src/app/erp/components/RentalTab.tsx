@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Truck, Plus, Calendar, RefreshCw, FileText, CheckCircle2, 
   RotateCcw, DollarSign, Layers, Search, Wrench, ShieldCheck, X,
-  ArrowUpDown, ArrowUp, ArrowDown
+  ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Download
 } from "lucide-react";
 import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
@@ -23,6 +23,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [assets, setAssets] = useState<any[]>([]);
   const [contracts, setContracts] = useState<any[]>([]);
   const [billings, setBillings] = useState<any[]>([]);
+  const [partners, setPartners] = useState<any[]>([]);
 
   // Filter
   const [selectedYm, setSelectedYm] = useState(new Date().toISOString().slice(0, 7));
@@ -33,6 +34,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [showDeprecModal, setShowDeprecModal] = useState(false);
   const [showAddContractModal, setShowAddContractModal] = useState(false);
   const [showAddBillingModal, setShowAddBillingModal] = useState(false);
+  const [activeDocViewer, setActiveDocViewer] = useState<{ title: string; customerName: string; url: string; fileName: string } | null>(null);
+  const contractFileCacheRef = useRef<Record<number, { url: string; fileName: string }>>({});
 
   // Contract Form
   const [ctEntityType, setCtEntityType] = useState<"CORP" | "INDIVIDUAL">(
@@ -62,7 +65,10 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [usefulLife, setUsefulLife] = useState("5");
 
   // Contract Form
+  const [ctPartnerId, setCtPartnerId] = useState<number | null>(null);
   const [ctCustomer, setCtCustomer] = useState("");
+  const [ctCustomerSearch, setCtCustomerSearch] = useState("");
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [ctSite, setCtSite] = useState("");
   const [ctAssetId, setCtAssetId] = useState("");
   const [ctStart, setCtStart] = useState(new Date().toISOString().split("T")[0]);
@@ -71,6 +77,10 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   );
   const [ctMonthlyRate, setCtMonthlyRate] = useState("600000");
   const [ctDeposit, setCtDeposit] = useState("0");
+  const [ctFileUrl, setCtFileUrl] = useState("");
+  const [ctFileName, setCtFileName] = useState("");
+  const [isCtFileDragging, setIsCtFileDragging] = useState(false);
+  const ctFileInputRef = useRef<HTMLInputElement>(null);
 
   // Billing Form
   const [blContractId, setBlContractId] = useState("");
@@ -126,6 +136,88 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const sortedContracts = useMemo(() => sortErpItems(contracts, sortKey, sortDir), [contracts, sortKey, sortDir]);
   const sortedBillings = useMemo(() => sortErpItems(billings, sortKey, sortDir), [billings, sortKey, sortDir]);
   const sortedModels = useMemo(() => sortErpItems(models, sortKey, sortDir), [models, sortKey, sortDir]);
+
+  const filteredPartners = useMemo(() => {
+    const q = ctCustomerSearch.trim().toLowerCase();
+    if (!q) return partners;
+    return partners.filter((p) => {
+      const hay = [p.name, p.businessNo, p.ceoName, p.partnerCode]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [partners, ctCustomerSearch]);
+
+  const fetchPartners = async () => {
+    try {
+      const res = await fetch("/api/erp/partners?type=CUSTOMER");
+      const data = await res.json();
+      if (data.success && Array.isArray(data.partners)) {
+        setPartners(data.partners);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    fetchPartners();
+  }, []);
+
+  const handleSelectCustomerPartner = (p: any) => {
+    setCtPartnerId(p.id);
+    setCtCustomer(p.name);
+    setCtCustomerSearch(p.name);
+    setShowCustomerDropdown(false);
+  };
+
+  const handleContractFileUpload = (file: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = (e.target?.result as string) || "";
+      setCtFileUrl(dataUrl);
+      setCtFileName(file.name);
+      showToast(`임대계약서 파일(${file.name})이 첨부되었습니다.`);
+    };
+    reader.onerror = () => showToast("계약서 파일 읽기 실패", "error");
+    reader.readAsDataURL(file);
+  };
+
+  const handleOpenContractFile = async (c: any) => {
+    const cached = contractFileCacheRef.current[c.id];
+    if (cached) {
+      setActiveDocViewer({
+        title: `${c.contractNo} 임대계약서 원본`,
+        customerName: c.customerName,
+        url: cached.url,
+        fileName: cached.fileName,
+      });
+      return;
+    }
+    try {
+      const res = await fetch(`/api/erp/rental/contracts?id=${c.id}`);
+      const data = await res.json();
+      if (data.success && data.contract?.contractFileUrl) {
+        const entry = {
+          url: data.contract.contractFileUrl,
+          fileName: data.contract.contractFileName || `${c.contractNo}_임대계약서`,
+        };
+        contractFileCacheRef.current[c.id] = entry;
+        setActiveDocViewer({
+          title: `${c.contractNo} 임대계약서 원본`,
+          customerName: c.customerName,
+          url: entry.url,
+          fileName: entry.fileName,
+        });
+      } else {
+        showToast("등록된 임대계약서 파일을 찾을 수 없습니다.", "error");
+      }
+    } catch (e) {
+      showToast("임대계약서 파일 조회 실패", "error");
+    }
+  };
 
   // Fetch All Rental Data
   const fetchData = async () => {
@@ -267,6 +359,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           entityType: ctEntityType,
+          partnerId: ctPartnerId,
           customerName: ctCustomer,
           siteName: ctSite,
           assetId: ctAssetId,
@@ -274,6 +367,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           endDate: ctEnd,
           monthlyRate: ctMonthlyRate,
           deposit: ctDeposit,
+          contractFileUrl: ctFileUrl || null,
+          contractFileName: ctFileName || null,
         }),
       });
       const data = await res.json();
@@ -281,7 +376,12 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
       showToast(`임대계약 등록 완료 (자산 상태: '대여중 RENTED' 전환)`);
       setShowAddContractModal(false);
+      setCtPartnerId(null);
       setCtCustomer("");
+      setCtCustomerSearch("");
+      setCtSite("");
+      setCtFileUrl("");
+      setCtFileName("");
       fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -568,6 +668,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 {renderSortTh("기종 모델", "modelName")}
                 {renderSortTh("계약기간", "startDate")}
                 {renderSortTh("월임대료", "monthlyRate", "right")}
+                <th className="py-2.5 px-3 text-center">계약서</th>
                 {renderSortTh("계약상태", "status", "center")}
                 <th className="py-2.5 px-3 text-center">반납 조치</th>
               </tr>
@@ -575,7 +676,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedContracts.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-8 text-center text-slate-500">
+                  <td colSpan={11} className="py-8 text-center text-slate-500">
                     등록된 임대계약이 없습니다.
                   </td>
                 </tr>
@@ -600,6 +701,20 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     <td className="py-2 px-3 text-slate-200">{c.modelName}</td>
                     <td className="py-2 px-3 font-mono text-slate-300">{c.startDate} ~ {c.endDate}</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(c.monthlyRate)}</td>
+                    <td className="py-2 px-3 text-center">
+                      {c.hasContractFile ? (
+                        <button
+                          onClick={() => handleOpenContractFile(c)}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#dbeafe] text-[#1e40af] border border-[#93c5fd] hover:bg-[#bfdbfe] dark:bg-blue-950/80 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-900 inline-flex items-center gap-1 transition"
+                          title={c.contractFileName || "계약서 열람"}
+                        >
+                          <FileText className="w-2.5 h-2.5" />
+                          <span>열람</span>
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-[#64748b] dark:text-slate-600">-</span>
+                      )}
+                    </td>
                     <td className="py-2 px-3 text-center">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                         c.status === "ACTIVE" ? "bg-amber-950 text-amber-400 border border-amber-800" : "bg-slate-800 text-slate-400"
@@ -955,29 +1070,29 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       {/* Modal: Add Contract */}
       {showAddContractModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                <Truck className="w-4 h-4 text-blue-400" />
+          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-lg rounded shadow-2xl p-5">
+            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894] dark:border-slate-800">
+              <h3 className="font-bold text-sm text-[#0f172a] dark:text-slate-100 flex items-center gap-2">
+                <Truck className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
                 <span>신규 임대계약 체결</span>
               </h3>
-              <button onClick={() => setShowAddContractModal(false)} className="text-slate-400 hover:text-white">
+              <button onClick={() => setShowAddContractModal(false)} className="text-[#475569] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <form onSubmit={handleAddContract} className="mt-4 flex flex-col gap-3 text-xs">
               {/* 귀속 사업자 선택 */}
-              <div className="flex flex-col gap-1 p-2 rounded bg-slate-950 border border-slate-800">
-                <label className="text-slate-400 font-semibold text-[11px]">계약 귀속 사업자 선택</label>
+              <div className="flex flex-col gap-1 p-2 rounded bg-[#ebe5d8] border border-[#b5a894] dark:bg-slate-950 dark:border-slate-800">
+                <label className="text-[#1e293b] dark:text-slate-400 font-semibold text-[11px]">계약 귀속 사업자 선택</label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setCtEntityType("CORP")}
                     className={`p-2 rounded border text-left transition ${
                       ctEntityType === "CORP"
-                        ? "border-blue-500 bg-blue-500/20 text-blue-300 font-bold"
-                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
+                        ? "border-[#1d4ed8] bg-[#dbeafe] text-[#1e40af] dark:border-blue-500 dark:bg-blue-500/20 dark:text-blue-300 font-bold"
+                        : "border-[#b5a894] bg-[#f4efe4] text-[#475569] hover:bg-[#e2dbcd] dark:border-slate-800 dark:bg-transparent dark:text-slate-400 dark:hover:bg-slate-800/40"
                     }`}
                   >
                     <div>(주)드래곤알피에이 [법인]</div>
@@ -988,8 +1103,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     onClick={() => setCtEntityType("INDIVIDUAL")}
                     className={`p-2 rounded border text-left transition ${
                       ctEntityType === "INDIVIDUAL"
-                        ? "border-amber-500 bg-amber-500/20 text-amber-300 font-bold"
-                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
+                        ? "border-[#d97706] bg-[#fef3c7] text-[#92400e] dark:border-amber-500 dark:bg-amber-500/20 dark:text-amber-300 font-bold"
+                        : "border-[#b5a894] bg-[#f4efe4] text-[#475569] hover:bg-[#e2dbcd] dark:border-slate-800 dark:bg-transparent dark:text-slate-400 dark:hover:bg-slate-800/40"
                     }`}
                   >
                     <div>드래곤알피에이 [개인]</div>
@@ -998,20 +1113,89 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-slate-400">임차 고객사</label>
-                <input
-                  type="text"
-                  value={ctCustomer}
-                  onChange={(e) => setCtCustomer(e.target.value)}
-                  placeholder="예: (주)포스코건설"
-                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  required
-                />
+              {/* 임차 고객사: 등록된 고객 조회 및 선택 */}
+              <div className="flex flex-col gap-1 relative">
+                <div className="flex items-center justify-between">
+                  <label className="text-[#1e293b] dark:text-slate-400 font-semibold">임차 고객사 (등록 고객 조회) *</label>
+                  {ctPartnerId ? (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#dcfce7] text-[#166534] border border-[#86efac] dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800 flex items-center gap-1">
+                      <CheckCircle2 className="w-2.5 h-2.5" />
+                      거래처 대장 연동됨
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-[#64748b] dark:text-slate-500">고객 검색 후 목록에서 선택</span>
+                  )}
+                </div>
+                <div className="relative flex items-center">
+                  <Search className="w-3.5 h-3.5 text-[#64748b] dark:text-slate-400 absolute left-2.5 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={ctCustomerSearch}
+                    onFocus={() => setShowCustomerDropdown(true)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCtCustomerSearch(val);
+                      setCtCustomer(val);
+                      setCtPartnerId(null);
+                      setShowCustomerDropdown(true);
+                    }}
+                    placeholder="등록된 고객사명, 사업자번호, 대표자명으로 검색..."
+                    className="w-full h-8 pl-8 pr-7 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white focus:border-blue-500 focus:outline-none font-semibold"
+                    required
+                  />
+                  {ctCustomerSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCtCustomerSearch("");
+                        setCtCustomer("");
+                        setCtPartnerId(null);
+                        setShowCustomerDropdown(true);
+                      }}
+                      className="absolute right-2 text-[#64748b] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
+                      title="초기화"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {showCustomerDropdown && (
+                  <div className="absolute top-[56px] left-0 right-0 z-30 max-h-48 overflow-y-auto bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-700 rounded shadow-xl divide-y divide-[#d0c6b4] dark:divide-slate-800">
+                    {filteredPartners.length === 0 ? (
+                      <div className="p-2.5 text-[11px] text-[#64748b] dark:text-slate-400 text-center">
+                        일치하는 등록 고객사가 없습니다. (입력한 이름으로 직접 등록 가능)
+                      </div>
+                    ) : (
+                      filteredPartners.map((p: any) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => handleSelectCustomerPartner(p)}
+                          className="w-full px-3 py-2 text-left hover:bg-[#e2dbcd] dark:hover:bg-slate-800 flex items-center justify-between gap-2 transition"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Building2 className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 shrink-0" />
+                            <span className="font-bold text-[#0f172a] dark:text-slate-100 truncate">{p.name}</span>
+                            {p.ceoName && (
+                              <span className="text-[10px] text-[#475569] dark:text-slate-400 shrink-0">({p.ceoName})</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 font-mono text-[10px] text-[#475569] dark:text-slate-400">
+                            <span>{p.businessNo || "-"}</span>
+                            <span className="px-1.5 py-0.5 rounded bg-[#e2dbcd] dark:bg-slate-800 text-[#1e293b] dark:text-slate-300">
+                              {p.partnerCode}
+                            </span>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-slate-400">현장명</label>
+              <div className="flex flex-col gap-1" onClick={() => setShowCustomerDropdown(false)}>
+                <label className="text-[#1e293b] dark:text-slate-400 font-semibold">현장명</label>
                 <input
                   type="text"
                   value={ctSite}
@@ -1021,8 +1205,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 />
               </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-slate-400">배정 임대 자산 (임대가능 장비만 노출)</label>
+              <div className="flex flex-col gap-1" onClick={() => setShowCustomerDropdown(false)}>
+                <label className="text-[#1e293b] dark:text-slate-400 font-semibold">배정 임대 자산 (임대가능 장비만 노출)</label>
                 <select
                   value={ctAssetId}
                   onChange={(e) => {
@@ -1046,9 +1230,9 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2" onClick={() => setShowCustomerDropdown(false)}>
                 <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">계약 시작일자</label>
+                  <label className="text-[#1e293b] dark:text-slate-400 font-semibold">계약 시작일자</label>
                   <input
                     type="date"
                     value={ctStart}
@@ -1058,7 +1242,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">계약 종료일자</label>
+                  <label className="text-[#1e293b] dark:text-slate-400 font-semibold">계약 종료일자</label>
                   <input
                     type="date"
                     value={ctEnd}
@@ -1069,9 +1253,9 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2" onClick={() => setShowCustomerDropdown(false)}>
                 <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">약정 월임대료 (원)</label>
+                  <label className="text-[#1e293b] dark:text-slate-400 font-semibold">약정 월임대료 (원)</label>
                   <input
                     type="number"
                     value={ctMonthlyRate}
@@ -1081,7 +1265,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">임대 보증금 (원)</label>
+                  <label className="text-[#1e293b] dark:text-slate-400 font-semibold">임대 보증금 (원)</label>
                   <input
                     type="number"
                     value={ctDeposit}
@@ -1091,7 +1275,74 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 mt-2 pt-3 border-t border-slate-800">
+              {/* 계약서 첨부 영역 */}
+              <div className="flex flex-col gap-1" onClick={() => setShowCustomerDropdown(false)}>
+                <label className="text-[#1e293b] dark:text-slate-400 font-semibold">임대계약서 파일 첨부 (선택)</label>
+                <input
+                  ref={ctFileInputRef}
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.hwp"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleContractFileUpload(file);
+                  }}
+                  className="hidden"
+                />
+                {ctFileName ? (
+                  <div className="flex items-center justify-between px-3 py-2 rounded bg-[#dbeafe]/60 border border-[#93c5fd] dark:bg-blue-950/40 dark:border-blue-800/70">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400 shrink-0" />
+                      <span className="font-semibold text-[#1e3a8a] dark:text-blue-200 truncate">{ctFileName}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => ctFileInputRef.current?.click()}
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#0f172a] border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700"
+                      >
+                        변경
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCtFileUrl("");
+                          setCtFileName("");
+                        }}
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-600 dark:text-rose-400 border border-rose-500/30"
+                      >
+                        제거
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsCtFileDragging(true);
+                    }}
+                    onDragLeave={() => setIsCtFileDragging(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsCtFileDragging(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) handleContractFileUpload(file);
+                    }}
+                    onClick={() => ctFileInputRef.current?.click()}
+                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded border border-dashed cursor-pointer transition ${
+                      isCtFileDragging
+                        ? "border-[#1d4ed8] bg-[#dbeafe]/50 dark:border-blue-400 dark:bg-blue-950/40"
+                        : "border-[#b5a894] bg-[#ebe5d8]/70 hover:bg-[#e2dbcd] dark:border-slate-700 dark:bg-slate-800/50 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    <FileUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400" />
+                    <span className="text-[#334155] dark:text-slate-300 font-medium">
+                      클릭하거나 계약서 파일(PDF, 이미지, 문서)을 이곳에 드래그하여 첨부
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 mt-2 pt-3 border-t border-[#b5a894] dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setShowAddContractModal(false)}
@@ -1251,6 +1502,81 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                   마감 실행
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Contract Document Viewer */}
+      {activeDocViewer && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+          onClick={() => setActiveDocViewer(null)}
+        >
+          <div
+            className="bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-700 w-full max-w-4xl h-[85vh] rounded shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#b5a894] dark:border-slate-800 bg-[#ebe5d8] dark:bg-slate-950">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400 shrink-0" />
+                <span className="font-bold text-xs text-[#0f172a] dark:text-slate-100 truncate">
+                  {activeDocViewer.title}
+                </span>
+                <span className="text-[11px] text-[#475569] dark:text-slate-400 font-mono truncate">
+                  ({activeDocViewer.fileName})
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {activeDocViewer.url && (
+                  <a
+                    href={activeDocViewer.url}
+                    download={activeDocViewer.fileName}
+                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold flex items-center gap-1"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>다운로드</span>
+                  </a>
+                )}
+                <button
+                  onClick={() => setActiveDocViewer(null)}
+                  className="p-1 text-[#475569] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-slate-950 flex items-center justify-center overflow-auto p-4">
+              {activeDocViewer.url.startsWith("data:application/pdf") ||
+              activeDocViewer.fileName.toLowerCase().endsWith(".pdf") ? (
+                <iframe
+                  src={activeDocViewer.url}
+                  className="w-full h-full rounded border border-slate-800 bg-white"
+                  title={activeDocViewer.fileName}
+                />
+              ) : activeDocViewer.url.startsWith("data:image/") ? (
+                <img
+                  src={activeDocViewer.url}
+                  alt={activeDocViewer.fileName}
+                  className="max-w-full max-h-full object-contain rounded shadow-lg"
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-3 text-center p-6 bg-slate-900 border border-slate-800 rounded">
+                  <FileText className="w-10 h-10 text-blue-400" />
+                  <div className="text-xs text-slate-200 font-semibold">{activeDocViewer.fileName}</div>
+                  <div className="text-[11px] text-slate-400">
+                    브라우저 내 직접 미리보기를 지원하지 않는 문서 형식입니다. 다운로드하여 확인하십시오.
+                  </div>
+                  <a
+                    href={activeDocViewer.url}
+                    download={activeDocViewer.fileName}
+                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold flex items-center gap-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>계약서 파일 다운로드</span>
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         </div>

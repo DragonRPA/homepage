@@ -321,7 +321,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
 
       showToast("자산이 삭제되었습니다.");
       if (selectedAsset?.id === id) setSelectedAsset(null);
-      fetchData();
+      setAssets((prev) => prev.filter((a) => a.id !== id));
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -376,15 +376,19 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
       if (!res.ok || !data.success) throw new Error(data.error || "자산 취득 등록 실패");
 
       const createdList = Array.isArray(data.assets) ? data.assets : [data.asset];
-      const firstNo = createdList[0]?.asset_no || targetAssetNo;
-      const lastNo = createdList[createdList.length - 1]?.asset_no || firstNo;
+      const firstNo = createdList[0]?.assetNo || createdList[0]?.asset_no || targetAssetNo;
+      const lastNo = createdList[createdList.length - 1]?.assetNo || createdList[createdList.length - 1]?.asset_no || firstNo;
       showToast(
         createdList.length > 1
           ? `자산 ${createdList.length}대([${firstNo} ~ ${lastNo}])가 일괄 취득 등록되었습니다.`
           : `자산 [${firstNo}]이(가) 신규 취득 등록되었습니다.`
       );
       setShowAddModal(false);
-      await fetchData();
+      if (createdList.length > 0 && createdList[0]?.assetNo) {
+        setAssets((prev) => [...prev, ...createdList]);
+      } else {
+        fetchData();
+      }
     } catch (err: any) {
       showToast(err.message, "error");
     }

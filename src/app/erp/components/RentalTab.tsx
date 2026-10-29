@@ -321,7 +321,11 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       setShowAddModelModal(false);
       setModelCode("");
       setModelName("");
-      fetchData();
+      if (data.product) {
+        setModels((prev) => [...prev, data.product]);
+      } else {
+        fetchData();
+      }
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -372,8 +376,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       if (!res.ok || !data.success) throw new Error(data.error || "자산 취득 등록 실패");
 
       const createdList = Array.isArray(data.assets) ? data.assets : [data.asset];
-      const firstNo = createdList[0]?.asset_no || targetAssetNo;
-      const lastNo = createdList[createdList.length - 1]?.asset_no || firstNo;
+      const firstNo = createdList[0]?.assetNo || createdList[0]?.asset_no || targetAssetNo;
+      const lastNo = createdList[createdList.length - 1]?.assetNo || createdList[createdList.length - 1]?.asset_no || firstNo;
       showToast(
         createdList.length > 1
           ? `자산 ${createdList.length}대([${firstNo} ~ ${lastNo}]) 일괄 취득 완료`
@@ -382,7 +386,11 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       setShowAcquireAssetModal(false);
       setAssetNo("");
       setAssetQty("1");
-      fetchData();
+      if (createdList.length > 0 && createdList[0]?.assetNo) {
+        setAssets((prev) => [...prev, ...createdList]);
+      } else {
+        fetchData();
+      }
     } catch (err: any) {
       showToast(err.message, "error");
     }

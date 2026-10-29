@@ -134,30 +134,20 @@ export async function POST(request: Request) {
         }
       }
 
-      // 시리얼번호 다중 구분자(쉼표/줄바꿈) 지원
       const serialList = String(serialNo || "")
         .split(/[\n,]+/)
         .map((s) => s.trim())
         .filter(Boolean);
 
-      const insertQuery = `
-        INSERT INTO erp_rental_assets (
-          asset_no, rental_product_id, serial_no, owner_type, status,
-          acquisition_date, acquisition_cost, salvage_value, useful_life_years,
-          depreciation_method, accumulated_depreciation, book_value, monthly_depreciation,
-          supplier, renter, current_customer, current_site, contract_no, custom_spec, memo
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'STRAIGHT_LINE', $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-        RETURNING *
-      `;
-
-      const createdAssets: any[] = [];
+      const assetNos: string[] = [];
+      const itemSerials: string[] = [];
 
       for (let i = 0; i < batchQty; i++) {
         const currentAssetNo =
           batchQty === 1 && requestedNo && !requestedNo.startsWith(prefix)
             ? requestedNo
             : `${prefix}${String(startSeq + i).padStart(3, "0")}`;
+        assetNos.push(currentAssetNo);
 
         const itemSerial =
           serialList.length > 1
@@ -165,11 +155,80 @@ export async function POST(request: Request) {
             : serialList.length === 1
               ? (batchQty === 1 ? serialList[0] : `${serialList[0]}-${String(i + 1).padStart(2, "0")}`)
               : "";
+        itemSerials.push(itemSerial);
+      }
 
-        const res = await client.query(insertQuery, [
-          currentAssetNo,
+      // 1) 일괄 Bulk INSERT (N회 왕복 대신 단일 UNNEST 쿼리로 처리 + 제품 모델 정보 즉시 JOIN 반환)
+      const bulkInsertRes = await client.query(
+        `WITH inserted AS (
+           INSERT INTO erp_rental_assets (
+             asset_no, rental_product_id, serial_no, owner_type, status,
+             acquisition_date, acquisition_cost, salvage_value, useful_life_years,
+             depreciation_method, accumulated_depreciation, book_value, monthly_depreciation,
+             supplier, renter, current_customer, current_site, contract_no, custom_spec, memo
+           )
+           SELECT
+             u.asset_no,
+             $3::int,
+             u.serial_no,
+             $4,
+             $5,
+             $6,
+             $7::numeric,
+             $8::numeric,
+             $9::int,
+             'STRAIGHT_LINE',
+             $10::numeric,
+             $11::numeric,
+             $12::numeric,
+             $13,
+             $14,
+             $15,
+             $16,
+             $17,
+             $18,
+             $19
+           FROM UNNEST($1::text[], $2::text[]) WITH ORDINALITY AS u(asset_no, serial_no, ord)
+           ORDER BY u.ord
+           RETURNING *
+         )
+         SELECT
+           a.id,
+           a.asset_no as "assetNo",
+           a.asset_no,
+           a.rental_product_id as "rentalProductId",
+           rp.model_code as "modelCode",
+           rp.model_name as "modelName",
+           rp.category,
+           rp.manufacturer,
+           rp.spec as "modelSpec",
+           a.serial_no as "serialNo",
+           a.owner_type as "ownerType",
+           a.status,
+           a.acquisition_date as "acquisitionDate",
+           a.acquisition_cost as "acquisitionCost",
+           a.salvage_value as "salvageValue",
+           a.useful_life_years as "usefulLifeYears",
+           a.depreciation_method as "depreciationMethod",
+           a.accumulated_depreciation as "accumulatedDepreciation",
+           a.book_value as "bookValue",
+           a.monthly_depreciation as "monthlyDepreciation",
+           a.supplier,
+           a.renter,
+           a.current_customer as "currentCustomer",
+           a.current_site as "currentSite",
+           a.contract_no as "contractNo",
+           a.custom_spec as "customSpec",
+           a.memo,
+           a.created_at as "createdAt",
+           a.updated_at as "updatedAt"
+         FROM inserted a
+         JOIN erp_rental_products rp ON a.rental_product_id = rp.id
+         ORDER BY a.asset_no ASC`,
+        [
+          assetNos,
+          itemSerials,
           rentalProductId,
-          itemSerial,
           ownerType || "OWNED",
           initialStatus,
           dateStr,
@@ -186,42 +245,48 @@ export async function POST(request: Request) {
           contractNo || null,
           customSpec || null,
           memo || null,
-        ]);
+        ]
+      );
 
-        const newAsset = res.rows[0];
-        createdAssets.push(newAsset);
+      const createdAssets = bulkInsertRes.rows;
 
-        // 무누락 이력 감사 로그 기록 (ACQUISITION)
-        await client.query(
-          `INSERT INTO erp_asset_inout_logs 
-           (asset_id, asset_no, event_type, event_date, customer_name, site_name, memo)
-           VALUES ($1, $2, 'ACQUISITION', $3, $4, $5, $6)`,
-          [
-            newAsset.id,
-            newAsset.asset_no,
-            dateStr,
-            supplier || renter || "공급처",
-            "본사 장부",
-            `신규 자산 취득 등록 (${batchQty > 1 ? `일괄 ${batchQty}대 중 ${i + 1}번째, ` : ""}취득원가: ${cost.toLocaleString()}원, 잔존가: ${salvage.toLocaleString()}원)`,
-          ]
+      // 2) 일괄 이력 감사 로그 기록 (ACQUISITION + OUTBOUND 단일 쿼리)
+      const logAssetIds: number[] = [];
+      const logAssetNos: string[] = [];
+      const logEventTypes: string[] = [];
+      const logCustomers: string[] = [];
+      const logSites: string[] = [];
+      const logMemos: string[] = [];
+
+      createdAssets.forEach((newAsset: any, i: number) => {
+        logAssetIds.push(Number(newAsset.id));
+        logAssetNos.push(newAsset.assetNo);
+        logEventTypes.push("ACQUISITION");
+        logCustomers.push(supplier || renter || "공급처");
+        logSites.push("본사 장부");
+        logMemos.push(
+          `신규 자산 취득 등록 (${batchQty > 1 ? `일괄 ${batchQty}대 중 ${i + 1}번째, ` : ""}취득원가: ${cost.toLocaleString()}원, 잔존가: ${salvage.toLocaleString()}원)`
         );
 
-        // 대여중 상태로 등록된 경우 출고 로그 추가
         if (initialStatus === "RENTED" && currentCustomer) {
-          await client.query(
-            `INSERT INTO erp_asset_inout_logs 
-             (asset_id, asset_no, event_type, event_date, customer_name, site_name, memo)
-             VALUES ($1, $2, 'OUTBOUND', $3, $4, $5, $6)`,
-            [
-              newAsset.id,
-              newAsset.asset_no,
-              dateStr,
-              currentCustomer,
-              currentSite || "현장",
-              `초기 등록 시 계약(${contractNo || "-"}) 출고 상태 설정`,
-            ]
-          );
+          logAssetIds.push(Number(newAsset.id));
+          logAssetNos.push(newAsset.assetNo);
+          logEventTypes.push("OUTBOUND");
+          logCustomers.push(currentCustomer);
+          logSites.push(currentSite || "현장");
+          logMemos.push(`초기 등록 시 계약(${contractNo || "-"}) 출고 상태 설정`);
         }
+      });
+
+      if (logAssetIds.length > 0) {
+        await client.query(
+          `INSERT INTO erp_asset_inout_logs
+           (asset_id, asset_no, event_type, event_date, customer_name, site_name, memo)
+           SELECT u.asset_id, u.asset_no, u.event_type, $7, u.customer_name, u.site_name, u.memo
+           FROM UNNEST($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[])
+                AS u(asset_id, asset_no, event_type, customer_name, site_name, memo)`,
+          [logAssetIds, logAssetNos, logEventTypes, logCustomers, logSites, logMemos, dateStr]
+        );
       }
 
       await client.query("COMMIT");

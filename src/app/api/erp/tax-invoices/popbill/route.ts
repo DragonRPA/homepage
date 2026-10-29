@@ -5,7 +5,8 @@ import {
   getPopbillPopUpURL, 
   getPopbillPrintURL, 
   getPopbillInfo,
-  getPopbillPortalURL
+  getPopbillPortalURL,
+  getPopbillCertInfo
 } from "@/lib/popbillService";
 
 export async function POST(request: Request) {
@@ -14,6 +15,12 @@ export async function POST(request: Request) {
     const { action, invoiceId, mgtKey, corpNum } = body;
 
     const pool = getErpPool();
+
+    // 0-A. Get Popbill Registered Certificate Info
+    if (action === "CERT_INFO") {
+      const cert = await getPopbillCertInfo(corpNum);
+      return NextResponse.json({ success: true, ...cert });
+    }
 
     // 0. Get Popbill Testbed Portal / Certificate Management URL
     if (action === "PORTAL_URL" || action === "CERT_URL") {

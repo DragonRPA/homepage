@@ -249,7 +249,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
 
       showToast("제품 모델 정보가 수정되었습니다.");
       setIsEditingDossier(false);
-      fetchProducts();
+      setProducts((prev) => prev.map((p) => (p.id === selectedProduct.id ? { ...p, ...editForm } as ProductModel : p)));
       // Update selected product state
       setSelectedProduct((prev) => (prev ? { ...prev, ...editForm } : null));
     } catch (err: any) {
@@ -269,7 +269,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
       if (selectedProduct?.id === id) {
         setSelectedProduct(null);
       }
-      fetchProducts();
+      setProducts((prev) => prev.filter((p) => p.id !== id));
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -294,6 +294,11 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
 
       showToast("신규 제품 모델이 등록되었습니다.");
       setShowAddModal(false);
+      if (data.product) {
+        setProducts((prev) => [...prev, data.product]);
+      } else {
+        fetchProducts();
+      }
       setAddForm({
         modelCode: "",
         modelName: "",
@@ -310,7 +315,6 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
         spec: "",
         warrantyType: "3년 무상",
       });
-      fetchProducts();
     } catch (err: any) {
       showToast(err.message, "error");
     }

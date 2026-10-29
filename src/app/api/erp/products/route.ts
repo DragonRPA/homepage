@@ -65,7 +65,30 @@ export async function POST(request: Request) {
         cpu, ram, storage, gpu, spec, warranty_type, status
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ACTIVE')
-      RETURNING *
+      RETURNING
+        id,
+        model_code as "modelCode",
+        model_name as "modelName",
+        short_name as "shortName",
+        category,
+        manufacturer,
+        standard_monthly_rate as "standardMonthlyRate",
+        standard_daily_rate as "standardDailyRate",
+        standard_price as "standardPrice",
+        cpu,
+        ram,
+        storage,
+        gpu,
+        spec,
+        warranty_type as "warrantyType",
+        status,
+        created_at as "createdAt",
+        0::integer as "totalAssets",
+        0::integer as "ownedAssets",
+        0::integer as "subleasedAssets",
+        0::integer as "availableAssets",
+        0::integer as "rentedAssets",
+        0::integer as "repairingAssets"
     `;
 
     const res = await pool.query(insertQuery, [

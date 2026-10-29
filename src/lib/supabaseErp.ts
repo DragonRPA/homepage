@@ -12,21 +12,23 @@ export const supabaseErp = createClient(supabaseUrl, supabaseKey, {
   },
 });
 
-let pool: Pool | null = null;
+const globalForErpPool = globalThis as unknown as { erpPool?: Pool };
 
 export function getErpPool(): Pool {
-  if (!pool) {
+  if (!globalForErpPool.erpPool) {
     const connStr = process.env.SUPABASE_DB_URL;
     if (!connStr) {
       throw new Error("서버 환경변수 (SUPABASE_DB_URL)가 설정되지 않았습니다.");
     }
-    const cleanConnStr = connStr.replace('?sslmode=require', '').replace('&sslmode=require', '');
-    pool = new Pool({
+    const cleanConnStr = connStr.replace("?sslmode=require", "").replace("&sslmode=require", "");
+    globalForErpPool.erpPool = new Pool({
       connectionString: cleanConnStr,
       ssl: { rejectUnauthorized: false },
       max: 10,
-      idleTimeoutMillis: 30000,
+      idleTimeoutMillis: 60000,
+      connectionTimeoutMillis: 10000,
+      keepAlive: true,
     });
   }
-  return pool;
+  return globalForErpPool.erpPool;
 }

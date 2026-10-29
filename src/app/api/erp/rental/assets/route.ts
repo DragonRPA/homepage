@@ -95,13 +95,15 @@ export async function POST(request: Request) {
         .map((s) => s.trim())
         .filter(Boolean);
 
-      const createdAssets: any[] = [];
+      const assetNos: string[] = [];
+      const itemSerials: string[] = [];
 
       for (let i = 0; i < batchQty; i++) {
         const currentAssetNo =
           batchQty === 1 && requestedNo && !requestedNo.startsWith(prefix)
             ? requestedNo
             : `${prefix}${String(startSeq + i).padStart(3, "0")}`;
+        assetNos.push(currentAssetNo);
 
         const itemSerial =
           serialList.length > 1
@@ -109,33 +111,80 @@ export async function POST(request: Request) {
             : serialList.length === 1
               ? (batchQty === 1 ? serialList[0] : `${serialList[0]}-${String(i + 1).padStart(2, "0")}`)
               : "";
+        itemSerials.push(itemSerial);
+      }
 
-        const insRes = await client.query(
-          `INSERT INTO erp_rental_assets
+      const bulkInsertRes = await client.query(
+        `WITH inserted AS (
+           INSERT INTO erp_rental_assets
            (asset_no, rental_product_id, serial_no, acquisition_date, acquisition_cost,
             salvage_value, useful_life_years, depreciation_method, accumulated_depreciation,
             book_value, status, memo)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 'STRAIGHT_LINE', 0, $8, 'AVAILABLE', $9)
-           RETURNING *`,
-          [
-            currentAssetNo,
-            rentalProductId,
-            itemSerial,
-            dateStr,
-            cost,
-            salvage,
-            lifeYears,
-            cost,
-            memo || "",
-          ]
-        );
-        const newAsset = insRes.rows[0];
-        createdAssets.push(newAsset);
+           SELECT
+             u.asset_no,
+             $3::int,
+             u.serial_no,
+             $4,
+             $5::numeric,
+             $6::numeric,
+             $7::int,
+             'STRAIGHT_LINE',
+             0,
+             $8::numeric,
+             'AVAILABLE',
+             $9
+           FROM UNNEST($1::text[], $2::text[]) WITH ORDINALITY AS u(asset_no, serial_no, ord)
+           ORDER BY u.ord
+           RETURNING *
+         )
+         SELECT
+           a.id,
+           a.asset_no as "assetNo",
+           a.asset_no,
+           a.rental_product_id as "rentalProductId",
+           rp.model_code as "modelCode",
+           rp.model_name as "modelName",
+           rp.manufacturer,
+           a.serial_no as "serialNo",
+           a.acquisition_date as "acquisitionDate",
+           a.acquisition_cost as "acquisitionCost",
+           a.salvage_value as "salvageValue",
+           a.useful_life_years as "usefulLifeYears",
+           a.depreciation_method as "depreciationMethod",
+           a.accumulated_depreciation as "accumulatedDepreciation",
+           a.book_value as "bookValue",
+           a.status,
+           a.memo,
+           a.created_at as "createdAt"
+         FROM inserted a
+         JOIN erp_rental_products rp ON a.rental_product_id = rp.id
+         ORDER BY a.asset_no ASC`,
+        [
+          assetNos,
+          itemSerials,
+          rentalProductId,
+          dateStr,
+          cost,
+          salvage,
+          lifeYears,
+          cost,
+          memo || "",
+        ]
+      );
 
+      const createdAssets = bulkInsertRes.rows;
+
+      const auditRecordIds = createdAssets.map((a: any) => a.assetNo);
+      const auditDetails = createdAssets.map((_: any, i: number) =>
+        JSON.stringify({ cost, salvage, lifeYears, batchQty, index: i + 1 })
+      );
+
+      if (auditRecordIds.length > 0) {
         await client.query(
           `INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
-           VALUES ('RENTAL_ASSET', 'ACQUIRE', $1, 'ADMIN', $2::jsonb)`,
-          [currentAssetNo, JSON.stringify({ cost, salvage, lifeYears, batchQty, index: i + 1 })]
+           SELECT 'RENTAL_ASSET', 'ACQUIRE', u.record_id, 'ADMIN', u.details::jsonb
+           FROM UNNEST($1::text[], $2::text[]) AS u(record_id, details)`,
+          [auditRecordIds, auditDetails]
         );
       }
 

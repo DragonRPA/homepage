@@ -27,9 +27,41 @@ import {
   Image as ImageIcon,
   Clock,
   Eye,
-  FileUp
+  FileUp,
+  Landmark,
+  Copy,
+  ExternalLink,
+  Printer
 } from "lucide-react";
 import { formatErpNumber, sortErpItems, SortDirection } from "@/lib/erpFormat";
+
+export const KOREAN_BANKS = [
+  "KB국민은행",
+  "신한은행",
+  "우리은행",
+  "하나은행",
+  "IBK기업은행",
+  "NH농협은행",
+  "SC제일은행",
+  "한국씨티은행",
+  "카카오뱅크",
+  "토스뱅크",
+  "케이뱅크",
+  "KDB산업은행",
+  "Sh수협은행",
+  "우체국",
+  "새마을금고",
+  "신협",
+  "상호저축은행",
+  "산림조합",
+];
+
+export interface ActiveDocumentViewer {
+  title: string;
+  partnerName: string;
+  url: string;
+  fileName?: string;
+}
 
 export interface PartnerContact {
   id: number;
@@ -71,6 +103,11 @@ export interface Partner {
   memo?: string | null;
   bizCertFileUrl?: string | null;
   bizCertFileName?: string | null;
+  bankName?: string | null;
+  bankAccountNo?: string | null;
+  bankAccountHolder?: string | null;
+  bankCopyFileUrl?: string | null;
+  bankCopyFileName?: string | null;
   contactCount?: number;
   primaryContact?: {
     id: number;
@@ -134,10 +171,17 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   const [contactModalMode, setContactModalMode] = useState<"CREATE" | "EDIT">("CREATE");
   const [editingContact, setEditingContact] = useState<PartnerContact | null>(null);
   const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null);
+  const [activeDocument, setActiveDocument] = useState<ActiveDocumentViewer | null>(null);
 
   // Drag and Drop States for OCR Modal
   const [isCertDragging, setIsCertDragging] = useState<boolean>(false);
   const certFileInputRef = useRef<HTMLInputElement>(null);
+
+  // File Input Refs & Drag States for Partner Modal
+  const bankCopyInputRef = useRef<HTMLInputElement>(null);
+  const directBizCertInputRef = useRef<HTMLInputElement>(null);
+  const [isBankCopyDragging, setIsBankCopyDragging] = useState<boolean>(false);
+  const [isDirectBizCertDragging, setIsDirectBizCertDragging] = useState<boolean>(false);
 
   // OCR Processing States
   const [ocrLoading, setOcrLoading] = useState<boolean>(false);
@@ -170,6 +214,11 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     memo: "",
     bizCertFileUrl: "",
     bizCertFileName: "",
+    bankName: "",
+    bankAccountNo: "",
+    bankAccountHolder: "",
+    bankCopyFileUrl: "",
+    bankCopyFileName: "",
   });
 
   // Contact Form State
@@ -340,6 +389,11 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       memo: "",
       bizCertFileUrl: "",
       bizCertFileName: "",
+      bankName: "",
+      bankAccountNo: "",
+      bankAccountHolder: "",
+      bankCopyFileUrl: "",
+      bankCopyFileName: "",
     });
     setShowPartnerModal(true);
   };
@@ -371,6 +425,11 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       memo: p.memo || "",
       bizCertFileUrl: p.bizCertFileUrl || "",
       bizCertFileName: p.bizCertFileName || "",
+      bankName: p.bankName || "",
+      bankAccountNo: p.bankAccountNo || "",
+      bankAccountHolder: p.bankAccountHolder || "",
+      bankCopyFileUrl: p.bankCopyFileUrl || "",
+      bankCopyFileName: p.bankCopyFileName || "",
     });
     setShowPartnerModal(true);
   };
@@ -680,6 +739,64 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     });
   };
 
+  // Universal Helper: Read any image or PDF file to Data URL
+  const readFileAsDataUrl = async (file: File): Promise<string> => {
+    if (file.type.startsWith("image/")) {
+      try {
+        return await resizeImageToBase64(file, 1800);
+      } catch {
+        // fallback
+      }
+    }
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve((e.target?.result as string) || "");
+      reader.onerror = () => reject(new Error("파일 읽기 실패"));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Helper: Check if document is PDF
+  const isPdfDocument = (url?: string | null, fileName?: string | null) => {
+    if (!url && !fileName) return false;
+    if (url && (url.startsWith("data:application/pdf") || url.toLowerCase().includes(".pdf"))) return true;
+    if (fileName && fileName.toLowerCase().endsWith(".pdf")) return true;
+    return false;
+  };
+
+  // Direct Bank Copy Upload
+  const handleBankCopyFileUpload = async (file: File) => {
+    if (!file) return;
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setPartnerForm((prev: any) => ({
+        ...prev,
+        bankCopyFileUrl: dataUrl,
+        bankCopyFileName: file.name,
+        bankAccountHolder: prev.bankAccountHolder || prev.name || prev.ceoName || "",
+      }));
+      showToast(`통장사본(${file.name})이 첨부되었습니다.`);
+    } catch (err: any) {
+      showToast("통장사본 파일 읽기 실패", "error");
+    }
+  };
+
+  // Direct Business Registration Certificate Upload
+  const handleDirectBizCertUpload = async (file: File) => {
+    if (!file) return;
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setPartnerForm((prev: any) => ({
+        ...prev,
+        bizCertFileUrl: dataUrl,
+        bizCertFileName: file.name,
+      }));
+      showToast(`사업자등록증(${file.name})이 첨부되었습니다.`);
+    } catch (err: any) {
+      showToast("사업자등록증 파일 읽기 실패", "error");
+    }
+  };
+
   // Business Registration Certificate Drag & Drop / File Processing
   const handleBizCertFileUpload = async (file: File) => {
     if (!file) return;
@@ -797,6 +914,11 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       memo: `사업자등록증 기반 등록 (${ocrFileName})`,
       bizCertFileUrl: ocrPreviewFileUrl || "",
       bizCertFileName: ocrFileName || "",
+      bankName: "",
+      bankAccountNo: "",
+      bankAccountHolder: "",
+      bankCopyFileUrl: "",
+      bankCopyFileName: "",
     });
     setShowBizCertOcrModal(false);
     setShowPartnerModal(true);
@@ -1062,13 +1184,42 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                           <div className="flex items-center gap-1.5">
                             <span>{p.name}</span>
                             {p.bizCertFileUrl && (
-                              <span
-                                title="사업자등록증 보관됨"
-                                className="px-1 py-0.2 rounded text-[9px] bg-[#f5f3ff] text-[#6d28d9] border border-[#ddd6fe] dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 flex items-center gap-0.5"
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveDocument({
+                                    title: "사업자등록증 원본",
+                                    partnerName: p.name,
+                                    url: p.bizCertFileUrl!,
+                                    fileName: p.bizCertFileName || "사업자등록증",
+                                  });
+                                }}
+                                title="사업자등록증 열기"
+                                className="px-1.5 py-0.2 rounded text-[10px] bg-[#f5f3ff] hover:bg-[#ede9fe] text-[#6d28d9] border border-[#ddd6fe] font-bold dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 flex items-center gap-1 transition"
                               >
-                                <FileCheck className="w-2.5 h-2.5" />
+                                <FileCheck className="w-3 h-3" />
                                 <span>등록증</span>
-                              </span>
+                              </button>
+                            )}
+                            {p.bankCopyFileUrl && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveDocument({
+                                    title: "통장사본 원본",
+                                    partnerName: p.name,
+                                    url: p.bankCopyFileUrl!,
+                                    fileName: p.bankCopyFileName || `${p.bankName || "거래처"}_통장사본`,
+                                  });
+                                }}
+                                title="통장사본 열기"
+                                className="px-1.5 py-0.2 rounded text-[10px] bg-[#ecfdf5] hover:bg-[#d1fae5] text-[#065f46] border border-[#a7f3d0] font-bold dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800 flex items-center gap-1 transition"
+                              >
+                                <Landmark className="w-3 h-3" />
+                                <span>통장</span>
+                              </button>
                             )}
                           </div>
                         </td>
@@ -1307,9 +1458,15 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
 
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
+                          type="button"
                           onClick={() => {
                             if (selectedPartner.bizCertFileUrl) {
-                              setZoomImageUrl(selectedPartner.bizCertFileUrl);
+                              setActiveDocument({
+                                title: "사업자등록증 원본",
+                                partnerName: selectedPartner.name,
+                                url: selectedPartner.bizCertFileUrl,
+                                fileName: selectedPartner.bizCertFileName || "사업자등록증",
+                              });
                             }
                           }}
                           className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
@@ -1335,11 +1492,131 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                         등록된 사업자등록증 파일이 없습니다.
                       </p>
                       <button
+                        type="button"
                         onClick={() => openEditModal(selectedPartner)}
                         className="px-2.5 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] inline-flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
                       >
                         <Upload className="w-3 h-3" />
                         <span>사업자등록증 첨부하기</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. 대금 지급 계좌 및 통장사본 보관함 */}
+                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2 text-xs dark:bg-slate-900 dark:border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-[#047857] dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Landmark className="w-3.5 h-3.5" />
+                      <span>대금 지급 계좌 및 통장사본</span>
+                    </span>
+
+                    {selectedPartner.bankCopyFileUrl ? (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] font-bold">
+                        통장사본 보관됨
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#e2dbcd] text-[#475569]">
+                        통장사본 미등록
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 계좌 제원 요약 */}
+                  <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] space-y-1.5 dark:bg-slate-900 dark:border-slate-800">
+                    <div className="flex justify-between items-center py-0.5 border-b border-[#c4b6a0] dark:border-slate-800">
+                      <span className="text-[#475569] dark:text-slate-400">지급 은행</span>
+                      <strong className="text-[#0f172a] dark:text-slate-200">
+                        {selectedPartner.bankName || "-"}
+                      </strong>
+                    </div>
+
+                    <div className="flex justify-between items-center py-0.5 border-b border-[#c4b6a0] dark:border-slate-800">
+                      <span className="text-[#475569] dark:text-slate-400">계좌번호</span>
+                      <div className="flex items-center gap-1.5 font-mono">
+                        <strong className="text-[#1d4ed8] dark:text-blue-400 font-bold">
+                          {selectedPartner.bankAccountNo || "-"}
+                        </strong>
+                        {selectedPartner.bankAccountNo && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(selectedPartner.bankAccountNo!);
+                              showToast("계좌번호가 클립보드에 복사되었습니다.");
+                            }}
+                            className="p-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[10px] flex items-center gap-0.5 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                            title="계좌번호 복사"
+                          >
+                            <Copy className="w-2.5 h-2.5" />
+                            <span>복사</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center py-0.5">
+                      <span className="text-[#475569] dark:text-slate-400">예금주</span>
+                      <strong className="text-[#0f172a] dark:text-slate-200">
+                        {selectedPartner.bankAccountHolder || "-"}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* 통장사본 첨부 파일 */}
+                  {selectedPartner.bankCopyFileUrl ? (
+                    <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
+                      <div className="flex items-center gap-2 truncate">
+                        <Landmark className="w-4 h-4 text-[#047857] dark:text-emerald-400 shrink-0" />
+                        <div className="truncate">
+                          <span className="text-xs font-semibold text-[#0f172a] dark:text-slate-200 block truncate">
+                            {selectedPartner.bankCopyFileName || `${selectedPartner.bankName || "은행"}_통장사본`}
+                          </span>
+                          <span className="text-[10px] text-[#475569] dark:text-slate-500 font-mono">
+                            대금 지급용 통장사본 서류
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDocument({
+                              title: "통장사본 원본",
+                              partnerName: selectedPartner.name,
+                              url: selectedPartner.bankCopyFileUrl!,
+                              fileName: selectedPartner.bankCopyFileName || `${selectedPartner.bankName || "은행"}_통장사본`,
+                            });
+                          }}
+                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>미리보기</span>
+                        </button>
+                        <a
+                          href={selectedPartner.bankCopyFileUrl}
+                          download={selectedPartner.bankCopyFileName || "통장사본"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                          title="다운로드"
+                        >
+                          <Download className="w-3 h-3" />
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 bg-[#ebe5d8] rounded border border-dashed border-[#b5a894] text-center dark:bg-slate-900 dark:border-slate-800">
+                      <p className="text-[11px] text-[#475569] dark:text-slate-500 mb-1.5">
+                        등록된 통장사본 파일이 없습니다.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(selectedPartner)}
+                        className="px-2.5 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] inline-flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                      >
+                        <Upload className="w-3 h-3" />
+                        <span>통장사본 등록하기</span>
                       </button>
                     </div>
                   )}
@@ -1442,7 +1719,17 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                               </div>
 
                               <button
-                                onClick={() => setZoomImageUrl(c.businessCardFrontUrl || null)}
+                                type="button"
+                                onClick={() => {
+                                  if (c.businessCardFrontUrl) {
+                                    setActiveDocument({
+                                      title: `${c.name} ${c.position || "담당자"} 명함`,
+                                      partnerName: selectedPartner.name,
+                                      url: c.businessCardFrontUrl,
+                                      fileName: `${selectedPartner.name}_${c.name}_명함.png`,
+                                    });
+                                  }
+                                }}
                                 className="px-2 py-0.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#6d28d9] rounded border border-[#b5a894] text-[10px] flex items-center gap-1 font-semibold dark:bg-slate-800 dark:border-slate-700"
                               >
                                 <Eye className="w-2.5 h-2.5" />
@@ -1730,6 +2017,270 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                     </select>
                   </div>
                 </div>
+              </div>
+
+              {/* 대금 지급 계좌 및 통장사본 (매입거래처 / 공급처) */}
+              <div className="p-3 bg-[#e2dbcd] border border-[#b5a894] rounded-lg space-y-3 dark:bg-slate-900 dark:border-slate-700">
+                <div className="flex items-center justify-between pb-1 border-b border-[#b5a894] dark:border-slate-700">
+                  <span className="text-xs font-bold text-[#047857] dark:text-emerald-400 flex items-center gap-1.5">
+                    <Landmark className="w-3.5 h-3.5" />
+                    <span>대금 지급 계좌 및 통장사본 관리 (매입거래처 필수)</span>
+                  </span>
+                  {partnerForm.partnerType === "CUSTOMER" && (
+                    <span className="text-[10px] text-[#475569] dark:text-slate-400">
+                      (고객사는 환불/정산용 계좌 필요 시 입력)
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold">지급 은행</label>
+                    <input
+                      type="text"
+                      list="korean-bank-list"
+                      placeholder="은행명 선택 또는 직접입력"
+                      value={partnerForm.bankName || ""}
+                      onChange={(e) => setPartnerForm({ ...partnerForm, bankName: e.target.value })}
+                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
+                    />
+                    <datalist id="korean-bank-list">
+                      {KOREAN_BANKS.map((b) => (
+                        <option key={b} value={b} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold">계좌번호</label>
+                    <input
+                      type="text"
+                      placeholder="000-000000-00000"
+                      value={partnerForm.bankAccountNo || ""}
+                      onChange={(e) => setPartnerForm({ ...partnerForm, bankAccountNo: e.target.value })}
+                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold">예금주</label>
+                    <input
+                      type="text"
+                      placeholder={partnerForm.name || "상호명 또는 대표자"}
+                      value={partnerForm.bankAccountHolder || ""}
+                      onChange={(e) => setPartnerForm({ ...partnerForm, bankAccountHolder: e.target.value })}
+                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
+                    />
+                  </div>
+                </div>
+
+                {/* 통장사본 드롭존 / 첨부 파일 */}
+                <div className="pt-1">
+                  <label className="text-[#0f172a] dark:text-slate-200 font-semibold block mb-1">
+                    통장사본 원본 파일 (PDF 또는 이미지)
+                  </label>
+                  <input
+                    type="file"
+                    ref={bankCopyInputRef}
+                    accept="image/*,application/pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        handleBankCopyFileUpload(e.target.files[0]);
+                      }
+                    }}
+                  />
+
+                  {partnerForm.bankCopyFileUrl ? (
+                    <div className="p-2.5 bg-[#f4efe4] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-950 dark:border-slate-700">
+                      <div className="flex items-center gap-2 truncate">
+                        <Landmark className="w-4 h-4 text-[#047857] shrink-0" />
+                        <div className="truncate">
+                          <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200 block truncate">
+                            {partnerForm.bankCopyFileName || "통장사본"}
+                          </span>
+                          <span className="text-[10px] text-[#475569] dark:text-slate-500 font-mono">
+                            {isPdfDocument(partnerForm.bankCopyFileUrl, partnerForm.bankCopyFileName) ? "PDF 문서" : "이미지 서류"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDocument({
+                              title: "통장사본 원본",
+                              partnerName: partnerForm.name || "거래처",
+                              url: partnerForm.bankCopyFileUrl,
+                              fileName: partnerForm.bankCopyFileName || "통장사본",
+                            });
+                          }}
+                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>열어보기</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => bankCopyInputRef.current?.click()}
+                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                        >
+                          <Upload className="w-3 h-3" />
+                          <span>파일 변경</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPartnerForm({ ...partnerForm, bankCopyFileUrl: "", bankCopyFileName: "" })}
+                          className="p-1 bg-[#fee2e2] hover:bg-[#fecaca] text-[#b91c1c] rounded border border-[#f87171] transition"
+                          title="삭제"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => bankCopyInputRef.current?.click()}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsBankCopyDragging(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsBankCopyDragging(false);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsBankCopyDragging(false);
+                        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                          handleBankCopyFileUpload(e.dataTransfer.files[0]);
+                        }
+                      }}
+                      className={`p-3 border-2 border-dashed rounded text-center cursor-pointer transition ${
+                        isBankCopyDragging
+                          ? "border-[#047857] bg-[#ecfdf5] dark:bg-emerald-950/40"
+                          : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#ebe5d8] dark:border-slate-700 dark:bg-slate-950"
+                      }`}
+                    >
+                      <Landmark className="w-5 h-5 mx-auto mb-1 text-[#047857] dark:text-emerald-400" />
+                      <p className="text-xs font-semibold text-[#0f172a] dark:text-slate-200">
+                        통장사본 파일을 드래그하여 놓거나 클릭하여 선택
+                      </p>
+                      <p className="text-[10px] text-[#475569] dark:text-slate-500 font-mono mt-0.5">
+                        PDF 문서, JPG, PNG 파일 지원
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 사업자등록증 원본 직접 첨부/수정 */}
+              <div className="p-3 bg-[#e2dbcd] border border-[#b5a894] rounded-lg space-y-2 dark:bg-slate-900 dark:border-slate-700">
+                <span className="text-xs font-bold text-[#6d28d9] dark:text-purple-400 flex items-center gap-1.5 pb-1 border-b border-[#b5a894] dark:border-slate-700">
+                  <FileCheck className="w-3.5 h-3.5" />
+                  <span>사업자등록증 원본 서류 관리</span>
+                </span>
+
+                <input
+                  type="file"
+                  ref={directBizCertInputRef}
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleDirectBizCertUpload(e.target.files[0]);
+                    }
+                  }}
+                />
+
+                {partnerForm.bizCertFileUrl ? (
+                  <div className="p-2.5 bg-[#f4efe4] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-950 dark:border-slate-700">
+                    <div className="flex items-center gap-2 truncate">
+                      <FileText className="w-4 h-4 text-[#6d28d9] shrink-0" />
+                      <div className="truncate">
+                        <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200 block truncate">
+                          {partnerForm.bizCertFileName || "사업자등록증"}
+                        </span>
+                        <span className="text-[10px] text-[#475569] dark:text-slate-500 font-mono">
+                          {isPdfDocument(partnerForm.bizCertFileUrl, partnerForm.bizCertFileName) ? "PDF 문서" : "이미지 서류"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveDocument({
+                            title: "사업자등록증 원본",
+                            partnerName: partnerForm.name || "거래처",
+                            url: partnerForm.bizCertFileUrl,
+                            fileName: partnerForm.bizCertFileName || "사업자등록증",
+                          });
+                        }}
+                        className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                      >
+                        <Eye className="w-3 h-3" />
+                        <span>열어보기</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => directBizCertInputRef.current?.click()}
+                        className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                      >
+                        <Upload className="w-3 h-3" />
+                        <span>파일 변경</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPartnerForm({ ...partnerForm, bizCertFileUrl: "", bizCertFileName: "" })}
+                        className="p-1 bg-[#fee2e2] hover:bg-[#fecaca] text-[#b91c1c] rounded border border-[#f87171] transition"
+                        title="삭제"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => directBizCertInputRef.current?.click()}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDirectBizCertDragging(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDirectBizCertDragging(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDirectBizCertDragging(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                        handleDirectBizCertUpload(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    className={`p-3 border-2 border-dashed rounded text-center cursor-pointer transition ${
+                      isDirectBizCertDragging
+                        ? "border-[#6d28d9] bg-[#f5f3ff] dark:bg-purple-950/40"
+                        : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#ebe5d8] dark:border-slate-700 dark:bg-slate-950"
+                    }`}
+                  >
+                    <FileUp className="w-5 h-5 mx-auto mb-1 text-[#6d28d9] dark:text-purple-400" />
+                    <p className="text-xs font-semibold text-[#0f172a] dark:text-slate-200">
+                      사업자등록증 파일을 드래그하여 놓거나 클릭하여 직접 첨부
+                    </p>
+                    <p className="text-[10px] text-[#475569] dark:text-slate-500 font-mono mt-0.5">
+                      PDF 문서, JPG, PNG 파일 지원
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* 비고 */}
@@ -2210,28 +2761,167 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 4. Modal: 명함/서류 원본 확대 뷰어 (Image Zoom Modal) */}
+      {/* 4. Modal: 통합 문서 뷰어 (Universal Document Viewer: PDF & 고해상도 이미지) */}
       {/* ========================================================================= */}
-      {zoomImageUrl && (
-        <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
-          onClick={() => setZoomImageUrl(null)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh] bg-[#ebe5d8] p-2 rounded-lg border-2 border-[#b5a894] shadow-2xl flex flex-col items-center">
-            <button
-              onClick={() => setZoomImageUrl(null)}
-              className="absolute top-3 right-3 p-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded-full transition"
+      {(activeDocument || zoomImageUrl) && (() => {
+        const doc = activeDocument || {
+          title: "서류 원본 보기",
+          partnerName: selectedPartner?.name || "등록 서류",
+          url: zoomImageUrl!,
+          fileName: undefined,
+        };
+        const isPdf = isPdfDocument(doc.url, doc.fileName);
+
+        const handleClose = () => {
+          setActiveDocument(null);
+          setZoomImageUrl(null);
+        };
+
+        const handleOpenNewTab = () => {
+          const win = window.open();
+          if (win) {
+            if (isPdf) {
+              win.document.write(
+                `<iframe src="${doc.url}" style="width:100vw;height:100vh;border:none;margin:0;padding:0;"></iframe>`
+              );
+            } else {
+              win.document.write(
+                `<body style="margin:0;background:#1e293b;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="${doc.url}" style="max-width:100vw;max-height:100vh;object-fit:contain;" /></body>`
+              );
+            }
+          }
+        };
+
+        const handlePrint = () => {
+          const printWin = window.open("", "_blank");
+          if (printWin) {
+            printWin.document.write(`
+              <!DOCTYPE html>
+              <html>
+                <head>
+                  <title>${doc.title} - ${doc.partnerName}</title>
+                  <style>
+                    body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+                    img { max-width: 100%; max-height: 100vh; object-fit: contain; }
+                    iframe { width: 100vw; height: 100vh; border: none; }
+                  </style>
+                </head>
+                <body>
+                  ${
+                    isPdf
+                      ? `<iframe src="${doc.url}"></iframe>`
+                      : `<img src="${doc.url}" onload="window.print();" />`
+                  }
+                </body>
+              </html>
+            `);
+            if (isPdf) {
+              setTimeout(() => printWin.print(), 800);
+            }
+          }
+        };
+
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 md:p-6"
+            onClick={handleClose}
+          >
+            <div
+              className="relative w-full max-w-5xl max-h-[92vh] bg-[#ebe5d8] rounded-lg border-2 border-[#b5a894] shadow-2xl flex flex-col overflow-hidden dark:bg-slate-900 dark:border-slate-800"
+              onClick={(e) => e.stopPropagation()}
             >
-              <X className="w-5 h-5" />
-            </button>
-            <img
-              src={zoomImageUrl}
-              alt="확대 이미지"
-              className="max-h-[85vh] object-contain rounded"
-            />
+              {/* Header */}
+              <div className="px-4 py-3 bg-[#e2dbcd] border-b border-[#b5a894] flex items-center justify-between shrink-0 dark:bg-slate-800 dark:border-slate-700">
+                <div className="min-w-0 flex items-center gap-2.5">
+                  <div className="p-1.5 bg-[#dcd4c4] rounded border border-[#b5a894] dark:bg-slate-700 dark:border-slate-600">
+                    {isPdf ? (
+                      <FileText className="w-4 h-4 text-[#b91c1c] dark:text-rose-400" />
+                    ) : (
+                      <ImageIcon className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
+                    )}
+                  </div>
+                  <div className="truncate">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 truncate">
+                        {doc.title}
+                      </h3>
+                      <span className="px-1.5 py-0.2 rounded text-[10px] bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe] font-semibold dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+                        {doc.partnerName}
+                      </span>
+                    </div>
+                    {doc.fileName && (
+                      <span className="text-[11px] text-[#475569] dark:text-slate-400 font-mono block truncate">
+                        {doc.fileName}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Header Action Buttons */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleOpenNewTab}
+                    className="px-2.5 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-xs font-semibold flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                    title="새 탭 열기"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">새 탭 열기</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePrint}
+                    className="px-2.5 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-xs font-semibold flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                    title="인쇄"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">인쇄</span>
+                  </button>
+
+                  <a
+                    href={doc.url}
+                    download={doc.fileName || `${doc.title}.png`}
+                    className="px-2.5 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-xs font-semibold flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                    title="다운로드"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">다운로드</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={handleClose}
+                    className="p-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                    title="닫기"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Viewer Body: PDF Iframe or High-Res Image */}
+              <div className="flex-1 overflow-auto p-3 flex items-center justify-center bg-[#f4efe4] dark:bg-slate-950">
+                {isPdf ? (
+                  <iframe
+                    src={doc.url}
+                    className="w-full h-[76vh] rounded border border-[#b5a894] bg-[#fdfbf7] dark:bg-slate-900 dark:border-slate-800 shadow-sm"
+                    title={doc.title}
+                  />
+                ) : (
+                  <div className="w-full h-full max-h-[76vh] flex items-center justify-center overflow-auto p-2">
+                    <img
+                      src={doc.url}
+                      alt={doc.title}
+                      className="max-h-[72vh] max-w-full object-contain rounded border border-[#b5a894] shadow-md dark:border-slate-800"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

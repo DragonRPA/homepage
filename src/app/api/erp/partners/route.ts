@@ -37,6 +37,11 @@ export async function GET(request: Request) {
         p.memo,
         p.biz_cert_file_url AS "bizCertFileUrl",
         p.biz_cert_file_name AS "bizCertFileName",
+        p.bank_name AS "bankName",
+        p.bank_account_no AS "bankAccountNo",
+        p.bank_account_holder AS "bankAccountHolder",
+        p.bank_copy_file_url AS "bankCopyFileUrl",
+        p.bank_copy_file_name AS "bankCopyFileName",
         p.created_at AS "createdAt",
         p.updated_at AS "updatedAt",
         COUNT(c.id)::int AS "contactCount",
@@ -162,6 +167,11 @@ export async function POST(request: Request) {
       memo,
       bizCertFileUrl,
       bizCertFileName,
+      bankName,
+      bankAccountNo,
+      bankAccountHolder,
+      bankCopyFileUrl,
+      bankCopyFileName,
       contacts = [],
     } = body;
 
@@ -195,9 +205,13 @@ export async function POST(request: Request) {
           biz_type, biz_item, address, address_detail, main_phone, main_email,
           fax_no, manager_employee_id, manager_name, statement_closing_day,
           tax_invoice_closing_day, payment_due_day, status, memo,
-          biz_cert_file_url, biz_cert_file_name, created_at, updated_at
+          biz_cert_file_url, biz_cert_file_name,
+          bank_name, bank_account_no, bank_account_holder, bank_copy_file_url, bank_copy_file_name,
+          created_at, updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW(), NOW()
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
+          $23, $24, $25, $26, $27,
+          NOW(), NOW()
         ) RETURNING *
         `,
         [
@@ -223,6 +237,11 @@ export async function POST(request: Request) {
           memo || null,
           bizCertFileUrl || null,
           bizCertFileName || null,
+          bankName || null,
+          bankAccountNo || null,
+          bankAccountHolder || null,
+          bankCopyFileUrl || null,
+          bankCopyFileName || null,
         ]
       );
 
@@ -308,6 +327,11 @@ export async function PUT(request: Request) {
       memo,
       bizCertFileUrl,
       bizCertFileName,
+      bankName,
+      bankAccountNo,
+      bankAccountHolder,
+      bankCopyFileUrl,
+      bankCopyFileName,
     } = body;
 
     if (!id) {
@@ -344,8 +368,13 @@ export async function PUT(request: Request) {
         memo = $20,
         biz_cert_file_url = COALESCE($21, biz_cert_file_url),
         biz_cert_file_name = COALESCE($22, biz_cert_file_name),
+        bank_name = $23,
+        bank_account_no = $24,
+        bank_account_holder = $25,
+        bank_copy_file_url = COALESCE($26, bank_copy_file_url),
+        bank_copy_file_name = COALESCE($27, bank_copy_file_name),
         updated_at = NOW()
-      WHERE id = $23
+      WHERE id = $28
       RETURNING *
       `,
       [
@@ -371,6 +400,11 @@ export async function PUT(request: Request) {
         memo || null,
         bizCertFileUrl,
         bizCertFileName,
+        bankName || null,
+        bankAccountNo || null,
+        bankAccountHolder || null,
+        bankCopyFileUrl,
+        bankCopyFileName,
         id,
       ]
     );

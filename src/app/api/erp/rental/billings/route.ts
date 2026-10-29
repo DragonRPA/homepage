@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
 
 // GET: List rental billings with contract, customer, site, asset details
 export async function GET(request: Request) {
@@ -138,11 +139,12 @@ export async function POST(request: Request) {
 
       const billingNo = `RB${yearMonth.replace("-", "")}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const finalItems = resolvedItems.length > 0
+      const fallbackFirst = `${c.model_name || "임대장비"} (${c.asset_no})`;
+      const baseItems = resolvedItems.length > 0
         ? resolvedItems
         : [
             {
-              itemName: `${c.model_name || "임대장비"} (${c.asset_no}) ${yearMonth}`,
+              itemName: fallbackFirst,
               spec: `${days}일`,
               qty: 1,
               unitCost: proRataRevenue,
@@ -151,6 +153,18 @@ export async function POST(request: Request) {
               note: "",
             },
           ];
+
+      const finalItems = resolveContractTaxItemsTemplate(baseItems, {
+        dateStr: yearMonth,
+        fallbackFirstItem: fallbackFirst,
+      });
+
+      const rawMemoTemplate = taxMemo !== undefined ? taxMemo : (c.tax_memo || "{1번째 아이템} 외");
+      const finalMemo = resolveContractItemTemplate(rawMemoTemplate, {
+        dateStr: yearMonth,
+        items: finalItems,
+        fallbackFirstItem: finalItems[0]?.itemName || fallbackFirst,
+      });
 
       const insRes = await client.query(
         `INSERT INTO erp_rental_billings
@@ -170,7 +184,7 @@ export async function POST(request: Request) {
           vatAmount,
           totalAmount,
           taxPurpose || c.tax_purpose || "청구",
-          taxMemo !== undefined ? taxMemo : (c.tax_memo || `임대료-${c.model_name || c.asset_no}`),
+          finalMemo,
           JSON.stringify(finalItems),
           deprecCogs,
           netMargin,

@@ -5,10 +5,20 @@ import {
   Briefcase, Plus, RefreshCw, FileText, CheckCircle2, 
   Layers, Search, DollarSign, Calendar, X,
   ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Eye, Download,
-  Edit, Trash2, AlertCircle
+  Edit, Trash2, AlertCircle, Users, UserPlus
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection, resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
 import { ContractTaxInvoiceSection, BuyerTaxSpec, createDefaultTaxSpec, extractPartnerTaxSpec } from "./ContractTaxInvoiceSection";
+
+interface AssignedServiceEmployee {
+  employeeId: number;
+  employeeNo: string;
+  name: string;
+  position: string;
+  department: string;
+  contractRate: number; // 각 직원당 받는 월 계약금액 (공급가액, 원)
+  note: string;
+}
 
 interface ServiceTabProps {
   currentUser: any;
@@ -24,6 +34,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const [contracts, setContracts] = useState<any[]>([]);
   const [billings, setBillings] = useState<any[]>([]);
   const [partners, setPartners] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
 
   // Modals
   const [showAddContractModal, setShowAddContractModal] = useState(false);
@@ -57,12 +68,14 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const [ctMemo, setCtMemo] = useState("");
   const [ctVatAmount, setCtVatAmount] = useState("100,000");
   const [ctTaxSpec, setCtTaxSpec] = useState<BuyerTaxSpec>(() =>
-    createDefaultTaxSpec("정기 유지보수 용역", 1000000)
+    createDefaultTaxSpec("용역료 {yymm}", 1000000)
   );
   const [ctFileUrl, setCtFileUrl] = useState("");
   const [ctFileName, setCtFileName] = useState("");
   const [isCtFileDragging, setIsCtFileDragging] = useState(false);
   const ctFileInputRef = useRef<HTMLInputElement>(null);
+  const [ctAssignedEmployees, setCtAssignedEmployees] = useState<AssignedServiceEmployee[]>([]);
+  const [ctSelectedEmpId, setCtSelectedEmpId] = useState<string>("");
 
   // Contract Form (Edit)
   const [editCtId, setEditCtId] = useState<number | null>(null);
@@ -86,6 +99,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const [editCtFileName, setEditCtFileName] = useState("");
   const [isEditFileDragging, setIsEditFileDragging] = useState(false);
   const editFileInputRef = useRef<HTMLInputElement>(null);
+  const [editCtAssignedEmployees, setEditCtAssignedEmployees] = useState<AssignedServiceEmployee[]>([]);
+  const [editCtSelectedEmpId, setEditCtSelectedEmpId] = useState<string>("");
 
   // Billing Form
   const [blContractId, setBlContractId] = useState("");
@@ -154,22 +169,83 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     });
   }, [partners, ctCustomerSearch]);
 
-  // Fetch Partners for Auto-complete
+  // Fetch Partners & Employees for Auto-complete and Operational Staffing
   const fetchPartners = async () => {
     try {
-      const res = await fetch("/api/erp/partners?type=CUSTOMER");
-      const data = await res.json();
-      if (data.success) {
-        setPartners(data.partners || []);
+      const [pRes, eRes] = await Promise.all([
+        fetch("/api/erp/partners?type=CUSTOMER"),
+        fetch("/api/erp/employees"),
+      ]);
+      const pData = await pRes.json();
+      const eData = await eRes.json();
+      if (pData.success) {
+        setPartners(pData.partners || []);
+      }
+      if (eData.success) {
+        setEmployees((eData.employees || []).filter((emp: any) => emp.status !== "RETIRED"));
       }
     } catch (e) {
-      console.warn("고객사 목록 로드 실패:", e);
+      console.warn("고객사/임직원 목록 로드 실패:", e);
     }
   };
 
   useEffect(() => {
     fetchPartners();
   }, []);
+
+  // 투입 임직원 목록이 변경될 때 월 정기 용역료 및 세금계산서 1번째 품목에 합계금액/인원규격 동기화
+  const syncAssignedEmployeesToContract = (
+    list: AssignedServiceEmployee[],
+    isEdit: boolean
+  ) => {
+    const totalRate = list.reduce((acc, item) => acc + (Number(item.contractRate) || 0), 0);
+    const totalVat = Math.round(totalRate * 0.1);
+    const countSpec = list.length > 0 ? `${list.length}인` : "";
+
+    if (isEdit) {
+      setEditCtAssignedEmployees(list);
+      if (activeType === "OPERATIONAL" && list.length > 0) {
+        setEditCtMonthlyFee(toErpInputString(totalRate));
+        setEditCtVatAmount(toErpInputString(totalVat));
+        setEditCtTaxSpec((prev) => ({
+          ...prev,
+          taxItems: prev.taxItems.map((it, idx) =>
+            idx === 0
+              ? {
+                  ...it,
+                  spec: countSpec || it.spec,
+                  qty: 1,
+                  unitCost: totalRate,
+                  supplyAmount: totalRate,
+                  vatAmount: totalVat,
+                }
+              : it
+          ),
+        }));
+      }
+    } else {
+      setCtAssignedEmployees(list);
+      if (activeType === "OPERATIONAL" && list.length > 0) {
+        setCtMonthlyFee(toErpInputString(totalRate));
+        setCtVatAmount(toErpInputString(totalVat));
+        setCtTaxSpec((prev) => ({
+          ...prev,
+          taxItems: prev.taxItems.map((it, idx) =>
+            idx === 0
+              ? {
+                  ...it,
+                  spec: countSpec || it.spec,
+                  qty: 1,
+                  unitCost: totalRate,
+                  supplyAmount: totalRate,
+                  vatAmount: totalVat,
+                }
+              : it
+          ),
+        }));
+      }
+    }
+  };
 
   const handleSelectPartner = (p: any) => {
     setCtPartnerId(p.id);
@@ -303,6 +379,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           taxPurpose: ctTaxSpec.taxPurpose,
           taxMemo: ctTaxSpec.taxMemo,
           taxItems: ctTaxSpec.taxItems,
+          assignedEmployees: ctAssignedEmployees,
         }),
       });
       const data = await res.json();
@@ -317,7 +394,9 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       setCtMemo("");
       setCtFileUrl("");
       setCtFileName("");
-      setCtTaxSpec(createDefaultTaxSpec("정기 유지보수 용역", 1000000));
+      setCtAssignedEmployees([]);
+      setCtSelectedEmpId("");
+      setCtTaxSpec(createDefaultTaxSpec("용역료 {yymm}", 1000000));
       fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -344,6 +423,10 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     setEditCtMemo(c.memo || "");
     setEditCtFileUrl("");
     setEditCtFileName(c.contractFileName || "");
+    setEditCtAssignedEmployees(
+      Array.isArray(c.assignedEmployees) ? c.assignedEmployees.map((emp: any) => ({ ...emp })) : []
+    );
+    setEditCtSelectedEmpId("");
 
     const defaultSpec = createDefaultTaxSpec(c.projectName || "용역료", baseSupply);
     setEditCtTaxSpec({
@@ -412,6 +495,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           taxPurpose: editCtTaxSpec.taxPurpose,
           taxMemo: editCtTaxSpec.taxMemo,
           taxItems: editCtTaxSpec.taxItems,
+          assignedEmployees: editCtAssignedEmployees,
         }),
       });
       const data = await res.json();
@@ -445,6 +529,61 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     } catch (err: any) {
       showToast(err.message, "error");
     }
+  };
+
+  // 선택된 용역계약의 치환식을 기준일자(dateStr)로 평가하여 청구 폼 상태에 즉시 반영하는 헬퍼
+  const applyServiceContractTemplateToBilling = (ct: any, dateStr: string) => {
+    if (!ct) return;
+    const baseSupply =
+      activeType === "OPERATIONAL"
+        ? Number(ct.monthlyFee || 1000000)
+        : Number(ct.contractAmount || 1000000);
+    const baseVat = ct.vatAmount != null ? Number(ct.vatAmount) : Math.round(baseSupply * 0.1);
+
+    const rawTemplateName =
+      ct.taxMemo || ct.projectName || (activeType === "OPERATIONAL" ? "정기 용역료" : "기성금");
+    const rawItems =
+      Array.isArray(ct.taxItems) && ct.taxItems.length > 0
+        ? ct.taxItems
+        : [
+            {
+              month: dateStr.slice(5, 7),
+              day: dateStr.slice(8, 10),
+              itemName: ct.projectName || rawTemplateName,
+              spec: "",
+              qty: 1,
+              unitCost: baseSupply,
+              supplyAmount: baseSupply,
+              vatAmount: baseVat,
+              note: "",
+            },
+          ];
+
+    const resolvedItems = resolveContractTaxItemsTemplate(rawItems, {
+      dateStr,
+      fallbackFirstItem: ct.projectName,
+    });
+    const resolvedMilestone = resolveContractItemTemplate(rawTemplateName, {
+      dateStr,
+      items: resolvedItems,
+      fallbackFirstItem: resolvedItems[0]?.itemName || ct.projectName,
+    });
+    const resolvedMemo = resolveContractItemTemplate(ct.taxMemo || rawTemplateName, {
+      dateStr,
+      items: resolvedItems,
+      fallbackFirstItem: resolvedItems[0]?.itemName || ct.projectName,
+    });
+
+    setBlSupplyAmount(toErpInputString(baseSupply));
+    setBlVatAmount(toErpInputString(baseVat));
+    setBlMilestoneName(resolvedMilestone);
+    const defSpec = createDefaultTaxSpec(resolvedMilestone, baseSupply);
+    setBlTaxSpec({
+      ...defSpec,
+      taxPurpose: ct.taxPurpose === "영수" ? "영수" : "청구",
+      taxMemo: resolvedMemo,
+      taxItems: resolvedItems as any,
+    });
   };
 
   // Handle Add Billing
@@ -633,7 +772,15 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       </td>
                       <td className="py-2 px-2.5 border-r border-[#b5a894] font-mono text-blue-800 font-bold">{c.contractNo}</td>
                       <td className="py-2 px-2.5 border-r border-[#b5a894] font-bold text-[#1c1917]">{c.customerName}</td>
-                      <td className="py-2 px-2.5 border-r border-[#b5a894] text-[#1c1917]">{c.projectName}</td>
+                      <td className="py-2 px-2.5 border-r border-[#b5a894] text-[#1c1917]">
+                        <div>{c.projectName}</div>
+                        {Array.isArray(c.assignedEmployees) && c.assignedEmployees.length > 0 && (
+                          <div className="text-[10px] font-semibold text-blue-800 mt-0.5">
+                            투입 {c.assignedEmployees.length}명:{" "}
+                            {c.assignedEmployees.map((emp: any) => emp.name).join(", ")}
+                          </div>
+                        )}
+                      </td>
                       <td className="py-2 px-2.5 border-r border-[#b5a894] text-right font-mono font-bold text-[#1c1917]">
                         {formatErpCurrency(activeType === "OPERATIONAL" ? c.monthlyFee : c.contractAmount)}
                       </td>
@@ -855,7 +1002,51 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3" onClick={() => setShowCustomerDropdown(false)}>
                 <div className="md:col-span-2 flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">용역 / 프로젝트명 *</label>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="font-bold text-[#78716c]">용역 / 프로젝트명 *</label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = ctProject
+                            ? `${ctProject.replace(/\s*\{yymm\}/gi, "")} {yymm}`.trim()
+                            : "용역료 {yymm}";
+                          setCtProject(next);
+                          setCtTaxSpec((prev) => ({
+                            ...prev,
+                            taxMemo: next,
+                            taxItems: prev.taxItems.map((it, idx) =>
+                              idx === 0 ? { ...it, itemName: next } : it
+                            ),
+                          }));
+                        }}
+                        className="px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 font-mono font-bold text-[10px]"
+                        title="청구 생성 시 연월(예: 2610)로 자동 치환"
+                      >
+                        + &#123;yymm&#125;
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = ctProject
+                            ? `${ctProject.replace(/\s*\{yyyy-mm\}/gi, "")} {yyyy-mm}`.trim()
+                            : "용역료 {yyyy-mm}";
+                          setCtProject(next);
+                          setCtTaxSpec((prev) => ({
+                            ...prev,
+                            taxMemo: next,
+                            taxItems: prev.taxItems.map((it, idx) =>
+                              idx === 0 ? { ...it, itemName: next } : it
+                            ),
+                          }));
+                        }}
+                        className="px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 font-mono font-bold text-[10px]"
+                        title="청구 생성 시 연-월(예: 2026-10)로 자동 치환"
+                      >
+                        + &#123;yyyy-mm&#125;
+                      </button>
+                    </div>
+                  </div>
                   <input
                     type="text"
                     value={ctProject}
@@ -864,15 +1055,18 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       setCtProject(val);
                       setCtTaxSpec((prev) => ({
                         ...prev,
-                        taxMemo: prev.taxMemo || val,
+                        taxMemo:
+                          !prev.taxMemo || prev.taxMemo === "용역료 {yymm}" || prev.taxMemo === "정기 유지보수 용역"
+                            ? val
+                            : prev.taxMemo,
                         taxItems: prev.taxItems.map((it, idx) =>
-                          idx === 0 && (!it.itemName || it.itemName === "정기 유지보수 용역")
+                          idx === 0 && (!it.itemName || it.itemName === "용역료 {yymm}" || it.itemName === "정기 유지보수 용역")
                             ? { ...it, itemName: val }
                             : it
                         ),
                       }));
                     }}
-                    placeholder="예: RPA 봇 고도화 구축 또는 정기 유지보수"
+                    placeholder="예: 운영 지원 용역 {yymm} 또는 용역료 {yymm}"
                     required
                     className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-semibold"
                   />
@@ -974,6 +1168,143 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                     className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
                   />
                 </div>
+              </div>
+
+              {/* 운영용역 투입 임직원 및 직원별 계약금액(받는금액) 구성 섹션 */}
+              <div className="p-3 rounded border border-blue-300 bg-[#ebe5d8] flex flex-col gap-2" onClick={() => setShowCustomerDropdown(false)}>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#b5a894] pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-blue-800" />
+                    <span className="font-bold text-xs text-[#1c1917]">
+                      투입 임직원 및 직원별 월 계약금액(받는금액) 편성
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px]">
+                      총 {ctAssignedEmployees.length}명 | 합계 ₩
+                      {formatErpCurrency(
+                        ctAssignedEmployees.reduce((s, e) => s + (Number(e.contractRate) || 0), 0)
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={ctSelectedEmpId}
+                      onChange={(e) => setCtSelectedEmpId(e.target.value)}
+                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
+                    >
+                      <option value="">-- 투입할 임직원 선택 --</option>
+                      {employees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          [{emp.employeeNo || `EMP-${emp.id}`}] {emp.name} ({emp.position || "사원"} / {emp.department || "미배정"})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!ctSelectedEmpId) {
+                          showToast("추가할 임직원을 선택하세요.", "error");
+                          return;
+                        }
+                        const emp = employees.find((x) => String(x.id) === String(ctSelectedEmpId));
+                        if (!emp) return;
+                        if (ctAssignedEmployees.some((x) => x.employeeId === emp.id)) {
+                          showToast("이미 추가된 임직원입니다.", "error");
+                          return;
+                        }
+                        const defaultRate = Number(emp.baseSalary) > 0 ? Number(emp.baseSalary) : 3000000;
+                        const nextList: AssignedServiceEmployee[] = [
+                          ...ctAssignedEmployees,
+                          {
+                            employeeId: emp.id,
+                            employeeNo: emp.employeeNo || "",
+                            name: emp.name,
+                            position: emp.position || "",
+                            department: emp.department || "",
+                            contractRate: defaultRate,
+                            note: "",
+                          },
+                        ];
+                        syncAssignedEmployeesToContract(nextList, false);
+                        setCtSelectedEmpId("");
+                      }}
+                      className="h-7 px-2.5 rounded bg-blue-700 hover:bg-blue-800 text-white font-bold text-[11px] inline-flex items-center gap-1 shadow-sm"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>임직원 투입 추가</span>
+                    </button>
+                  </div>
+                </div>
+
+                {ctAssignedEmployees.length === 0 ? (
+                  <div className="py-3 text-center text-[#78716c] text-[11px]">
+                    상단에서 투입할 임직원을 선택하고 [임직원 투입 추가] 버튼을 누르면 직원별 계약단가(받는금액)가 합산되어 월 정기 용역료 및 세금계산서 품목에 자동 반영됩니다.
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
+                    <thead className="bg-[#dfd7c7] text-[#44403c] border-b border-[#b5a894] font-bold">
+                      <tr>
+                        <th className="py-1.5 px-2 w-12 text-center">제외</th>
+                        <th className="py-1.5 px-2">사번</th>
+                        <th className="py-1.5 px-2">성명 / 직급</th>
+                        <th className="py-1.5 px-2">부서</th>
+                        <th className="py-1.5 px-2 text-right w-40">직원당 계약금액 (받는금액, 원)</th>
+                        <th className="py-1.5 px-2">업무/역할 비고</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#b5a894] bg-[#f4efe4]">
+                      {ctAssignedEmployees.map((row, idx) => (
+                        <tr key={row.employeeId}>
+                          <td className="py-1.5 px-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextList = ctAssignedEmployees.filter((_, i) => i !== idx);
+                                syncAssignedEmployeesToContract(nextList, false);
+                              }}
+                              className="p-1 text-rose-700 hover:bg-rose-100 rounded"
+                              title="투입 제외"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                          <td className="py-1.5 px-2 font-mono text-[#78716c]">{row.employeeNo || "-"}</td>
+                          <td className="py-1.5 px-2 font-bold text-[#1c1917]">
+                            {row.name} <span className="text-[10px] font-normal text-[#78716c]">({row.position || "사원"})</span>
+                          </td>
+                          <td className="py-1.5 px-2 text-[#57534e]">{row.department || "-"}</td>
+                          <td className="py-1.5 px-2">
+                            <input
+                              type="text"
+                              value={toErpInputString(row.contractRate)}
+                              onChange={(e) => {
+                                const rate = cleanErpNumber(formatErpInputNumber(e.target.value));
+                                const nextList = ctAssignedEmployees.map((it, i) =>
+                                  i === idx ? { ...it, contractRate: rate } : it
+                                );
+                                syncAssignedEmployeesToContract(nextList, false);
+                              }}
+                              className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-right font-mono font-bold text-blue-900"
+                            />
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <input
+                              type="text"
+                              value={row.note}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCtAssignedEmployees((prev) =>
+                                  prev.map((it, i) => (i === idx ? { ...it, note: val } : it))
+                                );
+                              }}
+                              placeholder="담당 업무 또는 비고"
+                              className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-[#1c1917]"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
 
               {/* 전자세금계산서 발행 제원 및 품목 명세 섹션 */}
@@ -1157,11 +1488,69 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="md:col-span-2 flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">용역 / 프로젝트명 *</label>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="font-bold text-[#78716c]">용역 / 프로젝트명 *</label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = editCtProject
+                            ? `${editCtProject.replace(/\s*\{yymm\}/gi, "")} {yymm}`.trim()
+                            : "용역료 {yymm}";
+                          setEditCtProject(next);
+                          setEditCtTaxSpec((prev) => ({
+                            ...prev,
+                            taxMemo: next,
+                            taxItems: prev.taxItems.map((it, idx) =>
+                              idx === 0 ? { ...it, itemName: next } : it
+                            ),
+                          }));
+                        }}
+                        className="px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 font-mono font-bold text-[10px]"
+                        title="청구 생성 시 연월(예: 2610)로 자동 치환"
+                      >
+                        + &#123;yymm&#125;
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = editCtProject
+                            ? `${editCtProject.replace(/\s*\{yyyy-mm\}/gi, "")} {yyyy-mm}`.trim()
+                            : "용역료 {yyyy-mm}";
+                          setEditCtProject(next);
+                          setEditCtTaxSpec((prev) => ({
+                            ...prev,
+                            taxMemo: next,
+                            taxItems: prev.taxItems.map((it, idx) =>
+                              idx === 0 ? { ...it, itemName: next } : it
+                            ),
+                          }));
+                        }}
+                        className="px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 font-mono font-bold text-[10px]"
+                        title="청구 생성 시 연-월(예: 2026-10)로 자동 치환"
+                      >
+                        + &#123;yyyy-mm&#125;
+                      </button>
+                    </div>
+                  </div>
                   <input
                     type="text"
                     value={editCtProject}
-                    onChange={(e) => setEditCtProject(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const prevProject = editCtProject;
+                      setEditCtProject(val);
+                      setEditCtTaxSpec((prev) => ({
+                        ...prev,
+                        taxMemo: !prev.taxMemo || prev.taxMemo === prevProject ? val : prev.taxMemo,
+                        taxItems: prev.taxItems.map((it, idx) =>
+                          idx === 0 && (!it.itemName || it.itemName === prevProject)
+                            ? { ...it, itemName: val }
+                            : it
+                        ),
+                      }));
+                    }}
+                    placeholder="예: 운영 지원 용역 {yymm} 또는 용역료 {yymm}"
                     required
                     className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-semibold"
                   />
@@ -1275,6 +1664,143 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                 </div>
               </div>
 
+              {/* 운영용역 투입 임직원 및 직원별 계약금액(받는금액) 수정 섹션 */}
+              <div className="p-3 rounded border border-blue-300 bg-[#ebe5d8] flex flex-col gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#b5a894] pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-blue-800" />
+                    <span className="font-bold text-xs text-[#1c1917]">
+                      투입 임직원 및 직원별 월 계약금액(받는금액) 편성
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px]">
+                      총 {editCtAssignedEmployees.length}명 | 합계 ₩
+                      {formatErpCurrency(
+                        editCtAssignedEmployees.reduce((s, e) => s + (Number(e.contractRate) || 0), 0)
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={editCtSelectedEmpId}
+                      onChange={(e) => setEditCtSelectedEmpId(e.target.value)}
+                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
+                    >
+                      <option value="">-- 투입할 임직원 선택 --</option>
+                      {employees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          [{emp.employeeNo || `EMP-${emp.id}`}] {emp.name} ({emp.position || "사원"} / {emp.department || "미배정"})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!editCtSelectedEmpId) {
+                          showToast("추가할 임직원을 선택하세요.", "error");
+                          return;
+                        }
+                        const emp = employees.find((x) => String(x.id) === String(editCtSelectedEmpId));
+                        if (!emp) return;
+                        if (editCtAssignedEmployees.some((x) => x.employeeId === emp.id)) {
+                          showToast("이미 추가된 임직원입니다.", "error");
+                          return;
+                        }
+                        const defaultRate = Number(emp.baseSalary) > 0 ? Number(emp.baseSalary) : 3000000;
+                        const nextList: AssignedServiceEmployee[] = [
+                          ...editCtAssignedEmployees,
+                          {
+                            employeeId: emp.id,
+                            employeeNo: emp.employeeNo || "",
+                            name: emp.name,
+                            position: emp.position || "",
+                            department: emp.department || "",
+                            contractRate: defaultRate,
+                            note: "",
+                          },
+                        ];
+                        syncAssignedEmployeesToContract(nextList, true);
+                        setEditCtSelectedEmpId("");
+                      }}
+                      className="h-7 px-2.5 rounded bg-blue-700 hover:bg-blue-800 text-white font-bold text-[11px] inline-flex items-center gap-1 shadow-sm"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>임직원 투입 추가</span>
+                    </button>
+                  </div>
+                </div>
+
+                {editCtAssignedEmployees.length === 0 ? (
+                  <div className="py-3 text-center text-[#78716c] text-[11px]">
+                    등록된 투입 임직원이 없습니다. 상단에서 임직원을 선택하고 [임직원 투입 추가]를 클릭하세요.
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
+                    <thead className="bg-[#dfd7c7] text-[#44403c] border-b border-[#b5a894] font-bold">
+                      <tr>
+                        <th className="py-1.5 px-2 w-12 text-center">제외</th>
+                        <th className="py-1.5 px-2">사번</th>
+                        <th className="py-1.5 px-2">성명 / 직급</th>
+                        <th className="py-1.5 px-2">부서</th>
+                        <th className="py-1.5 px-2 text-right w-40">직원당 계약금액 (받는금액, 원)</th>
+                        <th className="py-1.5 px-2">업무/역할 비고</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#b5a894] bg-[#f4efe4]">
+                      {editCtAssignedEmployees.map((row, idx) => (
+                        <tr key={row.employeeId}>
+                          <td className="py-1.5 px-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextList = editCtAssignedEmployees.filter((_, i) => i !== idx);
+                                syncAssignedEmployeesToContract(nextList, true);
+                              }}
+                              className="p-1 text-rose-700 hover:bg-rose-100 rounded"
+                              title="투입 제외"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                          <td className="py-1.5 px-2 font-mono text-[#78716c]">{row.employeeNo || "-"}</td>
+                          <td className="py-1.5 px-2 font-bold text-[#1c1917]">
+                            {row.name} <span className="text-[10px] font-normal text-[#78716c]">({row.position || "사원"})</span>
+                          </td>
+                          <td className="py-1.5 px-2 text-[#57534e]">{row.department || "-"}</td>
+                          <td className="py-1.5 px-2">
+                            <input
+                              type="text"
+                              value={toErpInputString(row.contractRate)}
+                              onChange={(e) => {
+                                const rate = cleanErpNumber(formatErpInputNumber(e.target.value));
+                                const nextList = editCtAssignedEmployees.map((it, i) =>
+                                  i === idx ? { ...it, contractRate: rate } : it
+                                );
+                                syncAssignedEmployeesToContract(nextList, true);
+                              }}
+                              className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-right font-mono font-bold text-blue-900"
+                            />
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <input
+                              type="text"
+                              value={row.note}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setEditCtAssignedEmployees((prev) =>
+                                  prev.map((it, i) => (i === idx ? { ...it, note: val } : it))
+                                );
+                              }}
+                              placeholder="담당 업무 또는 비고"
+                              className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-[#1c1917]"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
               {/* 전자세금계산서 발행 제원 및 품목 명세 섹션 */}
               <ContractTaxInvoiceSection
                 spec={editCtTaxSpec}
@@ -1366,30 +1892,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       setBlContractId(cid);
                       const ct = contracts.find((c) => String(c.id) === cid);
                       if (ct) {
-                        const baseSupply = activeType === "OPERATIONAL" ? Number(ct.monthlyFee || 1000000) : Number(ct.contractAmount || 1000000);
-                        const baseVat = ct.vatAmount != null ? Number(ct.vatAmount) : Math.round(baseSupply * 0.1);
-                        setBlSupplyAmount(toErpInputString(baseSupply));
-                        setBlVatAmount(toErpInputString(baseVat));
-                        const mName = ct.taxMemo || ct.projectName || (activeType === "OPERATIONAL" ? "정기 용역료" : "기성금");
-                        setBlMilestoneName(mName);
-                        const defSpec = createDefaultTaxSpec(mName, baseSupply);
-                        setBlTaxSpec({
-                          ...defSpec,
-                          taxPurpose: ct.taxPurpose === "영수" ? "영수" : "청구",
-                          taxMemo: ct.taxMemo || mName,
-                          taxItems:
-                            Array.isArray(ct.taxItems) && ct.taxItems.length > 0
-                              ? ct.taxItems
-                              : [
-                                  {
-                                    ...defSpec.taxItems[0],
-                                    itemName: mName,
-                                    unitCost: baseSupply,
-                                    supplyAmount: baseSupply,
-                                    vatAmount: baseVat,
-                                  },
-                                ],
-                        });
+                        applyServiceContractTemplateToBilling(ct, blDate);
                       }
                     }}
                     required
@@ -1423,7 +1926,14 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   <input
                     type="date"
                     value={blDate}
-                    onChange={(e) => setBlDate(e.target.value)}
+                    onChange={(e) => {
+                      const nextDate = e.target.value;
+                      setBlDate(nextDate);
+                      const ct = contracts.find((c) => String(c.id) === blContractId);
+                      if (ct && nextDate) {
+                        applyServiceContractTemplateToBilling(ct, nextDate);
+                      }
+                    }}
                     required
                     className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
                   />

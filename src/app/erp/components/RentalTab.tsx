@@ -7,7 +7,7 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Download,
   Edit, Trash2
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection, resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
 import { ContractTaxInvoiceSection, BuyerTaxSpec, createDefaultTaxSpec, extractPartnerTaxSpec } from "./ContractTaxInvoiceSection";
 
 interface RentalTabProps {
@@ -105,7 +105,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [ctBillingDay, setCtBillingDay] = useState("25");
   const [ctDeposit, setCtDeposit] = useState("0");
   const [ctTaxSpec, setCtTaxSpec] = useState<BuyerTaxSpec>(() =>
-    createDefaultTaxSpec("장비 임대료", 600000)
+    createDefaultTaxSpec("{1번째 아이템} 외", 600000)
   );
   const [ctFileUrl, setCtFileUrl] = useState("");
   const [ctFileName, setCtFileName] = useState("");
@@ -430,7 +430,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       setCtSite("");
       setCtFileUrl("");
       setCtFileName("");
-      setCtTaxSpec(createDefaultTaxSpec("장비 임대료", 600000));
+      setCtTaxSpec(createDefaultTaxSpec("{1번째 아이템} 외", 600000));
       fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -480,7 +480,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     setEditCtFileUrl("");
     setEditCtFileName(c.contractFileName || "");
 
-    const defaultItemLabel = `임대료-${c.modelName || c.assetNo || "장비"}`;
+    const defaultItemLabel = "{1번째 아이템} 외";
     const defSpec = createDefaultTaxSpec(defaultItemLabel, baseSupply);
     setEditCtTaxSpec({
       customerBizNo: c.customerBizNo || "",
@@ -498,7 +498,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           : [
               {
                 ...defSpec.taxItems[0],
-                itemName: c.modelName ? `${c.modelName} (${c.assetNo || ""})` : defaultItemLabel,
+                itemName: c.modelName ? `${c.modelName} (${c.assetNo || ""})` : (c.assetNo || "장비 임대료"),
                 unitCost: baseSupply,
                 supplyAmount: baseSupply,
                 vatAmount: baseVat,
@@ -603,16 +603,43 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     }
   };
 
-  // Handle Open Add Billing from Contract row (계약 항목 끌어다가 청구 생성)
-  const handleOpenBillingFromContract = (ct: any) => {
-    setBlContractId(String(ct.id));
+  // 임대계약의 치환식({1번째 아이템} 외, {yymm} 등)을 평가하여 청구 폼에 적용하는 헬퍼
+  const applyRentalContractTemplateToBilling = (ct: any, ymStr: string) => {
+    if (!ct) return;
     const baseSupply = Number(ct.monthlyRate || 600000);
     const baseVat = ct.vatAmount != null ? Number(ct.vatAmount) : Math.round(baseSupply * 0.1);
+    const fallbackFirst = ct.modelName ? `${ct.modelName} (${ct.assetNo || ""})` : (ct.assetNo || "장비 임대료");
+    const rawItems =
+      Array.isArray(ct.taxItems) && ct.taxItems.length > 0
+        ? ct.taxItems
+        : [
+            {
+              month: ymStr.slice(5, 7) || String(new Date().getMonth() + 1).padStart(2, "0"),
+              day: String(ct.billingDay || "25").padStart(2, "0"),
+              itemName: fallbackFirst,
+              spec: "",
+              qty: 1,
+              unitCost: baseSupply,
+              supplyAmount: baseSupply,
+              vatAmount: baseVat,
+              note: "",
+            },
+          ];
+
+    const resolvedItems = resolveContractTaxItemsTemplate(rawItems, {
+      dateStr: ymStr,
+      fallbackFirstItem: fallbackFirst,
+    });
+    const rawMemoTemplate = ct.taxMemo || "{1번째 아이템} 외";
+    const resolvedMemo = resolveContractItemTemplate(rawMemoTemplate, {
+      dateStr: ymStr,
+      items: resolvedItems,
+      fallbackFirstItem: resolvedItems[0]?.itemName || fallbackFirst,
+    });
+
     setBlDays("30");
     setBlSupplyAmount(toErpInputString(baseSupply));
     setBlVatAmount(toErpInputString(baseVat));
-    const defLabel = ct.taxMemo || `임대료-${ct.modelName || ct.assetNo}`;
-    const defSpec = createDefaultTaxSpec(defLabel, baseSupply);
     setBlTaxSpec({
       customerBizNo: ct.customerBizNo || "",
       customerCeoName: ct.customerCeoName || "",
@@ -622,20 +649,15 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       customerEmail: ct.customerEmail || "",
       customerEmail2: ct.customerEmail2 || "",
       taxPurpose: ct.taxPurpose === "영수" ? "영수" : "청구",
-      taxMemo: ct.taxMemo || defLabel,
-      taxItems:
-        Array.isArray(ct.taxItems) && ct.taxItems.length > 0
-          ? ct.taxItems
-          : [
-              {
-                ...defSpec.taxItems[0],
-                itemName: ct.modelName ? `${ct.modelName} (${ct.assetNo || ""})` : defLabel,
-                unitCost: baseSupply,
-                supplyAmount: baseSupply,
-                vatAmount: baseVat,
-              },
-            ],
+      taxMemo: resolvedMemo,
+      taxItems: resolvedItems,
     });
+  };
+
+  // Handle Open Add Billing from Contract row (계약 항목 끌어다가 청구 생성)
+  const handleOpenBillingFromContract = (ct: any) => {
+    setBlContractId(String(ct.id));
+    applyRentalContractTemplateToBilling(ct, blYm);
     setShowAddBillingModal(true);
   };
 
@@ -1512,7 +1534,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                         const label = `${ast.modelName || "장비"} (${ast.assetNo})`;
                         setCtTaxSpec((prev) => ({
                           ...prev,
-                          taxMemo: `임대료-${ast.modelName || ast.assetNo} 외`,
+                          taxMemo: prev.taxMemo && prev.taxMemo !== "장비 임대료" ? prev.taxMemo : "{1번째 아이템} 외",
                           taxItems:
                             prev.taxItems.length === 1
                               ? [
@@ -1983,36 +2005,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                       setBlContractId(cid);
                       const ct = contracts.find((c) => String(c.id) === cid);
                       if (ct) {
-                        const baseSupply = Number(ct.monthlyRate || 600000);
-                        const baseVat = ct.vatAmount != null ? Number(ct.vatAmount) : Math.round(baseSupply * 0.1);
-                        setBlDays("30");
-                        setBlSupplyAmount(toErpInputString(baseSupply));
-                        setBlVatAmount(toErpInputString(baseVat));
-                        const defLabel = ct.taxMemo || `임대료-${ct.modelName || ct.assetNo}`;
-                        const defSpec = createDefaultTaxSpec(defLabel, baseSupply);
-                        setBlTaxSpec({
-                          customerBizNo: ct.customerBizNo || "",
-                          customerCeoName: ct.customerCeoName || "",
-                          customerAddress: ct.customerAddress || "",
-                          customerBizType: ct.customerBizType || "",
-                          customerBizClass: ct.customerBizClass || "",
-                          customerEmail: ct.customerEmail || "",
-                          customerEmail2: ct.customerEmail2 || "",
-                          taxPurpose: ct.taxPurpose === "영수" ? "영수" : "청구",
-                          taxMemo: ct.taxMemo || defLabel,
-                          taxItems:
-                            Array.isArray(ct.taxItems) && ct.taxItems.length > 0
-                              ? ct.taxItems
-                              : [
-                                  {
-                                    ...defSpec.taxItems[0],
-                                    itemName: ct.modelName ? `${ct.modelName} (${ct.assetNo || ""})` : defLabel,
-                                    unitCost: baseSupply,
-                                    supplyAmount: baseSupply,
-                                    vatAmount: baseVat,
-                                  },
-                                ],
-                        });
+                        applyRentalContractTemplateToBilling(ct, blYm);
                       }
                     }}
                     className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-semibold"
@@ -2033,7 +2026,14 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     <input
                       type="month"
                       value={blYm}
-                      onChange={(e) => setBlYm(e.target.value)}
+                      onChange={(e) => {
+                        const nextYm = e.target.value;
+                        setBlYm(nextYm);
+                        const ct = contracts.find((c) => String(c.id) === blContractId);
+                        if (ct && nextYm) {
+                          applyRentalContractTemplateToBilling(ct, nextYm);
+                        }
+                      }}
                       className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a]"
                       required
                     />

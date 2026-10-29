@@ -296,26 +296,71 @@ export const ContractTaxInvoiceSection: React.FC<ContractTaxInvoiceSectionProps>
         </div>
       )}
 
-      {/* 2. 세금계산서 상단 비고 */}
+      {/* 2. 세금계산서 상단 비고 / 대표 품목명 치환식 */}
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] font-bold text-[#57534e]">
-          세금계산서 상단 비고 (예: 2026-09 운영용역비 외 / 임대료-빔프로젝트(14/16) 외 / 2609 용역료)
-        </label>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <label className="text-[11px] font-bold text-[#57534e] whitespace-nowrap">
+            세금계산서 상단 비고 / 대표 품목 치환식
+          </label>
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-[10px] font-semibold text-[#78716c]">치환식 삽입:</span>
+            <button
+              type="button"
+              onClick={() =>
+                updateField(
+                  "taxMemo",
+                  spec.taxMemo ? `${spec.taxMemo.replace(/\s*\{yymm\}/gi, "")} {yymm}`.trim() : "용역료 {yymm}"
+                )
+              }
+              className="px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 font-mono font-bold text-[10px]"
+              title="청구 생성 시 연월 4자리(예: 2610)로 자동 치환"
+            >
+              + &#123;yymm&#125;
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                updateField(
+                  "taxMemo",
+                  spec.taxMemo ? `${spec.taxMemo.replace(/\s*\{yyyy-mm\}/gi, "")} {yyyy-mm}`.trim() : "용역료 {yyyy-mm}"
+                )
+              }
+              className="px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 font-mono font-bold text-[10px]"
+              title="청구 생성 시 연-월(예: 2026-10)로 자동 치환"
+            >
+              + &#123;yyyy-mm&#125;
+            </button>
+            <button
+              type="button"
+              onClick={() => updateField("taxMemo", "{1번째 아이템} 외")}
+              className="px-1.5 py-0.5 rounded border border-emerald-400 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-mono font-bold text-[10px]"
+              title="1번째 품목명으로 치환 (품목이 1개이면 '외' 자동 제거)"
+            >
+              &#123;1번째 아이템&#125; 외
+            </button>
+          </div>
+        </div>
         <input
           type="text"
           value={spec.taxMemo}
           onChange={(e) => updateField("taxMemo", e.target.value)}
-          placeholder="세금계산서 작성일자 우측 '비고'란에 출력될 내용"
-          className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs"
+          placeholder="예: 용역료 {yymm} / {1번째 아이템} 외 ({}가 없으면 원문 그대로 적용, 품목 1개 시 '외' 자동 제거)"
+          className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
         />
       </div>
 
       {/* 3. 다중 품목 명세 테이블 (월/일/품목/규격/수량/단가/공급가액/세액/비고) */}
       <div className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold text-[#57534e]">
-            세금계산서 품목 명세 ({spec.taxItems.length}건)
-          </span>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-[#57534e]">
+              세금계산서 품목 명세 ({spec.taxItems.length}건)
+            </span>
+            <span className="text-[10px] text-[#78716c]">
+              품목명에 <code className="font-mono font-bold text-blue-800">&#123;yymm&#125;</code> 또는{" "}
+              <code className="font-mono font-bold text-emerald-800">&#123;1번째 아이템&#125; 외</code> 입력 시 청구 생성 시점에 자동 치환 (&#123;&#125; 없으면 치환 안 함)
+            </span>
+          </div>
           <button
             type="button"
             onClick={handleAddRow}
@@ -366,13 +411,29 @@ export const ContractTaxInvoiceSection: React.FC<ContractTaxInvoiceSectionProps>
                     />
                   </td>
                   <td className="p-1 border-r border-[#d0c6b4]">
-                    <input
-                      type="text"
-                      value={it.itemName}
-                      onChange={(e) => handleItemChange(idx, "itemName", e.target.value)}
-                      placeholder="품목명 (예: EPSON EB-FH08 / 2026-08 운영용역비)"
-                      className="w-full h-6 px-1.5 rounded border border-[#c4b6a0] bg-white font-semibold text-[11px]"
-                    />
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        value={it.itemName}
+                        onChange={(e) => handleItemChange(idx, "itemName", e.target.value)}
+                        placeholder="품목명 (예: 용역료 {yymm} / EPSON EB-FH08)"
+                        className="w-full h-6 px-1.5 rounded border border-[#c4b6a0] bg-white font-semibold text-[11px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleItemChange(
+                            idx,
+                            "itemName",
+                            it.itemName ? `${it.itemName.replace(/\s*\{yymm\}/gi, "")} {yymm}`.trim() : "용역료 {yymm}"
+                          )
+                        }
+                        className="px-1 h-6 rounded border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-800 font-mono font-bold text-[10px] shrink-0"
+                        title="품목명에 {yymm} 연월 치환식 추가"
+                      >
+                        &#123;yymm&#125;
+                      </button>
+                    </div>
                   </td>
                   <td className="p-1 border-r border-[#d0c6b4]">
                     <input

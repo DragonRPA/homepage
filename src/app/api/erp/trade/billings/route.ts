@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
 
 // GET: List all trade billings (with contract, customer, product, tax invoice details)
 export async function GET(request: Request) {
@@ -141,8 +142,29 @@ export async function POST(request: Request) {
 
       const finalTotal = finalSupply + finalVat;
 
-      const dateStr = (billingDate || new Date().toISOString().slice(0, 10)).slice(2, 10).replace(/-/g, "");
+      const effectiveDate = billingDate || new Date().toISOString().slice(0, 10);
+      const dateStr = effectiveDate.slice(2, 10).replace(/-/g, "");
       const billingNo = `TB${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const fallbackFirst = s.product_name || "판매 물품";
+      const finalItems = resolveContractTaxItemsTemplate(resolvedItems, {
+        dateStr: effectiveDate,
+        fallbackFirstItem: fallbackFirst,
+      });
+
+      const rawMilestone = milestoneName || s.tax_memo || "{1번째 아이템} 외";
+      const resolvedMilestone = resolveContractItemTemplate(rawMilestone, {
+        dateStr: effectiveDate,
+        items: finalItems,
+        fallbackFirstItem: finalItems[0]?.itemName || fallbackFirst,
+      });
+
+      const rawMemo = taxMemo !== undefined ? taxMemo : (s.tax_memo || rawMilestone);
+      const resolvedMemo = resolveContractItemTemplate(rawMemo, {
+        dateStr: effectiveDate,
+        items: finalItems,
+        fallbackFirstItem: finalItems[0]?.itemName || fallbackFirst,
+      });
 
       const insRes = await client.query(
         `INSERT INTO erp_trade_billings
@@ -153,14 +175,14 @@ export async function POST(request: Request) {
         [
           billingNo,
           saleId,
-          billingDate || new Date().toISOString().slice(0, 10),
-          milestoneName || s.tax_memo || s.product_name || "물품대금 청구",
+          effectiveDate,
+          resolvedMilestone,
           finalSupply,
           finalVat,
           finalTotal,
           taxPurpose || s.tax_purpose || "청구",
-          taxMemo !== undefined ? taxMemo : (s.tax_memo || s.product_name || ""),
-          JSON.stringify(resolvedItems),
+          resolvedMemo,
+          JSON.stringify(finalItems),
           memo || "",
         ]
       );

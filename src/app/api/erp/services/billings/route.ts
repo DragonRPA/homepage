@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
+import { resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
 
 // GET: List all service billings
 export async function GET(request: Request) {
@@ -79,7 +80,8 @@ export async function POST(request: Request) {
     const total = supply + vat;
     const billingNo = `SB${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const resolvedItems = Array.isArray(taxItems) && taxItems.length > 0
+    const effectiveDate = billingDate || new Date().toISOString().split("T")[0];
+    const baseItems = Array.isArray(taxItems) && taxItems.length > 0
       ? taxItems
       : Array.isArray(ct.tax_items) && ct.tax_items.length > 0
         ? ct.tax_items
@@ -88,6 +90,7 @@ export async function POST(request: Request) {
               itemName: milestoneName || ct.project_name || "정기 용역료",
               spec: "",
               qty: 1,
+              unitCost: supply,
               unitPrice: supply,
               supplyAmount: supply,
               vatAmount: vat,
@@ -95,19 +98,38 @@ export async function POST(request: Request) {
             },
           ];
 
+    const resolvedItems = resolveContractTaxItemsTemplate(baseItems, {
+      dateStr: effectiveDate,
+      fallbackFirstItem: ct.project_name,
+    });
+
+    const rawMilestone = milestoneName || ct.tax_memo || ct.project_name || (billingType === "MILESTONE" ? "중도금" : "당월 용역료");
+    const resolvedMilestone = resolveContractItemTemplate(rawMilestone, {
+      dateStr: effectiveDate,
+      items: resolvedItems,
+      fallbackFirstItem: resolvedItems[0]?.itemName || ct.project_name,
+    });
+
+    const rawMemo = taxMemo !== undefined ? taxMemo : (ct.tax_memo || rawMilestone || "");
+    const resolvedMemo = resolveContractItemTemplate(rawMemo, {
+      dateStr: effectiveDate,
+      items: resolvedItems,
+      fallbackFirstItem: resolvedItems[0]?.itemName || ct.project_name,
+    });
+
     const { data, error } = await supabaseErp
       .from("erp_service_billings")
       .insert({
         billing_no: billingNo,
         contract_id: contractId,
         billing_type: billingType || "MONTHLY_RETAINER",
-        milestone_name: milestoneName || (billingType === "MILESTONE" ? "중도금" : "당월 용역료"),
-        billing_date: billingDate || new Date().toISOString().split("T")[0],
+        milestone_name: resolvedMilestone,
+        billing_date: effectiveDate,
         supply_amount: supply,
         vat_amount: vat,
         total_amount: total,
         tax_purpose: taxPurpose || ct.tax_purpose || "청구",
-        tax_memo: taxMemo !== undefined ? taxMemo : (ct.tax_memo || milestoneName || ""),
+        tax_memo: resolvedMemo,
         tax_items: resolvedItems,
         payment_status: "UNPAID",
         memo: memo || "",

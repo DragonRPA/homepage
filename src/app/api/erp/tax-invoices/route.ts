@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { BUSINESS_ENTITIES, getEntity } from "@/lib/businessEntities";
 import { registIssuePopbill } from "@/lib/popbillService";
+import { resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
 
 // GET: List tax invoices or unissued billings
 export async function GET(request: Request) {
@@ -157,7 +158,33 @@ export async function GET(request: Request) {
         pool.query(tradeQuery),
       ]);
 
-      const unissuedBillings = [...rentalRes.rows, ...serviceRes.rows, ...tradeRes.rows];
+      const rawBillings = [...rentalRes.rows, ...serviceRes.rows, ...tradeRes.rows];
+      const unissuedBillings = rawBillings.map((row: any) => {
+        const dateRef = row.yearMonth || (row.billingDate ? String(row.billingDate).slice(0, 10) : "");
+        const fallbackFirst = row.modelName || row.projectName || row.itemName || "";
+        const resolvedTaxItems = Array.isArray(row.taxItems)
+          ? resolveContractTaxItemsTemplate(row.taxItems, {
+              dateStr: dateRef,
+              fallbackFirstItem: fallbackFirst,
+            })
+          : [];
+        const resolvedMemo = resolveContractItemTemplate(row.taxMemo, {
+          dateStr: dateRef,
+          items: resolvedTaxItems,
+          fallbackFirstItem: resolvedTaxItems[0]?.itemName || fallbackFirst,
+        });
+        const resolvedItemName = resolveContractItemTemplate(row.itemName, {
+          dateStr: dateRef,
+          items: resolvedTaxItems,
+          fallbackFirstItem: resolvedTaxItems[0]?.itemName || fallbackFirst,
+        });
+        return {
+          ...row,
+          taxItems: resolvedTaxItems,
+          taxMemo: resolvedMemo,
+          itemName: resolvedItemName,
+        };
+      });
       return NextResponse.json({ success: true, billings: unissuedBillings });
     }
 
@@ -250,17 +277,17 @@ export async function POST(request: Request) {
           const mm = writeDateStr.slice(5, 7);
           const dd = writeDateStr.slice(8, 10);
 
-          const normalizedTaxItems = Array.isArray(item.taxItems) && item.taxItems.length > 0
+          const baseTaxItems = Array.isArray(item.taxItems) && item.taxItems.length > 0
             ? item.taxItems.map((ti: any) => ({
                 month: ti.month || mm,
                 day: ti.day || dd,
                 itemName: ti.itemName || item.itemName,
                 spec: ti.spec || "",
                 qty: Number(ti.qty || 1),
-                unitPrice: Number(ti.unitPrice ?? ti.supplyAmount ?? supply),
+                unitPrice: Number(ti.unitPrice ?? ti.unitCost ?? ti.supplyAmount ?? supply),
                 supplyAmount: Number(ti.supplyAmount ?? supply),
                 vatAmount: Number(ti.vatAmount ?? vat),
-                remark: ti.remark || "",
+                remark: ti.remark || ti.note || "",
               }))
             : [
                 {
@@ -276,9 +303,29 @@ export async function POST(request: Request) {
                 },
               ];
 
-          const resolvedItemName = normalizedTaxItems.length > 1
-            ? `${normalizedTaxItems[0].itemName} 외 ${normalizedTaxItems.length - 1}건`
-            : (normalizedTaxItems[0]?.itemName || item.itemName || "렌탈 및 기술용역료");
+          const normalizedTaxItems = resolveContractTaxItemsTemplate(baseTaxItems, {
+            dateStr: writeDateStr,
+            fallbackFirstItem: item.modelName || item.projectName || item.itemName,
+          });
+
+          const resolvedMemo = resolveContractItemTemplate(item.taxMemo || item.memo || "", {
+            dateStr: writeDateStr,
+            items: normalizedTaxItems,
+            fallbackFirstItem: normalizedTaxItems[0]?.itemName || item.itemName,
+          });
+
+          const rawSummaryItemName =
+            item.taxMemo && /\{[^}]+\}/.test(item.taxMemo)
+              ? item.taxMemo
+              : normalizedTaxItems.length > 1
+                ? "{1번째 아이템} 외"
+                : (normalizedTaxItems[0]?.itemName || item.itemName || "렌탈 및 기술용역료");
+
+          const resolvedItemName = resolveContractItemTemplate(rawSummaryItemName, {
+            dateStr: writeDateStr,
+            items: normalizedTaxItems,
+            fallbackFirstItem: normalizedTaxItems[0]?.itemName || item.itemName,
+          });
 
           // Unique Invoice No & NTS Mgt Key
           const randomSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -310,7 +357,7 @@ export async function POST(request: Request) {
               supplyAmount: supply,
               vatAmount: vat,
               totalAmount: total,
-              memo: item.taxMemo || item.memo || "",
+              memo: resolvedMemo,
               taxItems: normalizedTaxItems,
             });
             ntsConfirmNo = popRes.ntsConfirmNo;
@@ -358,7 +405,7 @@ export async function POST(request: Request) {
               total,
               resolvedItemName,
               ntsConfirmNo,
-              item.taxMemo || item.memo || "",
+              resolvedMemo,
             ]
           );
           const savedInvoice = insRes.rows[0];
@@ -420,17 +467,17 @@ export async function POST(request: Request) {
       const dd = writeDateStr.slice(8, 10);
       const invoiceNo = `TX${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const normalizedTaxItems = Array.isArray(taxItems) && taxItems.length > 0
+      const baseSingleItems = Array.isArray(taxItems) && taxItems.length > 0
         ? taxItems.map((ti: any) => ({
             month: ti.month || mm,
             day: ti.day || dd,
             itemName: ti.itemName || itemName,
             spec: ti.spec || "",
             qty: Number(ti.qty || 1),
-            unitPrice: Number(ti.unitPrice ?? ti.supplyAmount ?? supply),
+            unitPrice: Number(ti.unitPrice ?? ti.unitCost ?? ti.supplyAmount ?? supply),
             supplyAmount: Number(ti.supplyAmount ?? supply),
             vatAmount: Number(ti.vatAmount ?? vat),
-            remark: ti.remark || "",
+            remark: ti.remark || ti.note || "",
           }))
         : [
             {
@@ -446,9 +493,29 @@ export async function POST(request: Request) {
             },
           ];
 
-      const resolvedItemName = normalizedTaxItems.length > 1
-        ? `${normalizedTaxItems[0].itemName} 외 ${normalizedTaxItems.length - 1}건`
-        : (normalizedTaxItems[0]?.itemName || itemName);
+      const normalizedTaxItems = resolveContractTaxItemsTemplate(baseSingleItems, {
+        dateStr: writeDateStr,
+        fallbackFirstItem: itemName,
+      });
+
+      const resolvedSingleMemo = resolveContractItemTemplate(memo || "", {
+        dateStr: writeDateStr,
+        items: normalizedTaxItems,
+        fallbackFirstItem: normalizedTaxItems[0]?.itemName || itemName,
+      });
+
+      const rawSingleSummary =
+        itemName && /\{[^}]+\}/.test(itemName)
+          ? itemName
+          : normalizedTaxItems.length > 1
+            ? "{1번째 아이템} 외"
+            : (normalizedTaxItems[0]?.itemName || itemName);
+
+      const resolvedItemName = resolveContractItemTemplate(rawSingleSummary, {
+        dateStr: writeDateStr,
+        items: normalizedTaxItems,
+        fallbackFirstItem: normalizedTaxItems[0]?.itemName || itemName,
+      });
 
       // Popbill Electronic Tax Invoice Issue Call
       let ntsConfirmNo = "";
@@ -476,7 +543,7 @@ export async function POST(request: Request) {
           supplyAmount: supply,
           vatAmount: vat,
           totalAmount: total,
-          memo: memo || "",
+          memo: resolvedSingleMemo,
           taxItems: normalizedTaxItems,
         });
         ntsConfirmNo = popRes.ntsConfirmNo;
@@ -524,7 +591,7 @@ export async function POST(request: Request) {
           total,
           resolvedItemName.trim(),
           ntsConfirmNo,
-          memo || "",
+          resolvedSingleMemo,
         ]
       );
       const invoice = insRes.rows[0];

@@ -6,7 +6,7 @@ import {
   Search, Download, DollarSign, Layers, FileText, CheckCircle2, AlertCircle, X,
   ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Edit, Trash2
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection, resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
 import { ContractTaxInvoiceSection, BuyerTaxSpec, createDefaultTaxSpec, extractPartnerTaxSpec } from "./ContractTaxInvoiceSection";
 
 interface TradeTabProps {
@@ -127,7 +127,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   const [soDate, setSoDate] = useState(new Date().toISOString().split("T")[0]);
   const [soMemo, setSoMemo] = useState("");
   const [soTaxSpec, setSoTaxSpec] = useState<BuyerTaxSpec>(() =>
-    createDefaultTaxSpec("판매 상품", 0)
+    createDefaultTaxSpec("{1번째 아이템} 외", 0)
   );
   const [soFileUrl, setSoFileUrl] = useState("");
   const [soFileName, setSoFileName] = useState("");
@@ -418,7 +418,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       setSoMemo("");
       setSoFileUrl("");
       setSoFileName("");
-      setSoTaxSpec(createDefaultTaxSpec("판매 상품", 0));
+      setSoTaxSpec(createDefaultTaxSpec("{1번째 아이템} 외", 0));
       fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -444,7 +444,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     setEditSoFileUrl("");
     setEditSoFileName(s.contractFileName || "");
 
-    const defSpec = createDefaultTaxSpec(s.productName || "판매 상품", baseSupply);
+    const defSpec = createDefaultTaxSpec("{1번째 아이템} 외", baseSupply);
     setEditSoTaxSpec({
       customerBizNo: s.customerBizNo || "",
       customerCeoName: s.customerCeoName || "",
@@ -454,7 +454,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       customerEmail: s.customerEmail || "",
       customerEmail2: s.customerEmail2 || "",
       taxPurpose: s.taxPurpose === "영수" ? "영수" : "청구",
-      taxMemo: s.taxMemo ?? s.productName ?? "",
+      taxMemo: s.taxMemo ?? "{1번째 아이템} 외",
       taxItems:
         Array.isArray(s.taxItems) && s.taxItems.length > 0
           ? s.taxItems
@@ -536,17 +536,43 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     }
   };
 
-  // Open Billing Modal from Sale Contract (판매 계약 항목을 끌어다가 청구 생성)
-  const handleOpenBillingFromSale = (s: any) => {
-    setBlSaleId(String(s.id));
-    setBlDate(s.saleDate ? String(s.saleDate).slice(0, 10) : new Date().toISOString().split("T")[0]);
+  // 유통 판매 계약의 치환식({1번째 아이템} 외, {yymm} 등)을 평가하여 청구 폼에 적용하는 헬퍼
+  const applyTradeSaleTemplateToBilling = (s: any, dateStr: string) => {
+    if (!s) return;
     const baseSupply = Number(s.totalAmount || 0);
     const baseVat = s.vatAmount != null ? Number(s.vatAmount) : Math.round(baseSupply * 0.1);
+    const fallbackFirst = s.productName || "판매 상품";
+    const rawItems =
+      Array.isArray(s.taxItems) && s.taxItems.length > 0
+        ? s.taxItems
+        : [
+            {
+              month: dateStr.slice(5, 7),
+              day: dateStr.slice(8, 10),
+              itemName: fallbackFirst,
+              spec: s.productSpec || s.skuCode || "",
+              qty: Number(s.qty || 1),
+              unitCost: Number(s.unitPrice || baseSupply),
+              supplyAmount: baseSupply,
+              vatAmount: baseVat,
+              note: "",
+            },
+          ];
+
+    const resolvedItems = resolveContractTaxItemsTemplate(rawItems, {
+      dateStr,
+      fallbackFirstItem: fallbackFirst,
+    });
+    const rawTemplate = s.taxMemo || "{1번째 아이템} 외";
+    const resolvedMemo = resolveContractItemTemplate(rawTemplate, {
+      dateStr,
+      items: resolvedItems,
+      fallbackFirstItem: resolvedItems[0]?.itemName || fallbackFirst,
+    });
+
     setBlSupplyAmount(toErpInputString(baseSupply));
     setBlVatAmount(toErpInputString(baseVat));
-    const mName = s.taxMemo || s.productName || "물품대금 청구";
-    setBlMilestoneName(mName);
-    const defSpec = createDefaultTaxSpec(mName, baseSupply);
+    setBlMilestoneName(resolvedMemo);
     setBlTaxSpec({
       customerBizNo: s.customerBizNo || "",
       customerCeoName: s.customerCeoName || "",
@@ -556,22 +582,17 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       customerEmail: s.customerEmail || "",
       customerEmail2: s.customerEmail2 || "",
       taxPurpose: s.taxPurpose === "영수" ? "영수" : "청구",
-      taxMemo: s.taxMemo || mName,
-      taxItems:
-        Array.isArray(s.taxItems) && s.taxItems.length > 0
-          ? s.taxItems
-          : [
-              {
-                ...defSpec.taxItems[0],
-                itemName: s.productName || mName,
-                spec: s.productSpec || "",
-                qty: Number(s.qty || 1),
-                unitCost: Number(s.unitPrice || baseSupply),
-                supplyAmount: baseSupply,
-                vatAmount: baseVat,
-              },
-            ],
+      taxMemo: resolvedMemo,
+      taxItems: resolvedItems,
     });
+  };
+
+  // Open Billing Modal from Sale Contract (판매 계약 항목을 끌어다가 청구 생성)
+  const handleOpenBillingFromSale = (s: any) => {
+    const initialDate = s.saleDate ? String(s.saleDate).slice(0, 10) : new Date().toISOString().split("T")[0];
+    setBlSaleId(String(s.id));
+    setBlDate(initialDate);
+    applyTradeSaleTemplateToBilling(s, initialDate);
     setShowAddBillingModal(true);
   };
 
@@ -1614,7 +1635,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                         setSoVatAmount(formatErpInputNumber(String(vat)));
                         setSoTaxSpec((prev) => ({
                           ...prev,
-                          taxMemo: prod.name,
+                          taxMemo: prev.taxMemo && prev.taxMemo !== "판매 상품" ? prev.taxMemo : "{1번째 아이템} 외",
                           taxItems: prev.taxItems.map((it, idx) =>
                             idx === 0
                               ? {
@@ -2029,41 +2050,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                       setBlSaleId(val);
                       const target = sales.find((s) => String(s.id) === val);
                       if (target) {
-                        const supply = Number(target.totalAmount) || 0;
-                        const vat = Number(target.vatAmount) || Math.round(supply * 0.1);
-                        setBlSupplyAmount(toErpInputString(supply));
-                        setBlVatAmount(toErpInputString(vat));
-                        const mName = target.taxMemo || `${target.productName} (${target.qty}${target.unit || "EA"})`;
-                        setBlMilestoneName(mName);
-                        const defSpec = createDefaultTaxSpec(mName, supply);
-                        setBlTaxSpec({
-                          customerBizNo: target.customerBizNo || "",
-                          customerCeoName: target.customerCeoName || "",
-                          customerAddress: target.customerAddress || "",
-                          customerBizType: target.customerBizType || "",
-                          customerBizClass: target.customerBizClass || "",
-                          customerEmail: target.customerEmail || "",
-                          customerEmail2: target.customerEmail2 || "",
-                          taxPurpose: target.taxPurpose === "영수" ? "영수" : "청구",
-                          taxMemo: mName,
-                          taxItems:
-                            Array.isArray(target.taxItems) && target.taxItems.length > 0
-                              ? target.taxItems.map((it: any) => ({ ...it }))
-                              : [
-                                  {
-                                    ...defSpec.taxItems[0],
-                                    month: blDate.slice(5, 7),
-                                    day: blDate.slice(8, 10),
-                                    itemName: target.productName || "물품대금",
-                                    spec: target.skuCode || "",
-                                    qty: Number(target.qty) || 1,
-                                    unitCost: Number(target.unitPrice) || supply,
-                                    supplyAmount: supply,
-                                    vatAmount: vat,
-                                    note: "",
-                                  },
-                                ],
-                        });
+                        applyTradeSaleTemplateToBilling(target, blDate);
                       }
                     }}
                     className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white text-xs"
@@ -2083,7 +2070,14 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                   <input
                     type="date"
                     value={blDate}
-                    onChange={(e) => setBlDate(e.target.value)}
+                    onChange={(e) => {
+                      const nextDate = e.target.value;
+                      setBlDate(nextDate);
+                      const target = sales.find((s) => String(s.id) === blSaleId);
+                      if (target && nextDate) {
+                        applyTradeSaleTemplateToBilling(target, nextDate);
+                      }
+                    }}
                     className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
                     required
                   />

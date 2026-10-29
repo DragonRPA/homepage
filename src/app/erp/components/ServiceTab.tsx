@@ -68,7 +68,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const [ctMemo, setCtMemo] = useState("");
   const [ctVatAmount, setCtVatAmount] = useState("100,000");
   const [ctTaxSpec, setCtTaxSpec] = useState<BuyerTaxSpec>(() =>
-    createDefaultTaxSpec("용역료 {yymm}", 1000000)
+    createDefaultTaxSpec("{yyyy}년 {mm}월 용역료", 1000000)
   );
   const [ctFileUrl, setCtFileUrl] = useState("");
   const [ctFileName, setCtFileName] = useState("");
@@ -366,7 +366,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
         updatedBase.push({
           month: curMonth.slice(5, 7),
           day: "25",
-          itemName: "초과근무수당 {yymm}",
+          itemName: "{yyyy}년 {mm}월 초과근무수당",
           spec: `${list.length}인 (${otBreakdown.totalHours}h)`,
           qty: 1,
           unitCost: otPayToAdd,
@@ -551,7 +551,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       setCtSelectedEmpId("");
       setCtIncludeOtInBilling(false);
       setCtOtBreakdown({ month: "", totalHours: 0, totalOtPay: 0, byEmp: {} });
-      setCtTaxSpec(createDefaultTaxSpec("용역료 {yymm}", 1000000));
+      setCtTaxSpec(createDefaultTaxSpec("{yyyy}년 {mm}월 용역료", 1000000));
       fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -585,7 +585,14 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     setEditCtSelectedEmpId("");
     setEditCtIncludeOtInBilling(Boolean(c.includeOtInBilling));
 
-    const defaultSpec = createDefaultTaxSpec(c.projectName || "용역료", baseSupply);
+    const baseProjectName = (c.projectName || "용역료").trim();
+    const defaultTemplate = /\{[^}]+\}/.test(baseProjectName)
+      ? baseProjectName
+      : `{yyyy}년 {mm}월 ${baseProjectName.endsWith("료") || baseProjectName.endsWith("비") ? baseProjectName : `${baseProjectName}료`}`;
+    const defaultSpec = createDefaultTaxSpec(defaultTemplate, baseSupply);
+    const savedMemo = (c.taxMemo ?? "").trim();
+    const resolvedInitialMemo =
+      !savedMemo || savedMemo === baseProjectName ? defaultTemplate : savedMemo;
     setEditCtTaxSpec({
       customerBizNo: c.customerBizNo || "",
       customerCeoName: c.customerCeoName || "",
@@ -595,14 +602,18 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       customerEmail: c.customerEmail || "",
       customerEmail2: c.customerEmail2 || "",
       taxPurpose: c.taxPurpose === "영수" ? "영수" : "청구",
-      taxMemo: c.taxMemo ?? c.projectName ?? "",
+      taxMemo: resolvedInitialMemo,
       taxItems:
         Array.isArray(c.taxItems) && c.taxItems.length > 0
-          ? c.taxItems
+          ? c.taxItems.map((it: any, idx: number) =>
+              idx === 0 && (!it.itemName || it.itemName === baseProjectName)
+                ? { ...it, itemName: resolvedInitialMemo }
+                : it
+            )
           : [
               {
                 ...defaultSpec.taxItems[0],
-                itemName: c.projectName || "용역료",
+                itemName: resolvedInitialMemo,
                 unitCost: baseSupply,
                 supplyAmount: baseSupply,
                 vatAmount: baseVat,
@@ -1250,6 +1261,28 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       <button
                         type="button"
                         onClick={() => {
+                          const base = (ctProject || "용역")
+                            .replace(/\{yyyy\}년\s*\{mm\}월\s*/gi, "")
+                            .replace(/\s*\{yymm\}/gi, "")
+                            .replace(/\s*\{yyyy-mm\}/gi, "")
+                            .trim();
+                          const nextTpl = `{yyyy}년 {mm}월 ${base.endsWith("료") || base.endsWith("비") ? base : `${base}료`}`;
+                          setCtTaxSpec((prev) => ({
+                            ...prev,
+                            taxMemo: nextTpl,
+                            taxItems: prev.taxItems.map((it, idx) =>
+                              idx === 0 ? { ...it, itemName: nextTpl } : it
+                            ),
+                          }));
+                        }}
+                        className="px-1.5 py-0.5 rounded border border-blue-400 bg-blue-50 hover:bg-blue-100 text-blue-900 font-mono font-bold text-[10px]"
+                        title="세금계산서 상단 비고 및 1번째 품목에 '{yyyy}년 {mm}월 ...료' 치환식 적용"
+                      >
+                        &#123;yyyy&#125;년 &#123;mm&#125;월
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
                           const next = ctProject
                             ? `${ctProject.replace(/\s*\{yymm\}/gi, "")} {yymm}`.trim()
                             : "용역료 {yymm}";
@@ -1294,21 +1327,41 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                     value={ctProject}
                     onChange={(e) => {
                       const val = e.target.value;
+                      const prevVal = ctProject;
+                      const prevAuto = prevVal
+                        ? `{yyyy}년 {mm}월 ${prevVal.endsWith("료") || prevVal.endsWith("비") ? prevVal : `${prevVal}료`}`
+                        : "";
+                      const nextAuto = val
+                        ? /\{[^}]+\}/.test(val)
+                          ? val
+                          : `{yyyy}년 {mm}월 ${val.endsWith("료") || val.endsWith("비") ? val : `${val}료`}`
+                        : "{yyyy}년 {mm}월 용역료";
                       setCtProject(val);
                       setCtTaxSpec((prev) => ({
                         ...prev,
                         taxMemo:
-                          !prev.taxMemo || prev.taxMemo === "용역료 {yymm}" || prev.taxMemo === "정기 유지보수 용역"
-                            ? val
+                          !prev.taxMemo ||
+                          prev.taxMemo === "{yyyy}년 {mm}월 용역료" ||
+                          prev.taxMemo === "용역료 {yymm}" ||
+                          prev.taxMemo === "정기 유지보수 용역" ||
+                          prev.taxMemo === prevVal ||
+                          prev.taxMemo === prevAuto
+                            ? nextAuto
                             : prev.taxMemo,
                         taxItems: prev.taxItems.map((it, idx) =>
-                          idx === 0 && (!it.itemName || it.itemName === "용역료 {yymm}" || it.itemName === "정기 유지보수 용역")
-                            ? { ...it, itemName: val }
+                          idx === 0 &&
+                          (!it.itemName ||
+                            it.itemName === "{yyyy}년 {mm}월 용역료" ||
+                            it.itemName === "용역료 {yymm}" ||
+                            it.itemName === "정기 유지보수 용역" ||
+                            it.itemName === prevVal ||
+                            it.itemName === prevAuto)
+                            ? { ...it, itemName: nextAuto }
                             : it
                         ),
                       }));
                     }}
-                    placeholder="예: 운영 지원 용역 {yymm} 또는 용역료 {yymm}"
+                    placeholder="예: RPA 유지보수 (입력 시 세금계산서에 '{yyyy}년 {mm}월 RPA 유지보수료' 치환식 자동 생성)"
                     required
                     className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-semibold"
                   />
@@ -1773,6 +1826,28 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       <button
                         type="button"
                         onClick={() => {
+                          const base = (editCtProject || "용역")
+                            .replace(/\{yyyy\}년\s*\{mm\}월\s*/gi, "")
+                            .replace(/\s*\{yymm\}/gi, "")
+                            .replace(/\s*\{yyyy-mm\}/gi, "")
+                            .trim();
+                          const nextTpl = `{yyyy}년 {mm}월 ${base.endsWith("료") || base.endsWith("비") ? base : `${base}료`}`;
+                          setEditCtTaxSpec((prev) => ({
+                            ...prev,
+                            taxMemo: nextTpl,
+                            taxItems: prev.taxItems.map((it, idx) =>
+                              idx === 0 ? { ...it, itemName: nextTpl } : it
+                            ),
+                          }));
+                        }}
+                        className="px-1.5 py-0.5 rounded border border-blue-400 bg-blue-50 hover:bg-blue-100 text-blue-900 font-mono font-bold text-[10px]"
+                        title="세금계산서 상단 비고 및 1번째 품목에 '{yyyy}년 {mm}월 ...료' 치환식 적용"
+                      >
+                        &#123;yyyy&#125;년 &#123;mm&#125;월
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
                           const next = editCtProject
                             ? `${editCtProject.replace(/\s*\{yymm\}/gi, "")} {yymm}`.trim()
                             : "용역료 {yymm}";
@@ -1818,18 +1893,29 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                     onChange={(e) => {
                       const val = e.target.value;
                       const prevProject = editCtProject;
+                      const prevAuto = prevProject
+                        ? `{yyyy}년 {mm}월 ${prevProject.endsWith("료") || prevProject.endsWith("비") ? prevProject : `${prevProject}료`}`
+                        : "";
+                      const nextAuto = val
+                        ? /\{[^}]+\}/.test(val)
+                          ? val
+                          : `{yyyy}년 {mm}월 ${val.endsWith("료") || val.endsWith("비") ? val : `${val}료`}`
+                        : "{yyyy}년 {mm}월 용역료";
                       setEditCtProject(val);
                       setEditCtTaxSpec((prev) => ({
                         ...prev,
-                        taxMemo: !prev.taxMemo || prev.taxMemo === prevProject ? val : prev.taxMemo,
+                        taxMemo:
+                          !prev.taxMemo || prev.taxMemo === prevProject || prev.taxMemo === prevAuto
+                            ? nextAuto
+                            : prev.taxMemo,
                         taxItems: prev.taxItems.map((it, idx) =>
-                          idx === 0 && (!it.itemName || it.itemName === prevProject)
-                            ? { ...it, itemName: val }
+                          idx === 0 && (!it.itemName || it.itemName === prevProject || it.itemName === prevAuto)
+                            ? { ...it, itemName: nextAuto }
                             : it
                         ),
                       }));
                     }}
-                    placeholder="예: 운영 지원 용역 {yymm} 또는 용역료 {yymm}"
+                    placeholder="예: RPA 유지보수 (입력 시 세금계산서에 '{yyyy}년 {mm}월 RPA 유지보수료' 치환식 자동 생성)"
                     required
                     className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-semibold"
                   />

@@ -306,6 +306,25 @@ export const ContractTaxInvoiceSection: React.FC<ContractTaxInvoiceSectionProps>
             <span className="text-[10px] font-semibold text-[#78716c]">치환식 삽입:</span>
             <button
               type="button"
+              onClick={() => {
+                const rawBase = (spec.taxMemo || "용역료")
+                  .replace(/\{yyyy\}년\s*\{mm\}월\s*/gi, "")
+                  .replace(/\s*\{yymm\}/gi, "")
+                  .replace(/\s*\{yyyy-mm\}/gi, "")
+                  .trim() || "용역료";
+                const nextVal = `{yyyy}년 {mm}월 ${rawBase}`;
+                const nextItems = spec.taxItems.map((it, idx) =>
+                  idx === 0 ? { ...it, itemName: nextVal } : it
+                );
+                onChange({ ...spec, taxMemo: nextVal, taxItems: nextItems });
+              }}
+              className="px-1.5 py-0.5 rounded border border-blue-400 bg-blue-50 hover:bg-blue-100 text-blue-900 font-mono font-bold text-[10px]"
+              title="청구 생성 시 '2026년 10월 ...' 형태로 상단 비고 및 1번째 품목명에 동시 적용"
+            >
+              + &#123;yyyy&#125;년 &#123;mm&#125;월
+            </button>
+            <button
+              type="button"
               onClick={() =>
                 updateField(
                   "taxMemo",
@@ -343,8 +362,18 @@ export const ContractTaxInvoiceSection: React.FC<ContractTaxInvoiceSectionProps>
         <input
           type="text"
           value={spec.taxMemo}
-          onChange={(e) => updateField("taxMemo", e.target.value)}
-          placeholder="예: 용역료 {yymm} / {1번째 아이템} 외 ({}가 없으면 원문 그대로 적용, 품목 1개 시 '외' 자동 제거)"
+          onChange={(e) => {
+            const nextVal = e.target.value;
+            const prevMemo = spec.taxMemo;
+            // 1번째 품목명이 이전 상단 비고와 동일하거나 비어있으면 함께 동기화
+            const nextItems = spec.taxItems.map((it, idx) =>
+              idx === 0 && (!it.itemName || it.itemName === prevMemo)
+                ? { ...it, itemName: nextVal }
+                : it
+            );
+            onChange({ ...spec, taxMemo: nextVal, taxItems: nextItems });
+          }}
+          placeholder="예: {yyyy}년 {mm}월 RPA 유지보수료 / {1번째 아이템} 외 ({}가 없으면 원문 그대로 적용)"
           className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
         />
       </div>
@@ -357,7 +386,8 @@ export const ContractTaxInvoiceSection: React.FC<ContractTaxInvoiceSectionProps>
               세금계산서 품목 명세 ({spec.taxItems.length}건)
             </span>
             <span className="text-[10px] text-[#78716c]">
-              품목명에 <code className="font-mono font-bold text-blue-800">&#123;yymm&#125;</code> 또는{" "}
+              품목명에 <code className="font-mono font-bold text-blue-800">&#123;yyyy&#125;년 &#123;mm&#125;월</code>,{" "}
+              <code className="font-mono font-bold text-blue-800">&#123;yymm&#125;</code> 또는{" "}
               <code className="font-mono font-bold text-emerald-800">&#123;1번째 아이템&#125; 외</code> 입력 시 청구 생성 시점에 자동 치환 (&#123;&#125; 없으면 치환 안 함)
             </span>
           </div>
@@ -377,7 +407,7 @@ export const ContractTaxInvoiceSection: React.FC<ContractTaxInvoiceSectionProps>
               <tr>
                 <th className="py-1.5 px-1.5 text-center border-r border-[#b5a894] w-11">월</th>
                 <th className="py-1.5 px-1.5 text-center border-r border-[#b5a894] w-11">일</th>
-                <th className="py-1.5 px-2 text-left border-r border-[#b5a894] min-w-[170px]">품목</th>
+                <th className="py-1.5 px-2 text-left border-r border-[#b5a894] min-w-[230px]">품목</th>
                 <th className="py-1.5 px-1.5 text-center border-r border-[#b5a894] w-20">규격</th>
                 <th className="py-1.5 px-1.5 text-right border-r border-[#b5a894] w-16">수량</th>
                 <th className="py-1.5 px-1.5 text-right border-r border-[#b5a894] w-28">단가</th>
@@ -416,9 +446,24 @@ export const ContractTaxInvoiceSection: React.FC<ContractTaxInvoiceSectionProps>
                         type="text"
                         value={it.itemName}
                         onChange={(e) => handleItemChange(idx, "itemName", e.target.value)}
-                        placeholder="품목명 (예: 용역료 {yymm} / EPSON EB-FH08)"
+                        placeholder="품목명 (예: {yyyy}년 {mm}월 RPA 유지보수료)"
                         className="w-full h-6 px-1.5 rounded border border-[#c4b6a0] bg-white font-semibold text-[11px]"
                       />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const rawBase = (it.itemName || "용역료")
+                            .replace(/\{yyyy\}년\s*\{mm\}월\s*/gi, "")
+                            .replace(/\s*\{yymm\}/gi, "")
+                            .replace(/\s*\{yyyy-mm\}/gi, "")
+                            .trim() || "용역료";
+                          handleItemChange(idx, "itemName", `{yyyy}년 {mm}월 ${rawBase}`);
+                        }}
+                        className="px-1 h-6 rounded border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-900 font-mono font-bold text-[10px] shrink-0"
+                        title="품목명 앞에 {yyyy}년 {mm}월 치환식 적용"
+                      >
+                        &#123;yyyy&#125;년 &#123;mm&#125;월
+                      </button>
                       <button
                         type="button"
                         onClick={() =>

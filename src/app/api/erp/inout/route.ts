@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { resolveContractItemTemplate } from "@/lib/erpFormat";
 
 function computeMonthlyProRata(
   yearMonth: string,
@@ -62,7 +63,7 @@ export async function GET(request: Request) {
     const pool = getErpPool();
 
     const [assetsRes, logsRes, partnersRes, billingsRes] = await Promise.all([
-      // 1. Fetch all rental assets with product info and active contract info
+      // 1. Fetch all rental assets with product info and customer master contract info
       pool.query(`
         SELECT
           a.id,
@@ -82,6 +83,9 @@ export async function GET(request: Request) {
           a.current_customer AS "currentCustomer",
           a.current_site AS "currentSite",
           a.contract_no AS "contractNo",
+          a.current_contract_id AS "currentContractId",
+          COALESCE(a.current_monthly_rate, 0)::numeric AS "currentMonthlyRate",
+          TO_CHAR(a.outbound_date, 'YYYY-MM-DD') AS "outboundDate",
           COALESCE(a.acquisition_cost, 0)::numeric AS "acquisitionCost",
           COALESCE(a.salvage_value, 0)::numeric AS "salvageValue",
           COALESCE(a.useful_life_years, 5)::int AS "usefulLifeYears",
@@ -93,14 +97,15 @@ export async function GET(request: Request) {
           c.entity_type AS "activeEntityType",
           TO_CHAR(c.start_date, 'YYYY-MM-DD') AS "activeStartDate",
           TO_CHAR(c.end_date, 'YYYY-MM-DD') AS "activeEndDate",
-          COALESCE(c.monthly_rate, p.standard_monthly_rate, 0)::numeric AS "activeMonthlyRate"
+          COALESCE(NULLIF(a.current_monthly_rate, 0), p.standard_monthly_rate, c.monthly_rate, 0)::numeric AS "activeMonthlyRate"
         FROM erp_rental_assets a
         LEFT JOIN erp_rental_products p ON a.rental_product_id = p.id
         LEFT JOIN LATERAL (
           SELECT *
           FROM erp_rental_contracts rc
-          WHERE rc.asset_id = a.id AND rc.status = 'ACTIVE'
-          ORDER BY rc.id DESC
+          WHERE (rc.id = a.current_contract_id OR rc.asset_id = a.id OR (a.current_customer IS NOT NULL AND rc.customer_name = a.current_customer))
+            AND rc.status = 'ACTIVE'
+          ORDER BY CASE WHEN rc.id = a.current_contract_id THEN 0 ELSE 1 END, rc.id ASC
           LIMIT 1
         ) c ON true
         ORDER BY a.asset_no ASC

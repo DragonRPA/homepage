@@ -125,6 +125,7 @@ export async function POST(request: Request) {
       const email = u.email ? String(u.email).trim() : null;
       const birthDate = u.birthDate && String(u.birthDate).trim() ? String(u.birthDate).substring(0, 10) : null;
       const joinDate = u.joinDate && String(u.joinDate).trim() ? String(u.joinDate).substring(0, 10) : new Date().toISOString().substring(0, 10);
+      const leaveDate = u.leaveDate && String(u.leaveDate).trim() ? String(u.leaveDate).substring(0, 10) : null;
       const address = u.address ? String(u.address).trim() : null;
       const profileImageUrl = u.profileImageUrl || null;
 
@@ -154,12 +155,13 @@ export async function POST(request: Request) {
                email = $15,
                birth_date = $16,
                join_date = $17,
-               address = $18,
-               profile_image_url = $19,
-               login_id = COALESCE($20, login_id),
-               password_hash = COALESCE($21, password_hash),
+               leave_date = $18,
+               address = $19,
+               profile_image_url = $20,
+               login_id = COALESCE($21, login_id),
+               password_hash = COALESCE($22, password_hash),
                updated_at = NOW()
-           WHERE id = $22`,
+           WHERE id = $23`,
           [
             empName,
             position,
@@ -178,6 +180,7 @@ export async function POST(request: Request) {
             email,
             birthDate,
             joinDate,
+            leaveDate,
             address,
             profileImageUrl,
             loginIdToSave || null,
@@ -199,13 +202,13 @@ export async function POST(request: Request) {
             employee_no, login_id, password_hash, name, position, duty, tier_level,
             department_id, department, role, role_code, employment_status, base_salary,
             salary_bank_name, salary_account_no, salary_account_holder,
-            phone, email, birth_date, join_date, address, profile_image_url,
+            phone, email, birth_date, join_date, leave_date, address, profile_image_url,
             annual_leave_grant, must_change_password, created_at, updated_at
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7,
             $8, $9, $10, $11, $12, $13,
             $14, $15, $16,
-            $17, $18, $19, $20, $21, $22,
+            $17, $18, $19, $20, $21, $22, $23,
             15.0, true, NOW(), NOW()
           )`,
           [
@@ -229,6 +232,7 @@ export async function POST(request: Request) {
             email,
             birthDate,
             joinDate,
+            leaveDate,
             address,
             profileImageUrl,
           ]

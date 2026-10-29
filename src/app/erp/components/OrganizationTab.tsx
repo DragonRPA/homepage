@@ -191,6 +191,7 @@ export interface UserNode {
   passwordHash?: string;
   birthDate?: string;
   joinDate?: string;
+  leaveDate?: string;
   baseSalary?: number;
   salaryBankName?: string;
   salaryAccountNo?: string;
@@ -426,6 +427,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
           passwordHash: "__HASHED__",
           birthDate: e.birthDate ? String(e.birthDate).substring(0, 10) : "",
           joinDate: e.joinDate ? String(e.joinDate).substring(0, 10) : "",
+          leaveDate: e.leaveDate ? String(e.leaveDate).substring(0, 10) : "",
           baseSalary: Number(e.baseSalary ?? 3500000),
           salaryBankName: e.salaryBankName || "",
           salaryAccountNo: e.salaryAccountNo || "",
@@ -545,6 +547,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
         passwordHash: "__HASHED__",
         birthDate: e.birthDate ? String(e.birthDate).substring(0, 10) : "",
         joinDate: e.joinDate ? String(e.joinDate).substring(0, 10) : "",
+        leaveDate: e.leaveDate ? String(e.leaveDate).substring(0, 10) : "",
         baseSalary: Number(e.baseSalary ?? 3500000),
         salaryBankName: e.salaryBankName || "",
         salaryAccountNo: e.salaryAccountNo || "",
@@ -675,6 +678,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       salaryAccountNo: "",
       salaryAccountHolder: "",
       joinDate: nowIso.substring(0, 10),
+      leaveDate: "",
       createdAt: nowIso,
       updatedAt: nowIso,
     };
@@ -796,10 +800,18 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
     if (newStatus === "RETIRED") {
       if (targetUser) setShowHandoffModal(targetUser);
     } else {
-      const nextUsers = users.map((u) => (u.id === userId ? { ...u, status: newStatus } : u));
+      const nextUsers = users.map((u) =>
+        u.id === userId
+          ? { ...u, status: newStatus, leaveDate: newStatus === "ACTIVE" ? "" : u.leaveDate }
+          : u
+      );
       setUsers(nextUsers);
       if (selectedProfile && selectedProfile.id === userId) {
-        setSelectedProfile({ ...selectedProfile, status: newStatus });
+        setSelectedProfile({
+          ...selectedProfile,
+          status: newStatus,
+          leaveDate: newStatus === "ACTIVE" ? "" : selectedProfile.leaveDate,
+        });
       }
       setIsDirty(true);
       showToast(
@@ -817,11 +829,21 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
         setShowHandoffModal(null);
         return;
       }
-      const retiredUser: UserNode = { ...showHandoffModal, status: "RETIRED" };
+      const defaultRetireDate =
+        showHandoffModal.leaveDate ||
+        (selectedProfile?.id === showHandoffModal.id && selectedProfile.leaveDate) ||
+        new Date().toISOString().substring(0, 10);
+      const retiredUser: UserNode = {
+        ...showHandoffModal,
+        status: "RETIRED",
+        leaveDate: defaultRetireDate,
+      };
       const nextUsers = users.map((u) => (u.id === showHandoffModal.id ? retiredUser : u));
       setUsers(nextUsers);
       if (selectedProfile?.id === showHandoffModal.id) {
-        setSelectedProfile((prev) => (prev ? { ...prev, status: "RETIRED" } : null));
+        setSelectedProfile((prev) =>
+          prev ? { ...prev, status: "RETIRED", leaveDate: defaultRetireDate } : null
+        );
       }
       setShowHandoffModal(null);
       setIsDirty(true);
@@ -887,6 +909,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       "역할/권한",
       "재직상태",
       "입사일",
+      "퇴사일",
       "생년월일",
       "연락처",
       "이메일",
@@ -915,6 +938,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
         u.role || "USER",
         statusLabel,
         u.joinDate || "-",
+        u.leaveDate || "-",
         isPrivileged ? u.birthDate || "-" : u.birthDate ? `${u.birthDate.slice(0, 7)}-**` : "-",
         isPrivileged ? u.phone || "-" : maskPhoneNumber(u.phone),
         isPrivileged ? u.email || "-" : maskEmail(u.email),
@@ -1246,6 +1270,21 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
               {user.position || "직급 미지정"}
               {user.duty ? ` (${user.duty})` : ""} | {user.role}
             </div>
+            {(user.joinDate || user.leaveDate) && (
+              <div
+                style={{
+                  fontSize: "11.5px",
+                  color: user.status === "RETIRED" && user.leaveDate ? "var(--danger)" : "var(--text-muted)",
+                  marginTop: "2px",
+                  whiteSpace: "nowrap",
+                  fontWeight: user.status === "RETIRED" && user.leaveDate ? 600 : 400,
+                }}
+              >
+                {user.joinDate ? `입사: ${user.joinDate}` : ""}
+                {user.joinDate && user.leaveDate ? " · " : ""}
+                {user.leaveDate ? `퇴사: ${user.leaveDate}` : ""}
+              </div>
+            )}
             {user.phone && (
               <div
                 style={{
@@ -2164,6 +2203,85 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
                     <label style={{ fontSize: "12px" }}>
+                      <Calendar
+                        size={12}
+                        style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
+                      />
+                      입사일
+                    </label>
+                    <input
+                      type="date"
+                      style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
+                      value={selectedProfile.joinDate || ""}
+                      onChange={(e) => setSelectedProfile({ ...selectedProfile, joinDate: e.target.value })}
+                      disabled={!canEdit}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <label
+                        style={{
+                          fontSize: "12px",
+                          color: selectedProfile.leaveDate ? "var(--danger)" : "inherit",
+                          fontWeight: selectedProfile.leaveDate ? 600 : 400,
+                        }}
+                      >
+                        <Calendar
+                          size={12}
+                          style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
+                        />
+                        퇴사일
+                      </label>
+                      {canEdit && selectedProfile.leaveDate && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedProfile({
+                              ...selectedProfile,
+                              leaveDate: "",
+                            })
+                          }
+                          style={{
+                            background: "none",
+                            border: "none",
+                            padding: 0,
+                            fontSize: "10.5px",
+                            color: "var(--text-muted)",
+                            cursor: "pointer",
+                          }}
+                          title="퇴사일 초기화"
+                        >
+                          초기화
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="date"
+                      style={{
+                        padding: "5px 8px",
+                        fontSize: "12px",
+                        borderRadius: "4px",
+                        width: "100%",
+                        borderColor: selectedProfile.leaveDate ? "var(--danger)" : undefined,
+                      }}
+                      value={selectedProfile.leaveDate || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSelectedProfile({
+                          ...selectedProfile,
+                          leaveDate: val,
+                          status: val ? "RETIRED" : selectedProfile.status,
+                        });
+                      }}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                    <label style={{ fontSize: "12px" }}>
                       <Phone
                         size={12}
                         style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
@@ -2186,43 +2304,6 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                         size={12}
                         style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
                       />
-                      입사일
-                    </label>
-                    <input
-                      type="date"
-                      style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                      value={selectedProfile.joinDate || ""}
-                      onChange={(e) => setSelectedProfile({ ...selectedProfile, joinDate: e.target.value })}
-                      disabled={!canEdit}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <label style={{ fontSize: "12px" }}>
-                      <Mail
-                        size={12}
-                        style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
-                      />
-                      이메일
-                    </label>
-                    <input
-                      type="email"
-                      style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                      placeholder="example@dragonrpa.co.kr"
-                      value={selectedProfile.email || ""}
-                      onChange={(e) => setSelectedProfile({ ...selectedProfile, email: e.target.value })}
-                      disabled={!canEdit}
-                    />
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <label style={{ fontSize: "12px" }}>
-                      <Calendar
-                        size={12}
-                        style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
-                      />
                       생년월일
                     </label>
                     <input
@@ -2233,6 +2314,24 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                       disabled={!canEdit}
                     />
                   </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                  <label style={{ fontSize: "12px" }}>
+                    <Mail
+                      size={12}
+                      style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
+                    />
+                    이메일
+                  </label>
+                  <input
+                    type="email"
+                    style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
+                    placeholder="example@dragonrpa.co.kr"
+                    value={selectedProfile.email || ""}
+                    onChange={(e) => setSelectedProfile({ ...selectedProfile, email: e.target.value })}
+                    disabled={!canEdit}
+                  />
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
@@ -2484,6 +2583,20 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
               <br />
               퇴사 처리 시 해당 미결 업무는 직속 상급자(부서장)에게 강제 이관됩니다.
             </p>
+
+            <div style={{ marginTop: "16px", display: "flex", flexDirection: "column", gap: "4px" }}>
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-main)" }}>
+                퇴사일 지정
+              </label>
+              <input
+                type="date"
+                style={{ padding: "6px 10px", fontSize: "13px", borderRadius: "4px", width: "100%" }}
+                value={showHandoffModal.leaveDate || new Date().toISOString().substring(0, 10)}
+                onChange={(e) =>
+                  setShowHandoffModal((prev) => (prev ? { ...prev, leaveDate: e.target.value } : null))
+                }
+              />
+            </div>
 
             <div style={{ marginTop: "24px", display: "flex", justifyContent: "flex-end", gap: "12px" }}>
               <button

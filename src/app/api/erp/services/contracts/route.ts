@@ -137,16 +137,26 @@ export async function POST(request: Request) {
       : Math.round(baseSupply * 0.1);
 
     const normalizedTaxItems = Array.isArray(taxItems) && taxItems.length > 0
-      ? taxItems
+      ? taxItems.length === 1 && baseSupply > 0
+        ? [
+            {
+              ...taxItems[0],
+              qty: Number(taxItems[0].qty) || 1,
+              unitCost: Math.round(baseSupply / (Number(taxItems[0].qty) || 1)),
+              supplyAmount: baseSupply,
+              vatAmount: parsedVat,
+            },
+          ]
+        : taxItems
       : [
           {
             itemName: projectName.trim(),
             spec: "",
             qty: 1,
-            unitPrice: baseSupply,
+            unitCost: baseSupply,
             supplyAmount: baseSupply,
             vatAmount: parsedVat,
-            remark: "",
+            note: "",
           },
         ];
 
@@ -263,7 +273,19 @@ export async function PUT(request: Request) {
       ? parseFloat(vatAmount)
       : Math.round(baseSupply * 0.1);
 
-      const normalizedTaxItems = Array.isArray(taxItems) ? JSON.stringify(taxItems) : null;
+    const syncedTaxItems =
+      Array.isArray(taxItems) && taxItems.length === 1 && baseSupply > 0
+        ? [
+            {
+              ...taxItems[0],
+              qty: Number(taxItems[0].qty) || 1,
+              unitCost: Math.round(baseSupply / (Number(taxItems[0].qty) || 1)),
+              supplyAmount: baseSupply,
+              vatAmount: parsedVat,
+            },
+          ]
+        : taxItems;
+    const normalizedTaxItems = Array.isArray(syncedTaxItems) ? JSON.stringify(syncedTaxItems) : null;
     const normalizedAssignedEmployees = Array.isArray(assignedEmployees) ? JSON.stringify(assignedEmployees) : null;
 
     const updateRes = await pool.query(

@@ -4,7 +4,8 @@ import {
   registIssuePopbill, 
   getPopbillPopUpURL, 
   getPopbillPrintURL, 
-  getPopbillInfo 
+  getPopbillInfo,
+  getPopbillPortalURL
 } from "@/lib/popbillService";
 
 export async function POST(request: Request) {
@@ -13,6 +14,16 @@ export async function POST(request: Request) {
     const { action, invoiceId, mgtKey, corpNum } = body;
 
     const pool = getErpPool();
+
+    // 0. Get Popbill Testbed Portal / Certificate Management URL
+    if (action === "PORTAL_URL" || action === "CERT_URL") {
+      try {
+        const url = await getPopbillPortalURL(action === "CERT_URL" ? "CERT" : "LOGIN", corpNum);
+        return NextResponse.json({ success: true, url });
+      } catch (e: any) {
+        return NextResponse.json({ error: e.message }, { status: 400 });
+      }
+    }
 
     // 1. Get Popbill View / Print URL
     if (action === "VIEW_URL" || action === "PRINT_URL") {
@@ -62,7 +73,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3. Issue via Popbill
+    // 3. Issue / Register via Popbill
     if (action === "ISSUE_POPBILL") {
       if (!invoiceId) {
         return NextResponse.json({ error: "세금계산서 ID가 누락되었습니다." }, { status: 400 });
@@ -77,6 +88,10 @@ export async function POST(request: Request) {
 
       try {
         const activeCorpNum = corpNum || inv.supplier_corp_num || "8068803266";
+        const writeDateStr = inv.issue_date instanceof Date
+          ? inv.issue_date.toISOString().split("T")[0]
+          : String(inv.issue_date || "").slice(0, 10);
+
         const popResult = await registIssuePopbill({
           corpNum: activeCorpNum,
           supplierCorpName: inv.supplier_corp_name,
@@ -86,15 +101,22 @@ export async function POST(request: Request) {
           supplierBizClass: inv.supplier_biz_class,
           supplierEmail: inv.supplier_email,
           invoicerMgtKey: inv.invoice_no,
-          writeDate: inv.issue_date.toISOString().split("T")[0],
+          writeDate: writeDateStr,
+          purposeType: inv.purpose_type || "청구",
           customerName: inv.customer_name,
-          customerBizNo: inv.business_no || "1000000000",
+          customerBizNo: inv.business_no || "2950302683",
           customerCeoName: inv.ceo_name || "대표자",
+          customerAddr: inv.customer_address || "",
+          customerBizType: inv.customer_biz_type || "",
+          customerBizClass: inv.customer_biz_class || "",
+          customerEmail: inv.customer_email || inv.supplier_email || "",
+          customerEmail2: inv.customer_email2 || "",
           itemName: inv.item_name,
           supplyAmount: parseFloat(inv.supply_amount),
           vatAmount: parseFloat(inv.vat_amount),
           totalAmount: parseFloat(inv.total_amount),
-          memo: inv.memo,
+          memo: inv.memo || "",
+          taxItems: Array.isArray(inv.tax_items) ? inv.tax_items : [],
         });
 
         // Update DB
@@ -104,10 +126,15 @@ export async function POST(request: Request) {
           [ntsConfirm, invoiceId]
         );
 
+        const popupUrl = await getPopbillPopUpURL(inv.invoice_no, activeCorpNum);
+
         return NextResponse.json({
           success: true,
-          message: `[${inv.supplier_corp_name || "드래곤알피에이"}] 팝빌 전자세금계산서 [${inv.invoice_no}] 국세청 발행 완료`,
+          message:
+            popResult.message ||
+            `[${inv.supplier_corp_name || "드래곤알피에이"}] 팝빌 전자세금계산서 [${inv.invoice_no}] 전송/등록 완료`,
           popResult,
+          popupUrl,
         });
       } catch (popErr: any) {
         return NextResponse.json({

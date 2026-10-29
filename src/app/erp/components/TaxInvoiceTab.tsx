@@ -429,6 +429,9 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       if (!res.ok || !data.success) throw new Error(data.error || "팝빌 전자발행 실패");
 
       showToast(data.message);
+      if (data.popupUrl) {
+        window.open(data.popupUrl, "_blank", "width=880,height=760,scrollbars=yes");
+      }
       fetchIssuedInvoices();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -472,6 +475,22 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       if (!res.ok || !data.success) throw new Error(data.error || "인쇄 URL 생성 실패");
 
       window.open(data.url, "_blank", "width=880,height=760,scrollbars=yes");
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  // Handle Open Popbill Testbed Portal / Certificate Management
+  const handleOpenPopbillPortal = async (actionType: "PORTAL_URL" | "CERT_URL") => {
+    try {
+      const res = await fetch("/api/erp/tax-invoices/popbill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: actionType }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "팝빌 테스트베드 URL 생성 실패");
+      window.open(data.url, "_blank", "width=1100,height=820,scrollbars=yes");
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -556,8 +575,24 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-[#b5a894] bg-[#ebe5d8]">
             <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
             <span className="font-semibold text-[#57534e]">팝빌 연동:</span>
-            <span className="font-mono font-bold text-blue-700">DRAGONRP (테스트 모드)</span>
+            <span className="font-mono font-bold text-blue-700">DRAGONRP (테스트 모드 / 806-88-03266)</span>
           </div>
+          <button
+            onClick={() => handleOpenPopbillPortal("PORTAL_URL")}
+            className="flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-indigo-800 bg-indigo-100 hover:bg-indigo-200 border border-indigo-400 shadow-sm"
+            title="팝빌 테스트베드(test.popbill.com) 자동 로그인하여 등록된 세금계산서 문서함 확인"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            <span>팝빌 테스트베드 문서함 열기</span>
+          </button>
+          <button
+            onClick={() => handleOpenPopbillPortal("CERT_URL")}
+            className="flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-400 shadow-sm"
+            title="팝빌 테스트베드 공동인증서 등록 팝업"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>공동인증서 등록</span>
+          </button>
           <button
             onClick={() => setShowIssueModal(true)}
             className="flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 border border-blue-900 shadow-sm"

@@ -58,17 +58,17 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const [ctCustomerSearch, setCtCustomerSearch] = useState("");
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [ctProject, setCtProject] = useState("");
-  const [ctAmount, setCtAmount] = useState("10,000,000");
-  const [ctMonthlyFee, setCtMonthlyFee] = useState("1,000,000");
+  const [ctAmount, setCtAmount] = useState("0");
+  const [ctMonthlyFee, setCtMonthlyFee] = useState("0");
   const [ctStart, setCtStart] = useState(new Date().toISOString().split("T")[0]);
   const [ctEnd, setCtEnd] = useState(
     new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
   );
   const [ctBillingDay, setCtBillingDay] = useState("25");
   const [ctMemo, setCtMemo] = useState("");
-  const [ctVatAmount, setCtVatAmount] = useState("100,000");
+  const [ctVatAmount, setCtVatAmount] = useState("0");
   const [ctTaxSpec, setCtTaxSpec] = useState<BuyerTaxSpec>(() =>
-    createDefaultTaxSpec("{yyyy}년 {mm}월 용역료", 1000000)
+    createDefaultTaxSpec("{yyyy}년 {mm}월 용역료", 0)
   );
   const [ctFileUrl, setCtFileUrl] = useState("");
   const [ctFileName, setCtFileName] = useState("");
@@ -119,11 +119,11 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   // Billing Form
   const [blContractId, setBlContractId] = useState("");
   const [blMilestoneName, setBlMilestoneName] = useState("");
-  const [blSupplyAmount, setBlSupplyAmount] = useState("1,000,000");
-  const [blVatAmount, setBlVatAmount] = useState("100,000");
+  const [blSupplyAmount, setBlSupplyAmount] = useState("0");
+  const [blVatAmount, setBlVatAmount] = useState("0");
   const [blDate, setBlDate] = useState(new Date().toISOString().split("T")[0]);
   const [blTaxSpec, setBlTaxSpec] = useState<BuyerTaxSpec>(() =>
-    createDefaultTaxSpec("정기 용역료", 1000000)
+    createDefaultTaxSpec("정기 용역료", 0)
   );
   const [blIncludeOtInBilling, setBlIncludeOtInBilling] = useState<boolean>(false);
   const [blOtSummary, setBlOtSummary] = useState<{
@@ -551,7 +551,10 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       setCtSelectedEmpId("");
       setCtIncludeOtInBilling(false);
       setCtOtBreakdown({ month: "", totalHours: 0, totalOtPay: 0, byEmp: {} });
-      setCtTaxSpec(createDefaultTaxSpec("{yyyy}년 {mm}월 용역료", 1000000));
+      setCtAmount("0");
+      setCtMonthlyFee("0");
+      setCtVatAmount("0");
+      setCtTaxSpec(createDefaultTaxSpec("{yyyy}년 {mm}월 용역료", 0));
       fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -724,7 +727,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       : [];
     const empContractSum = assignedList.reduce((acc, e) => acc + (Number(e.contractRate) || 0), 0);
 
-    // 기본 계약 월 용역료 (이미 계약 taxItems에 초과근무수당이 들어있는 경우 순수 기본 용역료만 분리)
+    // 기본 계약 월 용역료 (계약에 저장된 monthlyFee / contractAmount 최우선 기준)
     const rawTaxItems = Array.isArray(ct.taxItems) ? ct.taxItems : [];
     const nonOtTemplateItems = rawTaxItems.filter(
       (it: any) => !String(it?.itemName || "").includes("초과근무수당")
@@ -734,21 +737,36 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       0
     );
 
-    const baseSupply =
+    const contractBaseFee =
       activeType === "OPERATIONAL"
-        ? nonOtSupplySum > 0
-          ? nonOtSupplySum
-          : empContractSum > 0
-          ? empContractSum
-          : Number(ct.monthlyFee || 1000000)
-        : Number(ct.contractAmount || 1000000);
+        ? Number(ct.monthlyFee || 0)
+        : Number(ct.contractAmount || 0);
+
+    const baseSupply =
+      contractBaseFee > 0
+        ? contractBaseFee
+        : empContractSum > 0
+        ? empContractSum
+        : nonOtSupplySum > 0
+        ? nonOtSupplySum
+        : 0;
     const baseVat = Math.round(baseSupply * 0.1);
 
     const rawTemplateName =
       ct.taxMemo || ct.projectName || (activeType === "OPERATIONAL" ? "정기 용역료" : "기성금");
     const rawItems =
       nonOtTemplateItems.length > 0
-        ? nonOtTemplateItems
+        ? nonOtTemplateItems.length === 1 && contractBaseFee > 0
+          ? [
+              {
+                ...nonOtTemplateItems[0],
+                qty: Number(nonOtTemplateItems[0].qty) || 1,
+                unitCost: Math.round(baseSupply / (Number(nonOtTemplateItems[0].qty) || 1)),
+                supplyAmount: baseSupply,
+                vatAmount: baseVat,
+              },
+            ]
+          : nonOtTemplateItems
         : [
             {
               month: dateStr.slice(5, 7),
@@ -1379,8 +1397,21 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                         const num = cleanErpNumber(formatted);
                         const vat = Math.round(num * 0.1);
                         setCtVatAmount(toErpInputString(vat));
+                        setCtTaxSpec((prev) => ({
+                          ...prev,
+                          taxItems: prev.taxItems.map((it, idx) =>
+                            idx === 0
+                              ? {
+                                  ...it,
+                                  unitCost: Math.round(num / (Number(it.qty) || 1)),
+                                  supplyAmount: num,
+                                  vatAmount: vat,
+                                }
+                              : it
+                          ),
+                        }));
                       }}
-                      placeholder="예: 1,000,000"
+                      placeholder="예: 300,000"
                       required
                       className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
                     />
@@ -1397,6 +1428,19 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                         const num = cleanErpNumber(formatted);
                         const vat = Math.round(num * 0.1);
                         setCtVatAmount(toErpInputString(vat));
+                        setCtTaxSpec((prev) => ({
+                          ...prev,
+                          taxItems: prev.taxItems.map((it, idx) =>
+                            idx === 0
+                              ? {
+                                  ...it,
+                                  unitCost: Math.round(num / (Number(it.qty) || 1)),
+                                  supplyAmount: num,
+                                  vatAmount: vat,
+                                }
+                              : it
+                          ),
+                        }));
                       }}
                       placeholder="예: 10,000,000"
                       required
@@ -1931,9 +1975,23 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                         const formatted = formatErpInputNumber(e.target.value);
                         setEditCtMonthlyFee(formatted);
                         const num = cleanErpNumber(formatted);
-                        setEditCtVatAmount(toErpInputString(Math.round(num * 0.1)));
+                        const vat = Math.round(num * 0.1);
+                        setEditCtVatAmount(toErpInputString(vat));
+                        setEditCtTaxSpec((prev) => ({
+                          ...prev,
+                          taxItems: prev.taxItems.map((it, idx) =>
+                            idx === 0
+                              ? {
+                                  ...it,
+                                  unitCost: Math.round(num / (Number(it.qty) || 1)),
+                                  supplyAmount: num,
+                                  vatAmount: vat,
+                                }
+                              : it
+                          ),
+                        }));
                       }}
-                      placeholder="예: 1,000,000"
+                      placeholder="예: 300,000"
                       required
                       className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
                     />
@@ -1948,7 +2006,21 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                         const formatted = formatErpInputNumber(e.target.value);
                         setEditCtAmount(formatted);
                         const num = cleanErpNumber(formatted);
-                        setEditCtVatAmount(toErpInputString(Math.round(num * 0.1)));
+                        const vat = Math.round(num * 0.1);
+                        setEditCtVatAmount(toErpInputString(vat));
+                        setEditCtTaxSpec((prev) => ({
+                          ...prev,
+                          taxItems: prev.taxItems.map((it, idx) =>
+                            idx === 0
+                              ? {
+                                  ...it,
+                                  unitCost: Math.round(num / (Number(it.qty) || 1)),
+                                  supplyAmount: num,
+                                  vatAmount: vat,
+                                }
+                              : it
+                          ),
+                        }));
                       }}
                       placeholder="예: 10,000,000"
                       required
@@ -2303,7 +2375,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                     <option value="">-- 계약을 선택하세요 --</option>
                     {contracts.map((c) => (
                       <option key={c.id} value={c.id}>
-                        [{c.contractNo}] {c.customerName} - {c.projectName} ({activeType === "OPERATIONAL" ? `월 ₩${formatErpCurrency(c.monthlyFee)}` : `총 ₩${formatErpCurrency(c.contractAmount)}`})
+                        [{c.contractNo}] {c.customerName} - {c.projectName} ({activeType === "OPERATIONAL" ? `월 ${formatErpCurrency(c.monthlyFee)}` : `총 ${formatErpCurrency(c.contractAmount)}`})
                       </option>
                     ))}
                   </select>

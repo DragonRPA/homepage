@@ -182,7 +182,24 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
         setPartners(pData.partners || []);
       }
       if (eData.success) {
-        setEmployees((eData.employees || []).filter((emp: any) => emp.status !== "RETIRED"));
+        setEmployees(
+          (eData.employees || []).filter((emp: any) => {
+            const st = String(emp.status || "").toUpperCase();
+            const empSt = String(emp.employmentStatus || "").toUpperCase();
+            const hasLeaveDate = Boolean(emp.leaveDate && String(emp.leaveDate).trim() !== "");
+            const isRetired =
+              hasLeaveDate ||
+              st === "RETIRED" ||
+              st === "RESIGNED" ||
+              st === "퇴사" ||
+              st === "퇴직" ||
+              empSt === "RETIRED" ||
+              empSt === "RESIGNED" ||
+              empSt === "퇴사" ||
+              empSt === "퇴직";
+            return !isRetired;
+          })
+        );
       }
     } catch (e) {
       console.warn("고객사/임직원 목록 로드 실패:", e);
@@ -1192,7 +1209,9 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
                     >
                       <option value="">-- 투입할 임직원 선택 --</option>
-                      {employees.map((emp) => (
+                    {employees
+                      .filter((emp) => !ctAssignedEmployees.some((a) => a.employeeId === emp.id))
+                      .map((emp) => (
                         <option key={emp.id} value={emp.id}>
                           [{emp.employeeNo || `EMP-${emp.id}`}] {emp.name} ({emp.position || "사원"} / {emp.department || "미배정"})
                         </option>
@@ -1211,7 +1230,12 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                           showToast("이미 추가된 임직원입니다.", "error");
                           return;
                         }
-                        const defaultRate = Number(emp.baseSalary) > 0 ? Number(emp.baseSalary) : 3000000;
+                        const defaultRate =
+                          Number(emp.serviceContractAmount) > 0
+                            ? Number(emp.serviceContractAmount)
+                            : Number(emp.baseSalary) > 0
+                            ? Number(emp.baseSalary)
+                            : 3000000;
                         const nextList: AssignedServiceEmployee[] = [
                           ...ctAssignedEmployees,
                           {
@@ -1686,7 +1710,9 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
                     >
                       <option value="">-- 투입할 임직원 선택 --</option>
-                      {employees.map((emp) => (
+                    {employees
+                      .filter((emp) => !editCtAssignedEmployees.some((a) => a.employeeId === emp.id))
+                      .map((emp) => (
                         <option key={emp.id} value={emp.id}>
                           [{emp.employeeNo || `EMP-${emp.id}`}] {emp.name} ({emp.position || "사원"} / {emp.department || "미배정"})
                         </option>
@@ -1705,7 +1731,12 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                           showToast("이미 추가된 임직원입니다.", "error");
                           return;
                         }
-                        const defaultRate = Number(emp.baseSalary) > 0 ? Number(emp.baseSalary) : 3000000;
+                        const defaultRate =
+                          Number(emp.serviceContractAmount) > 0
+                            ? Number(emp.serviceContractAmount)
+                            : Number(emp.baseSalary) > 0
+                            ? Number(emp.baseSalary)
+                            : 3000000;
                         const nextList: AssignedServiceEmployee[] = [
                           ...editCtAssignedEmployees,
                           {

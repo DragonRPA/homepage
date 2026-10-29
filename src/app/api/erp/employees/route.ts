@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
 import { supabaseErp, getErpPool } from "@/lib/supabaseErp";
 
-function normalizeStatusToEbro(rawStatus: string | null | undefined): "ACTIVE" | "LEAVE_OF_ABSENCE" | "RETIRED" {
-  const s = (rawStatus || "ACTIVE").toUpperCase();
-  if (s === "LEAVE" || s === "LEAVE_OF_ABSENCE" || s === "ON_LEAVE") return "LEAVE_OF_ABSENCE";
-  if (s === "RETIRED" || s === "RESIGNED") return "RETIRED";
+function normalizeStatusToEbro(rawStatus: string | null | undefined, leaveDate?: string | null): "ACTIVE" | "LEAVE_OF_ABSENCE" | "RETIRED" {
+  if (leaveDate && String(leaveDate).trim() !== "") return "RETIRED";
+  const s = (rawStatus || "ACTIVE").trim().toUpperCase();
+  if (s === "LEAVE" || s === "LEAVE_OF_ABSENCE" || s === "ON_LEAVE" || s === "휴직") return "LEAVE_OF_ABSENCE";
+  if (s === "RETIRED" || s === "RESIGNED" || s === "퇴사" || s === "퇴직") return "RETIRED";
   return "ACTIVE";
 }
 
-function normalizeStatusToDb(rawStatus: string | null | undefined): "ACTIVE" | "LEAVE" | "RETIRED" {
-  const s = (rawStatus || "ACTIVE").toUpperCase();
-  if (s === "LEAVE" || s === "LEAVE_OF_ABSENCE" || s === "ON_LEAVE") return "LEAVE";
-  if (s === "RETIRED" || s === "RESIGNED") return "RETIRED";
+function normalizeStatusToDb(rawStatus: string | null | undefined, leaveDate?: string | null): "ACTIVE" | "LEAVE" | "RETIRED" {
+  if (leaveDate && String(leaveDate).trim() !== "") return "RETIRED";
+  const s = (rawStatus || "ACTIVE").trim().toUpperCase();
+  if (s === "LEAVE" || s === "LEAVE_OF_ABSENCE" || s === "ON_LEAVE" || s === "휴직") return "LEAVE";
+  if (s === "RETIRED" || s === "RESIGNED" || s === "퇴사" || s === "퇴직") return "RETIRED";
   return "ACTIVE";
 }
 
@@ -34,6 +36,7 @@ export async function GET() {
         e.role, 
         e.role_code as "roleCode",
         e.base_salary as "baseSalary",
+        COALESCE(e.service_contract_amount, 0)::numeric as "serviceContractAmount",
         e.salary_bank_name as "salaryBankName",
         e.salary_account_no as "salaryAccountNo",
         e.salary_account_holder as "salaryAccountHolder",
@@ -61,8 +64,8 @@ export async function GET() {
     const result = await pool.query(query);
     const employees = result.rows.map((row: any) => ({
       ...row,
-      status: normalizeStatusToEbro(row.employmentStatus),
-      employmentStatus: normalizeStatusToDb(row.employmentStatus),
+      status: normalizeStatusToEbro(row.employmentStatus, row.leaveDate),
+      employmentStatus: normalizeStatusToDb(row.employmentStatus, row.leaveDate),
     }));
 
     return NextResponse.json({ success: true, employees });

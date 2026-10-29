@@ -194,6 +194,8 @@ export interface UserNode {
   leaveDate?: string;
   baseSalary?: number;
   hourlyWage?: number;
+  mealAllowance?: number;
+  vehicleAllowance?: number;
   salaryBankName?: string;
   salaryAccountNo?: string;
   salaryAccountHolder?: string;
@@ -434,6 +436,8 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
             Number(e.hourlyWage) > 0
               ? Number(e.hourlyWage)
               : Math.round(Number(e.baseSalary ?? 3500000) / 209),
+          mealAllowance: Number(e.mealAllowance ?? 200000),
+          vehicleAllowance: Number(e.vehicleAllowance ?? 0),
           salaryBankName: e.salaryBankName || "",
           salaryAccountNo: e.salaryAccountNo || "",
           salaryAccountHolder: e.salaryAccountHolder || "",
@@ -558,6 +562,8 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
           Number(e.hourlyWage) > 0
             ? Number(e.hourlyWage)
             : Math.round(Number(e.baseSalary ?? 3500000) / 209),
+        mealAllowance: Number(e.mealAllowance ?? 200000),
+        vehicleAllowance: Number(e.vehicleAllowance ?? 0),
         salaryBankName: e.salaryBankName || "",
         salaryAccountNo: e.salaryAccountNo || "",
         salaryAccountHolder: e.salaryAccountHolder || "",
@@ -684,6 +690,8 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       passwordHash: "",
       baseSalary: 3500000,
       hourlyWage: Math.round(3500000 / 209),
+      mealAllowance: 200000,
+      vehicleAllowance: 0,
       salaryBankName: "",
       salaryAccountNo: "",
       salaryAccountHolder: "",
@@ -927,7 +935,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       "급여은행",
       "급여계좌번호",
       "예금주",
-      ...(canViewPayroll || canEdit ? ["기본급(원)", "1시간 표준임금(원)"] : []),
+      ...(canViewPayroll || canEdit ? ["기본급(원)", "식대(원)", "차량보조금(원)", "1시간 표준임금(원)"] : []),
     ];
 
     const csvRows = [headers.join(",")];
@@ -959,6 +967,8 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
         ...(canViewPayroll || canEdit
           ? [
               u.baseSalary || 0,
+              u.mealAllowance ?? 200000,
+              u.vehicleAllowance ?? 0,
               u.hourlyWage || Math.round((u.baseSalary || 3500000) / 209),
             ]
           : []),
@@ -2649,6 +2659,105 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                         }}
                         disabled={!canEdit}
                       />
+                    </div>
+
+                    {/* 수당 항목: 식대 및 차량보조금 */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "2px" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                        <label
+                          style={{
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            color: "var(--text-main)",
+                            display: "block",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          식대 (원) <span style={{ fontSize: "10.5px", fontWeight: 600, color: "var(--text-secondary)" }}>[수당]</span>
+                        </label>
+                        <input
+                          type="number"
+                          step="10000"
+                          min="0"
+                          style={{
+                            padding: "6px 10px",
+                            fontSize: "13px",
+                            fontWeight: "bold",
+                            width: "100%",
+                            borderRadius: "4px",
+                          }}
+                          placeholder="식대 입력 (예: 200000)"
+                          value={selectedProfile.mealAllowance ?? 200000}
+                          onChange={(e) =>
+                            setSelectedProfile({
+                              ...selectedProfile,
+                              mealAllowance: e.target.value === "" ? 0 : parseInt(e.target.value) || 0,
+                            })
+                          }
+                          disabled={!canEdit}
+                        />
+                      </div>
+
+                      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                        <label
+                          style={{
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            color: "var(--text-main)",
+                            display: "block",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          차량보조금 (원) <span style={{ fontSize: "10.5px", fontWeight: 600, color: "var(--text-secondary)" }}>[수당]</span>
+                        </label>
+                        <input
+                          type="number"
+                          step="10000"
+                          min="0"
+                          style={{
+                            padding: "6px 10px",
+                            fontSize: "13px",
+                            fontWeight: "bold",
+                            width: "100%",
+                            borderRadius: "4px",
+                          }}
+                          placeholder="차량보조금 입력 (예: 200000)"
+                          value={selectedProfile.vehicleAllowance ?? 0}
+                          onChange={(e) =>
+                            setSelectedProfile({
+                              ...selectedProfile,
+                              vehicleAllowance: e.target.value === "" ? 0 : parseInt(e.target.value) || 0,
+                            })
+                          }
+                          disabled={!canEdit}
+                        />
+                      </div>
+                    </div>
+
+                    {/* 월 고정 급여 + 수당 합계 요약 */}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "5px 8px",
+                        backgroundColor: "var(--bg-card)",
+                        borderRadius: "4px",
+                        border: "1px solid var(--border-color)",
+                        fontSize: "11.5px",
+                      }}
+                    >
+                      <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>
+                        월 급여 합계 (기본급 + 식대 + 차량보조금)
+                      </span>
+                      <strong style={{ color: "var(--primary)", fontSize: "12.5px" }}>
+                        {(
+                          Number(selectedProfile.baseSalary || 0) +
+                          Number(selectedProfile.mealAllowance ?? 200000) +
+                          Number(selectedProfile.vehicleAllowance ?? 0)
+                        ).toLocaleString()}
+                        원
+                      </strong>
                     </div>
                   </div>
                 )}

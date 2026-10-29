@@ -92,6 +92,8 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<PayrollRecord | null>(null);
   const [inputBaseSalary, setInputBaseSalary] = useState("0");
+  const [inputMealAllowance, setInputMealAllowance] = useState("0");
+  const [inputVehicleAllowance, setInputVehicleAllowance] = useState("0");
   const [inputBonus, setInputBonus] = useState("0");
   const [inputServiceAmount, setInputServiceAmount] = useState("0");
 
@@ -271,6 +273,8 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
         body: JSON.stringify({
           id: editingRecord.id,
           baseSalary: cleanErpNumber(inputBaseSalary),
+          mealAllowance: cleanErpNumber(inputMealAllowance),
+          vehicleAllowance: cleanErpNumber(inputVehicleAllowance),
           bonus: cleanErpNumber(inputBonus),
           serviceContractAmount: cleanErpNumber(inputServiceAmount),
         }),
@@ -586,6 +590,8 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                               onClick={() => {
                                 setEditingRecord(r);
                                 setInputBaseSalary(toErpInputString(r.baseSalary));
+                                setInputMealAllowance(toErpInputString(r.mealAllowance ?? 200000));
+                                setInputVehicleAllowance(toErpInputString(r.vehicleAllowance ?? 0));
                                 setInputBonus(toErpInputString(r.bonus));
                                 setInputServiceAmount(toErpInputString(r.serviceContractAmount));
                                 setEditModalOpen(true);
@@ -948,6 +954,32 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                   onChange={(e) => setInputBaseSalary(formatErpInputNumber(e.target.value))}
                   className="bg-[#ebe5d8] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
+                    식대 (원) [수당]
+                  </label>
+                  <input
+                    type="text"
+                    value={inputMealAllowance}
+                    onChange={(e) => setInputMealAllowance(formatErpInputNumber(e.target.value))}
+                    className="bg-[#ebe5d8] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
+                    차량보조금 (원) [수당]
+                  </label>
+                  <input
+                    type="text"
+                    value={inputVehicleAllowance}
+                    onChange={(e) => setInputVehicleAllowance(formatErpInputNumber(e.target.value))}
+                    className="bg-[#ebe5d8] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
+                  />
+                </div>
               </div>
 
               <div className="flex flex-col gap-1">

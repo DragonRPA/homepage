@@ -61,6 +61,7 @@ export async function GET(request: Request) {
         COALESCE(c.tax_memo, '') as "taxMemo",
         COALESCE(c.tax_items, '[]'::jsonb) as "taxItems",
         COALESCE(c.assigned_employees, '[]'::jsonb) as "assignedEmployees",
+        COALESCE(c.include_ot_in_billing, false) as "includeOtInBilling",
         c.contract_file_name as "contractFileName",
         (c.contract_file_url IS NOT NULL AND c.contract_file_url <> '') as "hasContractFile",
         c.created_at as "createdAt"
@@ -115,6 +116,7 @@ export async function POST(request: Request) {
       taxMemo,
       taxItems,
       assignedEmployees,
+      includeOtInBilling,
       contractFileUrl,
       contractFileName,
     } = body;
@@ -158,10 +160,10 @@ export async function POST(request: Request) {
         contract_amount, monthly_fee, vat_amount, start_date, end_date, billing_day, status, memo,
         customer_biz_no, customer_ceo_name, customer_address, customer_biz_type, customer_biz_class,
         customer_email, customer_email2, tax_purpose, tax_memo, tax_items,
-        contract_file_url, contract_file_name, assigned_employees
+        contract_file_url, contract_file_name, assigned_employees, include_ot_in_billing
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ACTIVE', $13,
-        $14, $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb, $24, $25, $26::jsonb
+        $14, $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb, $24, $25, $26::jsonb, $27
       ) RETURNING id, contract_no AS "contractNo", customer_name AS "customerName", project_name AS "projectName"
       `,
       [
@@ -191,6 +193,7 @@ export async function POST(request: Request) {
         contractFileUrl || null,
         contractFileName || null,
         JSON.stringify(normalizedAssignedEmployees),
+        Boolean(includeOtInBilling),
       ]
     );
 
@@ -238,6 +241,7 @@ export async function PUT(request: Request) {
       taxMemo,
       taxItems,
       assignedEmployees,
+      includeOtInBilling,
       contractFileUrl,
       contractFileName,
     } = body;
@@ -291,8 +295,9 @@ export async function PUT(request: Request) {
         tax_items = COALESCE($23::jsonb, tax_items),
         contract_file_url = CASE WHEN $24::text = '__DELETE__' THEN NULL ELSE COALESCE($24, contract_file_url) END,
         contract_file_name = CASE WHEN $24::text = '__DELETE__' THEN NULL ELSE COALESCE($25, contract_file_name) END,
-        assigned_employees = COALESCE($26::jsonb, assigned_employees)
-      WHERE id = $27
+        assigned_employees = COALESCE($26::jsonb, assigned_employees),
+        include_ot_in_billing = COALESCE($27::boolean, include_ot_in_billing)
+      WHERE id = $28
       RETURNING id, contract_no AS "contractNo", customer_name AS "customerName", project_name AS "projectName"
       `,
       [
@@ -322,6 +327,7 @@ export async function PUT(request: Request) {
         contractFileUrl || null,
         contractFileName || null,
         normalizedAssignedEmployees,
+        includeOtInBilling !== undefined ? Boolean(includeOtInBilling) : null,
         parseInt(String(id), 10),
       ]
     );

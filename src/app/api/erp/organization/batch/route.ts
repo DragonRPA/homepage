@@ -122,6 +122,8 @@ export async function POST(request: Request) {
         u.hourlyWage !== undefined && Number(u.hourlyWage) > 0
           ? Number(u.hourlyWage)
           : Math.round((baseSalary || 3500000) / 209);
+      const mealAllowance = u.mealAllowance !== undefined ? Number(u.mealAllowance) || 0 : 200000;
+      const vehicleAllowance = u.vehicleAllowance !== undefined ? Number(u.vehicleAllowance) || 0 : 0;
       const salaryBankName = u.salaryBankName ? String(u.salaryBankName).trim() : null;
       const salaryAccountNo = u.salaryAccountNo ? String(u.salaryAccountNo).trim() : null;
       const salaryAccountHolder = u.salaryAccountHolder ? String(u.salaryAccountHolder).trim() : null;
@@ -153,20 +155,22 @@ export async function POST(request: Request) {
                employment_status = $9,
                base_salary = $10,
                hourly_wage = $11,
-               salary_bank_name = $12,
-               salary_account_no = $13,
-               salary_account_holder = $14,
-               phone = $15,
-               email = $16,
-               birth_date = $17,
-               join_date = $18,
-               leave_date = $19,
-               address = $20,
-               profile_image_url = $21,
-               login_id = COALESCE($22, login_id),
-               password_hash = COALESCE($23, password_hash),
+               meal_allowance = $12,
+               vehicle_allowance = $13,
+               salary_bank_name = $14,
+               salary_account_no = $15,
+               salary_account_holder = $16,
+               phone = $17,
+               email = $18,
+               birth_date = $19,
+               join_date = $20,
+               leave_date = $21,
+               address = $22,
+               profile_image_url = $23,
+               login_id = COALESCE($24, login_id),
+               password_hash = COALESCE($25, password_hash),
                updated_at = NOW()
-           WHERE id = $24`,
+           WHERE id = $26`,
           [
             empName,
             position,
@@ -179,6 +183,8 @@ export async function POST(request: Request) {
             dbStatus,
             baseSalary,
             hourlyWage,
+            mealAllowance,
+            vehicleAllowance,
             salaryBankName,
             salaryAccountNo,
             salaryAccountHolder,
@@ -207,14 +213,16 @@ export async function POST(request: Request) {
           `INSERT INTO erp_employees (
             employee_no, login_id, password_hash, name, position, duty, tier_level,
             department_id, department, role, role_code, employment_status, base_salary, hourly_wage,
+            meal_allowance, vehicle_allowance,
             salary_bank_name, salary_account_no, salary_account_holder,
             phone, email, birth_date, join_date, leave_date, address, profile_image_url,
             annual_leave_grant, must_change_password, created_at, updated_at
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7,
             $8, $9, $10, $11, $12, $13, $14,
-            $15, $16, $17,
-            $18, $19, $20, $21, $22, $23, $24,
+            $15, $16,
+            $17, $18, $19,
+            $20, $21, $22, $23, $24, $25, $26,
             15.0, true, NOW(), NOW()
           )`,
           [
@@ -232,6 +240,8 @@ export async function POST(request: Request) {
             dbStatus,
             baseSalary,
             hourlyWage,
+            mealAllowance,
+            vehicleAllowance,
             salaryBankName,
             salaryAccountNo,
             salaryAccountHolder,
@@ -287,6 +297,8 @@ export async function POST(request: Request) {
         e.role_code as "roleCode",
         e.base_salary as "baseSalary",
         COALESCE(e.hourly_wage, ROUND(COALESCE(e.base_salary, 3500000) / 209.0))::numeric as "hourlyWage",
+        COALESCE(e.meal_allowance, 200000)::numeric as "mealAllowance",
+        COALESCE(e.vehicle_allowance, 0)::numeric as "vehicleAllowance",
         e.salary_bank_name as "salaryBankName",
         e.salary_account_no as "salaryAccountNo",
         e.salary_account_holder as "salaryAccountHolder",

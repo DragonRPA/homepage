@@ -233,9 +233,13 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. 기본 자동 계산 로직 (1시간 표준임금 및 일시별 초과근무수당 반영)
+    // 2. 기본 자동 계산 로직 (1시간 표준임금, 식대, 차량보조금 및 일시별 초과근무수당 반영)
     const empRes = await pool.query(`
-      SELECT id, name, base_salary, COALESCE(hourly_wage, 0) as hourly_wage, COALESCE(service_contract_amount, 0) as service_contract_amount
+      SELECT id, name, base_salary,
+             COALESCE(hourly_wage, 0) as hourly_wage,
+             COALESCE(meal_allowance, 200000) as meal_allowance,
+             COALESCE(vehicle_allowance, 0) as vehicle_allowance,
+             COALESCE(service_contract_amount, 0) as service_contract_amount
       FROM erp_employees 
       WHERE employment_status = 'ACTIVE'
       ORDER BY id ASC
@@ -265,8 +269,8 @@ export async function POST(request: Request) {
 
       const hourlyRate = Number(emp.hourly_wage) > 0 ? Number(emp.hourly_wage) : Math.round(baseSalary / 209);
       const otPay = empOt.otPay > 0 ? empOt.otPay : Math.round(hourlyRate * 1.5 * otHours);
-      const mealAllowance = 200000;
-      const vehicleAllowance = 0;
+      const mealAllowance = Number(emp.meal_allowance ?? 200000);
+      const vehicleAllowance = Number(emp.vehicle_allowance ?? 0);
       const annualLeaveAllowance = 0;
       const bonus = 0;
       const totalGross = baseSalary + otPay + mealAllowance + vehicleAllowance + annualLeaveAllowance + bonus;
@@ -331,11 +335,11 @@ export async function POST(request: Request) {
   }
 }
 
-// PATCH: 개별 급여 항목 수정 (용역 계약금액, 기본급, 상여 등) 또는 상태 변경
+// PATCH: 개별 급여 항목 수정 (용역 계약금액, 기본급, 식대, 차량보조금, 상여 등) 또는 상태 변경
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, yearMonth, action, status, bonus, baseSalary, serviceContractAmount, payDate } = body;
+    const { id, yearMonth, action, status, bonus, baseSalary, mealAllowance, vehicleAllowance, serviceContractAmount, payDate } = body;
 
     const pool = getErpPool();
 
@@ -370,7 +374,13 @@ export async function PATCH(request: Request) {
     const rec = currentRes.rows[0];
 
     // 단독으로 용역 계약금액만 수정하는 경우
-    if (serviceContractAmount !== undefined && baseSalary === undefined && bonus === undefined) {
+    if (
+      serviceContractAmount !== undefined &&
+      baseSalary === undefined &&
+      bonus === undefined &&
+      mealAllowance === undefined &&
+      vehicleAllowance === undefined
+    ) {
       const amt = Number(serviceContractAmount || 0);
       const updateRes = await pool.query(
         `UPDATE erp_payroll_records 
@@ -397,12 +407,12 @@ export async function PATCH(request: Request) {
     const newBonus = bonus !== undefined ? Number(bonus) : Number(rec.bonus);
     const newServiceAmt = serviceContractAmount !== undefined ? Number(serviceContractAmount) : Number(rec.service_contract_amount || 0);
     const otPay = Number(rec.ot_pay || 0);
-    const mealAllowance = Number(rec.meal_allowance || 0);
-    const vehicleAllowance = Number(rec.vehicle_allowance || 0);
+    const newMealAllowance = mealAllowance !== undefined ? Number(mealAllowance) : Number(rec.meal_allowance || 0);
+    const newVehicleAllowance = vehicleAllowance !== undefined ? Number(vehicleAllowance) : Number(rec.vehicle_allowance || 0);
     const annualLeaveAllowance = Number(rec.annual_leave_allowance || 0);
 
-    const totalGross = newBaseSalary + otPay + mealAllowance + vehicleAllowance + annualLeaveAllowance + newBonus;
-    const taxable = Math.max(0, totalGross - mealAllowance - vehicleAllowance);
+    const totalGross = newBaseSalary + otPay + newMealAllowance + newVehicleAllowance + annualLeaveAllowance + newBonus;
+    const taxable = Math.max(0, totalGross - newMealAllowance - newVehicleAllowance);
 
     const nationalPension = Math.floor(taxable * 0.045);
     const healthInsurance = Math.floor(taxable * 0.03545);
@@ -419,19 +429,29 @@ export async function PATCH(request: Request) {
 
     const updateRes = await pool.query(
       `UPDATE erp_payroll_records 
-       SET base_salary = $1, bonus = $2, service_contract_amount = $3, total_gross = $4,
-           national_pension = $5, health_insurance = $6, employment_insurance = $7,
-           long_term_care_insurance = $8, income_tax = $9, local_tax = $10,
-           total_deduction = $11, net_salary = $12, pay_date = COALESCE($13, pay_date),
+       SET base_salary = $1, bonus = $2, service_contract_amount = $3,
+           meal_allowance = $4, vehicle_allowance = $5, total_gross = $6,
+           national_pension = $7, health_insurance = $8, employment_insurance = $9,
+           long_term_care_insurance = $10, income_tax = $11, local_tax = $12,
+           total_deduction = $13, net_salary = $14, pay_date = COALESCE($15, pay_date),
            updated_at = NOW()
-       WHERE id = $14
+       WHERE id = $16
        RETURNING *`,
       [
-        newBaseSalary, newBonus, newServiceAmt, totalGross,
+        newBaseSalary, newBonus, newServiceAmt,
+        newMealAllowance, newVehicleAllowance, totalGross,
         nationalPension, healthInsurance, employmentInsurance, longTermCareInsurance,
         incomeTax, localTax, totalDeduction, netSalary,
         payDate || null, id
       ]
+    );
+
+    // 임직원 마스터에도 기본급, 식대, 차량보조금, 용역계약금액 동기화
+    await pool.query(
+      `UPDATE erp_employees
+       SET base_salary = $1, meal_allowance = $2, vehicle_allowance = $3, service_contract_amount = $4, updated_at = NOW()
+       WHERE id = $5`,
+      [newBaseSalary, newMealAllowance, newVehicleAllowance, newServiceAmt, rec.employee_id]
     );
 
     return NextResponse.json({

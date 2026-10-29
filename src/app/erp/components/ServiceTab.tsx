@@ -76,6 +76,13 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const ctFileInputRef = useRef<HTMLInputElement>(null);
   const [ctAssignedEmployees, setCtAssignedEmployees] = useState<AssignedServiceEmployee[]>([]);
   const [ctSelectedEmpId, setCtSelectedEmpId] = useState<string>("");
+  const [ctIncludeOtInBilling, setCtIncludeOtInBilling] = useState<boolean>(false);
+  const [ctOtBreakdown, setCtOtBreakdown] = useState<{
+    month: string;
+    totalHours: number;
+    totalOtPay: number;
+    byEmp: Record<number, { hours: number; otPay: number; count: number }>;
+  }>({ month: "", totalHours: 0, totalOtPay: 0, byEmp: {} });
 
   // Contract Form (Edit)
   const [editCtId, setEditCtId] = useState<number | null>(null);
@@ -101,6 +108,13 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const editFileInputRef = useRef<HTMLInputElement>(null);
   const [editCtAssignedEmployees, setEditCtAssignedEmployees] = useState<AssignedServiceEmployee[]>([]);
   const [editCtSelectedEmpId, setEditCtSelectedEmpId] = useState<string>("");
+  const [editCtIncludeOtInBilling, setEditCtIncludeOtInBilling] = useState<boolean>(false);
+  const [editCtOtBreakdown, setEditCtOtBreakdown] = useState<{
+    month: string;
+    totalHours: number;
+    totalOtPay: number;
+    byEmp: Record<number, { hours: number; otPay: number; count: number }>;
+  }>({ month: "", totalHours: 0, totalOtPay: 0, byEmp: {} });
 
   // Billing Form
   const [blContractId, setBlContractId] = useState("");
@@ -111,6 +125,14 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const [blTaxSpec, setBlTaxSpec] = useState<BuyerTaxSpec>(() =>
     createDefaultTaxSpec("정기 용역료", 1000000)
   );
+  const [blIncludeOtInBilling, setBlIncludeOtInBilling] = useState<boolean>(false);
+  const [blOtSummary, setBlOtSummary] = useState<{
+    loading: boolean;
+    month: string;
+    totalHours: number;
+    totalOtPay: number;
+    items: Array<{ employeeId: number; employeeName: string; hours: number; otPay: number; count: number }>;
+  }>({ loading: false, month: "", totalHours: 0, totalOtPay: 0, items: [] });
 
   // Toast
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
@@ -210,55 +232,168 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     fetchPartners();
   }, []);
 
-  // 투입 임직원 목록이 변경될 때 월 정기 용역료 및 세금계산서 1번째 품목에 합계금액/인원규격 동기화
-  const syncAssignedEmployeesToContract = (
+  // 투입 임직원들의 특정 연월(YYYY-MM) 초과근무수당 합산 조회 헬퍼
+  const fetchAssignedOvertimeBreakdown = async (
     list: AssignedServiceEmployee[],
-    isEdit: boolean
+    monthStr: string
   ) => {
+    const targetMonth = (monthStr || new Date().toISOString().slice(0, 7)).slice(0, 7);
+    if (!Array.isArray(list) || list.length === 0) {
+      return {
+        month: targetMonth,
+        totalHours: 0,
+        totalOtPay: 0,
+        byEmp: {} as Record<number, { hours: number; otPay: number; count: number }>,
+        items: [] as Array<{ employeeId: number; employeeName: string; hours: number; otPay: number; count: number }>,
+      };
+    }
+
+    const empIds = list.map((e) => Number(e.employeeId)).filter((id) => !isNaN(id) && id > 0);
+    if (empIds.length === 0) {
+      return {
+        month: targetMonth,
+        totalHours: 0,
+        totalOtPay: 0,
+        byEmp: {} as Record<number, { hours: number; otPay: number; count: number }>,
+        items: [] as Array<{ employeeId: number; employeeName: string; hours: number; otPay: number; count: number }>,
+      };
+    }
+
+    try {
+      const res = await fetch(
+        `/api/erp/overtimes?month=${encodeURIComponent(targetMonth)}&employeeIds=${empIds.join(",")}`
+      );
+      const data = await res.json();
+      const rows: any[] = data.overtimes || [];
+
+      const byEmp: Record<number, { hours: number; otPay: number; count: number }> = {};
+      empIds.forEach((id) => {
+        byEmp[id] = { hours: 0, otPay: 0, count: 0 };
+      });
+
+      let totalHours = 0;
+      let totalOtPay = 0;
+
+      rows.forEach((r) => {
+        if (r.status === "REJECTED") return;
+        const eid = Number(r.employeeId);
+        if (!byEmp[eid]) byEmp[eid] = { hours: 0, otPay: 0, count: 0 };
+        const h = Number(r.otHours || 0);
+        const p = Number(r.otPay || 0);
+        byEmp[eid].hours = Math.round((byEmp[eid].hours + h) * 100) / 100;
+        byEmp[eid].otPay += p;
+        byEmp[eid].count += 1;
+        totalHours = Math.round((totalHours + h) * 100) / 100;
+        totalOtPay += p;
+      });
+
+      const items = list.map((emp) => ({
+        employeeId: emp.employeeId,
+        employeeName: emp.name,
+        hours: byEmp[emp.employeeId]?.hours || 0,
+        otPay: byEmp[emp.employeeId]?.otPay || 0,
+        count: byEmp[emp.employeeId]?.count || 0,
+      }));
+
+      return { month: targetMonth, totalHours, totalOtPay, byEmp, items };
+    } catch (e) {
+      console.warn("투입 임직원 초과근무 조회 실패:", e);
+      return {
+        month: targetMonth,
+        totalHours: 0,
+        totalOtPay: 0,
+        byEmp: {} as Record<number, { hours: number; otPay: number; count: number }>,
+        items: [] as Array<{ employeeId: number; employeeName: string; hours: number; otPay: number; count: number }>,
+      };
+    }
+  };
+
+  // 투입 임직원 목록 또는 초과근무수당 반영 옵션이 변경될 때 월 정기 용역료 및 세금계산서 품목 동기화
+  const syncAssignedEmployeesToContract = async (
+    list: AssignedServiceEmployee[],
+    isEdit: boolean,
+    overrideIncludeOt?: boolean
+  ) => {
+    const includeOt =
+      overrideIncludeOt !== undefined
+        ? overrideIncludeOt
+        : isEdit
+        ? editCtIncludeOtInBilling
+        : ctIncludeOtInBilling;
+
     const totalRate = list.reduce((acc, item) => acc + (Number(item.contractRate) || 0), 0);
-    const totalVat = Math.round(totalRate * 0.1);
+    const baseVat = Math.round(totalRate * 0.1);
     const countSpec = list.length > 0 ? `${list.length}인` : "";
+
+    const curMonth = new Date().toISOString().slice(0, 7);
+    const otBreakdown = await fetchAssignedOvertimeBreakdown(list, curMonth);
 
     if (isEdit) {
       setEditCtAssignedEmployees(list);
+      setEditCtOtBreakdown(otBreakdown);
+    } else {
+      setCtAssignedEmployees(list);
+      setCtOtBreakdown(otBreakdown);
+    }
+
+    const otPayToAdd = includeOt ? otBreakdown.totalOtPay : 0;
+    const otVatToAdd = Math.round(otPayToAdd * 0.1);
+    const combinedSupply = totalRate + otPayToAdd;
+    const combinedVat = Math.round(combinedSupply * 0.1);
+
+    const buildUpdatedTaxItems = (prevItems: any[]) => {
+      const nonOtItems = prevItems.filter(
+        (it) => !String(it?.itemName || "").includes("초과근무수당")
+      );
+      const updatedBase = nonOtItems.map((it, idx) =>
+        idx === 0 && list.length > 0
+          ? {
+              ...it,
+              spec: countSpec || it.spec,
+              qty: 1,
+              unitCost: totalRate,
+              supplyAmount: totalRate,
+              vatAmount: baseVat,
+            }
+          : it
+      );
+
+      if (includeOt && list.length > 0) {
+        const noteStr = otBreakdown.items
+          .filter((x) => x.otPay > 0 || x.hours > 0)
+          .map((x) => `${x.employeeName} ${x.hours}h(${x.otPay.toLocaleString()}원)`)
+          .join(", ");
+        updatedBase.push({
+          month: curMonth.slice(5, 7),
+          day: "25",
+          itemName: "초과근무수당 {yymm}",
+          spec: `${list.length}인 (${otBreakdown.totalHours}h)`,
+          qty: 1,
+          unitCost: otPayToAdd,
+          supplyAmount: otPayToAdd,
+          vatAmount: otVatToAdd,
+          note: noteStr || "투입인원 초과근무수당 자동합산",
+        });
+      }
+      return updatedBase;
+    };
+
+    if (isEdit) {
       if (activeType === "OPERATIONAL" && list.length > 0) {
-        setEditCtMonthlyFee(toErpInputString(totalRate));
-        setEditCtVatAmount(toErpInputString(totalVat));
+        setEditCtMonthlyFee(toErpInputString(combinedSupply));
+        setEditCtVatAmount(toErpInputString(combinedVat));
         setEditCtTaxSpec((prev) => ({
           ...prev,
-          taxItems: prev.taxItems.map((it, idx) =>
-            idx === 0
-              ? {
-                  ...it,
-                  spec: countSpec || it.spec,
-                  qty: 1,
-                  unitCost: totalRate,
-                  supplyAmount: totalRate,
-                  vatAmount: totalVat,
-                }
-              : it
-          ),
+          taxItems: buildUpdatedTaxItems(prev.taxItems),
         }));
       }
     } else {
-      setCtAssignedEmployees(list);
       if (activeType === "OPERATIONAL" && list.length > 0) {
-        setCtMonthlyFee(toErpInputString(totalRate));
-        setCtVatAmount(toErpInputString(totalVat));
+        setCtMonthlyFee(toErpInputString(combinedSupply));
+        setCtVatAmount(toErpInputString(combinedVat));
         setCtTaxSpec((prev) => ({
           ...prev,
-          taxItems: prev.taxItems.map((it, idx) =>
-            idx === 0
-              ? {
-                  ...it,
-                  spec: countSpec || it.spec,
-                  qty: 1,
-                  unitCost: totalRate,
-                  supplyAmount: totalRate,
-                  vatAmount: totalVat,
-                }
-              : it
-          ),
+          taxItems: buildUpdatedTaxItems(prev.taxItems),
         }));
       }
     }
@@ -397,6 +532,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           taxMemo: ctTaxSpec.taxMemo,
           taxItems: ctTaxSpec.taxItems,
           assignedEmployees: ctAssignedEmployees,
+          includeOtInBilling: ctIncludeOtInBilling,
         }),
       });
       const data = await res.json();
@@ -413,6 +549,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       setCtFileName("");
       setCtAssignedEmployees([]);
       setCtSelectedEmpId("");
+      setCtIncludeOtInBilling(false);
+      setCtOtBreakdown({ month: "", totalHours: 0, totalOtPay: 0, byEmp: {} });
       setCtTaxSpec(createDefaultTaxSpec("용역료 {yymm}", 1000000));
       fetchData();
     } catch (err: any) {
@@ -421,7 +559,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   };
 
   // Open Edit Contract Modal
-  const handleOpenEditContract = (c: any) => {
+  const handleOpenEditContract = async (c: any) => {
     setEditCtId(c.id);
     setEditCtContractNo(c.contractNo);
     setEditCtEntityType(c.entityType || "CORP");
@@ -440,10 +578,12 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     setEditCtMemo(c.memo || "");
     setEditCtFileUrl("");
     setEditCtFileName(c.contractFileName || "");
-    setEditCtAssignedEmployees(
-      Array.isArray(c.assignedEmployees) ? c.assignedEmployees.map((emp: any) => ({ ...emp })) : []
-    );
+    const assignedList: AssignedServiceEmployee[] = Array.isArray(c.assignedEmployees)
+      ? c.assignedEmployees.map((emp: any) => ({ ...emp }))
+      : [];
+    setEditCtAssignedEmployees(assignedList);
     setEditCtSelectedEmpId("");
+    setEditCtIncludeOtInBilling(Boolean(c.includeOtInBilling));
 
     const defaultSpec = createDefaultTaxSpec(c.projectName || "용역료", baseSupply);
     setEditCtTaxSpec({
@@ -470,6 +610,14 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
             ],
     });
     setShowEditContractModal(true);
+
+    if (assignedList.length > 0) {
+      const curMonth = new Date().toISOString().slice(0, 7);
+      const breakdown = await fetchAssignedOvertimeBreakdown(assignedList, curMonth);
+      setEditCtOtBreakdown(breakdown);
+    } else {
+      setEditCtOtBreakdown({ month: "", totalHours: 0, totalOtPay: 0, byEmp: {} });
+    }
   };
 
   // Handle Update Contract
@@ -513,6 +661,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           taxMemo: editCtTaxSpec.taxMemo,
           taxItems: editCtTaxSpec.taxItems,
           assignedEmployees: editCtAssignedEmployees,
+          includeOtInBilling: editCtIncludeOtInBilling,
         }),
       });
       const data = await res.json();
@@ -548,26 +697,53 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     }
   };
 
-  // 선택된 용역계약의 치환식을 기준일자(dateStr)로 평가하여 청구 폼 상태에 즉시 반영하는 헬퍼
-  const applyServiceContractTemplateToBilling = (ct: any, dateStr: string) => {
+  // 선택된 용역계약의 치환식 및 투입인원 초과근무수당을 기준일자(dateStr)로 평가하여 청구 폼 상태에 즉시 반영하는 헬퍼
+  const applyServiceContractTemplateToBilling = async (
+    ct: any,
+    dateStr: string,
+    overrideIncludeOt?: boolean
+  ) => {
     if (!ct) return;
+    const includeOt =
+      overrideIncludeOt !== undefined ? overrideIncludeOt : Boolean(ct.includeOtInBilling);
+    setBlIncludeOtInBilling(includeOt);
+
+    const assignedList: AssignedServiceEmployee[] = Array.isArray(ct.assignedEmployees)
+      ? ct.assignedEmployees
+      : [];
+    const empContractSum = assignedList.reduce((acc, e) => acc + (Number(e.contractRate) || 0), 0);
+
+    // 기본 계약 월 용역료 (이미 계약 taxItems에 초과근무수당이 들어있는 경우 순수 기본 용역료만 분리)
+    const rawTaxItems = Array.isArray(ct.taxItems) ? ct.taxItems : [];
+    const nonOtTemplateItems = rawTaxItems.filter(
+      (it: any) => !String(it?.itemName || "").includes("초과근무수당")
+    );
+    const nonOtSupplySum = nonOtTemplateItems.reduce(
+      (acc: number, it: any) => acc + (Number(it.supplyAmount) || 0),
+      0
+    );
+
     const baseSupply =
       activeType === "OPERATIONAL"
-        ? Number(ct.monthlyFee || 1000000)
+        ? nonOtSupplySum > 0
+          ? nonOtSupplySum
+          : empContractSum > 0
+          ? empContractSum
+          : Number(ct.monthlyFee || 1000000)
         : Number(ct.contractAmount || 1000000);
-    const baseVat = ct.vatAmount != null ? Number(ct.vatAmount) : Math.round(baseSupply * 0.1);
+    const baseVat = Math.round(baseSupply * 0.1);
 
     const rawTemplateName =
       ct.taxMemo || ct.projectName || (activeType === "OPERATIONAL" ? "정기 용역료" : "기성금");
     const rawItems =
-      Array.isArray(ct.taxItems) && ct.taxItems.length > 0
-        ? ct.taxItems
+      nonOtTemplateItems.length > 0
+        ? nonOtTemplateItems
         : [
             {
               month: dateStr.slice(5, 7),
               day: dateStr.slice(8, 10),
               itemName: ct.projectName || rawTemplateName,
-              spec: "",
+              spec: assignedList.length > 0 ? `${assignedList.length}인` : "",
               qty: 1,
               unitCost: baseSupply,
               supplyAmount: baseSupply,
@@ -576,10 +752,52 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
             },
           ];
 
-    const resolvedItems = resolveContractTaxItemsTemplate(rawItems, {
+    const resolvedItems: any[] = resolveContractTaxItemsTemplate(rawItems, {
       dateStr,
       fallbackFirstItem: ct.projectName,
     });
+
+    const targetMonth = (dateStr || new Date().toISOString().slice(0, 10)).slice(0, 7);
+    let totalOtPay = 0;
+
+    if (assignedList.length > 0) {
+      setBlOtSummary((prev) => ({ ...prev, loading: true, month: targetMonth }));
+      const otData = await fetchAssignedOvertimeBreakdown(assignedList, targetMonth);
+      setBlOtSummary({
+        loading: false,
+        month: otData.month,
+        totalHours: otData.totalHours,
+        totalOtPay: otData.totalOtPay,
+        items: otData.items,
+      });
+
+      if (includeOt) {
+        totalOtPay = otData.totalOtPay;
+        const otVat = Math.round(totalOtPay * 0.1);
+        const noteStr = otData.items
+          .filter((x) => x.otPay > 0 || x.hours > 0)
+          .map((x) => `${x.employeeName} ${x.hours}h(${x.otPay.toLocaleString()}원)`)
+          .join(", ");
+
+        resolvedItems.push({
+          month: dateStr.slice(5, 7),
+          day: dateStr.slice(8, 10),
+          itemName: `초과근무수당 (${targetMonth})`,
+          spec: `투입인원 ${assignedList.length}인 (${otData.totalHours}h)`,
+          qty: 1,
+          unitCost: totalOtPay,
+          supplyAmount: totalOtPay,
+          vatAmount: otVat,
+          note: noteStr || `${targetMonth} 투입인원 초과근무수당 합산`,
+        });
+      }
+    } else {
+      setBlOtSummary({ loading: false, month: targetMonth, totalHours: 0, totalOtPay: 0, items: [] });
+    }
+
+    const finalSupply = baseSupply + totalOtPay;
+    const finalVat = Math.round(finalSupply * 0.1);
+
     const resolvedMilestone = resolveContractItemTemplate(rawTemplateName, {
       dateStr,
       items: resolvedItems,
@@ -591,10 +809,10 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       fallbackFirstItem: resolvedItems[0]?.itemName || ct.projectName,
     });
 
-    setBlSupplyAmount(toErpInputString(baseSupply));
-    setBlVatAmount(toErpInputString(baseVat));
+    setBlSupplyAmount(toErpInputString(finalSupply));
+    setBlVatAmount(toErpInputString(finalVat));
     setBlMilestoneName(resolvedMilestone);
-    const defSpec = createDefaultTaxSpec(resolvedMilestone, baseSupply);
+    const defSpec = createDefaultTaxSpec(resolvedMilestone, finalSupply);
     setBlTaxSpec({
       ...defSpec,
       taxPurpose: ct.taxPurpose === "영수" ? "영수" : "청구",
@@ -790,7 +1008,14 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       <td className="py-2 px-2.5 border-r border-[#b5a894] font-mono text-blue-800 font-bold">{c.contractNo}</td>
                       <td className="py-2 px-2.5 border-r border-[#b5a894] font-bold text-[#1c1917]">{c.customerName}</td>
                       <td className="py-2 px-2.5 border-r border-[#b5a894] text-[#1c1917]">
-                        <div>{c.projectName}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span>{c.projectName}</span>
+                          {c.includeOtInBilling && (
+                            <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300">
+                              초과근무수당 반영
+                            </span>
+                          )}
+                        </div>
                         {Array.isArray(c.assignedEmployees) && c.assignedEmployees.length > 0 && (
                           <div className="text-[10px] font-semibold text-blue-800 mt-0.5">
                             투입 {c.assignedEmployees.length}명:{" "}
@@ -1196,11 +1421,31 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       투입 임직원 및 직원별 월 계약금액(받는금액) 편성
                     </span>
                     <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px]">
-                      총 {ctAssignedEmployees.length}명 | 합계 ₩
+                      총 {ctAssignedEmployees.length}명 | 기본 합계{" "}
                       {formatErpCurrency(
                         ctAssignedEmployees.reduce((s, e) => s + (Number(e.contractRate) || 0), 0)
                       )}
+                      {ctIncludeOtInBilling && (
+                        <span className="ml-1 text-indigo-800">
+                          + 초과근무수당 {formatErpCurrency(ctOtBreakdown.totalOtPay)}
+                        </span>
+                      )}
                     </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-indigo-300 bg-indigo-50 text-indigo-900 font-bold text-[11px] cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={ctIncludeOtInBilling}
+                        onChange={(e) => {
+                          const nextVal = e.target.checked;
+                          setCtIncludeOtInBilling(nextVal);
+                          syncAssignedEmployeesToContract(ctAssignedEmployees, false, nextVal);
+                        }}
+                        className="w-3.5 h-3.5 accent-indigo-700"
+                      />
+                      <span>초과근무수당 반영 (투입인원 초과근무수당 자동합산 청구)</span>
+                    </label>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <select
@@ -1272,11 +1517,14 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                         <th className="py-1.5 px-2">성명 / 직급</th>
                         <th className="py-1.5 px-2">부서</th>
                         <th className="py-1.5 px-2 text-right w-40">직원당 계약금액 (받는금액, 원)</th>
+                        <th className="py-1.5 px-2 text-right w-36">당월 초과근무수당 (자동합산)</th>
                         <th className="py-1.5 px-2">업무/역할 비고</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#b5a894] bg-[#f4efe4]">
-                      {ctAssignedEmployees.map((row, idx) => (
+                      {ctAssignedEmployees.map((row, idx) => {
+                        const empOt = ctOtBreakdown.byEmp[row.employeeId] || { hours: 0, otPay: 0, count: 0 };
+                        return (
                         <tr key={row.employeeId}>
                           <td className="py-1.5 px-2 text-center">
                             <button
@@ -1310,6 +1558,12 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                               className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-right font-mono font-bold text-blue-900"
                             />
                           </td>
+                          <td className="py-1.5 px-2 text-right font-mono">
+                            <span className={ctIncludeOtInBilling && empOt.otPay > 0 ? "font-bold text-indigo-800" : "text-[#78716c]"}>
+                              {formatErpCurrency(empOt.otPay)}
+                            </span>
+                            <span className="ml-1 text-[10px] text-[#78716c]">({empOt.hours}h)</span>
+                          </td>
                           <td className="py-1.5 px-2">
                             <input
                               type="text"
@@ -1325,7 +1579,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                             />
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
@@ -1697,11 +1952,31 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                       투입 임직원 및 직원별 월 계약금액(받는금액) 편성
                     </span>
                     <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px]">
-                      총 {editCtAssignedEmployees.length}명 | 합계 ₩
+                      총 {editCtAssignedEmployees.length}명 | 기본 합계{" "}
                       {formatErpCurrency(
                         editCtAssignedEmployees.reduce((s, e) => s + (Number(e.contractRate) || 0), 0)
                       )}
+                      {editCtIncludeOtInBilling && (
+                        <span className="ml-1 text-indigo-800">
+                          + 초과근무수당 {formatErpCurrency(editCtOtBreakdown.totalOtPay)}
+                        </span>
+                      )}
                     </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-indigo-300 bg-indigo-50 text-indigo-900 font-bold text-[11px] cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCtIncludeOtInBilling}
+                        onChange={(e) => {
+                          const nextVal = e.target.checked;
+                          setEditCtIncludeOtInBilling(nextVal);
+                          syncAssignedEmployeesToContract(editCtAssignedEmployees, true, nextVal);
+                        }}
+                        className="w-3.5 h-3.5 accent-indigo-700"
+                      />
+                      <span>초과근무수당 반영 (투입인원 초과근무수당 자동합산 청구)</span>
+                    </label>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <select
@@ -1773,11 +2048,14 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                         <th className="py-1.5 px-2">성명 / 직급</th>
                         <th className="py-1.5 px-2">부서</th>
                         <th className="py-1.5 px-2 text-right w-40">직원당 계약금액 (받는금액, 원)</th>
+                        <th className="py-1.5 px-2 text-right w-36">당월 초과근무수당 (자동합산)</th>
                         <th className="py-1.5 px-2">업무/역할 비고</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#b5a894] bg-[#f4efe4]">
-                      {editCtAssignedEmployees.map((row, idx) => (
+                      {editCtAssignedEmployees.map((row, idx) => {
+                        const empOt = editCtOtBreakdown.byEmp[row.employeeId] || { hours: 0, otPay: 0, count: 0 };
+                        return (
                         <tr key={row.employeeId}>
                           <td className="py-1.5 px-2 text-center">
                             <button
@@ -1811,6 +2089,12 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                               className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-right font-mono font-bold text-blue-900"
                             />
                           </td>
+                          <td className="py-1.5 px-2 text-right font-mono">
+                            <span className={editCtIncludeOtInBilling && empOt.otPay > 0 ? "font-bold text-indigo-800" : "text-[#78716c]"}>
+                              {formatErpCurrency(empOt.otPay)}
+                            </span>
+                            <span className="ml-1 text-[10px] text-[#78716c]">({empOt.hours}h)</span>
+                          </td>
                           <td className="py-1.5 px-2">
                             <input
                               type="text"
@@ -1826,7 +2110,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                             />
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
@@ -1996,6 +2281,49 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                   />
                 </div>
               </div>
+
+              {/* 투입인원 초과근무수당 자동합산 반영 섹션 */}
+              {blContractId && (
+                <div className="p-3 rounded border border-indigo-300 bg-[#ebe5d8] flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="inline-flex items-center gap-2 font-bold text-xs text-indigo-900 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={blIncludeOtInBilling}
+                        onChange={(e) => {
+                          const nextVal = e.target.checked;
+                          const ct = contracts.find((c) => String(c.id) === blContractId);
+                          if (ct) {
+                            applyServiceContractTemplateToBilling(ct, blDate, nextVal);
+                          } else {
+                            setBlIncludeOtInBilling(nextVal);
+                          }
+                        }}
+                        className="w-4 h-4 accent-indigo-700"
+                      />
+                      <span>
+                        초과근무수당 청구 반영 ({blOtSummary.month || blDate.slice(0, 7)} 투입인원 초과근무수당 자동합산)
+                      </span>
+                    </label>
+                    <div className="text-xs font-mono font-bold text-indigo-900">
+                      합산 초과근무: {blOtSummary.totalHours}시간 | 합산 수당액:{" "}
+                      <span className="text-blue-800">{formatErpCurrency(blOtSummary.totalOtPay)}</span>
+                    </div>
+                  </div>
+                  {blOtSummary.items.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[#b5a894] text-[11px]">
+                      {blOtSummary.items.map((it) => (
+                        <span
+                          key={it.employeeId}
+                          className="px-2 py-0.5 rounded bg-[#f4efe4] border border-[#b5a894] font-mono text-[#1c1917]"
+                        >
+                          <strong>{it.employeeName}</strong>: {it.hours}h ({formatErpCurrency(it.otPay)})
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* 청구별 세금계산서 다중 품목 명세 (예: 운영용역비 + 초과근무 + 퇴직금 + 연차수당) */}
               <ContractTaxInvoiceSection

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Clock,
   Plus,
@@ -17,6 +17,9 @@ import {
 import {
   formatErpNumber,
   formatErpCurrency,
+  formatErpInputNumber,
+  toErpInputString,
+  cleanErpNumber,
   sortErpItems,
   SortDirection,
   calculateOvertimeBreakdown,
@@ -109,13 +112,124 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
     employeeId: currentUserId || 1,
     otDate: todayStr,
     isHoliday: isKoreanNonWorkingDay(todayStr),
-    startTime: "18:00",
-    endTime: "21:00",
+    startHour: "18",
+    startMin: "00",
+    endHour: "21",
+    endMin: "00",
     otHours: 3.0,
     customOtPay: null as number | null,
     reason: OT_REASONS[0],
     autoApprove: true,
   });
+
+  // 24시간 시/분 키입력 포커스 이동용 Refs
+  const startHourRef = useRef<HTMLInputElement>(null);
+  const startMinRef = useRef<HTMLInputElement>(null);
+  const endHourRef = useRef<HTMLInputElement>(null);
+  const endMinRef = useRef<HTMLInputElement>(null);
+
+  const normalizedStartTime = useMemo(() => {
+    const h = Math.min(23, Math.max(0, parseInt(otForm.startHour, 10) || 0));
+    const m = Math.min(59, Math.max(0, parseInt(otForm.startMin, 10) || 0));
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }, [otForm.startHour, otForm.startMin]);
+
+  const normalizedEndTime = useMemo(() => {
+    const h = Math.min(23, Math.max(0, parseInt(otForm.endHour, 10) || 0));
+    const m = Math.min(59, Math.max(0, parseInt(otForm.endMin, 10) || 0));
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }, [otForm.endHour, otForm.endMin]);
+
+  // 4자리 연속 숫자(예: "1830") 또는 시/분 개별 키보드 입력 핸들러
+  const handleHourInputChange = (
+    rawVal: string,
+    hourField: "startHour" | "endHour",
+    minField: "startMin" | "endMin",
+    nextMinRef: React.RefObject<HTMLInputElement | null>
+  ) => {
+    const digits = rawVal.replace(/[^0-9]/g, "");
+    if (!digits) {
+      setOtForm((prev) => ({ ...prev, [hourField]: "", customOtPay: null }));
+      return;
+    }
+    // 3~4자리 연속 타이핑 또는 붙여넣기 시 (예: 1830 -> 18시 30분)
+    if (digits.length >= 3) {
+      const hRaw = digits.slice(0, 2);
+      const mRaw = digits.slice(2, 4);
+      const hClamped = String(Math.min(23, parseInt(hRaw, 10) || 0)).padStart(2, "0");
+      const mClamped = mRaw.length === 2
+        ? String(Math.min(59, parseInt(mRaw, 10) || 0)).padStart(2, "0")
+        : mRaw;
+      setOtForm((prev) => ({
+        ...prev,
+        [hourField]: hClamped,
+        [minField]: mClamped,
+        customOtPay: null,
+      }));
+      nextMinRef.current?.focus();
+      return;
+    }
+    if (digits.length === 2) {
+      const hNum = parseInt(digits, 10);
+      const hClamped = String(Math.min(23, isNaN(hNum) ? 0 : hNum)).padStart(2, "0");
+      setOtForm((prev) => ({ ...prev, [hourField]: hClamped, customOtPay: null }));
+      nextMinRef.current?.focus();
+      nextMinRef.current?.select();
+      return;
+    }
+    // 1자리 입력 중: 3~9를 치면 24시간제에서 30시 이상은 불가능하므로 즉시 03~09시로 확정 후 분 칸으로 자동 이동
+    const single = parseInt(digits, 10);
+    if (single >= 3 && single <= 9) {
+      setOtForm((prev) => ({ ...prev, [hourField]: `0${single}`, customOtPay: null }));
+      nextMinRef.current?.focus();
+      nextMinRef.current?.select();
+    } else {
+      setOtForm((prev) => ({ ...prev, [hourField]: digits, customOtPay: null }));
+    }
+  };
+
+  const handleMinInputChange = (
+    rawVal: string,
+    minField: "startMin" | "endMin",
+    nextRef?: React.RefObject<HTMLInputElement | null>
+  ) => {
+    const digits = rawVal.replace(/[^0-9]/g, "").slice(0, 2);
+    if (!digits) {
+      setOtForm((prev) => ({ ...prev, [minField]: "", customOtPay: null }));
+      return;
+    }
+    if (digits.length === 2) {
+      const mNum = parseInt(digits, 10);
+      const mClamped = String(Math.min(59, isNaN(mNum) ? 0 : mNum)).padStart(2, "0");
+      setOtForm((prev) => ({ ...prev, [minField]: mClamped, customOtPay: null }));
+      if (nextRef?.current) {
+        nextRef.current.focus();
+        nextRef.current.select();
+      }
+      return;
+    }
+    // 1자리 입력 중: 6~9를 치면 60분 이상은 불가능하므로 즉시 06~09분으로 확정
+    const single = parseInt(digits, 10);
+    if (single >= 6 && single <= 9) {
+      setOtForm((prev) => ({ ...prev, [minField]: `0${single}`, customOtPay: null }));
+      if (nextRef?.current) {
+        nextRef.current.focus();
+        nextRef.current.select();
+      }
+    } else {
+      setOtForm((prev) => ({ ...prev, [minField]: digits, customOtPay: null }));
+    }
+  };
+
+  const padTimeFieldOnBlur = (field: "startHour" | "startMin" | "endHour" | "endMin", maxVal: number) => {
+    setOtForm((prev) => {
+      const n = Math.min(maxVal, Math.max(0, parseInt(String(prev[field] || "0"), 10) || 0));
+      return {
+        ...prev,
+        [field]: String(n).padStart(2, "0"),
+      };
+    });
+  };
 
   const [toastMessage, setToastMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const showToast = (text: string, type: "success" | "error" = "success") => {
@@ -174,12 +288,12 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
   const liveBreakdown = useMemo(() => {
     return calculateOvertimeBreakdown({
       otDate: otForm.otDate,
-      startTime: otForm.startTime,
-      endTime: otForm.endTime,
+      startTime: normalizedStartTime,
+      endTime: normalizedEndTime,
       hourlyWage: modalEmpHourlyWage,
       overrideIsHoliday: otForm.isHoliday,
     });
-  }, [otForm.otDate, otForm.startTime, otForm.endTime, modalEmpHourlyWage, otForm.isHoliday]);
+  }, [otForm.otDate, normalizedStartTime, normalizedEndTime, modalEmpHourlyWage, otForm.isHoliday]);
 
   // Filtered
   const filteredOvertimes = useMemo(() => {
@@ -286,8 +400,8 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
           employeeId: otForm.employeeId,
           otDate: otForm.otDate,
           isHoliday: otForm.isHoliday,
-          startTime: otForm.startTime,
-          endTime: otForm.endTime,
+          startTime: normalizedStartTime,
+          endTime: normalizedEndTime,
           otHours: liveBreakdown.otHours,
           hourlyWage: modalEmpHourlyWage,
           otPay: finalPay,
@@ -493,8 +607,10 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                 employeeId: defaultEmpId,
                 otDate: initDate,
                 isHoliday: isKoreanNonWorkingDay(initDate),
-                startTime: "18:00",
-                endTime: "21:00",
+                startHour: "18",
+                startMin: "00",
+                endHour: "21",
+                endMin: "00",
                 otHours: 3.0,
                 customOtPay: null,
                 reason: OT_REASONS[0],
@@ -740,71 +856,257 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">근무일 구분 (자동/수동)</label>
-                  <select
-                    value={otForm.isHoliday ? "HOLIDAY" : "WEEKDAY"}
-                    onChange={(e) =>
-                      setOtForm({
-                        ...otForm,
-                        isHoliday: e.target.value === "HOLIDAY",
-                        customOtPay: null,
-                      })
-                    }
-                    className={`border text-xs px-3 py-2 rounded font-bold focus:outline-none ${
-                      otForm.isHoliday
-                        ? "bg-[#fef2f2] border-[#dc2626] text-[#b91c1c]"
-                        : "bg-[#f4efe4] border-[#b5a894] text-[#0f172a]"
-                    }`}
-                  >
-                    <option value="WEEKDAY">보통 근무일 (평일 초과 1.5배)</option>
-                    <option value="HOLIDAY">비근무일 출근 (8h이내 1.5배 / 초과 2.0배)</option>
-                  </select>
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
+                    근무일 구분 (요일/공휴일 자동판정)
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <div
+                      className={`flex-1 border text-xs px-3 py-2 rounded font-bold flex items-center justify-between ${
+                        otForm.isHoliday
+                          ? "bg-[#fef2f2] border-[#dc2626] text-[#b91c1c]"
+                          : "bg-[#f0fdf4] border-[#16a34a] text-[#15803d]"
+                      }`}
+                    >
+                      <span>
+                        {otForm.isHoliday
+                          ? `휴일 출근 (${getDayOfWeekKr(otForm.otDate)}요일/공휴일 · 1.5~2.0배)`
+                          : `평일 근무일 (${getDayOfWeekKr(otForm.otDate)}요일 · 1.5배)`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOtForm({
+                            ...otForm,
+                            isHoliday: !otForm.isHoliday,
+                            customOtPay: null,
+                          })
+                        }
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-white/80 hover:bg-white border border-current font-semibold shrink-0"
+                        title="예외 휴일/근무일 수동 전환"
+                      >
+                        전환
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
+              {/* 24시간제 시/분 키보드 직접 입력 영역 */}
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
-                    시작 시각 (22:00~06:00 심야 자동인식)
+                    시작 시각 (24시간제 시 : 분 키입력)
                   </label>
-                  <input
-                    type="time"
-                    value={otForm.startTime}
-                    onChange={(e) =>
-                      setOtForm({
-                        ...otForm,
-                        startTime: e.target.value,
-                        customOtPay: null,
-                      })
-                    }
-                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                  />
+                  <div className="flex items-center gap-1 bg-[#f4efe4] border border-[#b5a894] px-2.5 py-1.5 rounded focus-within:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800">
+                    <input
+                      ref={startHourRef}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={otForm.startHour}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => padTimeFieldOnBlur("startHour", 23)}
+                      onChange={(e) => handleHourInputChange(e.target.value, "startHour", "startMin", startMinRef)}
+                      onKeyDown={(e) => {
+                        if (e.key === ":" || e.key === "ArrowRight" || e.key === "Enter") {
+                          e.preventDefault();
+                          padTimeFieldOnBlur("startHour", 23);
+                          startMinRef.current?.focus();
+                          startMinRef.current?.select();
+                        } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                          e.preventDefault();
+                          const cur = parseInt(otForm.startHour || "0", 10) || 0;
+                          const next = e.key === "ArrowUp" ? (cur + 1) % 24 : (cur + 23) % 24;
+                          setOtForm((prev) => ({ ...prev, startHour: String(next).padStart(2, "0"), customOtPay: null }));
+                        }
+                      }}
+                      placeholder="18"
+                      className="w-11 text-center bg-white dark:bg-slate-900 border border-[#cbd5e1] dark:border-slate-700 rounded py-1 text-sm font-mono font-bold text-[#0f172a] dark:text-slate-100 focus:outline-none focus:border-[#1d4ed8]"
+                    />
+                    <span className="text-xs font-bold text-[#475569]">시</span>
+                    <span className="text-sm font-mono font-bold text-[#475569] px-0.5">:</span>
+                    <input
+                      ref={startMinRef}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={2}
+                      value={otForm.startMin}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => padTimeFieldOnBlur("startMin", 59)}
+                      onChange={(e) => handleMinInputChange(e.target.value, "startMin", endHourRef)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Backspace" && !otForm.startMin) {
+                          startHourRef.current?.focus();
+                          startHourRef.current?.select();
+                        } else if (e.key === "ArrowRight" || e.key === "Enter") {
+                          e.preventDefault();
+                          padTimeFieldOnBlur("startMin", 59);
+                          endHourRef.current?.focus();
+                          endHourRef.current?.select();
+                        } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                          e.preventDefault();
+                          const cur = parseInt(otForm.startMin || "0", 10) || 0;
+                          const next = e.key === "ArrowUp" ? (cur + 10) % 60 : (cur + 50) % 60;
+                          setOtForm((prev) => ({ ...prev, startMin: String(next).padStart(2, "0"), customOtPay: null }));
+                        }
+                      }}
+                      placeholder="00"
+                      className="w-11 text-center bg-white dark:bg-slate-900 border border-[#cbd5e1] dark:border-slate-700 rounded py-1 text-sm font-mono font-bold text-[#0f172a] dark:text-slate-100 focus:outline-none focus:border-[#1d4ed8]"
+                    />
+                    <span className="text-xs font-bold text-[#475569]">분</span>
+                    <div className="ml-auto flex items-center gap-0.5">
+                      {["00", "30"].map((mVal) => (
+                        <button
+                          key={mVal}
+                          type="button"
+                          onClick={() => setOtForm((prev) => ({ ...prev, startMin: mVal, customOtPay: null }))}
+                          className={`px-1.5 py-0.5 text-[10px] font-mono font-bold rounded border ${
+                            otForm.startMin === mVal
+                              ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
+                              : "bg-[#ebe5d8] text-[#334155] border-[#b5a894] hover:bg-[#dcd4c4]"
+                          }`}
+                        >
+                          :{mVal}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+
                 <div className="flex flex-col gap-1">
                   <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
-                    종료 시각 (자정 경과 자동계산)
+                    종료 시각 (24시간제 시 : 분 키입력)
                   </label>
-                  <input
-                    type="time"
-                    value={otForm.endTime}
-                    onChange={(e) =>
-                      setOtForm({
-                        ...otForm,
-                        endTime: e.target.value,
-                        customOtPay: null,
-                      })
-                    }
-                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                  />
+                  <div className="flex items-center gap-1 bg-[#f4efe4] border border-[#b5a894] px-2.5 py-1.5 rounded focus-within:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800">
+                    <input
+                      ref={endHourRef}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={otForm.endHour}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => padTimeFieldOnBlur("endHour", 23)}
+                      onChange={(e) => handleHourInputChange(e.target.value, "endHour", "endMin", endMinRef)}
+                      onKeyDown={(e) => {
+                        if (e.key === ":" || e.key === "ArrowRight" || e.key === "Enter") {
+                          e.preventDefault();
+                          padTimeFieldOnBlur("endHour", 23);
+                          endMinRef.current?.focus();
+                          endMinRef.current?.select();
+                        } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                          e.preventDefault();
+                          const cur = parseInt(otForm.endHour || "0", 10) || 0;
+                          const next = e.key === "ArrowUp" ? (cur + 1) % 24 : (cur + 23) % 24;
+                          setOtForm((prev) => ({ ...prev, endHour: String(next).padStart(2, "0"), customOtPay: null }));
+                        }
+                      }}
+                      placeholder="21"
+                      className="w-11 text-center bg-white dark:bg-slate-900 border border-[#cbd5e1] dark:border-slate-700 rounded py-1 text-sm font-mono font-bold text-[#0f172a] dark:text-slate-100 focus:outline-none focus:border-[#1d4ed8]"
+                    />
+                    <span className="text-xs font-bold text-[#475569]">시</span>
+                    <span className="text-sm font-mono font-bold text-[#475569] px-0.5">:</span>
+                    <input
+                      ref={endMinRef}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={2}
+                      value={otForm.endMin}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => padTimeFieldOnBlur("endMin", 59)}
+                      onChange={(e) => handleMinInputChange(e.target.value, "endMin")}
+                      onKeyDown={(e) => {
+                        if (e.key === "Backspace" && !otForm.endMin) {
+                          endHourRef.current?.focus();
+                          endHourRef.current?.select();
+                        } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                          e.preventDefault();
+                          const cur = parseInt(otForm.endMin || "0", 10) || 0;
+                          const next = e.key === "ArrowUp" ? (cur + 10) % 60 : (cur + 50) % 60;
+                          setOtForm((prev) => ({ ...prev, endMin: String(next).padStart(2, "0"), customOtPay: null }));
+                        }
+                      }}
+                      placeholder="00"
+                      className="w-11 text-center bg-white dark:bg-slate-900 border border-[#cbd5e1] dark:border-slate-700 rounded py-1 text-sm font-mono font-bold text-[#0f172a] dark:text-slate-100 focus:outline-none focus:border-[#1d4ed8]"
+                    />
+                    <span className="text-xs font-bold text-[#475569]">분</span>
+                    <div className="ml-auto flex items-center gap-0.5">
+                      {["00", "30"].map((mVal) => (
+                        <button
+                          key={mVal}
+                          type="button"
+                          onClick={() => setOtForm((prev) => ({ ...prev, endMin: mVal, customOtPay: null }))}
+                          className={`px-1.5 py-0.5 text-[10px] font-mono font-bold rounded border ${
+                            otForm.endMin === mVal
+                              ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
+                              : "bg-[#ebe5d8] text-[#334155] border-[#b5a894] hover:bg-[#dcd4c4]"
+                          }`}
+                        >
+                          :{mVal}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 자주 쓰는 시간대 단축 버튼 & 자동 판정 배지 */}
+              <div className="flex flex-wrap items-center justify-between gap-1.5 px-1">
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-[11px] font-semibold text-[#475569] mr-1">시간 단축선택:</span>
+                  {[
+                    { label: "18~20시(2h)", sh: "18", sm: "00", eh: "20", em: "00" },
+                    { label: "18~21시(3h)", sh: "18", sm: "00", eh: "21", em: "00" },
+                    { label: "18~22시(4h)", sh: "18", sm: "00", eh: "22", em: "00" },
+                    { label: "18~24시(심야포함)", sh: "18", sm: "00", eh: "00", em: "00" },
+                    { label: "09~18시(휴일9h)", sh: "09", sm: "00", eh: "18", em: "00" },
+                  ].map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        setOtForm((prev) => ({
+                          ...prev,
+                          startHour: p.sh,
+                          startMin: p.sm,
+                          endHour: p.eh,
+                          endMin: p.em,
+                          customOtPay: null,
+                        }))
+                      }
+                      className="px-2 py-0.5 text-[10.5px] font-bold rounded bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] border border-[#b5a894] transition"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
               {/* 실시간 초과근무 수당 자동 계산 명세 박스 */}
               <div className="p-3 rounded border border-[#b5a894] bg-[#f4efe4] dark:bg-slate-950 dark:border-slate-800 space-y-2">
-                <div className="flex items-center justify-between border-b border-[#d0c6b4] pb-1.5">
-                  <span className="text-xs font-bold text-[#1d4ed8] dark:text-blue-400">
-                    초과근무수당 자동 산정 내역 ({liveBreakdown.otTypeLabel})
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-1 border-b border-[#d0c6b4] pb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-[#1d4ed8] dark:text-blue-400">
+                      자동 판정:
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                        liveBreakdown.isHoliday
+                          ? "bg-[#fef2f2] text-[#b91c1c] border-[#fecaca]"
+                          : "bg-[#f0fdf4] text-[#15803d] border-[#bbf7d0]"
+                      }`}
+                    >
+                      {liveBreakdown.isHoliday ? "휴일(비근무일)" : "평일(근무일)"}
+                    </span>
+                    {liveBreakdown.nightHours > 0 ? (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-[#eef2ff] text-[#4338ca] border border-[#c7d2fe]">
+                        심야근무 포함 ({liveBreakdown.nightHours}h)
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-[#ebe5d8] text-[#475569] border border-[#cbd5e1]">
+                        주간/저녁 (심야 없음)
+                      </span>
+                    )}
+                  </div>
                   <span className="text-[11px] font-mono font-bold text-[#0f172a] dark:text-slate-200">
                     1시간 표준임금: {formatErpCurrency(modalEmpHourlyWage)}
                   </span>
@@ -814,7 +1116,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                   <div className="bg-[#ebe5d8] dark:bg-slate-900 p-1.5 rounded border border-[#d0c6b4] dark:border-slate-800">
                     <div className="text-[#475569]">총 초과근무 시간</div>
                     <div className="font-mono font-bold text-xs text-[#0f172a] dark:text-slate-100">
-                      {liveBreakdown.otHours}시간
+                      {liveBreakdown.otHours}시간 ({normalizedStartTime}~{normalizedEndTime})
                     </div>
                   </div>
                   <div className="bg-[#ebe5d8] dark:bg-slate-900 p-1.5 rounded border border-[#d0c6b4] dark:border-slate-800">
@@ -851,15 +1153,15 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                     )}
                   </div>
                   <input
-                    type="number"
-                    step="100"
-                    value={otForm.customOtPay !== null ? otForm.customOtPay : liveBreakdown.otPay}
-                    onChange={(e) =>
+                    type="text"
+                    value={toErpInputString(otForm.customOtPay !== null ? otForm.customOtPay : liveBreakdown.otPay)}
+                    onChange={(e) => {
+                      const formatted = formatErpInputNumber(e.target.value);
                       setOtForm({
                         ...otForm,
-                        customOtPay: parseInt(e.target.value, 10) || 0,
-                      })
-                    }
+                        customOtPay: formatted ? cleanErpNumber(formatted) : 0,
+                      });
+                    }}
                     className="w-40 text-right bg-white dark:bg-slate-900 border border-[#1d4ed8] text-sm font-bold font-mono text-[#1d4ed8] px-2.5 py-1 rounded"
                   />
                 </div>

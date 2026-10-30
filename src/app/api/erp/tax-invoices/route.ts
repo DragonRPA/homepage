@@ -374,6 +374,7 @@ export async function POST(request: Request) {
 
           // Popbill Electronic Tax Invoice Issue Call (Test Mode Supported)
           let ntsConfirmNo = "";
+          let invoiceStatus = "ISSUED";
           try {
             const popRes = await registIssuePopbill({
               corpNum: entity.bizNumRaw,
@@ -402,9 +403,11 @@ export async function POST(request: Request) {
               taxItems: normalizedTaxItems,
             });
             ntsConfirmNo = popRes.ntsConfirmNo;
+            invoiceStatus = popRes.mode === "REGISTERED_IN_POPBILL" ? "TEMP_SAVED" : "ISSUED";
           } catch (popErr: any) {
             console.warn("Popbill Issue Warning in Batch:", popErr.message);
             ntsConfirmNo = `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-41000000-POPBILL_TEST`;
+            invoiceStatus = "ISSUED";
           }
 
           // Insert into erp_tax_invoices
@@ -416,7 +419,7 @@ export async function POST(request: Request) {
               customer_email, customer_email2, purpose_type, modify_reason, tax_items,
               issue_date, supply_amount, vat_amount, total_amount, item_name,
               status, nts_confirm_no, memo)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, '해당없음', $21::jsonb, $22, $23, $24, $25, $26, 'SENT_NTS', $27, $28)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, '해당없음', $21::jsonb, $22, $23, $24, $25, $26, $27, $28, $29)
              RETURNING *`,
             [
               invoiceNo,
@@ -445,6 +448,7 @@ export async function POST(request: Request) {
               vat,
               total,
               resolvedItemName,
+              invoiceStatus,
               ntsConfirmNo,
               resolvedMemo,
             ]
@@ -590,6 +594,7 @@ export async function POST(request: Request) {
 
       // Popbill Electronic Tax Invoice Issue Call
       let ntsConfirmNo = "";
+      let singleInvoiceStatus = "ISSUED";
       try {
         const popRes = await registIssuePopbill({
           corpNum: entity.bizNumRaw,
@@ -618,9 +623,11 @@ export async function POST(request: Request) {
           taxItems: normalizedTaxItems,
         });
         ntsConfirmNo = popRes.ntsConfirmNo;
+        singleInvoiceStatus = popRes.mode === "REGISTERED_IN_POPBILL" ? "TEMP_SAVED" : "ISSUED";
       } catch (popErr: any) {
         console.warn("Popbill Issue Warning in Single:", popErr.message);
         ntsConfirmNo = `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-41000000-POPBILL_TEST`;
+        singleInvoiceStatus = "ISSUED";
       }
 
       // Insert tax invoice
@@ -632,7 +639,7 @@ export async function POST(request: Request) {
           customer_email, customer_email2, purpose_type, modify_reason, tax_items,
           issue_date, supply_amount, vat_amount, total_amount, item_name,
           status, nts_confirm_no, memo)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, '해당없음', $21::jsonb, $22, $23, $24, $25, $26, 'SENT_NTS', $27, $28)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, '해당없음', $21::jsonb, $22, $23, $24, $25, $26, $27, $28, $29)
          RETURNING *`,
         [
           invoiceNo,
@@ -661,6 +668,7 @@ export async function POST(request: Request) {
           vat,
           total,
           resolvedItemName.trim(),
+          singleInvoiceStatus,
           ntsConfirmNo,
           resolvedSingleMemo,
         ]

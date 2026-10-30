@@ -518,6 +518,79 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     }
   };
 
+  // Immediate Send to NTS (발행완료 -> 국세청 즉시전송)
+  const [sendingNts, setSendingNts] = useState(false);
+
+  const handleSendToNTS = async (inv: any) => {
+    if (
+      !window.confirm(
+        `[${inv.invoiceNo}] ${inv.customerName}\n공급가액: ${formatErpCurrency(inv.supplyAmount)}\n발행완료(전송전) 상태의 세금계산서를 국세청으로 즉시전송 처리하시겠습니까?`
+      )
+    ) {
+      return;
+    }
+    try {
+      setSendingNts(true);
+      const res = await fetch("/api/erp/tax-invoices/popbill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "SEND_TO_NTS",
+          mgtKey: inv.invoiceNo,
+          corpNum: inv.supplierCorpNum,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "국세청 즉시전송 실패");
+
+      showToast(data.message || `[${inv.invoiceNo}] 국세청 즉시전송 완료`);
+      await fetchIssuedInvoices();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setSendingNts(false);
+    }
+  };
+
+  const pendingNtsInvoices = useMemo(
+    () => invoices.filter((i) => i.status !== "SENT_NTS"),
+    [invoices]
+  );
+
+  const handleBatchSendToNTS = async () => {
+    if (pendingNtsInvoices.length === 0) {
+      showToast("전송 대기 중인 세금계산서가 없습니다.", "error");
+      return;
+    }
+    if (
+      !window.confirm(
+        `발행후 전송전 상태인 세금계산서 ${pendingNtsInvoices.length}건을 국세청으로 일괄 즉시전송 하시겠습니까?`
+      )
+    ) {
+      return;
+    }
+    try {
+      setSendingNts(true);
+      const res = await fetch("/api/erp/tax-invoices/popbill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "SEND_TO_NTS",
+          mgtKeys: pendingNtsInvoices.map((i) => i.invoiceNo),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "국세청 일괄 즉시전송 실패");
+
+      showToast(data.message || `${data.sentCount}건 국세청 즉시전송 완료`);
+      await fetchIssuedInvoices();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setSendingNts(false);
+    }
+  };
+
   const activeSupplier = getEntity(modalSupplierEntity);
 
   return (
@@ -827,6 +900,20 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         {/* Sub-tab 2 Specific Actions */}
         {activeSubTab === "ISSUED" && (
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleBatchSendToNTS}
+              disabled={pendingNtsInvoices.length === 0 || sendingNts}
+              className={`flex items-center gap-1.5 h-8 px-3 rounded text-xs font-bold shadow-sm transition ${
+                pendingNtsInvoices.length > 0 && !sendingNts
+                  ? "bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-900 cursor-pointer"
+                  : "bg-[#d8d0c2] text-[#a8a29e] border border-[#b5a894] cursor-not-allowed"
+              }`}
+              title="발행후 전송전(ISSUED) 상태인 세금계산서를 국세청으로 일괄 즉시전송"
+            >
+              <Send className={`w-3.5 h-3.5 ${sendingNts ? "animate-pulse" : ""}`} />
+              <span>전송전 일괄 즉시전송 ({pendingNtsInvoices.length}건)</span>
+            </button>
+
             <button
               onClick={() => {
                 if (invoices.length === 0) {
@@ -1221,12 +1308,32 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                             )}
                           </td>
                           <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                              국세청전송완료
-                            </span>
+                            {inv.status === "SENT_NTS" ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                국세청전송완료
+                              </span>
+                            ) : inv.status === "TEMP_SAVED" ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
+                                임시저장(서명전)
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                발행완료(전송전)
+                              </span>
+                            )}
                           </td>
                           <td className="p-2 text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-1">
+                              {inv.status !== "SENT_NTS" && (
+                                <button
+                                  onClick={() => handleSendToNTS(inv)}
+                                  disabled={sendingNts}
+                                  className="px-1.5 py-1 rounded text-[10px] font-bold border border-emerald-800 bg-emerald-700 text-white hover:bg-emerald-800 whitespace-nowrap"
+                                  title="발행완료(전송전) 세금계산서를 국세청으로 즉시전송"
+                                >
+                                  즉시전송
+                                </button>
+                              )}
                               <button
                                 onClick={() => setDetailInvoice(inv)}
                                 className="px-1.5 py-1 rounded text-[10px] font-bold border border-blue-700 bg-blue-600 text-white hover:bg-blue-700"
@@ -1692,6 +1799,19 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                   >
                     닫기
                   </button>
+                  {inv.status !== "SENT_NTS" && (
+                    <button
+                      type="button"
+                      disabled={sendingNts}
+                      onClick={async () => {
+                        await handleSendToNTS(inv);
+                        setDetailInvoice(null);
+                      }}
+                      className="px-4 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs"
+                    >
+                      국세청 즉시전송
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => handleOpenPopbillView(inv)}

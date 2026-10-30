@@ -119,7 +119,7 @@ export async function POST(request: Request) {
       const dbStatus = normalizeStatusToDb(u.status || u.employmentStatus || "ACTIVE");
       const baseSalary = u.baseSalary !== undefined ? Number(u.baseSalary) || 0 : 3500000;
       const hourlyWage =
-        u.hourlyWage !== undefined && Number(u.hourlyWage) > 0
+        u.hourlyWage !== undefined && u.hourlyWage !== null && u.hourlyWage !== "" && !isNaN(Number(u.hourlyWage))
           ? Number(u.hourlyWage)
           : Math.round((baseSalary || 3500000) / 209);
       const mealAllowance = u.mealAllowance !== undefined ? Number(u.mealAllowance) || 0 : 200000;

@@ -165,7 +165,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
 
   const modalEmpHourlyWage = useMemo(() => {
     if (!selectedModalEmp) return 16746;
-    if (selectedModalEmp.hourlyWage && Number(selectedModalEmp.hourlyWage) > 0) {
+    if (selectedModalEmp.hourlyWage !== undefined && selectedModalEmp.hourlyWage !== null) {
       return Math.round(Number(selectedModalEmp.hourlyWage));
     }
     return Math.round((Number(selectedModalEmp.baseSalary) || 3500000) / 209);
@@ -707,7 +707,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                 >
                   {employees.map((emp) => {
                     const hw =
-                      emp.hourlyWage && Number(emp.hourlyWage) > 0
+                      emp.hourlyWage !== undefined && emp.hourlyWage !== null
                         ? Math.round(Number(emp.hourlyWage))
                         : Math.round((Number(emp.baseSalary) || 3500000) / 209);
                     return (

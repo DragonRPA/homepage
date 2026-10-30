@@ -383,6 +383,80 @@ export async function getPopbillPortalURL(
 }
 
 /**
+ * 팝빌 발행완료(stateCode: 300) 상태의 세금계산서를 국세청(NTS)으로 즉시 전송 요청 (sendToNTS)
+ */
+export async function sendToNTSPopbill(mgtKey: string, corpNum?: string): Promise<any> {
+  const cNum = isTestMode ? POPBILL_REGISTERED_CORP_NUM : (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
+  return new Promise((resolve, reject) => {
+    popbillTaxService.sendToNTS(
+      cNum,
+      popbill.MgtKeyType.SELL,
+      mgtKey,
+      (res: any) => {
+        popbillTaxService.getInfo(
+          cNum,
+          popbill.MgtKeyType.SELL,
+          mgtKey,
+          (infoRes: any) => {
+            resolve({
+              success: true,
+              code: res?.code,
+              message: res?.message || "국세청 즉시전송 요청 완료",
+              stateCode: infoRes?.stateCode || 302,
+              ntsConfirmNo: infoRes?.ntsconfirmNum || infoRes?.ntsConfirmNum,
+              ntsSendDT: infoRes?.ntssendDT,
+              info: infoRes,
+            });
+          },
+          () => {
+            resolve({
+              success: true,
+              code: res?.code,
+              message: res?.message || "국세청 즉시전송 요청 완료",
+              stateCode: 302,
+            });
+          }
+        );
+      },
+      (err: any) => {
+        // 만약 임시저장(100) 상태여서 전송이 안 된 경우 -> 전자서명 발행(issue) 후 국세청 즉시전송(sendToNTS) 연쇄 수행
+        if (err?.code === -11000015 || String(err?.message || "").includes("발행")) {
+          popbillTaxService.issue(
+            cNum,
+            popbill.MgtKeyType.SELL,
+            mgtKey,
+            "전자서명 발행 후 국세청 즉시전송",
+            "",
+            true,
+            "",
+            (issueRes: any) => {
+              popbillTaxService.sendToNTS(
+                cNum,
+                popbill.MgtKeyType.SELL,
+                mgtKey,
+                (ntsRes: any) => {
+                  resolve({
+                    success: true,
+                    code: ntsRes?.code,
+                    message: "전자서명 발행 및 국세청 즉시전송 완료",
+                    stateCode: 302,
+                    ntsConfirmNo: issueRes?.ntsConfirmNum,
+                  });
+                },
+                (ntsErr: any) => reject(new Error(`[팝빌 국세청 전송 오류 ${ntsErr.code}] ${ntsErr.message}`))
+              );
+            },
+            (issueErr: any) => reject(new Error(`[팝빌 국세청 전송 오류 ${err.code}] ${err.message} (${issueErr.message})`))
+          );
+          return;
+        }
+        reject(new Error(`[팝빌 국세청 전송 오류 ${err.code}] ${err.message}`));
+      }
+    );
+  });
+}
+
+/**
  * 팝빌 등록 공동인증서 유효성 및 상세 정보 조회
  */
 export async function getPopbillCertInfo(corpNum?: string): Promise<any> {

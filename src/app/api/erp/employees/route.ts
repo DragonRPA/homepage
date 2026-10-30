@@ -176,7 +176,7 @@ export async function POST(request: Request) {
         role_code: roleCode || (role === "ADMIN" ? "ADMIN" : role === "MANAGER" ? "MANAGER" : "EMPLOYEE"),
         base_salary: baseSalary !== undefined ? parseFloat(baseSalary) || 0 : 3500000,
         hourly_wage:
-          hourlyWage !== undefined && Number(hourlyWage) > 0
+          hourlyWage !== undefined && hourlyWage !== null && hourlyWage !== "" && !isNaN(Number(hourlyWage))
             ? Number(hourlyWage)
             : Math.round((baseSalary !== undefined ? parseFloat(baseSalary) || 3500000 : 3500000) / 209),
         meal_allowance: mealAllowance !== undefined ? parseFloat(mealAllowance) || 0 : 200000,

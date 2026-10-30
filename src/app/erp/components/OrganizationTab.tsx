@@ -437,7 +437,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
           leaveDate: e.leaveDate ? String(e.leaveDate).substring(0, 10) : "",
           baseSalary: Number(e.baseSalary ?? 3500000),
           hourlyWage:
-            Number(e.hourlyWage) > 0
+            e.hourlyWage !== undefined && e.hourlyWage !== null && e.hourlyWage !== ""
               ? Number(e.hourlyWage)
               : Math.round(Number(e.baseSalary ?? 3500000) / 209),
           mealAllowance: Number(e.mealAllowance ?? 200000),
@@ -567,7 +567,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
         leaveDate: e.leaveDate ? String(e.leaveDate).substring(0, 10) : "",
         baseSalary: Number(e.baseSalary ?? 3500000),
         hourlyWage:
-          Number(e.hourlyWage) > 0
+          e.hourlyWage !== undefined && e.hourlyWage !== null && e.hourlyWage !== ""
             ? Number(e.hourlyWage)
             : Math.round(Number(e.baseSalary ?? 3500000) / 209),
         mealAllowance: Number(e.mealAllowance ?? 200000),
@@ -1327,7 +1327,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
               {user.duty ? ` (${user.duty})` : ""} | {user.role}
               {(canEdit || canViewPayroll) && (
                 <span style={{ marginLeft: "6px", fontSize: "11.5px", color: "var(--primary)", fontWeight: 600 }}>
-                  · 표준시급 {(user.hourlyWage || Math.round((user.baseSalary || 3500000) / 209)).toLocaleString()}원
+                  · 표준시급 {(user.hourlyWage !== undefined && user.hourlyWage !== null ? user.hourlyWage : Math.round((user.baseSalary || 3500000) / 209)).toLocaleString()}원
                 </span>
               )}
             </div>
@@ -2607,23 +2607,23 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                           width: "100%",
                           borderRadius: "4px",
                         }}
-                        placeholder="1시간 표준임금 입력 (예: 16746)"
+                        placeholder="1시간 표준임금 입력 (예: 11000)"
                         value={
-                          selectedProfile.hourlyWage !== undefined
+                          selectedProfile.hourlyWage !== undefined && selectedProfile.hourlyWage !== null
                             ? selectedProfile.hourlyWage
                             : Math.round((selectedProfile.baseSalary || 3500000) / 209)
                         }
                         onChange={(e) =>
                           setSelectedProfile({
                             ...selectedProfile,
-                            hourlyWage: parseInt(e.target.value) || 0,
+                            hourlyWage: e.target.value === "" ? 0 : parseInt(e.target.value) || 0,
                           })
                         }
                         disabled={!canEdit}
                       />
                       {(() => {
                         const hw =
-                          selectedProfile.hourlyWage && selectedProfile.hourlyWage > 0
+                          selectedProfile.hourlyWage !== undefined && selectedProfile.hourlyWage !== null
                             ? selectedProfile.hourlyWage
                             : Math.round((selectedProfile.baseSalary || 3500000) / 209);
                         return (
@@ -2677,15 +2677,9 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                         value={selectedProfile.baseSalary || ""}
                         onChange={(e) => {
                           const nextBase = parseInt(e.target.value) || 0;
-                          const prevAuto = Math.round((selectedProfile.baseSalary || 3500000) / 209);
-                          const shouldAutoUpdateHourly =
-                            !selectedProfile.hourlyWage || selectedProfile.hourlyWage === prevAuto;
                           setSelectedProfile({
                             ...selectedProfile,
                             baseSalary: nextBase,
-                            hourlyWage: shouldAutoUpdateHourly
-                              ? Math.round(nextBase / 209)
-                              : selectedProfile.hourlyWage,
                           });
                         }}
                         disabled={!canEdit}

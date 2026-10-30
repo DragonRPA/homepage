@@ -83,6 +83,11 @@ export interface PopbillIssueParams {
   taxItems?: PopbillTaxItem[]; // 다중 품목 명세 리스트
 }
 
+function cutStr(val: string | undefined | null, maxLen: number): string {
+  const s = (val || "").trim();
+  return s.length > maxLen ? s.slice(0, maxLen) : s;
+}
+
 function buildPopbillTaxinvoiceObj(params: PopbillIssueParams, activeCorpNum: string) {
   const defaultEntity = BUSINESS_ENTITIES.CORP;
   const cleanWriteDate = (params.writeDate || new Date().toISOString().slice(0, 10)).replace(/[^0-9]/g, "").slice(0, 8);
@@ -97,20 +102,20 @@ function buildPopbillTaxinvoiceObj(params: PopbillIssueParams, activeCorpNum: st
         return {
           serialNum: idx + 1,
           purchaseDT: `${defaultY}${mm}${dd}`,
-          itemName: it.itemName || params.itemName,
-          spec: it.spec || "",
+          itemName: cutStr(it.itemName || params.itemName, 100),
+          spec: cutStr(it.spec || "", 60),
           qty: it.qty !== undefined ? String(it.qty) : "1",
           unitCost: it.unitPrice !== undefined ? String(Math.round(it.unitPrice)) : String(Math.round(it.supplyAmount || 0)),
           supplyCost: String(Math.round(it.supplyAmount || 0)),
           tax: String(Math.round(it.vatAmount || 0)),
-          remark: it.remark || "",
+          remark: cutStr(it.remark || "", 100),
         };
       })
     : [
         {
           serialNum: 1,
           purchaseDT: cleanWriteDate,
-          itemName: params.itemName,
+          itemName: cutStr(params.itemName, 100),
           spec: "",
           qty: "1",
           unitCost: Math.round(params.supplyAmount).toString(),
@@ -128,30 +133,30 @@ function buildPopbillTaxinvoiceObj(params: PopbillIssueParams, activeCorpNum: st
     issueTiming: "직접발행",
     taxType: "과세",
     invoicerCorpNum: activeCorpNum,
-    invoicerCorpName: params.supplierCorpName || defaultEntity.corpName,
-    invoicerCEOName: params.supplierCeoName || defaultEntity.ceoName,
-    invoicerAddr: params.supplierAddr || defaultEntity.address,
-    invoicerBizType: params.supplierBizType || defaultEntity.bizType,
-    invoicerBizClass: params.supplierBizClass || defaultEntity.bizClass,
-    invoicerContactName: params.supplierCeoName || defaultEntity.ceoName,
-    invoicerEmail: params.supplierEmail || defaultEntity.email,
+    invoicerCorpName: cutStr(params.supplierCorpName || defaultEntity.corpName, 200),
+    invoicerCEOName: cutStr(params.supplierCeoName || defaultEntity.ceoName, 100),
+    invoicerAddr: cutStr(params.supplierAddr || defaultEntity.address, 300),
+    invoicerBizType: cutStr(params.supplierBizType || defaultEntity.bizType, 100),
+    invoicerBizClass: cutStr(params.supplierBizClass || defaultEntity.bizClass, 100),
+    invoicerContactName: cutStr(params.supplierCeoName || defaultEntity.ceoName, 100),
+    invoicerEmail: cutStr(params.supplierEmail || defaultEntity.email, 100),
 
     invoiceeType: "사업자",
     invoiceeCorpNum: sanitizePopbillBizNo(params.customerBizNo),
-    invoiceeCorpName: params.customerName,
-    invoiceeCEOName: params.customerCeoName || "대표자",
-    invoiceeAddr: params.customerAddr || "",
-    invoiceeBizType: params.customerBizType || "",
-    invoiceeBizClass: params.customerBizClass || "",
-    invoiceeContactName1: params.customerCeoName || "담당자",
-    invoiceeEmail1: params.customerEmail || defaultEntity.email,
-    invoiceeEmail2: params.customerEmail2 || "",
+    invoiceeCorpName: cutStr(params.customerName, 200),
+    invoiceeCEOName: cutStr(params.customerCeoName || "대표자", 100),
+    invoiceeAddr: cutStr(params.customerAddr || "", 300),
+    invoiceeBizType: cutStr(params.customerBizType || "", 100),
+    invoiceeBizClass: cutStr(params.customerBizClass || "", 100),
+    invoiceeContactName1: cutStr(params.customerCeoName || "담당자", 100),
+    invoiceeEmail1: cutStr(params.customerEmail || defaultEntity.email, 100),
+    invoiceeEmail2: cutStr(params.customerEmail2 || "", 100),
 
     supplyCostTotal: Math.round(params.supplyAmount).toString(),
     taxTotal: Math.round(params.vatAmount).toString(),
     totalAmount: Math.round(params.totalAmount).toString(),
-    invoicerMgtKey: params.invoicerMgtKey,
-    memo: params.memo || "",
+    invoicerMgtKey: cutStr(params.invoicerMgtKey, 24),
+    memo: cutStr(params.memo || "", 150),
 
     detailList,
   };

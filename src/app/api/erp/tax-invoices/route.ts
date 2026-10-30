@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { BUSINESS_ENTITIES, getEntity } from "@/lib/businessEntities";
 import { registIssuePopbill } from "@/lib/popbillService";
-import { resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
+import { resolveContractItemTemplate, resolveContractTaxItemsTemplate, selectPreferredBizItem } from "@/lib/erpFormat";
 
 // GET: List tax invoices or unissued billings
 export async function GET(request: Request) {
@@ -181,6 +181,7 @@ export async function GET(request: Request) {
         });
         return {
           ...row,
+          customerBizClass: selectPreferredBizItem(row.customerBizClass || ""),
           taxItems: resolvedTaxItems,
           taxMemo: resolvedMemo,
           itemName: resolvedItemName,
@@ -375,6 +376,7 @@ export async function POST(request: Request) {
           // Popbill Electronic Tax Invoice Issue Call (Test Mode Supported)
           let ntsConfirmNo = "";
           let invoiceStatus = "ISSUED";
+          const preferredBizClass = selectPreferredBizItem(item.customerBizClass || "");
           try {
             const popRes = await registIssuePopbill({
               corpNum: entity.bizNumRaw,
@@ -392,7 +394,7 @@ export async function POST(request: Request) {
               customerCeoName: item.ceoName || "대표자",
               customerAddr: item.customerAddress || "",
               customerBizType: item.customerBizType || "",
-              customerBizClass: item.customerBizClass || "",
+              customerBizClass: preferredBizClass,
               customerEmail: item.customerEmail || entity.email,
               customerEmail2: item.customerEmail2 || "",
               itemName: resolvedItemName,
@@ -438,7 +440,7 @@ export async function POST(request: Request) {
               item.ceoName || "대표자",
               item.customerAddress || "",
               item.customerBizType || "",
-              item.customerBizClass || "",
+              preferredBizClass,
               item.customerEmail || "",
               item.customerEmail2 || "",
               item.purposeType || "청구",
@@ -593,6 +595,7 @@ export async function POST(request: Request) {
       });
 
       // Popbill Electronic Tax Invoice Issue Call
+      const preferredSingleBizClass = selectPreferredBizItem(customerBizClass || "");
       let ntsConfirmNo = "";
       let singleInvoiceStatus = "ISSUED";
       try {
@@ -612,7 +615,7 @@ export async function POST(request: Request) {
           customerCeoName: ceoName || "대표자",
           customerAddr: customerAddress || "",
           customerBizType: customerBizType || "",
-          customerBizClass: customerBizClass || "",
+          customerBizClass: preferredSingleBizClass,
           customerEmail: customerEmail || entity.email,
           customerEmail2: customerEmail2 || "",
           itemName: resolvedItemName.trim(),
@@ -658,7 +661,7 @@ export async function POST(request: Request) {
           ceoName || "대표자",
           customerAddress || "",
           customerBizType || "",
-          customerBizClass || "",
+          preferredSingleBizClass,
           customerEmail || "",
           customerEmail2 || "",
           purposeType || "청구",

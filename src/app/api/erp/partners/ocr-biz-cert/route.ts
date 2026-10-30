@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import zlib from "zlib";
+import { selectPreferredBizItem } from "@/lib/erpFormat";
 
 const GROQ_API_KEY =
   process.env.GROQ_API_KEY ||
@@ -391,6 +392,12 @@ export async function POST(request: Request) {
       if (cleanedFn && cleanedFn.length >= 2) {
         parsedResult.name = cleanedFn;
       }
+    }
+
+    // 4. 거래처 종목 중 "컴퓨터" 또는 "소프트웨어" 포함 항목 우선 선택 (없으면 원문 그대로 유지)
+    if (parsedResult.bizItem) {
+      parsedResult.bizItemRaw = parsedResult.bizItem;
+      parsedResult.bizItem = selectPreferredBizItem(parsedResult.bizItem);
     }
 
     const hasExtractedCore = Boolean(

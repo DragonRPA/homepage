@@ -1,6 +1,7 @@
 import "server-only";
 import popbill from "popbill";
 import { BUSINESS_ENTITIES } from "./businessEntities";
+import { selectPreferredBizItem } from "./erpFormat";
 
 const linkId = process.env.POPBILL_LINK_ID;
 const secretKey = process.env.POPBILL_SECRET_KEY;
@@ -147,7 +148,7 @@ function buildPopbillTaxinvoiceObj(params: PopbillIssueParams, activeCorpNum: st
     invoiceeCEOName: cutStr(params.customerCeoName || "대표자", 100),
     invoiceeAddr: cutStr(params.customerAddr || "", 300),
     invoiceeBizType: cutStr(params.customerBizType || "", 100),
-    invoiceeBizClass: cutStr(params.customerBizClass || "", 100),
+    invoiceeBizClass: cutStr(selectPreferredBizItem(params.customerBizClass || ""), 100),
     invoiceeContactName1: cutStr(params.customerCeoName || "담당자", 100),
     invoiceeEmail1: cutStr(params.customerEmail || defaultEntity.email, 100),
     invoiceeEmail2: cutStr(params.customerEmail2 || "", 100),

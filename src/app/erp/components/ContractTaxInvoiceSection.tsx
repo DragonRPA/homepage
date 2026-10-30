@@ -2,7 +2,13 @@
 
 import React from "react";
 import { Plus, Trash2, FileText } from "lucide-react";
-import { formatErpInputNumber, toErpInputString, cleanErpNumber, formatErpCurrency } from "@/lib/erpFormat";
+import {
+  formatErpInputNumber,
+  toErpInputString,
+  cleanErpNumber,
+  formatErpCurrency,
+  selectPreferredBizItem,
+} from "@/lib/erpFormat";
 
 export interface TaxInvoiceLineItem {
   month?: string;
@@ -74,7 +80,7 @@ export function extractPartnerTaxSpec(p: any, prev: BuyerTaxSpec): BuyerTaxSpec 
     customerCeoName: p?.ceoName || prev.customerCeoName || "",
     customerAddress: addr || prev.customerAddress || "",
     customerBizType: p?.bizType || prev.customerBizType || "",
-    customerBizClass: p?.bizItem || p?.bizClass || prev.customerBizClass || "",
+    customerBizClass: selectPreferredBizItem(p?.bizItem || p?.bizClass || prev.customerBizClass || ""),
     customerEmail: email1,
     customerEmail2: email2,
   };

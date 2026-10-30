@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { selectPreferredBizItem } from "@/lib/erpFormat";
 
 // GET /api/erp/partners
 // Query params: id (optional single partner with file blobs), type (CUSTOMER | VENDOR | BOTH | ALL), search, status, managerEmployeeId, includeFiles
@@ -321,7 +322,7 @@ export async function POST(request: Request) {
           corporateNo || null,
           ceoName || null,
           bizType || null,
-          bizItem || null,
+          bizItem ? selectPreferredBizItem(bizItem) : null,
           address || null,
           addressDetail || null,
           mainPhone || null,
@@ -516,7 +517,7 @@ export async function PUT(request: Request) {
         corporateNo || null,
         ceoName || null,
         bizType || null,
-        bizItem || null,
+        bizItem ? selectPreferredBizItem(bizItem) : null,
         address || null,
         addressDetail || null,
         mainPhone || null,

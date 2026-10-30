@@ -437,4 +437,33 @@ export function calculateOvertimeBreakdown(params: {
   };
 }
 
+/**
+ * 거래처/사업자등록증 종목(bizItem / bizClass) 우선 추출 헬퍼
+ * - 종목 목록 중 "컴퓨터" 또는 "소프트웨어"가 포함된 종목이 있으면 해당 종목들을 우선 추출하여 반환
+ * - 해당 키워드가 포함된 종목이 하나도 없으면 사업자등록증 종목 원문을 그대로 반환
+ */
+export function selectPreferredBizItem(rawBizItem?: string | null): string {
+  if (!rawBizItem) return "";
+  const raw = String(rawBizItem).trim();
+  if (!raw) return "";
+
+  const tokens = raw
+    .split(/[,/\n]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  if (tokens.length <= 1) {
+    return raw;
+  }
+
+  const matched = tokens.filter((t) => t.includes("컴퓨터") || t.includes("소프트웨어"));
+  if (matched.length > 0) {
+    // 중복 제거 후 쉼표로 결합
+    return Array.from(new Set(matched)).join(", ");
+  }
+
+  return raw;
+}
+
+
 

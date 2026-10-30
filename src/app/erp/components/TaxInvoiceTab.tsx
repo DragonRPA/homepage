@@ -650,6 +650,20 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
             <span className="font-semibold text-[#57534e]">팝빌 연동:</span>
             <span className="font-mono font-bold text-blue-700">DRAGONRP (테스트 모드 / 806-88-03266)</span>
           </div>
+          {pendingNtsInvoices.length > 0 && (
+            <button
+              onClick={() => {
+                setActiveSubTab("ISSUED");
+                handleBatchSendToNTS();
+              }}
+              disabled={sendingNts}
+              className="flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 border border-emerald-900 shadow-sm"
+              title="발행완료(전송전) 상태의 세금계산서를 국세청으로 즉시전송"
+            >
+              <Send className={`w-3.5 h-3.5 ${sendingNts ? "animate-pulse" : ""}`} />
+              <span>국세청 즉시전송 ({pendingNtsInvoices.length}건)</span>
+            </button>
+          )}
           <button
             onClick={() => handleOpenPopbillPortal("PORTAL_URL")}
             className="flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-indigo-800 bg-indigo-100 hover:bg-indigo-200 border border-indigo-400 shadow-sm"
@@ -1175,6 +1189,12 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
               <table className="w-full text-xs border-collapse">
                 <thead className="sticky top-0 bg-[#ded6c5] border-b border-[#b5a894] text-[#44403c] font-bold z-10">
                   <tr>
+                    <th className="p-2 text-center w-44 border-r border-[#b5a894] whitespace-nowrap">
+                      <span>팝빌 연동 조치</span>
+                    </th>
+                    <th className="p-2 text-center w-24 border-r border-[#b5a894] whitespace-nowrap">
+                      <span>전송상태</span>
+                    </th>
                     <th className="p-2 text-center w-24 border-r border-[#b5a894] whitespace-nowrap">
                       <span>발행 사업자</span>
                     </th>
@@ -1226,17 +1246,11 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                         <ArrowUpDown className="w-3 h-3 opacity-40" />
                       </div>
                     </th>
-                    <th className="p-2 text-left w-40 border-r border-[#b5a894] whitespace-nowrap">
+                    <th className="p-2 text-left w-40 whitespace-nowrap">
                       <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleSort("ntsConfirmNo")}>
                         <span>국세청 승인번호</span>
                         <ArrowUpDown className="w-3 h-3 opacity-40" />
                       </div>
-                    </th>
-                    <th className="p-2 text-center w-24 border-r border-[#b5a894] whitespace-nowrap">
-                      <span>전송상태</span>
-                    </th>
-                    <th className="p-2 text-center w-36 whitespace-nowrap">
-                      <span>팝빌 연동 조치</span>
                     </th>
                   </tr>
                 </thead>
@@ -1259,70 +1273,6 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                       return (
                         <tr key={inv.id} className="hover:bg-[#dfd7c7] transition">
                           <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              isCorp 
-                                ? "bg-indigo-100 text-indigo-800" 
-                                : "bg-amber-100 text-amber-800"
-                            }`}>
-                              {isCorp ? "드래곤알피에이 [법인]" : "드래곤알피에이 [개인]"}
-                            </span>
-                          </td>
-                          <td className="p-2 border-r border-[#b5a894] font-mono font-bold text-[11px] whitespace-nowrap text-[#1c1917]">
-                            {inv.invoiceNo}
-                          </td>
-                          <td className="p-2 border-r border-[#b5a894] font-mono text-[11px] whitespace-nowrap text-[#44403c]">
-                            {inv.issueDate ? String(inv.issueDate).slice(0, 10) : "-"}
-                          </td>
-                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap">
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#dfd7c7] text-[#44403c]">
-                              {inv.domainType === "RENTAL" ? "장비임대" : inv.domainType === "DEV_SERVICE" ? "개발용역" : inv.domainType === "OP_SERVICE" ? "운영용역" : "판매"}
-                            </span>
-                          </td>
-                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap">
-                            <div className="flex flex-col">
-                              <span className="font-bold text-[#1c1917]">{inv.customerName}</span>
-                              <span className="text-[10px] text-[#78716c] font-mono">
-                                {inv.businessNo || "-"}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap font-medium text-[#1c1917]">
-                            {inv.itemName}
-                          </td>
-                          <td className="p-2 text-right border-r border-[#b5a894] font-mono font-bold whitespace-nowrap text-[#1c1917]">
-                            {formatErpCurrency(inv.supplyAmount)}
-                          </td>
-                          <td className="p-2 text-right border-r border-[#b5a894] font-mono text-[#78716c] whitespace-nowrap">
-                            {formatErpCurrency(inv.vatAmount)}
-                          </td>
-                          <td className="p-2 text-right border-r border-[#b5a894] font-mono font-bold text-emerald-900 whitespace-nowrap">
-                            {formatErpCurrency(inv.totalAmount)}
-                          </td>
-                          <td className="p-2 border-r border-[#b5a894] font-mono text-[11px] whitespace-nowrap text-[#44403c]">
-                            {inv.ntsConfirmNo ? (
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px]">
-                                {inv.ntsConfirmNo}
-                              </span>
-                            ) : (
-                              <span className="text-[#a8a29e]">-</span>
-                            )}
-                          </td>
-                          <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
-                            {inv.status === "SENT_NTS" ? (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                                국세청전송완료
-                              </span>
-                            ) : inv.status === "TEMP_SAVED" ? (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
-                                임시저장(서명전)
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                                발행완료(전송전)
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-2 text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-1">
                               {inv.status !== "SENT_NTS" && (
                                 <button
@@ -1363,6 +1313,70 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                                 동기화
                               </button>
                             </div>
+                          </td>
+                          <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
+                            {inv.status === "SENT_NTS" ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                국세청전송완료
+                              </span>
+                            ) : inv.status === "TEMP_SAVED" ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
+                                임시저장(서명전)
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                발행완료(전송전)
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              isCorp 
+                                ? "bg-indigo-100 text-indigo-800" 
+                                : "bg-amber-100 text-amber-800"
+                            }`}>
+                              {isCorp ? "드래곤알피에이 [법인]" : "드래곤알피에이 [개인]"}
+                            </span>
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] font-mono font-bold text-[11px] whitespace-nowrap text-[#1c1917]">
+                            {inv.invoiceNo}
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] font-mono text-[11px] whitespace-nowrap text-[#44403c]">
+                            {inv.issueDate ? String(inv.issueDate).slice(0, 10) : "-"}
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#dfd7c7] text-[#44403c]">
+                              {inv.domainType === "RENTAL" ? "장비임대" : inv.domainType === "DEV_SERVICE" ? "개발용역" : inv.domainType === "OP_SERVICE" ? "운영용역" : "판매"}
+                            </span>
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-[#1c1917]">{inv.customerName}</span>
+                              <span className="text-[10px] text-[#78716c] font-mono">
+                                {inv.businessNo || "-"}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="p-2 border-r border-[#b5a894] whitespace-nowrap font-medium text-[#1c1917]">
+                            {inv.itemName}
+                          </td>
+                          <td className="p-2 text-right border-r border-[#b5a894] font-mono font-bold whitespace-nowrap text-[#1c1917]">
+                            {formatErpCurrency(inv.supplyAmount)}
+                          </td>
+                          <td className="p-2 text-right border-r border-[#b5a894] font-mono text-[#78716c] whitespace-nowrap">
+                            {formatErpCurrency(inv.vatAmount)}
+                          </td>
+                          <td className="p-2 text-right border-r border-[#b5a894] font-mono font-bold text-emerald-900 whitespace-nowrap">
+                            {formatErpCurrency(inv.totalAmount)}
+                          </td>
+                          <td className="p-2 font-mono text-[11px] whitespace-nowrap text-[#44403c]">
+                            {inv.ntsConfirmNo ? (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px]">
+                                {inv.ntsConfirmNo}
+                              </span>
+                            ) : (
+                              <span className="text-[#a8a29e]">-</span>
+                            )}
                           </td>
                         </tr>
                       );

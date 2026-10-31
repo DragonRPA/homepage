@@ -6,7 +6,7 @@ import {
   Building2, Shield, CheckSquare, Settings, Calendar, 
   Clock, DollarSign, CreditCard, ChevronDown, ChevronRight,
   FolderTree, Database, Package, Layers, PackageCheck, PackagePlus, ArrowLeftRight, BookOpen,
-  SlidersHorizontal, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, X, Star
+  SlidersHorizontal, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, X, Star, BarChart3
 } from "lucide-react";
 
 import { ErpLogin } from "./components/ErpLogin";
@@ -24,6 +24,7 @@ import { OtManagementTab } from "./components/OtManagementTab";
 import { WorkRulesTab } from "./components/WorkRulesTab";
 import { BankMatchingTab } from "./components/BankMatchingTab";
 import { PayrollTab } from "./components/PayrollTab";
+import { FinancialReportTab } from "./components/FinancialReportTab";
 
 // ebro_it 제품관리 및 자산관리
 import { ProductManagementTab } from "./components/ProductManagementTab";
@@ -52,6 +53,7 @@ export type ErpMenuKey =
   | "WORK_RULES"
   | "APPROVAL_INBOX"
   | "APPROVAL_RULES"
+  | "FINANCIAL_REPORT"
   | "BANK_MATCHING"
   | "PAYROLL"
   | "TAX"
@@ -106,6 +108,7 @@ const CATEGORIES: CategoryConfig[] = [
     label: "재무·회계",
     icon: DollarSign,
     items: [
+      { key: "FINANCIAL_REPORT", label: "경영지표 보고서", icon: BarChart3 },
       { key: "BANK_MATCHING", label: "은행 입출금 대장", icon: DollarSign },
       { key: "PAYROLL", label: "급여 정산", icon: CreditCard },
       { key: "TAX", label: "매입·매출 세금계산서", icon: FileText },
@@ -159,6 +162,7 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   WORK_RULES: "work_rules",
   APPROVAL_INBOX: "approval_inbox",
   APPROVAL_RULES: "approval_rules",
+  FINANCIAL_REPORT: "bank_matching",
   BANK_MATCHING: "bank_matching",
   PAYROLL: "payroll",
   TAX: "tax_invoice",
@@ -620,6 +624,9 @@ export default function ErpMainPage() {
                 {activeMenu === "WORK_RULES" && <WorkRulesTab currentUser={enrichedUser} />}
                 {activeMenu === "APPROVAL_INBOX" && <ApprovalInboxTab currentUser={enrichedUser} />}
                 {activeMenu === "APPROVAL_RULES" && <ApprovalRulesTab currentUser={enrichedUser} />}
+                {activeMenu === "FINANCIAL_REPORT" && (
+                  <FinancialReportTab currentUser={enrichedUser} selectedEntity={selectedEntity} />
+                )}
                 {activeMenu === "BANK_MATCHING" && (
                   <BankMatchingTab currentUser={enrichedUser} selectedEntity={selectedEntity} />
                 )}

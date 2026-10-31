@@ -202,19 +202,24 @@ async function saveCollectedInvoicesToDb(
       let dupRes;
       if (ntsNo && !ntsNo.includes("POPBILL_TEST")) {
         dupRes = await client.query(
-          "SELECT id FROM erp_tax_invoices WHERE nts_confirm_no = $1 LIMIT 1",
-          [ntsNo]
+          `SELECT id FROM erp_tax_invoices
+           WHERE nts_confirm_no = $1
+             AND COALESCE(supplier_entity_type, 'CORP') = $2
+             AND COALESCE(io_type, 'SALE') = $3
+           LIMIT 1`,
+          [ntsNo, entity.key, ioType]
         );
       }
       if (!dupRes || dupRes.rows.length === 0) {
         dupRes = await client.query(
           `SELECT id FROM erp_tax_invoices
-           WHERE COALESCE(io_type, 'SALE') = $1
-             AND issue_date = $2::date
-             AND customer_name = $3
-             AND ABS(COALESCE(total_amount, 0) - $4) <= 1
+           WHERE COALESCE(supplier_entity_type, 'CORP') = $1
+             AND COALESCE(io_type, 'SALE') = $2
+             AND issue_date = $3::date
+             AND customer_name = $4
+             AND ABS(COALESCE(total_amount, 0) - $5) <= 1
            LIMIT 1`,
-          [ioType, item.writeDate, counterpartyName, item.totalAmount]
+          [entity.key, ioType, item.writeDate, counterpartyName, item.totalAmount]
         );
       }
 

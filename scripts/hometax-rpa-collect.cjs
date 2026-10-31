@@ -373,10 +373,15 @@ function parseHometaxRows(rows) {
         }
       }
 
-      // 1) Check exact match by nts_confirm_no
+      // 1) Check exact match by nts_confirm_no within the same entity & io_type
+      // (Inter-entity transactions between CORP and INDIVIDUAL share the same nts_confirm_no, one as SALE and one as PURCHASE)
       const exactDup = await pool.query(
-        `SELECT id, nts_confirm_no FROM erp_tax_invoices WHERE nts_confirm_no = $1 LIMIT 1`,
-        [item.ntsConfirmNo]
+        `SELECT id, nts_confirm_no FROM erp_tax_invoices
+         WHERE nts_confirm_no = $1
+           AND COALESCE(supplier_entity_type, 'CORP') = $2
+           AND COALESCE(io_type, 'SALE') = $3
+         LIMIT 1`,
+        [item.ntsConfirmNo, ENTITY_KEY, item.ioType]
       );
       if (exactDup.rows.length > 0) {
         skipped++;
@@ -386,13 +391,14 @@ function parseHometaxRows(rows) {
       // 2) Check if there is an ERP test-issued invoice (e.g. nts_confirm_no containing '88888888' or 'POPBILL_TEST') with same customer & total_amount within 3 days
       const testDup = await pool.query(
         `SELECT id, nts_confirm_no FROM erp_tax_invoices
-         WHERE COALESCE(io_type, 'SALE') = $1
-           AND customer_name = $2
-           AND ABS(COALESCE(total_amount, 0) - $3) <= 5
-           AND ABS(issue_date - $4::date) <= 3
+         WHERE COALESCE(supplier_entity_type, 'CORP') = $1
+           AND COALESCE(io_type, 'SALE') = $2
+           AND customer_name = $3
+           AND ABS(COALESCE(total_amount, 0) - $4) <= 5
+           AND ABS(issue_date - $5::date) <= 3
            AND (nts_confirm_no LIKE '%88888888%' OR nts_confirm_no LIKE '%POPBILL_TEST%')
          LIMIT 1`,
-        [item.ioType, counterpartyName, item.totalAmount, item.writeDate]
+        [ENTITY_KEY, item.ioType, counterpartyName, item.totalAmount, item.writeDate]
       );
 
       if (testDup.rows.length > 0) {

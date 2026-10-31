@@ -1,17 +1,24 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { 
-  Users, Calendar, RefreshCw, Download, Edit3, 
-  RotateCcw, Search, Check, AlertCircle, Plus, ShieldCheck,
-  ArrowUpDown, ArrowUp, ArrowDown
+import {
+  Calendar,
+  RefreshCw,
+  Download,
+  RotateCcw,
+  Search,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
-import { 
-  sortErpItems, 
-  SortDirection, 
-  formatErpNumber, 
-  formatErpLeaveDays, 
-  calculateAnnualLeaveEntitlement 
+import {
+  sortErpItems,
+  SortDirection,
+  formatErpNumber,
+  formatErpLeaveDays,
+  calculateAnnualLeaveEntitlement,
+  isNonDeductingLeaveType,
+  getLeaveTypeLabel,
 } from "@/lib/erpFormat";
 
 interface EmployeeLeave {
@@ -31,6 +38,22 @@ interface EmployeeLeave {
   nonDeductedCount?: number;
 }
 
+interface LeaveHistoryItem {
+  id: number;
+  employeeId: number;
+  employeeNo: string;
+  employeeName: string;
+  department: string;
+  position: string;
+  leaveType: string;
+  startDate: string;
+  endDate: string;
+  deductedDays: number;
+  reason: string;
+  status: string;
+  approverName: string | null;
+}
+
 export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const isAdmin =
     currentUser?.canSave !== undefined
@@ -41,6 +64,8 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
         currentUser?.loginId === "admin";
 
   const [employees, setEmployees] = useState<EmployeeLeave[]>([]);
+  const [leaves, setLeaves] = useState<LeaveHistoryItem[]>([]);
+  const [selectedHistoryEmpId, setSelectedHistoryEmpId] = useState<string>("ALL");
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [deptFilter, setDeptFilter] = useState("ALL");
@@ -50,7 +75,10 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
   const [selectedEmp, setSelectedEmp] = useState<EmployeeLeave | null>(null);
   const [newGrantDays, setNewGrantDays] = useState<number>(15);
 
-  const [toastMessage, setToastMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [toastMessage, setToastMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const showToast = (text: string, type: "success" | "error" = "success") => {
     setToastMessage({ type, text });
     setTimeout(() => setToastMessage(null), 3000);
@@ -59,11 +87,19 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
   const fetchEmployees = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/erp/employees");
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "사원 목록 조회 실패");
+      const [empRes, leaveRes] = await Promise.all([
+        fetch("/api/erp/employees"),
+        fetch("/api/erp/leaves"),
+      ]);
+      const empData = await empRes.json();
+      const leaveData = await leaveRes.json();
+      if (!empRes.ok || !empData.success)
+        throw new Error(empData.error || "사원 목록 조회 실패");
 
-      setEmployees(data.employees || []);
+      setEmployees(empData.employees || []);
+      if (leaveData.success && leaveData.leaves) {
+        setLeaves(leaveData.leaves);
+      }
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -75,7 +111,6 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     fetchEmployees();
   }, []);
 
-  // 회계연도(1월 1일 ~ 12월 31일) 기준 연차/근속연수(0년차, 1년차...) 산출
   const getTenureYears = (joinDateStr?: string) => {
     return calculateAnnualLeaveEntitlement(joinDateStr).tenureYears;
   };
@@ -92,17 +127,29 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     }
   };
 
-  const renderSortTh = (label: string, colKey: string, align: "left" | "right" | "center" = "left") => (
+  const renderSortTh = (
+    label: string,
+    colKey: string,
+    align: "left" | "right" | "center" = "left"
+  ) => (
     <th
       onClick={() => handleSort(colKey)}
-      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none transition ${
+      className={`py-2 px-3 whitespace-nowrap cursor-pointer select-none transition ${
         align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
       } hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60`}
     >
-      <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"}`}>
+      <div
+        className={`inline-flex items-center gap-1.5 ${
+          align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"
+        }`}
+      >
         <span>{label}</span>
         {sortKey === colKey ? (
-          sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" /> : <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
+          sortDir === "asc" ? (
+            <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
+          ) : (
+            <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
+          )
         ) : (
           <ArrowUpDown className="w-3.5 h-3.5 opacity-30 group-hover:opacity-100" />
         )}
@@ -113,17 +160,22 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
   // 연차관리 대상자 필터링 (대표이사, 외주 조직 직원, 퇴사자 제외)
   const eligibleEmployees = useMemo(() => {
     return employees.filter((emp) => {
-      // 1. 퇴사자 제외
-      const st = String(emp.status || emp.employmentStatus || "ACTIVE").trim().toUpperCase();
+      const st = String(emp.status || emp.employmentStatus || "ACTIVE")
+        .trim()
+        .toUpperCase();
       if (st === "RETIRED" || st === "RESIGNED" || st === "퇴사" || st === "퇴직") return false;
       if (emp.leaveDate && String(emp.leaveDate).trim() !== "") return false;
 
-      // 2. 대표이사 제외
       const pos = String(emp.position || "").trim();
       const duty = String(emp.duty || "").trim();
-      if (pos.includes("대표이사") || pos === "대표" || duty.includes("대표이사") || duty === "대표") return false;
+      if (
+        pos.includes("대표이사") ||
+        pos === "대표" ||
+        duty.includes("대표이사") ||
+        duty === "대표"
+      )
+        return false;
 
-      // 3. 조직이 외주인 직원 제외
       const dept = String(emp.department || "").trim();
       if (dept.includes("외주")) return false;
 
@@ -135,7 +187,6 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     return Array.from(new Set(eligibleEmployees.map((e) => e.department).filter(Boolean)));
   }, [eligibleEmployees]);
 
-  // Filtered
   const filteredEmployees = useMemo(() => {
     return eligibleEmployees.filter((emp) => {
       if (deptFilter !== "ALL" && emp.department !== deptFilter) return false;
@@ -154,6 +205,15 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
   const sortedEmployees = useMemo(() => {
     return sortErpItems(filteredEmployees, sortKey, sortDir);
   }, [filteredEmployees, sortKey, sortDir]);
+
+  // 상세 사용내역 필터링 및 일자 오름차순 정렬
+  const filteredLeaveHistory = useMemo(() => {
+    const list =
+      selectedHistoryEmpId === "ALL"
+        ? leaves
+        : leaves.filter((l) => String(l.employeeId) === selectedHistoryEmpId);
+    return [...list].sort((a, b) => a.startDate.localeCompare(b.startDate));
+  }, [leaves, selectedHistoryEmpId]);
 
   // Annual Reset & Recalculate
   const handleAnnualReset = async () => {
@@ -208,7 +268,18 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
 
   // Export to CSV
   const handleExportCsv = () => {
-    const headers = ["사번", "성명", "부서", "직급", "입사일", "근속연수", "부여연차", "사용연차", "잔여연차"];
+    const headers = [
+      "사번",
+      "성명",
+      "부서",
+      "직급",
+      "입사일",
+      "근속연수",
+      "부여연차",
+      "사용연차",
+      "잔여연차",
+      "공가(미차감)건수",
+    ];
     const rows = filteredEmployees.map((e) => [
       e.employeeNo,
       e.name,
@@ -219,6 +290,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
       e.grantDays,
       e.usedDays,
       e.remainDays,
+      e.nonDeductedCount || 0,
     ]);
 
     const csvContent =
@@ -228,7 +300,10 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `연차관리대장_${new Date().toISOString().substring(0, 10)}.csv`);
+    link.setAttribute(
+      "download",
+      `연차관리대장_${new Date().toISOString().substring(0, 10)}.csv`
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -316,11 +391,12 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
         </div>
       </div>
 
-      {/* Main Table Area */}
-      <div className="flex-1 overflow-auto p-4">
-        <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-auto max-h-[calc(100vh-230px)] dark:bg-slate-900 dark:border-slate-800">
+      {/* Main Content Area: Summary Table + Detailed 2026 Leave Ledger */}
+      <div className="flex-1 overflow-auto p-4 flex flex-col gap-4">
+        {/* 1. 임직원별 연차 보유/사용 집계표 */}
+        <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-auto shrink-0 dark:bg-slate-900 dark:border-slate-800">
           <table className="w-full text-xs text-left border-collapse">
-            <thead className="bg-[#dcd4c4] text-[#0f172a] uppercase tracking-wider font-semibold border-b border-[#b5a894] sticky top-0 z-10 select-none dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
+            <thead className="bg-[#dcd4c4] text-[#0f172a] font-semibold border-b border-[#b5a894] sticky top-0 z-10 select-none dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
               <tr>
                 {renderSortTh("사번", "employeeNo")}
                 {renderSortTh("성명", "name")}
@@ -333,7 +409,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 {renderSortTh("잔여 연차", "remainDays", "right")}
                 {renderSortTh("공가/특별(미차감)", "nonDeductedCount", "center")}
                 {renderSortTh("소진율", "usedDays", "center")}
-                <th className="py-2.5 px-3 whitespace-nowrap text-center">조정</th>
+                <th className="py-2 px-3 whitespace-nowrap text-center">조정</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
@@ -347,22 +423,43 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 const tenure = entitlement.tenureYears;
 
                 return (
-                  <tr key={emp.id} className="hover:bg-[#ede6d6] dark:hover:bg-slate-800/40 transition">
-                    <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">{emp.employeeNo}</td>
-                    <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap">{emp.name}</td>
-                    <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">{emp.department}</td>
+                  <tr
+                    key={emp.id}
+                    onClick={() =>
+                      setSelectedHistoryEmpId((prev) =>
+                        prev === String(emp.id) ? "ALL" : String(emp.id)
+                      )
+                    }
+                    className={`cursor-pointer transition ${
+                      selectedHistoryEmpId === String(emp.id)
+                        ? "bg-[#dbeafe]/60 dark:bg-blue-950/30"
+                        : "hover:bg-[#ede6d6] dark:hover:bg-slate-800/40"
+                    }`}
+                  >
+                    <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">
+                      {emp.employeeNo}
+                    </td>
+                    <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap">
+                      {emp.name}
+                    </td>
+                    <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                      {emp.department}
+                    </td>
                     <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
                       {emp.position} {emp.duty ? `(${emp.duty})` : ""}
                     </td>
                     <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">
                       {emp.joinDate ? emp.joinDate.substring(0, 10) : "-"}
                     </td>
-                    <td className="py-2 px-3 text-center whitespace-nowrap" title={entitlement.formulaLabel}>
+                    <td
+                      className="py-2 px-3 text-center whitespace-nowrap"
+                      title={entitlement.formulaLabel}
+                    >
                       <span
                         className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
                           tenure === 0
-                            ? "bg-[#eff6ff] border-[#93c5fd] text-[#1d4ed8] dark:bg-blue-950/50 dark:border-blue-800 dark:text-blue-300"
-                            : "bg-[#dcd4c4] border-[#b5a894] text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
+                            ? "bg-[#eff6ff] border-[#93c5fd] text-[#1d4ed8]"
+                            : "bg-[#dcd4c4] border-[#b5a894] text-[#0f172a]"
                         }`}
                       >
                         {tenure}년차{tenure === 0 ? " (비례)" : ""}
@@ -393,14 +490,25 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                       <div className="flex items-center justify-center gap-1.5">
                         <div className="w-16 bg-[#dcd4c4] dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                           <div
-                            className={`h-full ${rate > 80 ? "bg-[#dc2626]" : rate > 50 ? "bg-[#b45309]" : "bg-[#1d4ed8]"}`}
+                            className={`h-full ${
+                              rate > 80
+                                ? "bg-[#dc2626]"
+                                : rate > 50
+                                ? "bg-[#b45309]"
+                                : "bg-[#1d4ed8]"
+                            }`}
                             style={{ width: `${rate}%` }}
                           />
                         </div>
-                        <span className="font-mono text-[10px] text-[#475569] dark:text-slate-400">{formatErpNumber(rate)}%</span>
+                        <span className="font-mono text-[10px] text-[#475569] dark:text-slate-400">
+                          {formatErpNumber(rate)}%
+                        </span>
                       </div>
                     </td>
-                    <td className="py-2 px-3 text-center whitespace-nowrap">
+                    <td
+                      className="py-2 px-3 text-center whitespace-nowrap"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {isAdmin && (
                         <button
                           onClick={() => {
@@ -420,6 +528,132 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
             </tbody>
           </table>
         </div>
+
+        {/* 2. 2026년 연차 및 공가 사용 상세 내역 대장 */}
+        <div className="flex-1 bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs flex flex-col overflow-hidden min-h-[280px] dark:bg-slate-900 dark:border-slate-800">
+          <div className="p-2.5 bg-[#e2dbcd] border-b border-[#b5a894] flex flex-wrap items-center justify-between gap-2 shrink-0 dark:bg-slate-800 dark:border-slate-700">
+            <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
+              연차 및 공가 사용 상세 내역 ({filteredLeaveHistory.length}건)
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setSelectedHistoryEmpId("ALL")}
+                className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
+                  selectedHistoryEmpId === "ALL"
+                    ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
+                    : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
+                }`}
+              >
+                전체 ({leaves.length})
+              </button>
+              {eligibleEmployees.map((emp) => {
+                const cnt = leaves.filter((l) => l.employeeId === emp.id).length;
+                return (
+                  <button
+                    key={emp.id}
+                    type="button"
+                    onClick={() => setSelectedHistoryEmpId(String(emp.id))}
+                    className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
+                      selectedHistoryEmpId === String(emp.id)
+                        ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
+                        : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
+                    }`}
+                  >
+                    {emp.name} ({cnt})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead className="bg-[#dcd4c4] text-[#0f172a] font-semibold border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
+                <tr>
+                  <th className="py-2 px-3 whitespace-nowrap">순번</th>
+                  <th className="py-2 px-3 whitespace-nowrap">사용 일자</th>
+                  <th className="py-2 px-3 whitespace-nowrap">성명</th>
+                  <th className="py-2 px-3 whitespace-nowrap">부서 / 직급</th>
+                  <th className="py-2 px-3 whitespace-nowrap">휴가 구분</th>
+                  <th className="py-2 px-3 whitespace-nowrap text-center">연차 차감 일수</th>
+                  <th className="py-2 px-3 whitespace-nowrap">사유</th>
+                  <th className="py-2 px-3 whitespace-nowrap text-center">결재상태</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
+                {filteredLeaveHistory.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="py-10 text-center text-[#475569] whitespace-nowrap"
+                    >
+                      등록된 휴가 사용 내역이 없습니다.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredLeaveHistory.map((item, idx) => {
+                    const nonDed =
+                      Number(item.deductedDays) === 0 ||
+                      isNonDeductingLeaveType(item.leaveType);
+                    return (
+                      <tr
+                        key={item.id}
+                        className="hover:bg-[#ede6d6] dark:hover:bg-slate-800/40 transition"
+                      >
+                        <td className="py-1.5 px-3 font-mono text-[#64748b] whitespace-nowrap">
+                          {idx + 1}
+                        </td>
+                        <td className="py-1.5 px-3 font-mono font-bold text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
+                          {item.startDate}
+                          {item.endDate && item.endDate !== item.startDate
+                            ? ` ~ ${item.endDate}`
+                            : ""}
+                        </td>
+                        <td className="py-1.5 px-3 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap">
+                          {item.employeeName}
+                        </td>
+                        <td className="py-1.5 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                          {item.department} {item.position}
+                        </td>
+                        <td className="py-1.5 px-3 whitespace-nowrap">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              nonDed
+                                ? "bg-[#ecfdf5] text-[#065f46] border-[#a7f3d0]"
+                                : "bg-[#dbeafe] text-[#1e40af] border-[#bfdbfe]"
+                            }`}
+                          >
+                            {getLeaveTypeLabel(item.leaveType)}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-3 text-center font-mono font-bold whitespace-nowrap">
+                          {nonDed ? (
+                            <span className="text-[#047857] dark:text-emerald-400">
+                              0일 (미소진)
+                            </span>
+                          ) : (
+                            <span className="text-[#b45309] dark:text-amber-400">
+                              {formatErpLeaveDays(item.deductedDays)}일 차감
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-1.5 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                          {item.reason}
+                        </td>
+                        <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0]">
+                            승인완료
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* Adjust Modal */}
@@ -434,7 +668,9 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
               return (
                 <div className="mb-4 space-y-1.5 text-xs">
                   <p className="text-[#475569] dark:text-slate-400">
-                    입사일: {selectedEmp.joinDate ? selectedEmp.joinDate.substring(0, 10) : "-"} ({ent.tenureYears}년차)
+                    입사일:{" "}
+                    {selectedEmp.joinDate ? selectedEmp.joinDate.substring(0, 10) : "-"} (
+                    {ent.tenureYears}년차)
                   </p>
                   <div className="p-2 rounded bg-[#f4efe4] border border-[#b5a894] flex items-center justify-between dark:bg-slate-950 dark:border-slate-800">
                     <span className="text-[11px] font-semibold text-[#1d4ed8] dark:text-blue-400">
@@ -453,7 +689,9 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
             })()}
 
             <div className="flex flex-col gap-1 mb-4">
-              <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">부여 연차 일수</label>
+              <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
+                부여 연차 일수
+              </label>
               <input
                 type="number"
                 step="0.5"

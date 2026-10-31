@@ -146,6 +146,28 @@ const CATEGORIES: CategoryConfig[] = [
   },
 ];
 
+const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
+  ORG: "org",
+  PERMISSIONS: "users",
+  LEAVE_APPLY: "leave_apply",
+  LEAVE_MANAGE: "leave_manage",
+  OT_MANAGE: "ot_manage",
+  APPROVAL_INBOX: "approval_inbox",
+  APPROVAL_RULES: "approval_rules",
+  BANK_MATCHING: "bank_matching",
+  PAYROLL: "payroll",
+  TAX: "tax_invoice",
+  CUSTOMER: "customer",
+  VENDOR: "vendor",
+  PRODUCT: "product",
+  ASSET: "asset",
+  OUTBOUND_REG: "outbound_reg",
+  INBOUND_REG: "inbound_reg",
+  TRADE: "trade",
+  RENTAL: "rental",
+  SERVICES: "service",
+};
+
 export default function ErpMainPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -154,6 +176,13 @@ export default function ErpMainPage() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [selectedEntity, setSelectedEntity] = useState<EntityScope>("ALL");
+  const [rolePerms, setRolePerms] = useState<
+    Array<{ roleCode: string; menuKey: string; canView: boolean; canSave: boolean }>
+  >([]);
+  const [employeeRolesMap, setEmployeeRolesMap] = useState<
+    Record<number, { role: string; roleCode: string }>
+  >({});
+  const [permsLoaded, setPermsLoaded] = useState(false);
 
   // Accordion open/close state for tree groups
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
@@ -171,6 +200,30 @@ export default function ErpMainPage() {
       ...prev,
       [key]: !prev[key],
     }));
+  };
+
+  const fetchRolePermissions = async () => {
+    try {
+      const res = await fetch("/api/erp/permissions");
+      const data = await res.json();
+      if (data.success && Array.isArray(data.permissions)) {
+        setRolePerms(data.permissions);
+      }
+      if (data.success && Array.isArray(data.employeeRoles)) {
+        const map: Record<number, { role: string; roleCode: string }> = {};
+        for (const emp of data.employeeRoles) {
+          map[Number(emp.id)] = {
+            role: emp.role || "",
+            roleCode: emp.roleCode || "",
+          };
+        }
+        setEmployeeRolesMap(map);
+      }
+    } catch (e) {
+      console.error("Failed to load role permissions:", e);
+    } finally {
+      setPermsLoaded(true);
+    }
   };
 
   // Restore session & theme from localStorage on mount
@@ -198,6 +251,78 @@ export default function ErpMainPage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (currentUser) {
+      setPermsLoaded(false);
+      fetchRolePermissions();
+    }
+  }, [currentUser?.id, currentUser?.role, currentUser?.roleCode]);
+
+  const effectiveRoleCode = React.useMemo(() => {
+    if (!currentUser) return "EMPLOYEE";
+    const dbEmp = employeeRolesMap[Number(currentUser.id)];
+    const r = String(dbEmp?.role || currentUser.role || "").toUpperCase();
+    const rc = String(dbEmp?.roleCode || currentUser.roleCode || "").toUpperCase();
+    if (currentUser.loginId === "admin" || r === "ADMIN" || r === "SUPER_ADMIN" || rc === "ADMIN") {
+      return "ADMIN";
+    }
+    if (rc) return rc;
+    if (r === "MANAGER") return "MANAGER";
+    return "EMPLOYEE";
+  }, [currentUser, employeeRolesMap]);
+
+  const visibleCategories = React.useMemo(() => {
+    if (effectiveRoleCode === "ADMIN") {
+      return CATEGORIES;
+    }
+    if (!permsLoaded) {
+      return [];
+    }
+    const allowedSet = new Set(
+      rolePerms
+        .filter((p) => p.roleCode === effectiveRoleCode && p.canView)
+        .map((p) => p.menuKey)
+    );
+    return CATEGORIES.map((cat) => ({
+      ...cat,
+      items: cat.items.filter((item) => allowedSet.has(MENU_PERM_KEY_MAP[item.key])),
+    })).filter((cat) => cat.items.length > 0);
+  }, [effectiveRoleCode, permsLoaded, rolePerms]);
+
+  // 현재 선택된 메뉴가 권한 허용 목록에 없으면 첫 번째 허용 메뉴로 자동 전환
+  useEffect(() => {
+    if (!currentUser || visibleCategories.length === 0) return;
+    const isCurrentAllowed = visibleCategories.some((cat) =>
+      cat.items.some((item) => item.key === activeMenu)
+    );
+    if (!isCurrentAllowed) {
+      const firstCat = visibleCategories[0];
+      const firstItem = firstCat.items[0];
+      if (firstCat && firstItem) {
+        setActiveCategory(firstCat.key);
+        setActiveMenu(firstItem.key);
+      }
+    }
+  }, [currentUser, visibleCategories, activeMenu]);
+
+  const activeMenuCanSave = React.useMemo(() => {
+    if (effectiveRoleCode === "ADMIN") return true;
+    const permKey = MENU_PERM_KEY_MAP[activeMenu];
+    const found = rolePerms.find(
+      (p) => p.roleCode === effectiveRoleCode && p.menuKey === permKey
+    );
+    return found ? Boolean(found.canSave) : false;
+  }, [effectiveRoleCode, activeMenu, rolePerms]);
+
+  const enrichedUser = React.useMemo(() => {
+    if (!currentUser) return null;
+    return {
+      ...currentUser,
+      roleCode: effectiveRoleCode,
+      canSave: activeMenuCanSave,
+    };
+  }, [currentUser, effectiveRoleCode, activeMenuCanSave]);
+
   const toggleTheme = () => {
     const next = theme === "light" ? "dark" : "light";
     setTheme(next);
@@ -219,10 +344,10 @@ export default function ErpMainPage() {
     setExpandedGroups((prev) => ({ ...prev, FINANCE: true }));
   };
 
-  if (!isInitialized) {
+  if (!isInitialized || (currentUser && !permsLoaded && effectiveRoleCode !== "ADMIN")) {
     return (
       <div className="min-h-screen flex items-center justify-center text-xs font-mono erp-app-container">
-        시스템 세션을 초기화하는 중입니다...
+        시스템 세션 및 권한을 초기화하는 중입니다...
       </div>
     );
   }
@@ -232,15 +357,19 @@ export default function ErpMainPage() {
     return <ErpLogin onLoginSuccess={(user) => setCurrentUser(user)} />;
   }
 
-  const currentCategoryConfig = CATEGORIES.find((c) => c.key === activeCategory) || CATEGORIES[0];
-  const currentMenuItem = currentCategoryConfig.items.find((i) => i.key === activeMenu) || 
-    CATEGORIES.flatMap((c) => c.items).find((i) => i.key === activeMenu);
+  const currentCategoryConfig =
+    visibleCategories.find((c) => c.key === activeCategory) || visibleCategories[0] || CATEGORIES[0];
+  const currentMenuItem =
+    currentCategoryConfig?.items.find((i) => i.key === activeMenu) ||
+    visibleCategories.flatMap((c) => c.items).find((i) => i.key === activeMenu);
+
+  const isMenuAllowed = visibleCategories.some((c) => c.items.some((i) => i.key === activeMenu));
 
   return (
     <div data-theme={theme} className={`erp-app-container ${theme === 'dark' ? 'dark' : ''} flex flex-col h-screen w-screen overflow-hidden select-none`}>
       {/* 1. Enterprise Top Header */}
       <ErpHeader
-        user={currentUser}
+        user={enrichedUser}
         theme={theme}
         selectedEntity={selectedEntity}
         onSelectEntity={(e) => {
@@ -267,13 +396,13 @@ export default function ErpMainPage() {
               </span>
             </div>
             <span className="text-[10px] px-2 py-0.5 rounded font-mono font-semibold erp-sidebar-badge">
-              {CATEGORIES.length}그룹 {CATEGORIES.reduce((s, c) => s + c.items.length, 0)}메뉴
+              {visibleCategories.length}그룹 {visibleCategories.reduce((s, c) => s + c.items.length, 0)}메뉴
             </span>
           </div>
 
           {/* Accordion Menu Group Tree */}
           <div className="flex-1 p-2.5 flex flex-col gap-1.5 overflow-y-auto erp-sidebar-menu-list">
-            {CATEGORIES.map((cat) => {
+            {visibleCategories.map((cat) => {
               const GroupIcon = cat.icon;
               const isExpanded = expandedGroups[cat.key] !== false;
               const hasActiveChild = cat.items.some((item) => item.key === activeMenu);
@@ -346,7 +475,7 @@ export default function ErpMainPage() {
             </div>
             <div className="flex items-center justify-between text-[10px] opacity-60 border-t pt-1 mt-0.5 border-dashed">
               <span>{currentUser.name} ({currentUser.position})</span>
-              <span>{currentUser.role}</span>
+              <span>{effectiveRoleCode}</span>
             </div>
           </div>
         </aside>
@@ -356,7 +485,7 @@ export default function ErpMainPage() {
           {/* Current Active Tab Breadcrumb Bar */}
           <div className="erp-breadcrumb-bar px-4 py-2 border-b flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2 text-xs">
-              <span className="opacity-60">{currentCategoryConfig.label}</span>
+              <span className="opacity-60">{currentCategoryConfig?.label}</span>
               <span className="opacity-40">/</span>
               <span className="font-bold flex items-center gap-1.5">
                 {currentMenuItem && <currentMenuItem.icon className="w-3.5 h-3.5 text-blue-600" />}
@@ -373,82 +502,95 @@ export default function ErpMainPage() {
 
           {/* Tab Content Body (Scrollable) */}
           <div className="flex-1 overflow-y-auto">
-            {activeMenu === "ORG" && <OrganizationTab currentUser={currentUser} />}
-            {activeMenu === "PERMISSIONS" && <PermissionsTab currentUser={currentUser} />}
-            {activeMenu === "LEAVE_APPLY" && <LeaveApplyTab currentUser={currentUser} />}
-            {activeMenu === "LEAVE_MANAGE" && <LeaveManageTab currentUser={currentUser} />}
-            {activeMenu === "OT_MANAGE" && <OtManagementTab currentUser={currentUser} />}
-            {activeMenu === "APPROVAL_INBOX" && <ApprovalInboxTab currentUser={currentUser} />}
-            {activeMenu === "APPROVAL_RULES" && <ApprovalRulesTab currentUser={currentUser} />}
-            {activeMenu === "BANK_MATCHING" && (
-              <BankMatchingTab currentUser={currentUser} selectedEntity={selectedEntity} />
-            )}
-            {activeMenu === "PAYROLL" && <PayrollTab currentUser={currentUser} />}
-            {activeMenu === "TAX" && (
-              <TaxInvoiceTab 
-                currentUser={currentUser} 
-                selectedEntity={selectedEntity}
-                onSelectEntity={(e) => {
-                  setSelectedEntity(e);
-                  try {
-                    localStorage.setItem("dragonrpa_erp_entity", e);
-                  } catch (err) {}
-                }}
-              />
-            )}
-            {(activeMenu === "CUSTOMER" || activeMenu === "VENDOR") && (
-              <PartnerManagementTab
-                currentUser={currentUser}
-                initialType={activeMenu === "VENDOR" ? "VENDOR" : "CUSTOMER"}
-                onSelectTypeTab={(type) => {
-                  if (type === "CUSTOMER" || type === "VENDOR") {
-                    setActiveMenu(type);
-                    setActiveCategory("PARTNER");
-                  }
-                }}
-                onNavigateToTax={navigateToTax}
-              />
-            )}
-            {activeMenu === "PRODUCT" && (
-              <ProductManagementTab 
-                currentUser={currentUser} 
-                onNavigateToAsset={() => {
-                  setActiveCategory("ASSET");
-                  setActiveMenu("ASSET");
-                }}
-              />
-            )}
-            {activeMenu === "ASSET" && <AssetManagementTab currentUser={currentUser} />}
-            {activeMenu === "OUTBOUND_REG" && (
-              <div className="p-4">
-                <OutboundRegTab currentUser={currentUser} />
+            {!isMenuAllowed ? (
+              <div className="p-8 text-center text-xs text-slate-500">
+                접근 권한이 부여된 메뉴가 없습니다. 관리자에게 권한 배정을 요청해 주십시오.
               </div>
-            )}
-            {activeMenu === "INBOUND_REG" && (
-              <div className="p-4">
-                <InboundRegTab currentUser={currentUser} />
-              </div>
-            )}
-            {activeMenu === "TRADE" && (
-              <TradeTab 
-                currentUser={currentUser} 
-                selectedEntity={selectedEntity}
-                onNavigateToTax={navigateToTax} 
-              />
-            )}
-            {activeMenu === "RENTAL" && (
-              <RentalTab 
-                currentUser={currentUser} 
-                selectedEntity={selectedEntity}
-                onNavigateToTax={navigateToTax} 
-              />
-            )}
-            {activeMenu === "SERVICES" && (
-              <ServiceTab 
-                currentUser={currentUser} 
-                selectedEntity={selectedEntity}
-                onNavigateToTax={navigateToTax} 
-              />
+            ) : (
+              <>
+                {activeMenu === "ORG" && <OrganizationTab currentUser={enrichedUser} />}
+                {activeMenu === "PERMISSIONS" && (
+                  <PermissionsTab
+                    currentUser={enrichedUser}
+                    onPermissionsChanged={fetchRolePermissions}
+                  />
+                )}
+                {activeMenu === "LEAVE_APPLY" && <LeaveApplyTab currentUser={enrichedUser} />}
+                {activeMenu === "LEAVE_MANAGE" && <LeaveManageTab currentUser={enrichedUser} />}
+                {activeMenu === "OT_MANAGE" && <OtManagementTab currentUser={enrichedUser} />}
+                {activeMenu === "APPROVAL_INBOX" && <ApprovalInboxTab currentUser={enrichedUser} />}
+                {activeMenu === "APPROVAL_RULES" && <ApprovalRulesTab currentUser={enrichedUser} />}
+                {activeMenu === "BANK_MATCHING" && (
+                  <BankMatchingTab currentUser={enrichedUser} selectedEntity={selectedEntity} />
+                )}
+                {activeMenu === "PAYROLL" && <PayrollTab currentUser={enrichedUser} />}
+                {activeMenu === "TAX" && (
+                  <TaxInvoiceTab 
+                    currentUser={enrichedUser} 
+                    selectedEntity={selectedEntity}
+                    onSelectEntity={(e) => {
+                      setSelectedEntity(e);
+                      try {
+                        localStorage.setItem("dragonrpa_erp_entity", e);
+                      } catch (err) {}
+                    }}
+                  />
+                )}
+                {(activeMenu === "CUSTOMER" || activeMenu === "VENDOR") && (
+                  <PartnerManagementTab
+                    currentUser={enrichedUser}
+                    initialType={activeMenu === "VENDOR" ? "VENDOR" : "CUSTOMER"}
+                    onSelectTypeTab={(type) => {
+                      if (type === "CUSTOMER" || type === "VENDOR") {
+                        setActiveMenu(type);
+                        setActiveCategory("PARTNER");
+                      }
+                    }}
+                    onNavigateToTax={navigateToTax}
+                  />
+                )}
+                {activeMenu === "PRODUCT" && (
+                  <ProductManagementTab 
+                    currentUser={enrichedUser} 
+                    onNavigateToAsset={() => {
+                      setActiveCategory("ASSET");
+                      setActiveMenu("ASSET");
+                    }}
+                  />
+                )}
+                {activeMenu === "ASSET" && <AssetManagementTab currentUser={enrichedUser} />}
+                {activeMenu === "OUTBOUND_REG" && (
+                  <div className="p-4">
+                    <OutboundRegTab currentUser={enrichedUser} />
+                  </div>
+                )}
+                {activeMenu === "INBOUND_REG" && (
+                  <div className="p-4">
+                    <InboundRegTab currentUser={enrichedUser} />
+                  </div>
+                )}
+                {activeMenu === "TRADE" && (
+                  <TradeTab 
+                    currentUser={enrichedUser} 
+                    selectedEntity={selectedEntity}
+                    onNavigateToTax={navigateToTax} 
+                  />
+                )}
+                {activeMenu === "RENTAL" && (
+                  <RentalTab 
+                    currentUser={enrichedUser} 
+                    selectedEntity={selectedEntity}
+                    onNavigateToTax={navigateToTax} 
+                  />
+                )}
+                {activeMenu === "SERVICES" && (
+                  <ServiceTab 
+                    currentUser={enrichedUser} 
+                    selectedEntity={selectedEntity}
+                    onNavigateToTax={navigateToTax} 
+                  />
+                )}
+              </>
             )}
           </div>
         </main>

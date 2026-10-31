@@ -33,10 +33,17 @@ export async function GET() {
       ORDER BY role_code, menu_key
     `);
 
+    // 3. 사원별 실시간 역할 매핑
+    const empRolesRes = await pool.query(`
+      SELECT id, role, role_code as "roleCode"
+      FROM erp_employees
+    `);
+
     return NextResponse.json({
       success: true,
       roles: rolesRes.rows,
       permissions: permsRes.rows,
+      employeeRoles: empRolesRes.rows,
     });
   } catch (error: any) {
     console.error("GET Permissions Error:", error);

@@ -25,7 +25,13 @@ interface EmployeeLeave {
 }
 
 export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
-  const isAdmin = currentUser?.role === "ADMIN" || currentUser?.loginId === "admin";
+  const isAdmin =
+    currentUser?.canSave !== undefined
+      ? Boolean(currentUser.canSave)
+      : currentUser?.role === "ADMIN" ||
+        currentUser?.role === "SUPER_ADMIN" ||
+        currentUser?.role === "MANAGER" ||
+        currentUser?.loginId === "admin";
 
   const [employees, setEmployees] = useState<EmployeeLeave[]>([]);
   const [loading, setLoading] = useState(false);

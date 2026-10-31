@@ -28,6 +28,7 @@ interface EmployeeLeave {
   grantDays: number;
   usedDays: number;
   remainDays: number;
+  nonDeductedCount?: number;
 }
 
 export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
@@ -330,6 +331,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 {renderSortTh("부여 연차", "grantDays", "right")}
                 {renderSortTh("사용 연차", "usedDays", "right")}
                 {renderSortTh("잔여 연차", "remainDays", "right")}
+                {renderSortTh("공가/특별(미차감)", "nonDeductedCount", "center")}
                 {renderSortTh("소진율", "usedDays", "center")}
                 <th className="py-2.5 px-3 whitespace-nowrap text-center">조정</th>
               </tr>
@@ -339,6 +341,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 const grant = Number(emp.grantDays || 15);
                 const used = Number(emp.usedDays || 0);
                 const remain = Number(emp.remainDays ?? grant - used);
+                const nonDedCount = Number(emp.nonDeductedCount || 0);
                 const rate = grant > 0 ? Math.min(100, Math.round((used / grant) * 100)) : 0;
                 const entitlement = calculateAnnualLeaveEntitlement(emp.joinDate);
                 const tenure = entitlement.tenureYears;
@@ -376,6 +379,15 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                       {formatErpLeaveDays(remain)}일
+                    </td>
+                    <td className="py-2 px-3 text-center font-mono whitespace-nowrap">
+                      {nonDedCount > 0 ? (
+                        <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0]">
+                          {nonDedCount}건 (0일차감)
+                        </span>
+                      ) : (
+                        <span className="text-[#94a3b8]">-</span>
+                      )}
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1.5">

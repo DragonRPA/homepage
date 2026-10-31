@@ -6,7 +6,17 @@ import {
   Clock, AlertCircle, Search, Edit2, Shield, FileText, Check, X,
   ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { 
+  formatErpNumber, 
+  formatErpCurrency, 
+  formatErpQty, 
+  formatErpLeaveDays,
+  sortErpItems, 
+  SortDirection,
+  LEAVE_TYPE_LIST,
+  isNonDeductingLeaveType,
+  getLeaveTypeLabel
+} from "@/lib/erpFormat";
 
 interface EmployeeTabProps {
   currentUser: any;
@@ -498,15 +508,23 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
                     <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100">{l.employeeName}</td>
                     <td className="py-2 px-3 text-[#334155] dark:text-slate-300">{l.department} {l.position}</td>
                     <td className="py-2 px-3">
-                      <span className="px-1.5 py-0.5 rounded bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe] text-[10px] font-semibold dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
-                        {l.leaveType === "ANNUAL" ? "연차" : l.leaveType === "HALF_AM" ? "오전반차" : l.leaveType === "HALF_PM" ? "오후반차" : "특별휴가"}
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                        Number(l.deductedDays) === 0 || isNonDeductingLeaveType(l.leaveType)
+                          ? "bg-[#ecfdf5] text-[#065f46] border-[#a7f3d0] dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
+                          : "bg-[#dbeafe] text-[#1e40af] border-[#bfdbfe] dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
+                      }`}>
+                        {getLeaveTypeLabel(l.leaveType)}
                       </span>
                     </td>
                     <td className="py-2 px-3 font-mono text-[#334155] dark:text-slate-300">
                       {l.startDate} ~ {l.endDate}
                     </td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-[#b45309] dark:text-amber-400">
-                      {formatErpNumber(l.deductedDays)}일
+                    <td className="py-2 px-3 text-right font-mono font-bold">
+                      {Number(l.deductedDays) === 0 || isNonDeductingLeaveType(l.leaveType) ? (
+                        <span className="text-[#047857] dark:text-emerald-400">0일 (미소진)</span>
+                      ) : (
+                        <span className="text-[#b45309] dark:text-amber-400">{formatErpLeaveDays(l.deductedDays)}일</span>
+                      )}
                     </td>
                     <td className="py-2 px-3 text-[#0f172a] dark:text-slate-200 max-w-xs truncate" title={l.reason}>
                       {l.reason}
@@ -833,14 +851,16 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
                     const val = e.target.value;
                     setLeaveType(val);
                     if (val === "HALF_AM" || val === "HALF_PM") setDeductedDays("0.5");
+                    else if (isNonDeductingLeaveType(val)) setDeductedDays("0");
                     else if (val === "ANNUAL") setDeductedDays("1.0");
                   }}
                   className="h-8 px-2 bg-[#f4efe4] border border-[#b5a894] rounded text-[#0f172a] focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                 >
-                  <option value="ANNUAL">전일 연차 (1일)</option>
-                  <option value="HALF_AM">오전 반차 (0.5일)</option>
-                  <option value="HALF_PM">오후 반차 (0.5일)</option>
-                  <option value="SPECIAL">경조사 및 특별휴가</option>
+                  {LEAVE_TYPE_LIST.map((item) => (
+                    <option key={item.code} value={item.code}>
+                      {item.label} {item.deductsAnnualLeave ? "" : "[연차 미소진 0일]"}
+                    </option>
+                  ))}
                 </select>
               </div>
 

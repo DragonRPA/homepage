@@ -29,6 +29,128 @@ export function formatErpLeaveDays(val: number | string | null | undefined): str
 }
 
 /**
+ * 휴가 구분 코드 및 메타데이터 SSOT (연차 소진 vs 잔여연차 미소진 휴가)
+ */
+export type LeaveTypeCode =
+  | "ANNUAL"
+  | "HALF_AM"
+  | "HALF_PM"
+  | "PUBLIC"
+  | "CONGRATULATORY"
+  | "SICK"
+  | "SPECIAL";
+
+export interface LeaveTypeMeta {
+  code: LeaveTypeCode;
+  label: string;
+  shortLabel: string;
+  deductsAnnualLeave: boolean;
+  fixedDeductedDays: number | null;
+  singleDayOnly: boolean;
+  placeholderReason: string;
+}
+
+export const LEAVE_TYPE_LIST: LeaveTypeMeta[] = [
+  {
+    code: "ANNUAL",
+    label: "전일 연차 (1일)",
+    shortLabel: "연차",
+    deductsAnnualLeave: true,
+    fixedDeductedDays: null,
+    singleDayOnly: false,
+    placeholderReason: "개인 사유 연차 신청",
+  },
+  {
+    code: "HALF_AM",
+    label: "오전 반차 (0.5)",
+    shortLabel: "오전반차",
+    deductsAnnualLeave: true,
+    fixedDeductedDays: 0.5,
+    singleDayOnly: true,
+    placeholderReason: "오전 개인 일정으로 인한 반차 신청",
+  },
+  {
+    code: "HALF_PM",
+    label: "오후 반차 (0.5)",
+    shortLabel: "오후반차",
+    deductsAnnualLeave: true,
+    fixedDeductedDays: 0.5,
+    singleDayOnly: true,
+    placeholderReason: "오후 개인 일정으로 인한 반차 신청",
+  },
+  {
+    code: "PUBLIC",
+    label: "공가 (예비군/민방위/검진)",
+    shortLabel: "공가(예비군등)",
+    deductsAnnualLeave: false,
+    fixedDeductedDays: 0,
+    singleDayOnly: false,
+    placeholderReason: "예비군 훈련 / 민방위 훈련 / 건강검진 등 공적 의무 수행",
+  },
+  {
+    code: "CONGRATULATORY",
+    label: "경조휴가",
+    shortLabel: "경조휴가",
+    deductsAnnualLeave: false,
+    fixedDeductedDays: 0,
+    singleDayOnly: false,
+    placeholderReason: "결혼 / 배우자 출산 / 가족 경조사",
+  },
+  {
+    code: "SICK",
+    label: "병가",
+    shortLabel: "병가",
+    deductsAnnualLeave: false,
+    fixedDeductedDays: 0,
+    singleDayOnly: false,
+    placeholderReason: "질병 치료 및 병원 진료",
+  },
+  {
+    code: "SPECIAL",
+    label: "특별/포상휴가",
+    shortLabel: "특별휴가",
+    deductsAnnualLeave: false,
+    fixedDeductedDays: 0,
+    singleDayOnly: false,
+    placeholderReason: "포상휴가 / 대체휴무 / 회사 부여 특별휴가",
+  },
+];
+
+export const LEAVE_TYPE_MAP: Record<string, LeaveTypeMeta> = Object.fromEntries(
+  LEAVE_TYPE_LIST.map((item) => [item.code, item])
+);
+
+export function isNonDeductingLeaveType(leaveType?: string | null): boolean {
+  if (!leaveType) return false;
+  const meta = LEAVE_TYPE_MAP[String(leaveType).toUpperCase()];
+  return meta ? !meta.deductsAnnualLeave : false;
+}
+
+export function getLeaveTypeLabel(leaveType?: string | null): string {
+  if (!leaveType) return "연차";
+  const meta = LEAVE_TYPE_MAP[String(leaveType).toUpperCase()];
+  return meta ? meta.shortLabel : String(leaveType);
+}
+
+export function calculateWeekdayCount(startDate?: string | null, endDate?: string | null): number {
+  if (!startDate || !endDate) return 1;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return 0;
+
+  let count = 0;
+  const cur = new Date(start);
+  while (cur <= end) {
+    const day = cur.getDay();
+    if (day !== 0 && day !== 6) {
+      count++;
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
+/**
  * 회계연도(1월 1일 ~ 12월 31일) 기준 연차 부여일수 및 연차(0년차, 1년차...) 자동 산출 SSOT
  * - 입사 0년차(입사 연도 == 대상 연도): 15일을 해당 연도의 잔여 일수 비율로 비례 부여 (0.5일 단위 반올림)
  * - 입사 다음 연도(1년차, targetYear - joinYear == 1)부터 매년 1월 1일 ~ 12월 31일 기준:

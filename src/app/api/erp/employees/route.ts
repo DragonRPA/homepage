@@ -59,6 +59,7 @@ export async function GET() {
         e.annual_leave_grant as "grantDays",
         COALESCE(SUM(CASE WHEN l.status = 'APPROVED' AND EXTRACT(YEAR FROM l.start_date) = EXTRACT(YEAR FROM CURRENT_DATE) THEN l.deducted_days ELSE 0 END), 0) as "usedDays",
         (e.annual_leave_grant - COALESCE(SUM(CASE WHEN l.status = 'APPROVED' AND EXTRACT(YEAR FROM l.start_date) = EXTRACT(YEAR FROM CURRENT_DATE) THEN l.deducted_days ELSE 0 END), 0)) as "remainDays",
+        COALESCE(COUNT(CASE WHEN l.status = 'APPROVED' AND EXTRACT(YEAR FROM l.start_date) = EXTRACT(YEAR FROM CURRENT_DATE) AND COALESCE(l.deducted_days, 0) = 0 THEN 1 END), 0)::int as "nonDeductedCount",
         e.must_change_password as "mustChangePassword",
         e.created_at as "createdAt",
         e.updated_at as "updatedAt"

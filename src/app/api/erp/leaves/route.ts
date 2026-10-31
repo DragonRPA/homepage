@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
+import {
+  isNonDeductingLeaveType,
+  getLeaveTypeLabel,
+  calculateWeekdayCount,
+} from "@/lib/erpFormat";
 
 // GET: List all leave requests
 export async function GET() {
@@ -14,9 +19,9 @@ export async function GET() {
         e.department,
         e.position,
         l.leave_type as "leaveType",
-        l.start_date as "startDate",
-        l.end_date as "endDate",
-        l.deducted_days as "deductedDays",
+        l.start_date::text as "startDate",
+        l.end_date::text as "endDate",
+        l.deducted_days::numeric as "deductedDays",
         l.reason,
         l.status,
         l.approver_id as "approverId",
@@ -37,7 +42,7 @@ export async function GET() {
   }
 }
 
-// POST: Submit a leave request
+// POST: Submit a leave request (Supports both annual-leave deducting & non-deducting leaves)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -50,14 +55,29 @@ export async function POST(request: Request) {
       );
     }
 
+    const normalizedType = String(leaveType || "ANNUAL").toUpperCase();
+    const isNonDeducting = isNonDeductingLeaveType(normalizedType);
+
+    let parsedDeductedDays: number;
+    if (isNonDeducting) {
+      parsedDeductedDays = 0;
+    } else if (deductedDays !== undefined && deductedDays !== null && deductedDays !== "") {
+      const num = parseFloat(String(deductedDays));
+      parsedDeductedDays = isNaN(num) ? 1.0 : Math.max(0, num);
+    } else if (normalizedType === "HALF_AM" || normalizedType === "HALF_PM") {
+      parsedDeductedDays = 0.5;
+    } else {
+      parsedDeductedDays = Math.max(1, calculateWeekdayCount(startDate, endDate));
+    }
+
     const { data, error } = await supabaseErp
       .from("erp_leave_requests")
       .insert({
         employee_id: employeeId,
-        leave_type: leaveType || "ANNUAL",
+        leave_type: normalizedType,
         start_date: startDate,
         end_date: endDate,
-        deducted_days: parseFloat(deductedDays || "1.0"),
+        deducted_days: parsedDeductedDays,
         reason: reason.trim(),
         status: "PENDING",
       })
@@ -71,7 +91,9 @@ export async function POST(request: Request) {
     // 결재 연동 (결재선 규칙: LEAVE_REQUEST)
     try {
       const pool = getErpPool();
-      const ruleRes = await pool.query(`SELECT id, required_tier FROM erp_approval_rules WHERE event_type = 'LEAVE_REQUEST' LIMIT 1`);
+      const ruleRes = await pool.query(
+        `SELECT id, required_tier FROM erp_approval_rules WHERE event_type = 'LEAVE_REQUEST' LIMIT 1`
+      );
       if (ruleRes.rows.length > 0) {
         const rule = ruleRes.rows[0];
         const adminRes = await pool.query(
@@ -80,7 +102,15 @@ export async function POST(request: Request) {
         );
         const approverId = adminRes.rows.length > 0 ? adminRes.rows[0].id : employeeId;
 
-        const typeLabel = leaveType === 'HALF_AM' ? '오전반차' : leaveType === 'HALF_PM' ? '오후반차' : '연차';
+        const typeLabel = getLeaveTypeLabel(normalizedType);
+        const durationDays =
+          normalizedType === "HALF_AM" || normalizedType === "HALF_PM"
+            ? 0.5
+            : Math.max(1, calculateWeekdayCount(startDate, endDate));
+        const deductionSummary = isNonDeducting
+          ? `휴가 ${durationDays}일 / 연차 미차감(0일)`
+          : `연차 ${parsedDeductedDays}일 차감`;
+
         const reqRes = await pool.query(
           `INSERT INTO erp_approval_requests (rule_id, target_table, target_id, requester_id, title, payload, status)
            VALUES ($1, 'erp_leave_requests', $2, $3, $4, $5, 'PENDING') RETURNING id`,
@@ -88,8 +118,15 @@ export async function POST(request: Request) {
             rule.id,
             data.id,
             employeeId,
-            `[${typeLabel}] ${startDate} ~ ${endDate} (${deductedDays}일)`,
-            { leaveType, startDate, endDate, deductedDays, reason }
+            `[${typeLabel}] ${startDate} ~ ${endDate} (${deductionSummary})`,
+            {
+              leaveType: normalizedType,
+              startDate,
+              endDate,
+              deductedDays: parsedDeductedDays,
+              durationDays,
+              reason,
+            },
           ]
         );
         if (reqRes.rows.length > 0) {
@@ -125,6 +162,15 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // 연동된 결재함 요청도 함께 정리
+    try {
+      const pool = getErpPool();
+      await pool.query(
+        `DELETE FROM erp_approval_requests WHERE target_table = 'erp_leave_requests' AND target_id = $1 AND status = 'PENDING'`,
+        [id]
+      );
+    } catch {}
+
     return NextResponse.json({ success: true, message: "삭제되었습니다." });
   } catch (error: any) {
     console.error("DELETE Leave Error:", error);
@@ -145,11 +191,12 @@ export async function PATCH(request: Request) {
     }
 
     const nextStatus = action === "APPROVE" ? "APPROVED" : "REJECTED";
+    const now = new Date().toISOString();
     const updateData: any = {
       status: nextStatus,
       approver_id: approverId,
-      approved_at: new Date().toISOString(),
-      reject_reason: action === "REJECT" ? (rejectReason || "관리자 반려") : null,
+      approved_at: now,
+      reject_reason: action === "REJECT" ? rejectReason || "관리자 반려" : null,
     };
 
     const { data, error } = await supabaseErp
@@ -163,9 +210,24 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // 연동된 결재함 상태도 동기화
+    try {
+      const pool = getErpPool();
+      const apprRes = await pool.query(
+        `UPDATE erp_approval_requests SET status = $1 WHERE target_table = 'erp_leave_requests' AND target_id = $2 RETURNING id`,
+        [nextStatus, requestId]
+      );
+      if (apprRes.rows.length > 0) {
+        await pool.query(
+          `UPDATE erp_approval_steps SET status = $1, acted_at = $2 WHERE request_id = $3`,
+          [nextStatus, now, apprRes.rows[0].id]
+        );
+      }
+    } catch {}
+
     return NextResponse.json({
       success: true,
-      message: `연차 신청이 ${nextStatus === "APPROVED" ? "승인" : "반려"} 처리되었습니다.`,
+      message: `휴가 신청이 ${nextStatus === "APPROVED" ? "승인" : "반려"} 처리되었습니다.`,
       leave: data,
     });
   } catch (error: any) {

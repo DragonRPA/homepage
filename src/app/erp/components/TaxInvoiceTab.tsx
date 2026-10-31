@@ -106,7 +106,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const [bankSearchTerm, setBankSearchTerm] = useState("");
   const [manualSettleInput, setManualSettleInput] = useState<string>("");
 
-  // Hometax Auto-Collection & Excel Upload State
+  // Hometax Free Self-RPA & Excel Upload State (No Popbill Paid Scraping)
   const [htStartDate, setHtStartDate] = useState(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 2);
@@ -119,6 +119,9 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const [excelUploadIoType, setExcelUploadIoType] = useState<"PURCHASE" | "SALE">("PURCHASE");
   const [excelUploading, setExcelUploading] = useState(false);
   const excelInputRef = useRef<HTMLInputElement | null>(null);
+  const [rpaDeptUserId, setRpaDeptUserId] = useState("");
+  const [rpaDeptUserPw, setRpaDeptUserPw] = useState("");
+  const [rpaSaving, setRpaSaving] = useState(false);
 
   // Toast
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
@@ -189,10 +192,25 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     }
   };
 
+  const fetchRpaSettings = async () => {
+    try {
+      const ent = entityFilter === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
+      const res = await fetch(`/api/erp/tax-invoices/hometax?entityType=${ent}`);
+      const data = await res.json();
+      if (data.success && data.settings) {
+        setRpaDeptUserId(data.settings.deptUserId || "");
+        setRpaDeptUserPw(data.settings.deptUserPwMasked || "");
+      }
+    } catch (e) {
+      console.error("Failed to fetch RPA settings:", e);
+    }
+  };
+
   useEffect(() => {
     fetchIssuedInvoices();
     fetchUnissuedBillings();
     fetchPartners();
+    fetchRpaSettings();
   }, [entityFilter]);
 
   // Separate SALE and PURCHASE invoices
@@ -447,16 +465,14 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     }
   };
 
-  // Handle Hometax Auto-Collection
+  // Handle Free DragonRPA Local/Self-Hosted Hometax Collection (No Popbill Paid Scraping)
   const handleHometaxSync = async () => {
     setHtSyncing(true);
     const nowTime = new Date().toLocaleTimeString("ko-KR");
     setHtSyncLogs((prev) => [
       {
         time: nowTime,
-        message: `[요청] 홈택스/팝빌 세금계산서 자동 수집 시작 (${htStartDate} ~ ${htEndDate}, 구분: ${
-          htSyncTarget === "ALL" ? "매출+매입 전체" : htSyncTarget === "SELL" ? "매출" : "매입"
-        })`,
+        message: `[자체 RPA 수집] 팝빌 유료 API 미사용(₩0) · 자체 홈택스 수집기 실행 (${htStartDate} ~ ${htEndDate})`,
         type: "info",
       },
       ...prev,
@@ -466,7 +482,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "SYNC_HOMETAX",
+          action: "RUN_LOCAL_RPA",
           entityType: entityFilter === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP",
           startDate: htStartDate,
           endDate: htEndDate,
@@ -474,22 +490,17 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "홈택스 자동 수집 실패");
+      if (!res.ok) throw new Error(data.error || "자체 RPA 수집 실행 실패");
 
       const doneTime = new Date().toLocaleTimeString("ko-KR");
-      const newLogs: Array<{ time: string; message: string; type: "info" | "warn" | "success" }> = [
+      setHtSyncLogs((prev) => [
         {
           time: doneTime,
           message: data.message,
-          type: data.insertedCount > 0 ? "success" : "info",
+          type: data.isServerlessHint ? "info" : "success",
         },
-      ];
-      if (Array.isArray(data.warnings)) {
-        data.warnings.forEach((w: string) => {
-          newLogs.push({ time: doneTime, message: w, type: "warn" });
-        });
-      }
-      setHtSyncLogs((prev) => [...newLogs, ...prev]);
+        ...prev,
+      ]);
       showToast(data.message);
       await fetchIssuedInvoices();
     } catch (err: any) {
@@ -501,22 +512,28 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     }
   };
 
-  // Handle Hometax Cert Popup
-  const handleOpenHometaxCertPopup = async () => {
+  // Save Free DragonRPA Hometax Dept User Credentials
+  const handleSaveRpaSettings = async () => {
+    setRpaSaving(true);
     try {
       const res = await fetch("/api/erp/tax-invoices/hometax", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "CERT_POPUP_URL",
+          action: "SAVE_RPA_SETTINGS",
           entityType: entityFilter === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP",
+          deptUserId: rpaDeptUserId,
+          deptUserPw: rpaDeptUserPw,
+          autoReconcile: true,
         }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "홈택스 인증서 팝업 생성 실패");
-      window.open(data.url, "_blank", "width=860,height=720,scrollbars=yes");
+      if (!res.ok || !data.success) throw new Error(data.error || "설정 저장 실패");
+      showToast(data.message);
     } catch (err: any) {
       showToast(err.message, "error");
+    } finally {
+      setRpaSaving(false);
     }
   };
 
@@ -1657,10 +1674,10 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                           {/* 11. 수집/발행 출처 */}
                           <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#dfd7c7] text-[#44403c]">
-                              {inv.sourceType === "HOMETAX_SYNC"
-                                ? "홈택스수집"
+                              {inv.sourceType === "HOMETAX_RPA" || inv.sourceType === "HOMETAX_SYNC"
+                                ? "자체RPA수집"
                                 : inv.sourceType === "EXCEL_UPLOAD"
-                                ? "엑셀업로드"
+                                ? "홈택스엑셀"
                                 : inv.sourceType === "MANUAL"
                                 ? "수동등록"
                                 : "ERP발행"}
@@ -1713,28 +1730,58 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         )}
 
         {/* ============================================================== */}
-        {/* SUB-TAB 4: HOMETAX_SYNC (홈택스 자동 수집 및 엑셀 업로드)      */}
+        {/* SUB-TAB 4: HOMETAX_SYNC (자체 무료 RPA 수집 및 홈택스 엑셀 업로드) */}
         {/* ============================================================== */}
         {activeSubTab === "HOMETAX_SYNC" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-full">
-            {/* Left Card: Popbill Hometax Scraping Auto-Collection */}
+            {/* Left Card: DragonRPA 자체 무료 수집기 & 홈택스 엑셀 업로드 */}
             <div className="border border-[#b5a894] rounded bg-[#ebe5d8] p-4 flex flex-col gap-4 shadow-sm">
               <div className="flex items-center justify-between border-b border-[#b5a894] pb-2.5">
                 <div className="flex items-center gap-2">
                   <Database className="w-4 h-4 text-indigo-700" />
-                  <h3 className="font-bold text-sm text-[#1c1917]">국세청 홈택스 전자세금계산서 자동 수집</h3>
+                  <h3 className="font-bold text-sm text-[#1c1917]">자체 홈택스 RPA 수집 설정 (팝빌 과금 없음 · ₩0)</h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleOpenHometaxCertPopup}
-                  className="px-2.5 py-1 rounded text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-400 flex items-center gap-1 cursor-pointer"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>홈택스 연동 인증서 설정</span>
-                </button>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 font-mono">
+                  수집 수수료 ₩0
+                </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              {/* 홈택스 전자세금계산서 조회 전용 부서사용자 ID/PW 설정 */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs items-end">
+                <div className="flex flex-col gap-1">
+                  <label className="font-bold text-[#78716c]">홈택스 부서사용자 ID</label>
+                  <input
+                    type="text"
+                    value={rpaDeptUserId}
+                    onChange={(e) => setRpaDeptUserId(e.target.value)}
+                    placeholder="홈택스 부서사용자 ID"
+                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#f4efe4] font-mono text-[#1c1917]"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="font-bold text-[#78716c]">홈택스 부서사용자 비밀번호</label>
+                  <input
+                    type="password"
+                    value={rpaDeptUserPw}
+                    onChange={(e) => setRpaDeptUserPw(e.target.value)}
+                    placeholder="비밀번호 입력"
+                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#f4efe4] font-mono text-[#1c1917]"
+                  />
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleSaveRpaSettings}
+                    disabled={rpaSaving}
+                    className="w-full h-8 px-3 rounded bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs cursor-pointer"
+                  >
+                    {rpaSaving ? "저장 중..." : "RPA 계정 저장"}
+                  </button>
+                </div>
+              </div>
+
+              {/* 자체 RPA 수집 실행 (로컬 다운로드 폴더 자동 스캔 & RPA 봇 실행) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs pt-1 border-t border-[#d0c6b4]">
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-[#78716c]">수집 대상 구분</label>
                   <select
@@ -1769,20 +1816,23 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-1">
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <span className="text-[11px] font-mono text-[#57534e]">
+                  CLI 명령어: <code className="px-1.5 py-0.5 rounded bg-[#dfd7c7]">node scripts/hometax-rpa-collect.cjs</code>
+                </span>
                 <button
                   type="button"
                   onClick={handleHometaxSync}
                   disabled={htSyncing}
-                  className="h-9 px-4 rounded bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs shadow flex items-center gap-1.5 cursor-pointer"
+                  className="h-8 px-4 rounded bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs shadow flex items-center gap-1.5 cursor-pointer"
                 >
-                  <RefreshCw className={`w-4 h-4 ${htSyncing ? "animate-spin" : ""}`} />
-                  <span>{htSyncing ? "홈택스 수집 작업 진행 중..." : "홈택스 세금계산서 자동 수집 실행"}</span>
+                  <RefreshCw className={`w-3.5 h-3.5 ${htSyncing ? "animate-spin" : ""}`} />
+                  <span>{htSyncing ? "자체 RPA 수집 중..." : "자체 RPA 수집기 실행 (폴더 자동 스캔)"}</span>
                 </button>
               </div>
 
               {/* Right below: Hometax Excel Direct Upload Box */}
-              <div className="border-t border-[#b5a894] pt-4 mt-2 flex flex-col gap-3">
+              <div className="border-t border-[#b5a894] pt-4 mt-1 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Upload className="w-4 h-4 text-emerald-700" />

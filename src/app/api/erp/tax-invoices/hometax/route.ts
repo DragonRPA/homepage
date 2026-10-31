@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { spawn } from "child_process";
+import path from "path";
 import { getErpPool } from "@/lib/supabaseErp";
 import { getEntity } from "@/lib/businessEntities";
 import {
@@ -6,12 +8,7 @@ import {
   decodeTextBuffer,
   parseCsvOrTsvTextToRows,
 } from "@/lib/ibkBankParser";
-import {
-  collectHometaxTaxInvoices,
-  getHometaxCertPopUpURL,
-  getHometaxFlatRatePopUpURL,
-  HometaxCollectedInvoice,
-} from "@/lib/popbillService";
+import { HometaxCollectedInvoice } from "@/lib/popbillService";
 
 function formatBizNoDash(raw?: string): string {
   const digits = String(raw || "").replace(/[^0-9]/g, "");
@@ -43,11 +40,14 @@ function parseAmount(raw: any): number {
 }
 
 // Parse Hometax Excel (.xls / .xlsx / .csv) buffer into HometaxCollectedInvoice[]
-function parseHometaxExcelBuffer(buffer: Buffer, defaultIoType: "SALE" | "PURCHASE", ourBizNumRaw: string): HometaxCollectedInvoice[] {
+export function parseHometaxExcelBuffer(
+  buffer: Buffer,
+  defaultIoType: "SALE" | "PURCHASE",
+  ourBizNumRaw: string
+): HometaxCollectedInvoice[] {
   const results: HometaxCollectedInvoice[] = [];
   let rows: string[][] = [];
 
-  // Detect ZIP/XLSX signature (PK\x03\x04) vs HTML/CSV/TSV text
   if (buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x03 && buffer[3] === 0x04) {
     rows = parseXlsxBufferToRows(buffer);
   } else {
@@ -56,9 +56,8 @@ function parseHometaxExcelBuffer(buffer: Buffer, defaultIoType: "SALE" | "PURCHA
   }
 
   if (rows.length >= 2) {
-    // Locate header row (contains 승인번호 or 공급자 or 작성일자)
     let headerIdx = -1;
-    for (let i = 0; i < Math.min(15, rows.length); i++) {
+    for (let i = 0; i < Math.min(20, rows.length); i++) {
       const joined = rows[i].map((c) => String(c || "").replace(/\s+/g, "")).join("|");
       if (
         (joined.includes("승인번호") || joined.includes("작성일자")) &&
@@ -85,7 +84,10 @@ function parseHometaxExcelBuffer(buffer: Buffer, defaultIoType: "SALE" | "PURCHA
     const colSupplierBizNo = findCol(["공급자사업자등록번호", "공급자등록번호", "등록번호"]);
     const colSupplierName = findCol(["공급자상호", "상호"], colSupplierBizNo >= 0 ? colSupplierBizNo : -1);
     const colSupplierCeo = findCol(["공급자성명", "대표자명", "성명"], colSupplierName >= 0 ? colSupplierName : -1);
-    const colBuyerBizNo = findCol(["공급받는자사업자등록번호", "공급받는자등록번호", "등록번호"], colSupplierBizNo >= 0 ? colSupplierBizNo : -1);
+    const colBuyerBizNo = findCol(
+      ["공급받는자사업자등록번호", "공급받는자등록번호", "등록번호"],
+      colSupplierBizNo >= 0 ? colSupplierBizNo : -1
+    );
     const colBuyerName = findCol(["공급받는자상호", "거래처명", "상호"], colBuyerBizNo >= 0 ? colBuyerBizNo : colSupplierName);
     const colBuyerCeo = findCol(["공급받는자성명", "대표자명", "성명"], colBuyerName >= 0 ? colBuyerName : colSupplierCeo);
     const colTotal = findCol(["합계금액", "총금액", "합계"]);
@@ -144,7 +146,7 @@ function parseHometaxExcelBuffer(buffer: Buffer, defaultIoType: "SALE" | "PURCHA
         purposeType: colPurpose >= 0 && String(row[colPurpose]).includes("영수") ? "영수" : "청구",
         itemName: (colItem >= 0 ? String(row[colItem] || "").trim() : "") || (rowIoType === "PURCHASE" ? "매입 품목" : "매출 품목"),
         remark1: colRemark >= 0 ? String(row[colRemark] || "").trim() : "",
-        sourceChannel: "HOMETAX_SCRAPING",
+        sourceChannel: "EXCEL_UPLOAD",
       });
     }
   }
@@ -156,7 +158,7 @@ function parseHometaxExcelBuffer(buffer: Buffer, defaultIoType: "SALE" | "PURCHA
 async function saveCollectedInvoicesToDb(
   items: HometaxCollectedInvoice[],
   entityKey: "CORP" | "INDIVIDUAL",
-  sourceType: "HOMETAX_SYNC" | "EXCEL_UPLOAD"
+  sourceType: "HOMETAX_RPA" | "EXCEL_UPLOAD"
 ) {
   const pool = getErpPool();
   const client = await pool.connect();
@@ -174,9 +176,6 @@ async function saveCollectedInvoicesToDb(
       const ioType = item.ioType;
       const ntsNo = (item.ntsConfirmNo || "").trim();
 
-      // Counterparty depends on SALE vs PURCHASE:
-      // - For SALE: counterparty is invoicee (공급받는자)
-      // - For PURCHASE: counterparty is invoicer (공급자 = 매입처)
       const counterpartyName = ioType === "PURCHASE"
         ? (item.invoicerCorpName || item.invoiceeCorpName || "매입거래처")
         : (item.invoiceeCorpName || item.invoicerCorpName || "매출거래처");
@@ -192,7 +191,6 @@ async function saveCollectedInvoicesToDb(
         ? (item.invoicerEmail || "")
         : (item.invoiceeEmail1 || "");
 
-      // Check duplicate by nts_confirm_no OR (io_type + issue_date + customer_name + total_amount)
       let dupRes;
       if (ntsNo && !ntsNo.includes("POPBILL_TEST")) {
         dupRes = await client.query(
@@ -289,11 +287,44 @@ async function saveCollectedInvoicesToDb(
   }
 }
 
+// GET: Retrieve Hometax Free RPA Settings (부서사용자 계정 등)
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const entityKey = searchParams.get("entityType") === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
+    const pool = getErpPool();
+    const res = await pool.query(
+      `SELECT entity_type as "entityType", dept_user_id as "deptUserId",
+              CASE WHEN COALESCE(dept_user_pw, '') != '' THEN '********' ELSE '' END as "deptUserPwMasked",
+              COALESCE(dept_user_pw, '') != '' as "hasPassword",
+              biz_no as "bizNo", auto_reconcile as "autoReconcile",
+              last_sync_at as "lastSyncAt", last_sync_status as "lastSyncStatus",
+              last_sync_message as "lastSyncMessage"
+       FROM erp_hometax_rpa_settings
+       WHERE entity_type = $1`,
+      [entityKey]
+    );
+    return NextResponse.json({
+      success: true,
+      settings: res.rows[0] || {
+        entityType: entityKey,
+        deptUserId: "",
+        deptUserPwMasked: "",
+        hasPassword: false,
+        bizNo: entityKey === "INDIVIDUAL" ? "295-03-02683" : "806-88-03266",
+        autoReconcile: true,
+      },
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get("content-type") || "";
 
-    // 1. Multipart Form-Data: Hometax Excel (.xls/.xlsx/.csv) Upload
+    // 1. Multipart Form-Data: Hometax Excel (.xls/.xlsx/.csv) Upload (100% 무료 · 자체 파서)
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData();
       const file = formData.get("file") as File | null;
@@ -327,67 +358,109 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. JSON Body: Popbill Hometax Auto-Collection / Cert Popup URL
+    // 2. JSON Body: Free Self-Hosted DragonRPA Hometax Collector (No Popbill Paid Scraping!)
     const body = await request.json();
-    const { action, entityType, startDate, endDate, syncTarget } = body;
+    const { action, entityType, startDate, endDate, syncTarget, deptUserId, deptUserPw, autoReconcile, items } = body;
     const entityKey: "CORP" | "INDIVIDUAL" = entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
-    const entity = getEntity(entityKey);
+    const pool = getErpPool();
 
-    if (action === "CERT_POPUP_URL") {
-      const url = await getHometaxCertPopUpURL(entity.bizNumRaw);
-      return NextResponse.json({ success: true, url });
-    }
-
-    if (action === "FLATRATE_POPUP_URL") {
-      const url = await getHometaxFlatRatePopUpURL(entity.bizNumRaw);
-      return NextResponse.json({ success: true, url });
-    }
-
-    if (action === "SYNC_HOMETAX") {
-      const sDate = startDate || new Date(Date.now() - 30 * 86400 * 1000).toISOString().slice(0, 10);
-      const eDate = endDate || new Date().toISOString().slice(0, 10);
-      const targets: Array<"SELL" | "BUY"> =
-        syncTarget === "SELL" ? ["SELL"] : syncTarget === "BUY" ? ["BUY"] : ["SELL", "BUY"];
-
-      const allCollected: HometaxCollectedInvoice[] = [];
-      const warnings: string[] = [];
-
-      for (const qType of targets) {
-        const res = await collectHometaxTaxInvoices({
-          corpNum: entity.bizNumRaw,
-          queryType: qType,
-          dateType: "W",
-          startDate: sDate,
-          endDate: eDate,
-        });
-        allCollected.push(...res.items);
-        if (res.htWarning) warnings.push(`[${qType === "SELL" ? "매출" : "매입"}] ${res.htWarning}`);
+    // ACTION A: Save Hometax Department User Credentials (부서사용자 ID/PW 설정 저장)
+    if (action === "SAVE_RPA_SETTINGS") {
+      const entity = getEntity(entityKey);
+      if (deptUserPw && deptUserPw !== "********") {
+        await pool.query(
+          `INSERT INTO erp_hometax_rpa_settings (entity_type, dept_user_id, dept_user_pw, biz_no, auto_reconcile, updated_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           ON CONFLICT (entity_type) DO UPDATE SET
+             dept_user_id = EXCLUDED.dept_user_id,
+             dept_user_pw = EXCLUDED.dept_user_pw,
+             auto_reconcile = EXCLUDED.auto_reconcile,
+             updated_at = NOW()`,
+          [entityKey, (deptUserId || "").trim(), deptUserPw, entity.bizNum, autoReconcile !== false]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO erp_hometax_rpa_settings (entity_type, dept_user_id, biz_no, auto_reconcile, updated_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (entity_type) DO UPDATE SET
+             dept_user_id = EXCLUDED.dept_user_id,
+             auto_reconcile = EXCLUDED.auto_reconcile,
+             updated_at = NOW()`,
+          [entityKey, (deptUserId || "").trim(), entity.bizNum, autoReconcile !== false]
+        );
       }
-
-      const { insertedCount, skippedCount } = await saveCollectedInvoicesToDb(
-        allCollected,
-        entityKey,
-        "HOMETAX_SYNC"
-      );
-
       return NextResponse.json({
         success: true,
-        collectedCount: allCollected.length,
+        message: "홈택스 자체 RPA 수집 계정 설정이 저장되었습니다. (팝빌 유료 과금 없음 · ₩0)",
+      });
+    }
+
+    // ACTION B: Direct JSON Batch Push from External/Local DragonRPA Bot (`RPA_PUSH_ITEMS`)
+    if (action === "RPA_PUSH_ITEMS" && Array.isArray(items)) {
+      const { insertedCount, skippedCount } = await saveCollectedInvoicesToDb(items, entityKey, "HOMETAX_RPA");
+      await pool.query(
+        `UPDATE erp_hometax_rpa_settings
+         SET last_sync_at = NOW(),
+             last_sync_status = 'SUCCESS',
+             last_sync_message = $1
+         WHERE entity_type = $2`,
+        [`RPA 봇 수집: 총 ${items.length}건 중 신규 ${insertedCount}건 저장 (중복 ${skippedCount}건)`, entityKey]
+      );
+      return NextResponse.json({
+        success: true,
         insertedCount,
         skippedCount,
-        warnings,
+        message: `자체 RPA 봇으로부터 ${items.length}건을 수신하여 신규 ${insertedCount}건을 반영했습니다.`,
+      });
+    }
+
+    // ACTION C: Trigger Local/Self-Hosted DragonRPA Hometax Bot (`RUN_LOCAL_RPA`)
+    if (action === "RUN_LOCAL_RPA") {
+      const sDate = startDate || new Date(Date.now() - 30 * 86400 * 1000).toISOString().slice(0, 10);
+      const eDate = endDate || new Date().toISOString().slice(0, 10);
+      const target = syncTarget || "ALL";
+
+      const isVercelServerless = Boolean(process.env.VERCEL);
+      if (isVercelServerless) {
+        return NextResponse.json({
+          success: true,
+          insertedCount: 0,
+          skippedCount: 0,
+          isServerlessHint: true,
+          message:
+            "클라우드(Vercel) 환경에서는 PC에서 `node scripts/hometax-rpa-collect.cjs`를 실행하거나 우측의 [홈택스 엑셀 파일 선택 업로드]를 사용하면 팝빌 과금 없이(₩0) 즉시 DB에 반영됩니다.",
+        });
+      }
+
+      // On local Windows/Node server, spawn scripts/hometax-rpa-collect.cjs directly
+      const scriptPath = path.join(process.cwd(), "scripts", "hometax-rpa-collect.cjs");
+      const childOut = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+        const proc = spawn(
+          process.execPath,
+          [scriptPath, `--entity=${entityKey}`, `--target=${target}`, `--start=${sDate}`, `--end=${eDate}`],
+          { cwd: process.cwd(), env: process.env }
+        );
+        let stdout = "";
+        let stderr = "";
+        proc.stdout.on("data", (d) => (stdout += d.toString()));
+        proc.stderr.on("data", (d) => (stderr += d.toString()));
+        proc.on("close", (code) => resolve({ code: code ?? 0, stdout, stderr }));
+      });
+
+      return NextResponse.json({
+        success: childOut.code === 0,
+        stdout: childOut.stdout,
+        stderr: childOut.stderr,
         message:
-          allCollected.length > 0
-            ? `홈택스/팝빌 자동 수집 완료: 조회 ${allCollected.length}건 중 신규 ${insertedCount}건 DB 반영 (기존 중복 ${skippedCount}건 제외)`
-            : warnings.length > 0
-              ? `홈택스 수집 안내: ${warnings.join(" / ")} (홈택스 엑셀 업로드 또는 인증서 등록 후 이용 가능)`
-              : "조회 기간 내 신규 수집할 홈택스 세금계산서가 없습니다.",
+          childOut.code === 0
+            ? childOut.stdout.trim().split("\n").pop() || "자체 홈택스 RPA 수집이 완료되었습니다."
+            : `자체 RPA 봇 안내: ${childOut.stderr || childOut.stdout || "홈택스 로그인 또는 엑셀 폴더 확인 필요"}`,
       });
     }
 
     return NextResponse.json({ error: "지원하지 않는 action입니다." }, { status: 400 });
   } catch (error: any) {
-    console.error("Hometax API Error:", error);
-    return NextResponse.json({ error: "홈택스 세금계산서 수집 오류: " + error.message }, { status: 500 });
+    console.error("Hometax Free RPA API Error:", error);
+    return NextResponse.json({ error: "홈택스 자체 수집 처리 오류: " + error.message }, { status: 500 });
   }
 }

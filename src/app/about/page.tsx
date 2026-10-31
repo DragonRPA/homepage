@@ -9,6 +9,7 @@ import {
   Award, Terminal, Database, Network, Camera
 } from "lucide-react";
 import { COMPANY_INFO, BUSINESS_PILLARS } from "@/data/companyData";
+import { AdSenseSlot } from "@/components/AdSenseSlot";
 
 export default function AboutCompanyPage() {
   const handlePrint = () => {
@@ -369,6 +370,9 @@ export default function AboutCompanyPage() {
             </div>
           </div>
         </section>
+
+        {/* Google AdSense 반응형 배너 */}
+        <AdSenseSlot label="스폰서 광고" />
 
       </main>
 

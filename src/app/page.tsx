@@ -2,6 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { Layers, Camera, Download, FileText, ShoppingBag, Settings, Smartphone, BookOpen } from "lucide-react";
 import { getPublishedProducts } from "@/lib/productService";
+import { AdSenseSlot } from "@/components/AdSenseSlot";
 
 export const dynamic = "force-dynamic";
 
@@ -149,6 +150,11 @@ export default async function Home() {
               <span>설명서 ➔</span>
             </Link>
           </div>
+        </div>
+
+        {/* Google AdSense 반응형 배너 */}
+        <div className="w-full max-w-xl mx-auto mt-6">
+          <AdSenseSlot label="스폰서 광고" />
         </div>
       </main>
 

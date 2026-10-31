@@ -6,6 +6,16 @@ Allow: /
 Disallow: /api/erp/
 Disallow: /erp/
 
+# Google AdSense & Ads Crawlers
+User-agent: Mediapartners-Google
+Allow: /
+
+User-agent: AdsBot-Google
+Allow: /
+
+User-agent: AdsBot-Google-Mobile
+Allow: /
+
 # AI Search & Large Language Model Crawlers
 User-agent: GPTBot
 Allow: /

@@ -13,6 +13,7 @@ import {
   PORTFOLIO_CATEGORIES, 
   PortfolioProject 
 } from "@/data/portfolioData";
+import { AdSenseSlot } from "@/components/AdSenseSlot";
 
 export default function PortfolioPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(PORTFOLIO_PROJECTS[0].id);
@@ -524,6 +525,9 @@ export default function PortfolioPage() {
               ))}
             </div>
           </div>
+
+          {/* Google AdSense 반응형 배너 */}
+          <AdSenseSlot label="스폰서 광고" />
 
         </main>
       </div>

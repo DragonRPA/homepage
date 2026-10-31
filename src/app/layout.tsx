@@ -54,6 +54,9 @@ export const metadata: Metadata = {
     description: "기업의 인적자원은 반복적인 사무에 국한되기에는 너무나 중요합니다. 우리는 고객의 가치창출에 기여하는 것에 자부심을 느낍니다.",
     images: ["/logo.png"],
   },
+  other: {
+    "google-adsense-account": "ca-pub-6403832425334616",
+  },
 };
 
 export default function RootLayout({
@@ -150,6 +153,12 @@ export default function RootLayout({
   return (
     <html lang="ko" className="scroll-smooth">
       <head>
+        <meta name="google-adsense-account" content="ca-pub-6403832425334616" />
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6403832425334616"
+          crossOrigin="anonymous"
+        />
         <link rel="icon" href="/favicon.png" type="image/png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <script

@@ -7,7 +7,7 @@ export async function GET() {
     const { data, error } = await supabaseErp
       .from("erp_trade_products")
       .select("*")
-      .order("id", { ascending: true });
+      .order("sku_code", { ascending: true });
 
     if (error) throw error;
     return NextResponse.json({ success: true, products: data });

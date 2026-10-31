@@ -133,17 +133,33 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Sorting State
-  const [sortKey, setSortKey] = useState<string>("id");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+  // Sorting State (탭별 기본 정렬 키/방향 자동 적용)
+  const [sortStateByTab, setSortStateByTab] = useState<
+    Record<"assets" | "contracts" | "billings" | "models", { key: string; dir: SortDirection }>
+  >({
+    assets: { key: "assetNo", dir: "asc" },
+    contracts: { key: "contractNo", dir: "desc" },
+    billings: { key: "billingNo", dir: "desc" },
+    models: { key: "model_code", dir: "asc" },
+  });
+
+  const sortKey = sortStateByTab[subTab].key;
+  const sortDir = sortStateByTab[subTab].dir;
 
   const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
+    setSortStateByTab((prev) => {
+      const current = prev[subTab];
+      if (current.key === key) {
+        return {
+          ...prev,
+          [subTab]: { key, dir: current.dir === "asc" ? "desc" : "asc" },
+        };
+      }
+      return {
+        ...prev,
+        [subTab]: { key, dir: "asc" },
+      };
+    });
   };
 
   const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
@@ -158,7 +174,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           <span>{label}</span>
           <span className="shrink-0">
             {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
+              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
             ) : (
               <ArrowUpDown className="w-3 h-3 opacity-30" />
             )}
@@ -169,10 +185,22 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   };
 
   // Sorted Lists
-  const sortedAssets = useMemo(() => sortErpItems(assets, sortKey, sortDir), [assets, sortKey, sortDir]);
-  const sortedContracts = useMemo(() => sortErpItems(contracts, sortKey, sortDir), [contracts, sortKey, sortDir]);
-  const sortedBillings = useMemo(() => sortErpItems(billings, sortKey, sortDir), [billings, sortKey, sortDir]);
-  const sortedModels = useMemo(() => sortErpItems(models, sortKey, sortDir), [models, sortKey, sortDir]);
+  const sortedAssets = useMemo(
+    () => sortErpItems(assets, sortStateByTab.assets.key, sortStateByTab.assets.dir),
+    [assets, sortStateByTab.assets]
+  );
+  const sortedContracts = useMemo(
+    () => sortErpItems(contracts, sortStateByTab.contracts.key, sortStateByTab.contracts.dir),
+    [contracts, sortStateByTab.contracts]
+  );
+  const sortedBillings = useMemo(
+    () => sortErpItems(billings, sortStateByTab.billings.key, sortStateByTab.billings.dir),
+    [billings, sortStateByTab.billings]
+  );
+  const sortedModels = useMemo(
+    () => sortErpItems(models, sortStateByTab.models.key, sortStateByTab.models.dir),
+    [models, sortStateByTab.models]
+  );
 
   const filteredPartners = useMemo(() => {
     const q = ctCustomerSearch.trim().toLowerCase();

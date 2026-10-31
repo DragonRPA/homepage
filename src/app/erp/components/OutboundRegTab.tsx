@@ -372,7 +372,11 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
   }, [billings, customerFilter, searchKeyword, sortKey, sortDir]);
 
   const sortedAvailableAssets = useMemo(() => {
-    return sortErpItems(filteredAvailableAssets, sortKey, sortDir);
+    return sortErpItems(
+      filteredAvailableAssets,
+      sortKey === "id" ? "assetNo" : sortKey,
+      sortKey === "id" ? "asc" : sortDir
+    );
   }, [filteredAvailableAssets, sortKey, sortDir]);
 
   const sortedLogs = useMemo(() => {

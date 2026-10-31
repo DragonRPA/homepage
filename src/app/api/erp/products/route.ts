@@ -33,7 +33,7 @@ export async function GET() {
       FROM erp_rental_products p
       LEFT JOIN erp_rental_assets a ON p.id = a.rental_product_id
       GROUP BY p.id
-      ORDER BY p.id ASC
+      ORDER BY p.model_code ASC
     `;
     const res = await pool.query(query);
     return NextResponse.json({ success: true, products: res.rows });

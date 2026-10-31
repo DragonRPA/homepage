@@ -217,7 +217,11 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
 
   // Sorted Data Lists
   const sortedProducts = useMemo(() => {
-    return sortErpItems(products, sortKey, sortDir);
+    return sortErpItems(
+      products,
+      sortKey === "id" ? "sku_code" : sortKey,
+      sortKey === "id" ? "asc" : sortDir
+    );
   }, [products, sortKey, sortDir]);
 
   const sortedPurchases = useMemo(() => {

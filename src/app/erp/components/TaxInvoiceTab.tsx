@@ -332,6 +332,69 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     return { count, totalGross, totalSupply, settled, unpaid, unpaidCount, paidCount, diff };
   }, [purchaseInvoices]);
 
+  // 거래처별 미수납 매출채권 / 미지급 매입채무 잔액 그룹핑 요약
+  const unpaidByPartner = useMemo(() => {
+    const base = activeSubTab === "PURCHASE_LEDGER" ? purchaseInvoices : saleInvoices;
+    const map = new Map<
+      string,
+      { customerName: string; businessNo: string; count: number; unpaidAmount: number; oldestDate: string }
+    >();
+    for (const inv of base) {
+      if ((inv.settlementStatus || "UNPAID") === "PAID") continue;
+      const unpaidAmt = Math.max(0, Number(inv.totalAmount || 0) - Number(inv.settledAmount || 0));
+      if (unpaidAmt <= 0) continue;
+      const name = (inv.customerName || "미지정").trim();
+      const dateStr = inv.issueDate ? String(inv.issueDate).slice(0, 10) : "";
+      const prev = map.get(name);
+      if (!prev) {
+        map.set(name, {
+          customerName: name,
+          businessNo: inv.businessNo || "",
+          count: 1,
+          unpaidAmount: unpaidAmt,
+          oldestDate: dateStr,
+        });
+      } else {
+        prev.count += 1;
+        prev.unpaidAmount += unpaidAmt;
+        if (dateStr && (!prev.oldestDate || dateStr < prev.oldestDate)) {
+          prev.oldestDate = dateStr;
+        }
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.unpaidAmount - a.unpaidAmount);
+  }, [activeSubTab, saleInvoices, purchaseInvoices]);
+
+  // 인라인 1클릭 완납(카드/현금/자동이체 기결제) 처리
+  const handleQuickFullSettle = async (inv: any) => {
+    const totalAmt = Math.round(Number(inv.totalAmount || 0));
+    const label = inv.ioType === "PURCHASE" ? "지급완료" : "수납완료";
+    if (
+      !window.confirm(
+        `[${inv.customerName}] ${inv.issueDate ? String(inv.issueDate).slice(0, 10) : ""}\n합계금액: ${formatErpCurrency(totalAmt)}\n해당 건을 전액 ${label} 처리하시겠습니까?`
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch("/api/erp/tax-invoices/reconcile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "MANUAL_SETTLE",
+          invoiceId: inv.id,
+          settledAmount: totalAmt,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "완납 처리 실패");
+      showToast(`${inv.customerName} (${formatErpCurrency(totalAmt)}) ${label} 처리되었습니다.`);
+      await fetchIssuedInvoices();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
   // Open Reconcile Modal (세금계산서 ↔ 통장 입출금 대사)
   const openReconcileModal = async (inv: any) => {
     setReconcileInvoice(inv);
@@ -1045,7 +1108,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
 
           {/* Card 3: 미수납 매출채권 / 미지급 매입채무 */}
           <div
-            onClick={() => setSettlementFilter("UNPAID")}
+            onClick={() => setSettlementFilter((prev) => (prev === "UNPAID" ? "ALL" : "UNPAID"))}
             className={`flex items-center justify-between px-3.5 py-2.5 rounded border border-[#b5a894] cursor-pointer transition ${
               settlementFilter === "UNPAID" ? "ring-2 ring-rose-600 bg-[#f4efe4]" : "bg-[#ebe5d8] hover:bg-[#e2dbcd]"
             }`}
@@ -1058,7 +1121,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                 {formatErpCurrency(activeStats.unpaid)}
               </span>
               <span className="text-[10px] text-[#78716c]">
-                클릭 시 미정산 대상만 필터링
+                {settlementFilter === "UNPAID" ? "미정산 필터 적용중 (재클릭시 해제)" : "클릭 시 미정산 대상 및 거래처별 잔액 표시"}
               </span>
             </div>
             <AlertCircle className="w-7 h-7 text-rose-700 opacity-80 shrink-0" />
@@ -1079,6 +1142,55 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
             </div>
             <ShieldCheck className="w-7 h-7 text-emerald-700 opacity-80 shrink-0" />
           </div>
+
+          {/* 거래처별 미수납 매출채권 / 미지급 매입채무 원클릭 요약 바 */}
+          {unpaidByPartner.length > 0 && (
+            <div className="md:col-span-4 px-3 py-2 rounded border border-[#b5a894] bg-[#f4efe4] flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-bold text-[11px] text-rose-800 whitespace-nowrap">
+                {isPurchaseTab ? "거래처별 미지급 채무 요약:" : "거래처별 미수납 채권 요약:"}
+              </span>
+              {unpaidByPartner.map((p) => {
+                const isSelected = searchTerm === p.customerName && settlementFilter === "UNPAID";
+                return (
+                  <button
+                    key={p.customerName}
+                    type="button"
+                    onClick={() => {
+                      if (isSelected) {
+                        setSearchTerm("");
+                      } else {
+                        setSettlementFilter("UNPAID");
+                        setSearchTerm(p.customerName);
+                      }
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border text-[11px] whitespace-nowrap transition cursor-pointer ${
+                      isSelected
+                        ? "bg-rose-700 text-white border-rose-900 font-bold"
+                        : "bg-[#ebe5d8] hover:bg-[#dfd7c7] text-[#1c1917] border-[#b5a894]"
+                    }`}
+                  >
+                    <span className="font-bold">{p.customerName}</span>
+                    <span className="font-mono opacity-80">({p.count}건)</span>
+                    <span className={`font-mono font-extrabold ${isSelected ? "text-white" : "text-rose-700"}`}>
+                      {formatErpCurrency(p.unpaidAmount)}
+                    </span>
+                  </button>
+                );
+              })}
+              {(settlementFilter === "UNPAID" || searchTerm) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettlementFilter("ALL");
+                    setSearchTerm("");
+                  }}
+                  className="ml-auto px-2 py-0.5 rounded bg-[#dfd7c7] hover:bg-[#d0c6b4] border border-[#b5a894] text-[11px] font-bold text-[#44403c] whitespace-nowrap"
+                >
+                  필터 초기화
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1578,6 +1690,16 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                                 <span>{isPurchaseTab ? "출금 대사" : "입금 대사"}</span>
                                 {txIds.length > 0 && <span className="font-mono">({txIds.length})</span>}
                               </button>
+
+                              {st !== "PAID" && (
+                                <button
+                                  onClick={() => handleQuickFullSettle(inv)}
+                                  className="px-1.5 py-1 rounded text-[10px] font-bold border border-amber-700 bg-amber-100 text-amber-900 hover:bg-amber-200 cursor-pointer"
+                                  title="통장 외 카드자동납부·현금·상계 등으로 이미 결제 완료된 건을 즉시 완납 확정"
+                                >
+                                  완납확정
+                                </button>
+                              )}
 
                               <button
                                 onClick={() => setDetailInvoice(inv)}

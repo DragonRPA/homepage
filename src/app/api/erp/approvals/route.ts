@@ -13,16 +13,16 @@ export async function GET(request: Request) {
     let query = `
       SELECT 
         r.id,
-        r.rule_id as "ruleId",
-        ar.event_type as "eventType",
-        ar.event_name as "eventName",
-        ar.category,
-        ar.required_tier as "requiredTier",
+        COALESCE(r.rule_id, ar.id) as "ruleId",
+        COALESCE(ar.event_type, r.event_type, 'GENERAL') as "eventType",
+        COALESCE(ar.event_name, r.event_type, '결재문서') as "eventName",
+        COALESCE(ar.category, '일반') as "category",
+        COALESCE(ar.required_tier, 2) as "requiredTier",
         r.target_table as "targetTable",
         r.target_id as "targetId",
         r.requester_id as "requesterId",
-        req.name as "requesterName",
-        req.department as "requesterDept",
+        COALESCE(req.name, '임직원') as "requesterName",
+        COALESCE(req.department, '경영총괄') as "requesterDept",
         req.duty as "requesterDuty",
         r.title,
         r.payload,
@@ -37,8 +37,8 @@ export async function GET(request: Request) {
         s.comment,
         s.acted_at as "actedAt"
       FROM erp_approval_requests r
-      JOIN erp_approval_rules ar ON r.rule_id = ar.id
-      JOIN erp_employees req ON r.requester_id = req.id
+      LEFT JOIN erp_approval_rules ar ON (r.rule_id = ar.id OR (r.rule_id IS NULL AND r.event_type = ar.event_type))
+      LEFT JOIN erp_employees req ON r.requester_id = req.id
       LEFT JOIN erp_approval_steps s ON s.request_id = r.id
       LEFT JOIN erp_employees appr ON s.approver_id = appr.id
     `;
@@ -134,11 +134,12 @@ export async function POST(request: Request) {
     const rule = ruleRes.rows[0];
 
     // 2. Insert request
+    const reqNo = `APPR-${Date.now()}`;
     const reqRes = await pool.query(
-      `INSERT INTO erp_approval_requests (rule_id, target_table, target_id, requester_id, title, payload, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'PENDING')
+      `INSERT INTO erp_approval_requests (request_no, event_type, rule_id, target_table, target_id, requester_id, title, payload, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')
        RETURNING id, title, status, created_at as "createdAt"`,
-      [rule.id, targetTable || null, targetId || null, requesterId, title, payload || {}]
+      [reqNo, ruleEventType, rule.id, targetTable || null, targetId || null, requesterId, title, payload || {}]
     );
 
     const newRequest = reqRes.rows[0];

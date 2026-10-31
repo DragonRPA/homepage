@@ -139,7 +139,7 @@ export const ApprovalInboxTab: React.FC<{ currentUser: any }> = ({ currentUser }
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col min-h-full md:h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 md:overflow-hidden font-sans">
       {/* Toast Notification */}
       {toastMessage && (
         <div
@@ -154,56 +154,54 @@ export const ApprovalInboxTab: React.FC<{ currentUser: any }> = ({ currentUser }
       )}
 
       {/* Top Header */}
-      <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 bg-[#dcd4c4] p-1 rounded border border-[#b5a894] dark:bg-slate-800 dark:border-slate-700">
-            <button
-              onClick={() => setStatusFilter("PENDING")}
-              className={`px-3 py-1 text-xs font-bold rounded transition flex items-center gap-1.5 ${
-                statusFilter === "PENDING"
-                  ? "bg-[#b45309] text-white shadow-xs"
-                  : "text-[#334155] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5" />
-              <span>결재 대기</span>
-            </button>
-            <button
-              onClick={() => setStatusFilter("APPROVED")}
-              className={`px-3 py-1 text-xs font-bold rounded transition flex items-center gap-1.5 ${
-                statusFilter === "APPROVED"
-                  ? "bg-[#047857] text-white shadow-xs"
-                  : "text-[#334155] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
-              }`}
-            >
-              <Check className="w-3.5 h-3.5" />
-              <span>승인 완료</span>
-            </button>
-            <button
-              onClick={() => setStatusFilter("REJECTED")}
-              className={`px-3 py-1 text-xs font-bold rounded transition flex items-center gap-1.5 ${
-                statusFilter === "REJECTED"
-                  ? "bg-[#dc2626] text-white shadow-xs"
-                  : "text-[#334155] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
-              }`}
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>반려</span>
-            </button>
-            <button
-              onClick={() => setStatusFilter("ALL")}
-              className={`px-3 py-1 text-xs font-bold rounded transition ${
-                statusFilter === "ALL"
-                  ? "bg-[#504a3f] text-white shadow-xs"
-                  : "text-[#334155] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
-              }`}
-            >
-              전체
-            </button>
-          </div>
+      <div className="p-2.5 md:p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-1 bg-[#dcd4c4] p-1 rounded border border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 overflow-x-auto min-w-0">
+          <button
+            onClick={() => setStatusFilter("PENDING")}
+            className={`px-2.5 py-1 text-xs font-bold rounded transition flex items-center gap-1 whitespace-nowrap shrink-0 ${
+              statusFilter === "PENDING"
+                ? "bg-[#b45309] text-white shadow-xs"
+                : "text-[#334155] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 shrink-0" />
+            <span>결재 대기</span>
+          </button>
+          <button
+            onClick={() => setStatusFilter("APPROVED")}
+            className={`px-2.5 py-1 text-xs font-bold rounded transition flex items-center gap-1 whitespace-nowrap shrink-0 ${
+              statusFilter === "APPROVED"
+                ? "bg-[#047857] text-white shadow-xs"
+                : "text-[#334155] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
+            }`}
+          >
+            <Check className="w-3.5 h-3.5 shrink-0" />
+            <span>승인 완료</span>
+          </button>
+          <button
+            onClick={() => setStatusFilter("REJECTED")}
+            className={`px-2.5 py-1 text-xs font-bold rounded transition flex items-center gap-1 whitespace-nowrap shrink-0 ${
+              statusFilter === "REJECTED"
+                ? "bg-[#dc2626] text-white shadow-xs"
+                : "text-[#334155] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
+            }`}
+          >
+            <X className="w-3.5 h-3.5 shrink-0" />
+            <span>반려</span>
+          </button>
+          <button
+            onClick={() => setStatusFilter("ALL")}
+            className={`px-2.5 py-1 text-xs font-bold rounded transition whitespace-nowrap shrink-0 ${
+              statusFilter === "ALL"
+                ? "bg-[#504a3f] text-white shadow-xs"
+                : "text-[#334155] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
+            }`}
+          >
+            전체
+          </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={fetchInbox}
             disabled={loading}
@@ -215,10 +213,10 @@ export const ApprovalInboxTab: React.FC<{ currentUser: any }> = ({ currentUser }
         </div>
       </div>
 
-      {/* Main Dossier Split View (헌장 3.6 유형 A - 모바일 스크롤 및 PC 2단 분할 지원) */}
-      <div className="flex-1 grid grid-cols-12 gap-3 md:gap-4 p-3 md:p-4 overflow-y-auto md:overflow-hidden">
+      {/* Main Dossier Split View (헌장 3.6 유형 A - 모바일 자연 스크롤 및 PC 2단 분할 지원) */}
+      <div className="flex-1 grid grid-cols-12 gap-3 md:gap-4 p-2.5 md:p-4 md:overflow-hidden">
         {/* Left: Request Dossier List (5 cols) */}
-        <div className="col-span-12 md:col-span-5 bg-[#ebe5d8] border border-[#b5a894] rounded flex flex-col max-h-[260px] md:max-h-none overflow-hidden dark:bg-slate-900 dark:border-slate-800 shrink-0">
+        <div className="col-span-12 md:col-span-5 bg-[#ebe5d8] border border-[#b5a894] rounded flex flex-col max-h-[300px] md:max-h-none overflow-hidden dark:bg-slate-900 dark:border-slate-800 shrink-0">
           <div className="p-2.5 bg-[#e2dbcd] border-b border-[#b5a894] text-xs font-bold text-[#0f172a] flex items-center justify-between dark:bg-slate-800/80 dark:border-slate-700 dark:text-slate-300">
             <span>결재 대기 및 진행 문서 ({formatErpNumber(requests.length)}건)</span>
           </div>

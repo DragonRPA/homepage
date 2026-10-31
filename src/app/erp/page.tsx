@@ -641,7 +641,7 @@ export default function ErpMainPage() {
           </div>
 
           {/* Tab Content Body (Scrollable) */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
             {!isMenuAllowed ? (
               <div className="p-8 text-center text-xs text-slate-500">
                 접근 권한이 부여된 메뉴가 없습니다. 관리자에게 권한 배정을 요청해 주십시오.

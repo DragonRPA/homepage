@@ -931,11 +931,11 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const isPurchaseTab = activeSubTab === "PURCHASE_LEDGER";
 
   return (
-    <div className="flex flex-col h-full overflow-hidden select-none bg-[#f4efe4] text-[#1c1917]">
+    <div className="flex flex-col min-h-full md:h-full md:overflow-hidden select-none bg-[#f4efe4] text-[#1c1917]">
       {/* Toast Alert */}
       {toast && (
         <div
-          className={`fixed top-16 right-6 z-50 px-4 py-2.5 rounded shadow text-xs font-bold flex items-center gap-2 border ${
+          className={`fixed top-16 right-4 md:right-6 z-50 px-4 py-2.5 rounded shadow text-xs font-bold flex items-center gap-2 border ${
             toast.type === "error"
               ? "bg-rose-950 border-rose-800 text-rose-200"
               : "bg-emerald-950 border-emerald-800 text-emerald-200"
@@ -947,55 +947,55 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       )}
 
       {/* 1. Top Sub-Tabs Navigation (4 Sub-Tabs) */}
-      <div className="px-3 pt-2.5 pb-0 border-b border-[#b5a894] bg-[#ebe5d8] flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="px-2.5 md:px-3 pt-2 pb-1.5 md:pb-0 border-b border-[#b5a894] bg-[#ebe5d8] flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-1 overflow-x-auto pb-0.5 max-w-full">
           <button
             onClick={() => setActiveSubTab("UNISSUED")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t font-bold text-xs transition border-t border-l border-r whitespace-nowrap ${
+            className={`flex items-center gap-1 px-2.5 md:px-3.5 py-1.5 md:py-2 rounded-t font-bold text-xs transition border-t border-l border-r whitespace-nowrap shrink-0 ${
               activeSubTab === "UNISSUED"
                 ? "bg-[#f4efe4] border-[#b5a894] text-[#1c1917] border-b-transparent shadow-sm"
                 : "bg-[#e2dbcd] border-transparent text-[#78716c] hover:text-[#1c1917]"
             }`}
           >
-            <CheckSquare className="w-3.5 h-3.5 text-blue-700" />
-            <span>발행 대기 청구 목록</span>
+            <CheckSquare className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+            <span>발행 대기</span>
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 font-mono">
-              {unissuedBillings.length}건
+              {unissuedBillings.length}
             </span>
           </button>
 
           <button
             onClick={() => setActiveSubTab("SALE_LEDGER")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t font-bold text-xs transition border-t border-l border-r whitespace-nowrap ${
+            className={`flex items-center gap-1 px-2.5 md:px-3.5 py-1.5 md:py-2 rounded-t font-bold text-xs transition border-t border-l border-r whitespace-nowrap shrink-0 ${
               activeSubTab === "SALE_LEDGER"
                 ? "bg-[#f4efe4] border-[#b5a894] text-[#1c1917] border-b-transparent shadow-sm"
                 : "bg-[#e2dbcd] border-transparent text-[#78716c] hover:text-[#1c1917]"
             }`}
           >
-            <FileText className="w-3.5 h-3.5 text-emerald-700" />
-            <span>매출 세금계산서 · 미수납 채권</span>
+            <FileText className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+            <span>매출 · 채권</span>
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 font-mono">
-              {saleInvoices.length}건
+              {saleInvoices.length}
             </span>
             {arStats.unpaidCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 font-mono">
-                미수납 {arStats.unpaidCount}
+                미수 {arStats.unpaidCount}
               </span>
             )}
           </button>
 
           <button
             onClick={() => setActiveSubTab("PURCHASE_LEDGER")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t font-bold text-xs transition border-t border-l border-r whitespace-nowrap ${
+            className={`flex items-center gap-1 px-2.5 md:px-3.5 py-1.5 md:py-2 rounded-t font-bold text-xs transition border-t border-l border-r whitespace-nowrap shrink-0 ${
               activeSubTab === "PURCHASE_LEDGER"
                 ? "bg-[#f4efe4] border-[#b5a894] text-[#1c1917] border-b-transparent shadow-sm"
                 : "bg-[#e2dbcd] border-transparent text-[#78716c] hover:text-[#1c1917]"
             }`}
           >
-            <Building2 className="w-3.5 h-3.5 text-amber-700" />
-            <span>매입 세금계산서 · 미지급 채무</span>
+            <Building2 className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+            <span>매입 · 채무</span>
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 font-mono">
-              {purchaseInvoices.length}건
+              {purchaseInvoices.length}
             </span>
             {apStats.unpaidCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 font-mono">
@@ -1006,27 +1006,27 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
 
           <button
             onClick={() => setActiveSubTab("HOMETAX_SYNC")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t font-bold text-xs transition border-t border-l border-r whitespace-nowrap ${
+            className={`flex items-center gap-1 px-2.5 md:px-3.5 py-1.5 md:py-2 rounded-t font-bold text-xs transition border-t border-l border-r whitespace-nowrap shrink-0 ${
               activeSubTab === "HOMETAX_SYNC"
                 ? "bg-[#f4efe4] border-[#b5a894] text-[#1c1917] border-b-transparent shadow-sm"
                 : "bg-[#e2dbcd] border-transparent text-[#78716c] hover:text-[#1c1917]"
             }`}
           >
-            <Database className="w-3.5 h-3.5 text-indigo-700" />
-            <span>홈택스 자동 수집 · 엑셀 업로드</span>
+            <Database className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
+            <span>홈택스 수집</span>
           </button>
         </div>
 
         {/* Top Right Action Buttons */}
-        <div className="flex items-center gap-1.5 pb-1.5 text-[11px] flex-wrap">
+        <div className="flex items-center gap-1.5 pb-1 text-[11px] overflow-x-auto max-w-full">
           <button
             onClick={() => handleAutoMatch("ALL")}
             disabled={autoMatching}
-            className="flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 border border-teal-900 shadow-sm cursor-pointer whitespace-nowrap"
+            className="flex items-center gap-1 h-7 px-2 rounded text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 border border-teal-900 shadow-sm cursor-pointer whitespace-nowrap shrink-0"
             title="매출/매입 세금계산서와 통장 입출금 내역 자동 비교 대사"
           >
-            <ArrowLeftRight className={`w-3.5 h-3.5 ${autoMatching ? "animate-spin" : ""}`} />
-            <span>통장 입출금 자동 대사</span>
+            <ArrowLeftRight className={`w-3.5 h-3.5 shrink-0 ${autoMatching ? "animate-spin" : ""}`} />
+            <span>자동대사</span>
           </button>
 
           <button
@@ -1034,10 +1034,10 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
               setModalIoType("PURCHASE");
               setShowIssueModal(true);
             }}
-            className="flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-amber-950 bg-amber-200 hover:bg-amber-300 border border-amber-500 shadow-sm cursor-pointer whitespace-nowrap"
+            className="flex items-center gap-1 h-7 px-2 rounded text-xs font-bold text-amber-950 bg-amber-200 hover:bg-amber-300 border border-amber-500 shadow-sm cursor-pointer whitespace-nowrap shrink-0"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>매입 세금계산서 등록</span>
+            <Plus className="w-3.5 h-3.5 shrink-0" />
+            <span>매입등록</span>
           </button>
 
           <button
@@ -1045,15 +1045,15 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
               setModalIoType("SALE");
               setShowIssueModal(true);
             }}
-            className="flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 border border-blue-900 shadow-sm cursor-pointer whitespace-nowrap"
+            className="flex items-center gap-1 h-7 px-2 rounded text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 border border-blue-900 shadow-sm cursor-pointer whitespace-nowrap shrink-0"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>매출 세금계산서 발행</span>
+            <Plus className="w-3.5 h-3.5 shrink-0" />
+            <span>매출발행</span>
           </button>
 
           <button
             onClick={() => handleOpenPopbillPortal("PORTAL_URL")}
-            className="flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-indigo-800 bg-indigo-100 hover:bg-indigo-200 border border-indigo-400 shadow-sm whitespace-nowrap"
+            className="hidden sm:flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-indigo-800 bg-indigo-100 hover:bg-indigo-200 border border-indigo-400 shadow-sm whitespace-nowrap shrink-0"
           >
             <ExternalLink className="w-3.5 h-3.5" />
             <span>팝빌 문서함</span>
@@ -1254,7 +1254,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
             )}
 
             {/* 검색 */}
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 flex-1 sm:flex-none min-w-[160px]">
               <span className="text-[10px] font-bold text-[#78716c]">검색</span>
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#78716c]" />
@@ -1262,8 +1262,8 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="거래처명, 품목, 계산서번호, 승인번호"
-                  className="h-8 pl-8 pr-3 rounded text-xs border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] w-60"
+                  placeholder="거래처명, 품목, 계산서번호"
+                  className="h-8 pl-8 pr-3 rounded text-xs border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] w-full sm:w-56"
                 />
               </div>
             </div>
@@ -1384,18 +1384,18 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       )}
 
       {/* 4. Body Content Area */}
-      <div className="flex-1 overflow-auto p-3">
+      <div className="flex-1 md:overflow-auto p-2.5 md:p-3">
         {/* ============================================================== */}
         {/* SUB-TAB 1: UNISSUED BILLINGS (발행 대기 청구 목록)            */}
         {/* ============================================================== */}
         {activeSubTab === "UNISSUED" && (
-          <div className="border border-[#b5a894] rounded bg-[#ebe5d8] overflow-hidden flex flex-col h-full shadow-sm">
+          <div className="border border-[#b5a894] rounded bg-[#ebe5d8] overflow-hidden flex flex-col md:h-full shadow-sm">
             <div className="p-2 border-b border-[#b5a894] bg-[#dfd7c7] flex items-center justify-between text-xs font-bold text-[#57534e]">
               <span>계약 청구 발행 대기 목록</span>
               <span className="text-[11px] text-[#78716c]">총 {sortedUnissued.length}건 대기</span>
             </div>
 
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 overflow-x-auto md:overflow-auto">
               <table className="w-full text-xs border-collapse">
                 <thead className="sticky top-0 bg-[#ded6c5] border-b border-[#b5a894] text-[#44403c] font-bold z-10">
                   <tr>
@@ -1562,7 +1562,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         {/* SUB-TAB 2 & 3: SALE_LEDGER (매출/채권) & PURCHASE_LEDGER (매입/채무) */}
         {/* ============================================================== */}
         {(activeSubTab === "SALE_LEDGER" || activeSubTab === "PURCHASE_LEDGER") && (
-          <div className="border border-[#b5a894] rounded bg-[#ebe5d8] overflow-hidden flex flex-col h-full shadow-sm">
+          <div className="border border-[#b5a894] rounded bg-[#ebe5d8] overflow-hidden flex flex-col md:h-full shadow-sm">
             <div className="p-2 border-b border-[#b5a894] bg-[#dfd7c7] flex items-center justify-between text-xs font-bold text-[#57534e]">
               <div className="flex items-center gap-2">
                 <span>
@@ -1576,7 +1576,134 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto">
+            {/* 모바일 전용 카드형 대장 (가로폭 100% 최적화) */}
+            <div className="md:hidden divide-y divide-[#b5a894]">
+              {sortedInvoices.length === 0 ? (
+                <div className="p-8 text-center text-xs text-[#78716c]">
+                  조회된 세금계산서 내역이 없습니다.
+                </div>
+              ) : (
+                sortedInvoices.map((inv) => {
+                  const totalAmt = Number(inv.totalAmount || 0);
+                  const settledAmt = Number(inv.settledAmount || 0);
+                  const unpaidAmt = Math.max(0, totalAmt - settledAmt);
+                  const st = inv.settlementStatus || "UNPAID";
+                  const txIds: number[] = Array.isArray(inv.matchedBankTxIds) ? inv.matchedBankTxIds : [];
+
+                  return (
+                    <div key={inv.id} className="p-3 bg-[#ebe5d8] flex flex-col gap-2">
+                      {/* 1행: 거래처명 + 상태 배지 */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                              inv.supplierEntityType === "INDIVIDUAL"
+                                ? "bg-amber-100 text-amber-900 border border-amber-300"
+                                : "bg-blue-100 text-blue-900 border border-blue-300"
+                            }`}
+                          >
+                            {inv.supplierEntityType === "INDIVIDUAL" ? "개인" : "법인"}
+                          </span>
+                          <span className="font-bold text-xs text-[#1c1917] truncate">
+                            {inv.customerName}
+                          </span>
+                        </div>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                            st === "PAID"
+                              ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                              : st === "PARTIAL"
+                              ? "bg-amber-100 text-amber-800 border border-amber-300"
+                              : "bg-rose-100 text-rose-800 border border-rose-300"
+                          }`}
+                        >
+                          {st === "PAID"
+                            ? isPurchaseTab ? "지급완료" : "수납완료"
+                            : st === "PARTIAL"
+                            ? isPurchaseTab ? "부분지급" : "부분수납"
+                            : isPurchaseTab ? "미지급" : "미수납"}
+                        </span>
+                      </div>
+
+                      {/* 2행: 작성일자 + 품목명 */}
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-[#57534e]">
+                        <span className="truncate font-medium text-[#1c1917]">{inv.itemName}</span>
+                        <span className="font-mono shrink-0">
+                          {inv.issueDate ? String(inv.issueDate).slice(0, 10) : "-"}
+                        </span>
+                      </div>
+
+                      {/* 3행: 합계금액 / 정산액 / 미결잔액 */}
+                      <div className="grid grid-cols-3 gap-1.5 p-2 rounded bg-[#f4efe4] border border-[#c4b6a0] text-[11px]">
+                        <div>
+                          <span className="block text-[10px] text-[#78716c]">합계금액</span>
+                          <span className="font-mono font-bold text-[#1c1917]">
+                            {formatErpCurrency(totalAmt)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-[10px] text-[#78716c]">
+                            {isPurchaseTab ? "지급완료" : "수납완료"}
+                          </span>
+                          <span className="font-mono font-bold text-emerald-800">
+                            {formatErpCurrency(settledAmt)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-[10px] text-[#78716c]">
+                            {isPurchaseTab ? "미지급잔액" : "미수납잔액"}
+                          </span>
+                          <span
+                            className={`font-mono font-extrabold ${
+                              unpaidAmt > 0 ? "text-rose-700" : "text-[#a8a29e]"
+                            }`}
+                          >
+                            {formatErpCurrency(unpaidAmt)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 4행: 액션 버튼 바 */}
+                      <div className="flex items-center justify-between gap-1.5 pt-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => openReconcileModal(inv)}
+                            className={`px-2.5 py-1 rounded text-[11px] font-bold border flex items-center gap-1 ${
+                              st === "PAID"
+                                ? "border-emerald-700 bg-emerald-50 text-emerald-800"
+                                : "border-teal-800 bg-teal-700 text-white"
+                            }`}
+                          >
+                            <ArrowLeftRight className="w-3 h-3" />
+                            <span>{isPurchaseTab ? "출금 대사" : "입금 대사"}</span>
+                            {txIds.length > 0 && <span className="font-mono">({txIds.length})</span>}
+                          </button>
+
+                          {st !== "PAID" && (
+                            <button
+                              onClick={() => handleQuickFullSettle(inv)}
+                              className="px-2.5 py-1 rounded text-[11px] font-bold border border-amber-700 bg-amber-100 text-amber-900"
+                            >
+                              완납확정
+                            </button>
+                          )}
+                        </div>
+
+                        <button
+                          onClick={() => setDetailInvoice(inv)}
+                          className="px-2.5 py-1 rounded text-[11px] font-bold border border-blue-700 bg-blue-600 text-white"
+                        >
+                          상세보기
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* PC 전용 고밀도 테이블 */}
+            <div className="hidden md:block flex-1 overflow-auto">
               <table className="w-full text-xs border-collapse">
                 <thead className="sticky top-0 bg-[#ded6c5] border-b border-[#b5a894] text-[#44403c] font-bold z-10">
                   <tr>

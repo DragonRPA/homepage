@@ -463,7 +463,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col min-h-full md:h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 md:overflow-hidden font-sans">
       {/* Toast Notification */}
       {toastMessage && (
         <div
@@ -478,35 +478,35 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       )}
 
       {/* 1. Gutenberg Z-Pattern Step 1 (Scope) & Step 2 (Pipeline) */}
-      <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-end justify-between gap-3 shrink-0">
+      <div className="p-2.5 md:p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-end justify-between gap-2.5 shrink-0">
         {/* Left: Scope (좌상단 조회 조건 - 상하 스택 배치 원칙 3.4 준수) */}
-        <div className="flex flex-wrap items-end gap-2.5">
-          <div className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-end gap-2 w-full sm:w-auto">
+          <div className="flex flex-col gap-1 w-full sm:w-auto">
             <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
               조회 기간
             </label>
-            <div className="flex items-center gap-1 bg-[#f4efe4] px-2 py-1 rounded border border-[#b5a894] dark:bg-slate-800 dark:border-slate-700">
+            <div className="flex items-center gap-1 bg-[#f4efe4] px-2 py-1 rounded border border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 w-full sm:w-auto justify-between">
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="bg-transparent text-xs text-[#0f172a] dark:text-slate-200 focus:outline-none font-mono"
+                className="bg-transparent text-xs text-[#0f172a] dark:text-slate-200 focus:outline-none font-mono min-w-0"
               />
               <span className="text-[#475569] dark:text-slate-500 text-xs">~</span>
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="bg-transparent text-xs text-[#0f172a] dark:text-slate-200 focus:outline-none font-mono"
+                className="bg-transparent text-xs text-[#0f172a] dark:text-slate-200 focus:outline-none font-mono min-w-0"
               />
             </div>
           </div>
 
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 w-full sm:w-auto">
             <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
               기간 선택
             </label>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
               {[
                 { key: "ALL", label: "전체" },
                 { key: "2026", label: "2026년" },
@@ -519,7 +519,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                   key={p.key}
                   type="button"
                   onClick={() => setPeriodPreset(p.key as any)}
-                  className="px-2 py-1.5 text-[11px] font-bold rounded border border-[#b5a894] bg-[#f4efe4] hover:bg-[#dcd4c4] text-[#0f172a] whitespace-nowrap transition dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                  className="px-2 py-1.5 text-[11px] font-bold rounded border border-[#b5a894] bg-[#f4efe4] hover:bg-[#dcd4c4] text-[#0f172a] whitespace-nowrap shrink-0 transition dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
                 >
                   {p.label}
                 </button>
@@ -584,14 +584,14 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
             </select>
           </div>
 
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 flex-1 sm:flex-none min-w-[140px]">
             <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
               계좌 선택
             </label>
             <select
               value={accountFilter}
               onChange={(e) => setAccountFilter(e.target.value)}
-              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] font-medium whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] font-medium whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 max-w-[210px] sm:max-w-none truncate"
             >
               <option value="ALL">전체 계좌</option>
               <option value="478-081383-04-018">
@@ -609,7 +609,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
             </select>
           </div>
 
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 flex-1 sm:flex-none min-w-[150px]">
             <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
               검색어
             </label>
@@ -621,14 +621,14 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && fetchTransactions()}
-                className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] pl-8 pr-3 py-1.5 rounded w-48 focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] pl-8 pr-3 py-1.5 rounded w-full sm:w-48 focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
               />
             </div>
           </div>
         </div>
 
         {/* Right: Pipeline (우상단 데이터 유입 버튼군) */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 flex-wrap shrink-0">
           <button
             onClick={fetchTransactions}
             disabled={loading}
@@ -739,9 +739,121 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       )}
 
       {/* 2. Gutenberg Z-Pattern Step 3 (Body / High-Density Grid) */}
-      <div className="flex-1 overflow-auto p-3">
-        <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-hidden h-full flex flex-col dark:bg-slate-900 dark:border-slate-800">
-          <div className="flex-1 overflow-auto">
+      <div className="flex-1 md:overflow-auto p-2.5 md:p-3">
+        <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-hidden md:h-full flex flex-col dark:bg-slate-900 dark:border-slate-800">
+          {/* 모바일 전용 카드형 입출금 대장 (가로폭 100% 최적화) */}
+          <div className="md:hidden divide-y divide-[#c4b6a0] dark:divide-slate-800">
+            {sortedTransactions.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[#475569]">
+                조회된 은행 입출금 내역이 없습니다.
+              </div>
+            ) : (
+              sortedTransactions.slice(0, 200).map((t) => {
+                const isDep = t.depositAmount > 0;
+                const amt = isDep ? t.depositAmount : t.withdrawalAmount;
+                return (
+                  <div key={t.id} className="p-3 bg-[#ebe5d8] dark:bg-slate-900 flex flex-col gap-1.5">
+                    {/* 1행: 거래일시 + 구분/사업자 배지 */}
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <div className="flex items-center gap-1.5 font-mono text-[#334155] dark:text-slate-300">
+                        <span>{t.transDate}</span>
+                        <span className="text-[#64748b] text-[10px]">{t.transTime}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe]">
+                          {t.entityType === "INDIVIDUAL" || t.accountNo?.includes("140") ? "개인" : "법인"}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            isDep
+                              ? "bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe]"
+                              : "bg-[#fef2f2] text-[#991b1b] border border-[#fecaca]"
+                          }`}
+                        >
+                          {isDep ? "입금" : "출금"} · {t.txChannel || "-"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* 2행: 거래내용 + 금액 */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {t.matchedType === "PAYROLL" && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ede9fe] text-[#5b21b6] border border-[#c4b5fd] shrink-0">
+                            급여
+                          </span>
+                        )}
+                        <span className="font-bold text-xs text-[#0f172a] dark:text-slate-100 truncate">
+                          {t.senderReceiver}
+                        </span>
+                      </div>
+                      <span
+                        className={`font-mono text-sm font-extrabold shrink-0 ${
+                          isDep ? "text-[#1d4ed8]" : "text-[#dc2626]"
+                        }`}
+                      >
+                        {isDep ? "+" : "-"}
+                        {formatErpCurrency(amt)}
+                      </span>
+                    </div>
+
+                    {/* 3행: 거래후 잔액 + 대사상태/조치 버튼 */}
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#d5cbb8] dark:border-slate-800 text-[11px]">
+                      <span className="font-mono text-[#475569] dark:text-slate-400">
+                        잔액:{" "}
+                        <b className="text-[#0f172a] dark:text-slate-200">
+                          {formatErpCurrency(t.balanceAfter || 0)}
+                        </b>
+                      </span>
+
+                      <div className="flex items-center gap-1.5">
+                        {t.matchedType === "PAYROLL" ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ede9fe] text-[#5b21b6] border border-[#c4b5fd]">
+                            {t.matchedId || "급여"}
+                          </span>
+                        ) : (
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              t.isMatched
+                                ? "bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0]"
+                                : "bg-[#fef3c7] text-[#92400e] border border-[#fde68a]"
+                            }`}
+                          >
+                            {t.isMatched ? "매칭완료" : "미매칭"}
+                          </span>
+                        )}
+
+                        {t.isMatched ? (
+                          <button
+                            onClick={() => handleUnmatch(t.id)}
+                            className="px-2 py-0.5 bg-[#dcd4c4] text-[#0f172a] rounded border border-[#b5a894] text-[10px] font-bold"
+                          >
+                            취소
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setSelectedTrans(t);
+                              setMatchedType(t.depositAmount > 0 ? "BILLING" : "PURCHASE");
+                              setMatchedId("");
+                              setMatchMemo(t.memo || "");
+                              setMatchModalOpen(true);
+                            }}
+                            className="px-2 py-0.5 bg-[#1d4ed8] text-white rounded text-[10px] font-bold"
+                          >
+                            매칭
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* PC 전용 고밀도 테이블 */}
+          <div className="hidden md:block flex-1 overflow-auto">
             <table className="w-full text-xs text-left border-collapse">
               <thead className="bg-[#e2dbcd] text-[#0f172a] font-semibold border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
                 <tr>

@@ -111,10 +111,12 @@ export async function POST(request: Request) {
           ? `휴가 ${durationDays}일 / 연차 미차감(0일)`
           : `연차 ${parsedDeductedDays}일 차감`;
 
+        const reqNo = `APPR-LV-${String(data.id).padStart(4, "0")}`;
         const reqRes = await pool.query(
-          `INSERT INTO erp_approval_requests (rule_id, target_table, target_id, requester_id, title, payload, status)
-           VALUES ($1, 'erp_leave_requests', $2, $3, $4, $5, 'PENDING') RETURNING id`,
+          `INSERT INTO erp_approval_requests (request_no, event_type, rule_id, target_table, target_id, requester_id, title, payload, status)
+           VALUES ($1, 'LEAVE_REQUEST', $2, 'erp_leave_requests', $3, $4, $5, $6, 'PENDING') RETURNING id`,
           [
+            reqNo,
             rule.id,
             data.id,
             employeeId,

@@ -213,10 +213,12 @@ export async function POST(request: Request) {
         );
         const approverId = adminRes.rows.length > 0 ? adminRes.rows[0].id : employeeId;
 
+        const reqNo = `APPR-OT-${String(data.id).padStart(4, "0")}`;
         const reqRes = await pool.query(
-          `INSERT INTO erp_approval_requests (rule_id, target_table, target_id, requester_id, title, payload, status)
-           VALUES ($1, 'erp_overtimes', $2, $3, $4, $5, 'PENDING') RETURNING id`,
+          `INSERT INTO erp_approval_requests (request_no, event_type, rule_id, target_table, target_id, requester_id, title, payload, status)
+           VALUES ($1, 'OT_REQUEST', $2, 'erp_overtimes', $3, $4, $5, $6, 'PENDING') RETURNING id`,
           [
+            reqNo,
             rule.id,
             data.id,
             employeeId,

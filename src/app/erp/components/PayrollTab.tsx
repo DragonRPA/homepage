@@ -426,7 +426,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#ebe5d8] text-[#0f172a] overflow-hidden font-sans dark:bg-slate-950 dark:text-slate-100">
+    <div className="flex flex-col min-h-full md:h-full bg-[#ebe5d8] text-[#0f172a] md:overflow-hidden font-sans dark:bg-slate-950 dark:text-slate-100">
       {/* Toast Notification */}
       {toastMessage && (
         <div
@@ -441,12 +441,12 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       )}
 
       {/* 1. Gutenberg Z-Pattern Step 1 (Scope) & Step 2 (Pipeline) */}
-      <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+      <div className="p-2.5 md:p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-1.5">
             <CreditCard className="w-4 h-4 text-[#1d4ed8]" />
             <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
-              월별 임직원 급여 정산 대장
+              월별 임직원 급여 정산
             </span>
           </div>
 
@@ -460,7 +460,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={fetchPayroll}
             disabled={loading}
@@ -472,33 +472,33 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
           <button
             onClick={() => setOcrModalOpen(true)}
-            className="px-3 py-1.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition whitespace-nowrap"
+            className="px-2.5 py-1.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold rounded flex items-center gap-1 shadow transition whitespace-nowrap"
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>급여대장 PDF OCR 등록</span>
+            <span>PDF OCR 등록</span>
           </button>
 
           <button
             onClick={handleExportCsv}
-            className="px-3 py-1.5 bg-[#f4efe4] hover:bg-[#ebe5d8] text-[#0f172a] text-xs font-bold rounded flex items-center gap-1.5 border border-[#b5a894] shadow transition dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 whitespace-nowrap"
+            className="px-2.5 py-1.5 bg-[#f4efe4] hover:bg-[#ebe5d8] text-[#0f172a] text-xs font-bold rounded flex items-center gap-1 border border-[#b5a894] shadow transition dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 whitespace-nowrap"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>엑셀 내보내기</span>
+            <span>엑셀</span>
           </button>
 
           {isAdmin && (
             <>
               <button
                 onClick={handleAutoCalculate}
-                className="px-3 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition whitespace-nowrap"
+                className="px-2.5 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1 shadow transition whitespace-nowrap"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-                <span>급여 자동 계산 & 대장 생성</span>
+                <span>급여 자동 계산</span>
               </button>
 
               <button
                 onClick={() => handleSetStatusAll("APPROVED")}
-                className="px-3 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition whitespace-nowrap"
+                className="px-2.5 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1 shadow transition whitespace-nowrap"
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>전체 승인</span>
@@ -506,10 +506,10 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
               <button
                 onClick={() => handleSetStatusAll("PAID")}
-                className="px-3 py-1.5 bg-[#6b21a8] hover:bg-[#581c87] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition whitespace-nowrap"
+                className="px-2.5 py-1.5 bg-[#6b21a8] hover:bg-[#581c87] text-white text-xs font-bold rounded flex items-center gap-1 shadow transition whitespace-nowrap"
               >
                 <Lock className="w-3.5 h-3.5" />
-                <span>지급 완료 마감</span>
+                <span>지급 마감</span>
               </button>
             </>
           )}
@@ -517,9 +517,94 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       </div>
 
       {/* 2. Gutenberg Z-Pattern Step 3 (Body / High-Density Grid) */}
-      <div className="flex-1 overflow-auto p-3">
-        <div className="bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 rounded shadow-sm overflow-hidden h-full flex flex-col">
-          <div className="flex-1 overflow-auto">
+      <div className="flex-1 md:overflow-auto p-2.5 md:p-3">
+        <div className="bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 rounded shadow-sm overflow-hidden md:h-full flex flex-col">
+          {/* 모바일 전용 임직원 급여 명세 카드 (가로폭 100% 최적화) */}
+          <div className="md:hidden divide-y divide-[#c4b6a0] dark:divide-slate-800">
+            {sortedRecords.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[#475569]">
+                {selectedMonth} 급여 대장이 생성되지 않았습니다.
+              </div>
+            ) : (
+              sortedRecords.map((r) => (
+                <div key={r.id} className="p-3 bg-[#f4efe4] dark:bg-slate-900 flex flex-col gap-2">
+                  {/* 1행: 성명 + 부서/직급 + 상태/수정 */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-xs text-[#0f172a] dark:text-slate-100">
+                        {r.employeeName}
+                      </span>
+                      <span className="text-[11px] text-[#475569] dark:text-slate-400">
+                        ({r.department || "-"} · {r.position})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          r.status === "PAID"
+                            ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                            : r.status === "APPROVED"
+                            ? "bg-blue-100 text-blue-800 border border-blue-300"
+                            : "bg-amber-100 text-amber-800 border border-amber-300"
+                        }`}
+                      >
+                        {r.status === "PAID" ? "지급완료" : r.status === "APPROVED" ? "승인완료" : "작성중"}
+                      </span>
+                      {isAdmin && (
+                        <button
+                          onClick={() => {
+                            setEditingRecord(r);
+                            setInputBaseSalary(toErpInputString(r.baseSalary));
+                            setInputMealAllowance(toErpInputString(r.mealAllowance ?? 200000));
+                            setInputVehicleAllowance(toErpInputString(r.vehicleAllowance ?? 0));
+                            setInputBonus(toErpInputString(r.bonus));
+                            setInputServiceAmount(toErpInputString(r.serviceContractAmount));
+                            setEditModalOpen(true);
+                          }}
+                          className="px-2 py-0.5 bg-[#ebe5d8] text-[#334155] rounded border border-[#b5a894] text-[10px] font-bold"
+                        >
+                          수정
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 2행: 지급합계 / 공제합계 / 차인지급액 */}
+                  <div className="grid grid-cols-3 gap-1.5 p-2 rounded bg-[#ebe5d8] border border-[#c4b6a0] text-[11px]">
+                    <div>
+                      <span className="block text-[10px] text-[#475569]">지급합계</span>
+                      <span className="font-mono font-bold text-[#1d4ed8]">
+                        {formatErpCurrency(r.totalGross)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-[#475569]">공제합계</span>
+                      <span className="font-mono font-bold text-[#dc2626]">
+                        {formatErpCurrency(r.totalDeduction)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-[#475569]">차인지급액</span>
+                      <span className="font-mono font-extrabold text-[#047857]">
+                        {formatErpCurrency(r.netSalary)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 3행: 세부 내역 요약 */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-[#475569]">
+                    <span>기본급 {formatErpCurrency(r.baseSalary)}</span>
+                    <span>식대 {formatErpCurrency(r.mealAllowance)}</span>
+                    {r.vehicleAllowance > 0 && <span>차량 {formatErpCurrency(r.vehicleAllowance)}</span>}
+                    {r.otPay > 0 && <span>초과근무 {formatErpCurrency(r.otPay)}</span>}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* PC 전용 고밀도 테이블 */}
+          <div className="hidden md:block flex-1 overflow-auto">
             <table className="w-full text-xs text-left border-collapse">
               <thead className="bg-[#e2dbcd] text-[#0f172a] uppercase tracking-wider font-semibold border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
                 <tr>

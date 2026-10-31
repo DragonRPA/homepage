@@ -379,22 +379,22 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col min-h-full md:h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 md:overflow-hidden font-sans">
       {/* 1. 상단 조회 조건 & 파이프라인 바 (헌장 3.4, 3.5 준수) */}
-      <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-end justify-between gap-3 shrink-0">
-        <div className="flex flex-wrap items-end gap-2.5">
+      <div className="p-2.5 md:p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-end justify-between gap-2.5 shrink-0">
+        <div className="flex flex-wrap items-end gap-2 w-full sm:w-auto">
           {/* 조회 연도 */}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 w-full sm:w-auto">
             <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
               조회 연도
             </label>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
               {[
                 { key: "2026", label: "2026년" },
                 { key: "2025", label: "2025년" },
                 { key: "2024", label: "2024년" },
                 { key: "2023", label: "2023년" },
-                { key: "ALL", label: "전체 연도(월별)" },
+                { key: "ALL", label: "전체 연도" },
               ].map((y) => (
                 <button
                   key={y.key}
@@ -403,7 +403,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                     setYear(y.key);
                     setSelectedMonth("ALL");
                   }}
-                  className={`px-2.5 py-1.5 text-xs font-bold rounded border whitespace-nowrap transition ${
+                  className={`px-2 py-1.5 text-xs font-bold rounded border whitespace-nowrap shrink-0 transition ${
                     year === y.key
                       ? "bg-[#1d4ed8] text-white border-[#1e40af]"
                       : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894] hover:bg-[#dcd4c4] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
@@ -416,33 +416,33 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
           </div>
 
           {/* 사업자 구분 */}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 flex-1 sm:flex-none min-w-[140px]">
             <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
               사업자 구분
             </label>
             <select
               value={entityFilter}
               onChange={(e) => setEntityFilter(e.target.value as any)}
-              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2.5 py-1.5 rounded font-semibold focus:outline-none focus:border-[#1d4ed8] whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded font-semibold focus:outline-none focus:border-[#1d4ed8] whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 w-full"
             >
-              <option value="ALL">전체 사업자 (법인 + 개인 통합)</option>
+              <option value="ALL">전체 사업자 (통합)</option>
               <option value="CORP">(주)드래곤알피에이 [법인]</option>
               <option value="INDIVIDUAL">드래곤알피에이 [개인]</option>
             </select>
           </div>
 
           {/* 금액 집계 기준 */}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 flex-1 sm:flex-none min-w-[130px]">
             <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
               세금계산서 금액 기준
             </label>
             <select
               value={amountBasis}
               onChange={(e) => setAmountBasis(e.target.value as any)}
-              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2.5 py-1.5 rounded font-semibold focus:outline-none focus:border-[#1d4ed8] whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded font-semibold focus:outline-none focus:border-[#1d4ed8] whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 w-full"
             >
-              <option value="SUPPLY">공급가액 기준 (손익 기준)</option>
-              <option value="TOTAL">합계금액 기준 (부가세 포함)</option>
+              <option value="SUPPLY">공급가액 기준</option>
+              <option value="TOTAL">부가세 포함 총액</option>
             </select>
           </div>
         </div>
@@ -556,7 +556,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
       </div>
 
       {/* 3. 본문: 상단 월별 계정 손익 매트릭스 + 하단 선택 계정/월 상세 전표 내역 */}
-      <div className="flex-1 overflow-auto p-3 space-y-3">
+      <div className="flex-1 md:overflow-auto p-2.5 md:p-3 space-y-3">
         {/* 3-1. 월별 손익·계정 매트릭스 테이블 */}
         <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800">
           <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 flex items-center justify-between">
@@ -749,19 +749,73 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
               </span>
             </div>
 
-            <div className="relative">
+            <div className="relative w-full sm:w-auto">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1.5 text-[#475569]" />
               <input
                 type="text"
                 value={detailSearch}
                 onChange={(e) => setDetailSearch(e.target.value)}
                 placeholder="거래처, 적요, 세목 검색"
-                className="bg-[#f4efe4] border border-[#b5a894] text-xs pl-8 pr-3 py-1 rounded w-56 focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700"
+                className="bg-[#f4efe4] border border-[#b5a894] text-xs pl-8 pr-3 py-1 rounded w-full sm:w-56 focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700"
               />
             </div>
           </div>
 
-          <div className="max-h-[360px] overflow-auto">
+          {/* 모바일 전용 전표 카드 리스트 (가로폭 100% 최적화) */}
+          <div className="md:hidden divide-y divide-[#c4b6a0] dark:divide-slate-800">
+            {filteredDetails.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[#475569]">
+                조건에 해당하는 상세 전표 내역이 없습니다.
+              </div>
+            ) : (
+              filteredDetails.slice(0, 150).map((d) => {
+                const majMeta = MAJOR_LABELS[d.majorAccount];
+                return (
+                  <div key={d.id} className="p-3 bg-[#ebe5d8] dark:bg-slate-900 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-[#334155] dark:text-slate-300">{d.date}</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            d.entityType === "CORP"
+                              ? "bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe]"
+                              : "bg-[#fef3c7] text-[#92400e] border border-[#fde68a]"
+                          }`}
+                        >
+                          {d.entityType === "CORP" ? "법인" : "개인"}
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${majMeta.badgeClass}`}>
+                          {majMeta.badge} · {d.subAccount}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-semibold text-[#475569]">
+                        {d.source === "TAX_INVOICE" ? "세금계산서" : "통장입출금"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-xs text-[#0f172a] dark:text-slate-100 truncate">
+                        {d.counterparty}
+                      </span>
+                      <span className="font-mono text-sm font-extrabold text-[#0f172a] dark:text-slate-100 shrink-0">
+                        {formatErpCurrency(d.supplyAmount)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-[#475569] dark:text-slate-400">
+                      <span className="truncate">{d.description}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] shrink-0">
+                        {d.status}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* PC 전용 상세 전표 테이블 */}
+          <div className="hidden md:block max-h-[360px] overflow-auto">
             <table className="w-full text-xs text-left border-collapse">
               <thead className="bg-[#dcd4c4] text-[#0f172a] font-semibold border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
                 <tr>

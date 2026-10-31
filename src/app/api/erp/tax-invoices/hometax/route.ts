@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { spawn } from "child_process";
 import path from "path";
+import * as XLSX from "xlsx";
 import { getErpPool } from "@/lib/supabaseErp";
 import { getEntity } from "@/lib/businessEntities";
 import {
@@ -48,7 +49,14 @@ export function parseHometaxExcelBuffer(
   const results: HometaxCollectedInvoice[] = [];
   let rows: string[][] = [];
 
-  if (buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x03 && buffer[3] === 0x04) {
+  if (buffer.length >= 4 && buffer[0] === 0xd0 && buffer[1] === 0xcf && buffer[2] === 0x11 && buffer[3] === 0xe0) {
+    // BIFF8 OLE2 .xls file (Hometax standard Excel export)
+    const wb = XLSX.read(buffer, { type: "buffer" });
+    for (const sName of wb.SheetNames) {
+      const sheetRows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sName], { header: 1, defval: "" });
+      rows.push(...sheetRows.map((r) => r.map((c) => String(c ?? ""))));
+    }
+  } else if (buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x03 && buffer[3] === 0x04) {
     rows = parseXlsxBufferToRows(buffer);
   } else {
     const text = decodeTextBuffer(buffer);

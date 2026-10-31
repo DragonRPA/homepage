@@ -528,20 +528,6 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
             </div>
           </div>
 
-          {/* 현장명 */}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
-              투입 현장명
-            </label>
-            <input
-              type="text"
-              value={siteName}
-              onChange={(e) => setSiteName(e.target.value)}
-              placeholder="현장명 또는 납품처 주소"
-              className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
-            />
-          </div>
-
           {/* 2. 출고 렌탈자산 검색 및 선택 */}
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between">
@@ -808,7 +794,6 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                   <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800">
                     <tr>
                       {renderSortHeader("고객사명", "customerName")}
-                      {renderSortHeader("현장명", "siteName")}
                       {renderSortHeader("자산번호", "assetNo")}
                       {renderSortHeader("제조번호(S/N)", "serialNo")}
                       {renderSortHeader("기종 모델명", "modelName")}
@@ -823,7 +808,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                   <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/70">
                     {filteredBillings.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="py-10 text-center text-[#475569] dark:text-slate-500">
+                        <td colSpan={10} className="py-10 text-center text-[#475569] dark:text-slate-500">
                           조회된 당월 청구 내역이 없습니다.
                         </td>
                       </tr>
@@ -832,9 +817,6 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                         <tr key={b.id} className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40 transition">
                           <td className="py-2.5 px-3 font-bold text-[#0f172a] dark:text-white whitespace-nowrap">
                             {b.customerName}
-                          </td>
-                          <td className="py-2.5 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
-                            {b.siteName || "-"}
                           </td>
                           <td className="py-2.5 px-3 font-mono font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
                             {b.assetNo}
@@ -966,14 +948,13 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                       {renderSortHeader("제조번호(S/N)", "serialNo")}
                       {renderSortHeader("기종 모델명", "modelName")}
                       {renderSortHeader("출고 고객사", "customerName")}
-                      {renderSortHeader("현장명", "siteName")}
                       {renderSortHeader("비고", "memo")}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/70">
                     {sortedLogs.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-10 text-center text-[#475569] dark:text-slate-500">
+                        <td colSpan={6} className="py-10 text-center text-[#475569] dark:text-slate-500">
                           출고 이력이 없습니다.
                         </td>
                       </tr>
@@ -994,9 +975,6 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                           </td>
                           <td className="py-2.5 px-3 font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                             {l.customerName || "-"}
-                          </td>
-                          <td className="py-2.5 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
-                            {l.siteName || "-"}
                           </td>
                           <td className="py-2.5 px-3 text-[#475569] dark:text-slate-400 whitespace-nowrap">
                             {l.memo || "-"}

@@ -301,13 +301,14 @@ export const MOEL_STANDARD_WORK_RULES: WorkRuleChapter[] = [
       },
       {
         articleNo: 23,
-        title: "연차유급휴가의 부여",
+        title: "연차유급휴가의 부여 (회계연도 기준)",
         requirementType: "필수",
         legalBasis: "근로기준법 제60조",
         paragraphs: [
-          "회사는 1년간 80퍼센트 이상 출근한 사원에게 15일의 유급휴가를 준다.",
-          "회사는 계속하여 근로한 기간이 1년 미만인 사원 또는 1년간 80퍼센트 미만 출근한 사원에게 1개월 개근 시 1일의 유급휴가를 준다.",
-          "회사는 3년 이상 계속하여 근로한 사원에게는 제1항에 따른 휴가에 최초 1년을 초과하는 계속 근로 연수 매 2년에 대하여 1일을 가산한 유급휴가를 주며, 가산휴가를 포함한 총 휴가일수는 25일을 한도로 한다.",
+          "회사의 연차유급휴가 산정기간은 매년 1월 1일부터 12월 31일까지(회계연도 기준)로 한다.",
+          "당해 연도 중도 입사자(입사 0년차)에 대하여는 15일의 연차유급휴가를 입사일로부터 당해 연도 말일(12월 31일)까지의 잔여 일수 비율로 비례 산정(0.5일 단위 반올림)하여 부여한다.",
+          "입사 다음 연도(1년차)부터는 매년 1월 1일에 1년간 80퍼센트 이상 출근한 사원에게 15일의 유급휴가를 새로이 부여한다.",
+          "회사는 3년 이상 계속하여 근로한 사원에게는 제3항에 따른 휴가에 최초 1년을 초과하는 계속 근로 연수 매 2년(3년차, 5년차, 7년차...)에 대하여 1일을 가산한 유급휴가를 주며, 가산휴가를 포함한 총 휴가일수는 25일을 한도로 한다.",
           "연차유급휴가 산정을 위한 출근율 계산 시 업무상 재해로 인한 휴업기간, 출산전후휴가기간, 육아휴직기간, 배우자 출산휴가기간, 육아기 근로시간 단축 사용기간, 가족돌봄휴가기간 및 예비군·민방위 훈련기간은 출근한 것으로 본다.",
         ],
       },
@@ -741,10 +742,11 @@ export const MOEL_STANDARD_WORK_RULES: WorkRuleChapter[] = [
       },
       {
         articleNo: 55,
-        title: "시행일 (부칙)",
+        title: "시행일 및 개정이력 (부칙)",
         requirementType: "필수",
         paragraphs: [
-          "이 취업규칙은 제정 및 공고한 날로부터 시행한다. 법령의 개정에 따라 이 규칙의 내용과 상충되는 조항이 있는 경우에는 개정된 관계 법령을 우선 적용한다.",
+          "이 취업규칙은 2026년 10월 31일부터 개정·시행한다.",
+          "법령의 개정에 따라 이 규칙의 내용과 상충되는 조항이 있는 경우에는 개정된 관계 법령을 우선 적용한다.",
         ],
       },
     ],
@@ -754,6 +756,8 @@ export const MOEL_STANDARD_WORK_RULES: WorkRuleChapter[] = [
 interface WorkRulesTabProps {
   currentUser?: any;
 }
+
+export const WORK_RULES_REVISION_DATE = "2026-10-31";
 
 export const WorkRulesTab: React.FC<WorkRulesTabProps> = () => {
   const [selectedChapterNo, setSelectedChapterNo] = useState<number | "ALL">("ALL");
@@ -805,20 +809,23 @@ export const WorkRulesTab: React.FC<WorkRulesTabProps> = () => {
       {/* Top Header & Scope Bar (Gutenberg Z-Pattern ① & ②) */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded border border-[#b5a894] bg-[#ebe5d8] dark:bg-slate-900 dark:border-slate-800 shrink-0">
         <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded bg-blue-700 text-white">
+          <div className="p-2 rounded bg-blue-700 text-white shrink-0">
             <BookOpen className="w-4 h-4" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-sm font-bold text-[#0f172a] dark:text-white">
                 표준 취업규칙 (고용노동부 최신 표준안)
               </h2>
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800">
                 전 임직원 상시 열람 (근로기준법 제14조·제93조)
               </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-100 text-blue-900 border border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+                취업규칙 개정일자: {WORK_RULES_REVISION_DATE}
+              </span>
             </div>
             <p className="text-[11px] text-[#57534e] dark:text-slate-400 mt-0.5">
-              총 17장 {totalArticlesCount}조 (법정 필수기재사항 {mandatoryCount}개 조항 포함 · 2025~2026 육아지원 3법 및 산업안전보건법 개정사항 반영)
+              총 17장 {totalArticlesCount}조 (법정 필수기재사항 {mandatoryCount}개 조항 포함 · 최신 개정일자: {WORK_RULES_REVISION_DATE} · 2025~2026 육아지원 3법 및 산업안전보건법 개정사항 반영)
             </p>
           </div>
         </div>
@@ -881,13 +888,13 @@ export const WorkRulesTab: React.FC<WorkRulesTabProps> = () => {
       <div className="flex flex-1 min-h-0 gap-3 overflow-hidden">
         {/* Left Chapter Index */}
         <div className="w-64 bg-[#ebe5d8] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 rounded flex flex-col overflow-hidden shrink-0">
-          <div className="px-3 py-2 border-b border-[#b5a894] bg-[#dfd7c7] dark:bg-slate-950 dark:border-slate-800 text-xs font-bold text-[#44403c] dark:text-slate-300 flex items-center justify-between">
+          <div className="px-3 py-2.5 border-b border-[#b5a894] bg-[#dfd7c7] dark:bg-slate-950 dark:border-slate-800 text-xs font-bold text-[#44403c] dark:text-slate-300 flex items-center justify-between shrink-0">
             <span className="flex items-center gap-1.5">
               <Bookmark className="w-3.5 h-3.5 text-blue-700" />
               <span>장별 목차 (제1장~제17장)</span>
             </span>
           </div>
-          <div className="flex-1 overflow-y-auto p-1.5 flex flex-col gap-1">
+          <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
             <button
               type="button"
               onClick={() => setSelectedChapterNo("ALL")}
@@ -908,7 +915,7 @@ export const WorkRulesTab: React.FC<WorkRulesTabProps> = () => {
                   key={ch.chapterNo}
                   type="button"
                   onClick={() => setSelectedChapterNo(ch.chapterNo)}
-                  className={`w-full text-left px-2.5 py-1.5 rounded text-xs transition flex flex-col gap-0.5 ${
+                  className={`w-full text-left px-2.5 py-2 rounded text-xs transition block ${
                     isSelected
                       ? "bg-blue-700 text-white font-bold shadow-xs"
                       : "text-[#1c1917] hover:bg-[#dfd7c7] dark:text-slate-300 dark:hover:bg-slate-800"
@@ -920,13 +927,13 @@ export const WorkRulesTab: React.FC<WorkRulesTabProps> = () => {
                       {ch.articles.length}조
                     </span>
                   </div>
-                  <span
-                    className={`text-[10px] truncate ${
+                  <div
+                    className={`text-[10px] truncate mt-0.5 ${
                       isSelected ? "text-blue-100" : "text-[#78716c] dark:text-slate-500"
                     }`}
                   >
                     {ch.summary}
-                  </span>
+                  </div>
                 </button>
               );
             })}
@@ -934,94 +941,111 @@ export const WorkRulesTab: React.FC<WorkRulesTabProps> = () => {
         </div>
 
         {/* Right Document Body */}
-        <div className="flex-1 bg-[#ebe5d8] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 rounded flex flex-col overflow-hidden">
-          <div className="px-4 py-2 border-b border-[#b5a894] bg-[#dfd7c7] dark:bg-slate-950 dark:border-slate-800 text-xs font-bold text-[#44403c] dark:text-slate-300 flex items-center justify-between shrink-0">
+        <div className="flex-1 bg-[#ebe5d8] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 rounded flex flex-col overflow-hidden min-w-0">
+          <div className="px-4 py-2.5 border-b border-[#b5a894] bg-[#dfd7c7] dark:bg-slate-950 dark:border-slate-800 text-xs font-bold text-[#44403c] dark:text-slate-300 flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2">
-              <FileText className="w-3.5 h-3.5 text-blue-700" />
+              <FileText className="w-3.5 h-3.5 text-blue-700 shrink-0" />
               <span>
                 주식회사 드래곤알피에이 취업규칙 전문 (고용노동부 표준취업규칙 기준)
               </span>
             </div>
-            <span className="text-[11px] font-mono text-[#57534e] dark:text-slate-400">
-              조회된 장: {filteredChapters.length}개 / 조문:{" "}
-              {filteredChapters.reduce((s, c) => s + c.articles.length, 0)}개
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] font-mono font-bold text-blue-900 dark:text-blue-300">
+                개정일자: {WORK_RULES_REVISION_DATE}
+              </span>
+              <span className="text-[11px] font-mono text-[#57534e] dark:text-slate-400">
+                조회된 장: {filteredChapters.length}개 / 조문:{" "}
+                {filteredChapters.reduce((s, c) => s + c.articles.length, 0)}개
+              </span>
+            </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-5">
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
             {filteredChapters.length === 0 ? (
               <div className="py-12 text-center text-xs text-[#78716c]">
                 검색 조건에 일치하는 취업규칙 조문이 없습니다.
               </div>
             ) : (
               filteredChapters.map((chapter) => (
-                <section
+                <div
                   key={chapter.chapterNo}
-                  className="bg-[#f4efe4] dark:bg-slate-950 border border-[#b5a894] dark:border-slate-800 rounded overflow-hidden"
+                  className="bg-[#f4efe4] dark:bg-slate-950 border border-[#b5a894] dark:border-slate-800 rounded shadow-xs"
                 >
                   {/* Chapter Banner */}
-                  <div className="px-4 py-2.5 bg-[#ded6c5] dark:bg-slate-900 border-b border-[#b5a894] dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                  <div className="px-4 py-3 bg-[#ded6c5] dark:bg-slate-900 border-b border-[#b5a894] dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 rounded-t">
                     <div>
-                      <h3 className="text-xs font-bold text-[#0f172a] dark:text-white">
+                      <h3 className="text-sm font-bold text-[#0f172a] dark:text-white">
                         {chapter.chapterTitle}
                       </h3>
-                      <p className="text-[11px] text-[#57534e] dark:text-slate-400">
+                      <p className="text-[11px] text-[#57534e] dark:text-slate-400 mt-0.5">
                         {chapter.summary}
                       </p>
                     </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#ebe5d8] text-[#44403c] border border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
+                    <span className="px-2.5 py-1 rounded text-[11px] font-mono font-bold bg-[#ebe5d8] text-[#44403c] border border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 shrink-0">
                       총 {chapter.articles.length}개 조문
                     </span>
                   </div>
 
                   {/* Articles List */}
                   <div className="divide-y divide-[#d0c6b4] dark:divide-slate-800">
-                    {chapter.articles.map((art) => (
-                      <article key={art.articleNo} className="p-3.5 flex flex-col gap-1.5">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-xs text-blue-900 dark:text-blue-400">
-                              제{art.articleNo}조 ({art.title})
-                            </span>
-                            <span
-                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${
-                                art.requirementType === "필수"
-                                  ? "bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
-                                  : "bg-[#ebe5d8] text-[#57534e] border-[#b5a894] dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
-                              }`}
-                            >
-                              {art.requirementType}
-                            </span>
-                          </div>
-                          {art.legalBasis && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-mono text-[#57534e] dark:text-slate-400 bg-[#ebe5d8] dark:bg-slate-900 px-2 py-0.5 rounded border border-[#c4b6a0] dark:border-slate-800">
-                              <Scale className="w-3 h-3 text-blue-700" />
-                              <span>근거: {art.legalBasis}</span>
-                            </span>
-                          )}
-                        </div>
+                    {chapter.articles.map((art) => {
+                      let mainParaCount = 0;
+                      const circledNumbers = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
+                      const totalMainParas = art.paragraphs.filter((p) => !/^\d+\./.test(p.trim())).length;
 
-                        <div className="flex flex-col gap-1 pl-1 text-xs leading-relaxed text-[#1c1917] dark:text-slate-200">
-                          {art.paragraphs.map((p, idx) => {
-                            const isSubList = /^\d+\./.test(p.trim());
-                            return (
-                              <p
-                                key={idx}
-                                className={
-                                  isSubList
-                                    ? "pl-4 text-[11.5px] text-[#334155] dark:text-slate-300"
-                                    : ""
-                                }
+                      return (
+                        <div key={art.articleNo} className="p-4 space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-xs text-blue-900 dark:text-blue-400">
+                                제{art.articleNo}조 ({art.title})
+                              </span>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                                  art.requirementType === "필수"
+                                    ? "bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
+                                    : "bg-[#ebe5d8] text-[#57534e] border-[#b5a894] dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+                                }`}
                               >
-                                {!isSubList && art.paragraphs.length > 1 ? `①②③④⑤⑥⑦⑧⑨⑩`[idx] ? `${"①②③④⑤⑥⑦⑧⑨⑩"[idx]} ${p}` : p : p}
-                              </p>
-                            );
-                          })}
+                                {art.requirementType}
+                              </span>
+                            </div>
+                            {art.legalBasis && (
+                              <span className="inline-flex items-center gap-1 text-[10.5px] font-mono text-[#57534e] dark:text-slate-400 bg-[#ebe5d8] dark:bg-slate-900 px-2 py-0.5 rounded border border-[#c4b6a0] dark:border-slate-800">
+                                <Scale className="w-3 h-3 text-blue-700 shrink-0" />
+                                <span>근거: {art.legalBasis}</span>
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="space-y-1.5 pl-1 text-xs leading-relaxed text-[#1c1917] dark:text-slate-200">
+                            {art.paragraphs.map((p, idx) => {
+                              const isSubList = /^\d+\./.test(p.trim());
+                              let prefix = "";
+                              if (!isSubList && totalMainParas > 1) {
+                                prefix = circledNumbers[mainParaCount] ? `${circledNumbers[mainParaCount]} ` : "";
+                                mainParaCount++;
+                              }
+                              return (
+                                <p
+                                  key={idx}
+                                  className={
+                                    isSubList
+                                      ? "pl-4 text-xs text-[#334155] dark:text-slate-300"
+                                      : ""
+                                  }
+                                >
+                                  {prefix}
+                                  {p}
+                                </p>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </article>
-                    ))}
+                      );
+                    })}
                   </div>
-                </section>
+                </div>
               ))
             )}
           </div>
@@ -1031,13 +1055,13 @@ export const WorkRulesTab: React.FC<WorkRulesTabProps> = () => {
       {/* Bottom Audit / Legal Compliance Bar (Gutenberg Z-Pattern ④) */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded border border-[#b5a894] bg-[#dfd7c7] dark:bg-slate-900 dark:border-slate-800 text-xs text-[#44403c] dark:text-slate-300 shrink-0">
         <div className="flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+          <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
           <span className="font-bold">
             법정 게시 의무 준수: 근로기준법 제14조(법령 요지 등의 게시) 및 제93조(취업규칙의 작성·신고)에 의거하여 전 임직원에게 상시 공개됩니다.
           </span>
         </div>
         <span className="text-[11px] font-mono text-[#57534e] dark:text-slate-400">
-          고용노동부 표준취업규칙 (2025~2026 최신 개정안 기준)
+          취업규칙 개정일자: {WORK_RULES_REVISION_DATE} · 고용노동부 표준취업규칙 기준
         </span>
       </div>
     </div>

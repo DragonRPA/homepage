@@ -144,67 +144,89 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
     setIsDirty(false);
   }, [selectedRoleCode, permissions]);
 
-  const handleToggle = (menuKey: string, field: "canView" | "canSave") => {
-    if (!isAdmin) return;
-    setWorkingPerms((prev) => {
-      const curr = prev[menuKey] || { canView: false, canSave: false };
-      const nextVal = !curr[field];
-      let updated = { ...curr, [field]: nextVal };
-      // If saving enabled, view must also be enabled
-      if (field === "canSave" && nextVal) {
-        updated.canView = true;
-      }
-      // If view disabled, save must also be disabled
-      if (field === "canView" && !nextVal) {
-        updated.canSave = false;
-      }
-      return { ...prev, [menuKey]: updated };
-    });
-    setIsDirty(true);
-  };
-
-  const handleSelectAll = (field: "canView" | "canSave", val: boolean) => {
-    if (!isAdmin) return;
-    setWorkingPerms((prev) => {
-      const updated = { ...prev };
-      MENU_DEFS.forEach((m) => {
-        const curr = updated[m.key] || { canView: false, canSave: false };
-        if (field === "canSave") {
-          updated[m.key] = { canView: val ? true : curr.canView, canSave: val };
-        } else {
-          updated[m.key] = { canView: val, canSave: val ? curr.canSave : false };
-        }
-      });
-      return updated;
-    });
-    setIsDirty(true);
-  };
-
-  const handleSavePerms = async () => {
+  const saveRolePermsToDb = async (
+    roleCode: string,
+    permMap: Record<string, { canView: boolean; canSave: boolean }>,
+    silent = false
+  ) => {
     try {
-      const permArray = Object.entries(workingPerms).map(([menuKey, val]) => ({
+      const permArray = Object.entries(permMap).map(([menuKey, val]) => ({
         menuKey,
         canView: val.canView,
         canSave: val.canSave,
       }));
 
+      // Optimistically update local permissions array so switching roles never loses state
+      setPermissions((prev) => {
+        const others = prev.filter((p) => p.roleCode !== roleCode);
+        const updatedForRole: RolePermission[] = permArray.map((p, idx) => ({
+          id: idx + 1,
+          roleCode,
+          menuKey: p.menuKey,
+          canView: p.canView,
+          canSave: p.canSave,
+        }));
+        return [...others, ...updatedForRole];
+      });
+
       const res = await fetch("/api/erp/permissions", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          roleCode: selectedRoleCode,
+          roleCode,
           permissions: permArray,
         }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "권한 갱신 실패");
 
-      showToast(`[${selectedRoleCode}] 권한 설정이 성공적으로 저장되었습니다.`);
       setIsDirty(false);
-      fetchData();
+      if (!silent) {
+        showToast(`[${roleCode}] 권한 설정이 저장되었습니다.`);
+      }
+      if (onPermissionsChanged) onPermissionsChanged();
     } catch (err: any) {
       showToast(err.message, "error");
     }
+  };
+
+  const handleToggle = (menuKey: string, field: "canView" | "canSave") => {
+    if (!isAdmin) return;
+    const curr = workingPerms[menuKey] || { canView: false, canSave: false };
+    const nextVal = !curr[field];
+    const updatedItem = { ...curr, [field]: nextVal };
+    // If saving enabled, view must also be enabled
+    if (field === "canSave" && nextVal) {
+      updatedItem.canView = true;
+    }
+    // If view disabled, save must also be disabled
+    if (field === "canView" && !nextVal) {
+      updatedItem.canSave = false;
+    }
+    const nextMap = { ...workingPerms, [menuKey]: updatedItem };
+    setWorkingPerms(nextMap);
+    setIsDirty(true);
+    saveRolePermsToDb(selectedRoleCode, nextMap, true);
+  };
+
+  const handleSelectAll = (field: "canView" | "canSave", val: boolean) => {
+    if (!isAdmin) return;
+    const updated: Record<string, { canView: boolean; canSave: boolean }> = { ...workingPerms };
+    MENU_DEFS.forEach((m) => {
+      const curr = updated[m.key] || { canView: false, canSave: false };
+      if (field === "canSave") {
+        updated[m.key] = { canView: val ? true : curr.canView, canSave: val };
+      } else {
+        updated[m.key] = { canView: val, canSave: val ? curr.canSave : false };
+      }
+    });
+    setWorkingPerms(updated);
+    setIsDirty(true);
+    saveRolePermsToDb(selectedRoleCode, updated, false);
+  };
+
+  const handleSavePerms = async () => {
+    await saveRolePermsToDb(selectedRoleCode, workingPerms, false);
   };
 
   const handleCreateRole = async () => {
@@ -367,12 +389,7 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
 
               <button
                 onClick={handleSavePerms}
-                disabled={!isDirty}
-                className={`px-4 py-1.5 text-xs font-bold rounded flex items-center gap-1.5 shadow-xs transition ${
-                  isDirty
-                    ? "bg-[#1d4ed8] hover:bg-[#1e40af] text-white"
-                    : "bg-[#dcd4c4] text-[#475569] cursor-not-allowed border border-[#b5a894] dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
-                }`}
+                className="px-4 py-1.5 text-xs font-bold rounded flex items-center gap-1.5 shadow-xs transition bg-[#1d4ed8] hover:bg-[#1e40af] text-white"
               >
                 <Save className="w-3.5 h-3.5" />
                 <span>권한 변경사항 저장</span>
@@ -441,6 +458,12 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
                       className="px-2 py-1 text-[11px] bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] font-medium transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
                     >
                       전체 저장 허용
+                    </button>
+                    <button
+                      onClick={() => handleSelectAll("canView", false)}
+                      className="px-2 py-1 text-[11px] bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] font-medium transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                    >
+                      전체 해제
                     </button>
                   </div>
                 )}

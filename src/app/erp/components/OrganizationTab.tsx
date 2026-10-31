@@ -2208,7 +2208,18 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
                   <select
                     value={selectedProfile.role}
                     style={{ padding: "5px 8px", fontSize: "12px", width: "100%", borderRadius: "4px" }}
-                    onChange={(e) => setSelectedProfile({ ...selectedProfile, role: e.target.value })}
+                    onChange={(e) => {
+                      const nextRole = e.target.value;
+                      const nextRoleCode =
+                        nextRole === "ADMIN"
+                          ? "ADMIN"
+                          : nextRole === "MANAGER"
+                          ? "MANAGER"
+                          : selectedProfile.roleCode === "ACCOUNTANT" || selectedProfile.roleCode === "HR_STAFF"
+                          ? selectedProfile.roleCode
+                          : "EMPLOYEE";
+                      setSelectedProfile({ ...selectedProfile, role: nextRole, roleCode: nextRoleCode });
+                    }}
                     disabled={!canEdit || selectedProfile.loginId === "admin"}
                   >
                     {isSuperAdmin && <option value="ADMIN">ADMIN</option>}

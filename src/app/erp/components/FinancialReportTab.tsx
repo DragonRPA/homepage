@@ -561,14 +561,14 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
         <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800">
           <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold">
-              <BarChart3 className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
-              <span>월별 계정과목 손익·수지 집계표</span>
-              <span className="text-[11px] font-normal text-[#475569] dark:text-slate-400">
+              <BarChart3 className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400 shrink-0" />
+              <span className="whitespace-nowrap">월별 계정과목 손익·수지 집계표</span>
+              <span className="hidden lg:inline text-[11px] font-normal text-[#475569] dark:text-slate-400 whitespace-nowrap">
                 (각 금액 셀을 클릭하면 하단에 해당 월·계정의 상세 내역이 조회됩니다)
               </span>
             </div>
-            <div className="text-[11px] font-mono text-[#475569] dark:text-slate-400">
-              단위: 원 ({amountBasis === "SUPPLY" ? "공급가액 기준" : "부가세포함 총액 기준"})
+            <div className="text-[11px] font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">
+              단위: 원 ({amountBasis === "SUPPLY" ? "공급가액" : "부가세포함"})
             </div>
           </div>
 
@@ -576,7 +576,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
             <table className="w-full text-xs text-left border-collapse">
               <thead className="bg-[#dcd4c4] text-[#0f172a] font-bold border-b border-[#b5a894] dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700">
                 <tr>
-                  <th className="py-2 px-3 whitespace-nowrap sticky left-0 z-20 bg-[#dcd4c4] dark:bg-slate-800 border-r border-[#b5a894] dark:border-slate-700 min-w-[230px]">
+                  <th className="py-2 px-2.5 md:px-3 whitespace-nowrap sticky left-0 z-20 bg-[#dcd4c4] dark:bg-slate-800 border-r border-[#b5a894] dark:border-slate-700 min-w-[155px] md:min-w-[230px]">
                     계정과목 분류
                   </th>
                   {months.map((m) => (

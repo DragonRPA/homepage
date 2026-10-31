@@ -215,10 +215,10 @@ export const ApprovalInboxTab: React.FC<{ currentUser: any }> = ({ currentUser }
         </div>
       </div>
 
-      {/* Main Dossier Split View (헌장 3.6 유형 A) */}
-      <div className="flex-1 grid grid-cols-12 gap-4 p-4 overflow-hidden">
+      {/* Main Dossier Split View (헌장 3.6 유형 A - 모바일 스크롤 및 PC 2단 분할 지원) */}
+      <div className="flex-1 grid grid-cols-12 gap-3 md:gap-4 p-3 md:p-4 overflow-y-auto md:overflow-hidden">
         {/* Left: Request Dossier List (5 cols) */}
-        <div className="col-span-12 md:col-span-5 bg-[#ebe5d8] border border-[#b5a894] rounded flex flex-col overflow-hidden dark:bg-slate-900 dark:border-slate-800">
+        <div className="col-span-12 md:col-span-5 bg-[#ebe5d8] border border-[#b5a894] rounded flex flex-col max-h-[260px] md:max-h-none overflow-hidden dark:bg-slate-900 dark:border-slate-800 shrink-0">
           <div className="p-2.5 bg-[#e2dbcd] border-b border-[#b5a894] text-xs font-bold text-[#0f172a] flex items-center justify-between dark:bg-slate-800/80 dark:border-slate-700 dark:text-slate-300">
             <span>결재 대기 및 진행 문서 ({formatErpNumber(requests.length)}건)</span>
           </div>

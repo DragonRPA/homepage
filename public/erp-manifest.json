@@ -1,0 +1,30 @@
+{
+  "name": "드래곤알피에이 ERP",
+  "short_name": "드래곤ERP",
+  "description": "드래곤알피에이 경영자 핵심 메뉴 및 기간계 통합 ERP 웹앱",
+  "start_url": "/erp",
+  "scope": "/erp",
+  "display": "standalone",
+  "background_color": "#ebe5d8",
+  "theme_color": "#1d4ed8",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "286x278",
+      "type": "image/png"
+    }
+  ]
+}

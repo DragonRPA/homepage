@@ -6,7 +6,7 @@ import {
   Building2, Shield, CheckSquare, Settings, Calendar, 
   Clock, DollarSign, CreditCard, ChevronDown, ChevronRight,
   FolderTree, Database, Package, Layers, PackageCheck, PackagePlus, ArrowLeftRight, BookOpen,
-  SlidersHorizontal, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, X, Star, BarChart3
+  SlidersHorizontal, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, X, Star, BarChart3, Menu
 } from "lucide-react";
 
 import { ErpLogin } from "./components/ErpLogin";
@@ -180,8 +180,9 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
 export default function ErpMainPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<ErpCategoryKey>("HR");
-  const [activeMenu, setActiveMenu] = useState<ErpMenuKey>("ORG");
+  const [activeCategory, setActiveCategory] = useState<ErpCategoryKey>("FINANCE");
+  const [activeMenu, setActiveMenu] = useState<ErpMenuKey>("FINANCIAL_REPORT");
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [selectedEntity, setSelectedEntity] = useState<EntityScope>("ALL");
@@ -475,7 +476,7 @@ export default function ErpMainPage() {
   const isMenuAllowed = visibleCategories.some((c) => c.items.some((i) => i.key === activeMenu));
 
   return (
-    <div data-theme={theme} className={`erp-app-container ${theme === 'dark' ? 'dark' : ''} flex flex-col h-screen w-screen overflow-hidden select-none`}>
+    <div data-theme={theme} className={`erp-app-container ${theme === 'dark' ? 'dark' : ''} flex flex-col h-dvh w-screen overflow-hidden select-none`}>
       {/* 1. Enterprise Top Header */}
       <ErpHeader
         user={enrichedUser}
@@ -490,12 +491,26 @@ export default function ErpMainPage() {
         onToggleTheme={toggleTheme}
         onOpenPasswordModal={() => setShowPasswordModal(true)}
         onLogout={handleLogout}
+        isMobileMenuOpen={isMobileSidebarOpen}
+        onToggleMobileMenu={() => setIsMobileSidebarOpen((prev) => !prev)}
       />
 
       {/* 2. Main Layout Body: Left Tree Sidebar + Right Content Area */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
-        {/* Left Menu Panel (Tree Navigation Sidebar) */}
-        <aside className="erp-sidebar w-64 h-full flex flex-col shrink-0 select-none overflow-hidden">
+        {/* 모바일 전체 메뉴 드로어 백드롭 */}
+        {isMobileSidebarOpen && (
+          <div
+            onClick={() => setIsMobileSidebarOpen(false)}
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs md:hidden"
+          />
+        )}
+
+        {/* Left Menu Panel (Tree Navigation Sidebar - PC 고정, 모바일 슬라이드 드로어) */}
+        <aside
+          className={`erp-sidebar w-64 h-full flex flex-col shrink-0 select-none overflow-hidden transition-transform duration-200 z-50 fixed md:static inset-y-0 left-0 ${
+            isMobileSidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0"
+          }`}
+        >
           {/* Sidebar Top: System Overview */}
           <div className="erp-sidebar-header p-3 px-4 border-b flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
@@ -504,9 +519,19 @@ export default function ErpMainPage() {
                 메뉴 트리 구조
               </span>
             </div>
-            <span className="text-[10px] px-2 py-0.5 rounded font-mono font-semibold erp-sidebar-badge">
-              {visibleCategories.length}그룹 {visibleCategories.reduce((s, c) => s + c.items.length, 0)}메뉴
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] px-2 py-0.5 rounded font-mono font-semibold erp-sidebar-badge">
+                {visibleCategories.length}그룹 {visibleCategories.reduce((s, c) => s + c.items.length, 0)}메뉴
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsMobileSidebarOpen(false)}
+                className="md:hidden p-1 rounded hover:bg-black/10 dark:hover:bg-white/10"
+                title="메뉴 닫기"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Accordion Menu Group Tree */}
@@ -552,8 +577,9 @@ export default function ErpMainPage() {
                             onClick={() => {
                               setActiveMenu(item.key);
                               setActiveCategory(cat.key);
+                              setIsMobileSidebarOpen(false);
                             }}
-                            className={`erp-menu-item-btn flex items-center gap-2 w-full px-2.5 py-1.5 rounded text-xs text-left transition ${
+                            className={`erp-menu-item-btn flex items-center gap-2 w-full px-2.5 py-2 md:py-1.5 rounded text-xs text-left transition ${
                               isItemActive ? "item-active" : ""
                             }`}
                           >
@@ -573,7 +599,10 @@ export default function ErpMainPage() {
           <div className="erp-sidebar-footer p-2.5 border-t shrink-0">
             <button
               type="button"
-              onClick={() => setShowMenuPersonalizeModal(true)}
+              onClick={() => {
+                setIsMobileSidebarOpen(false);
+                setShowMenuPersonalizeModal(true);
+              }}
               className="w-full py-2 px-3 rounded border text-xs font-bold flex items-center justify-between transition hover:opacity-85 erp-action-btn"
             >
               <span className="flex items-center gap-2">
@@ -592,15 +621,23 @@ export default function ErpMainPage() {
         {/* Right Main Content Area */}
         <main className="erp-main-content flex-1 min-w-0 h-full flex flex-col overflow-hidden">
           {/* Current Active Tab Breadcrumb Bar */}
-          <div className="erp-breadcrumb-bar px-4 py-2 border-b flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2 text-xs">
-              <span className="opacity-60">{currentCategoryConfig?.label}</span>
+          <div className="erp-breadcrumb-bar px-3 md:px-4 py-1.5 md:py-2 border-b flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2 text-xs min-w-0">
+              <span className="opacity-60 whitespace-nowrap">{currentCategoryConfig?.label}</span>
               <span className="opacity-40">/</span>
-              <span className="font-bold flex items-center gap-1.5">
-                {currentMenuItem && <currentMenuItem.icon className="w-3.5 h-3.5 text-blue-600" />}
-                {currentMenuItem?.label}
+              <span className="font-bold flex items-center gap-1.5 truncate">
+                {currentMenuItem && <currentMenuItem.icon className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                <span className="truncate">{currentMenuItem?.label}</span>
               </span>
             </div>
+            <button
+              type="button"
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="md:hidden px-2 py-0.5 rounded border text-[11px] font-bold flex items-center gap-1 shrink-0 erp-action-btn"
+            >
+              <FolderTree className="w-3 h-3 text-blue-600" />
+              <span>전체메뉴</span>
+            </button>
           </div>
 
           {/* Tab Content Body (Scrollable) */}
@@ -702,6 +739,78 @@ export default function ErpMainPage() {
           </div>
         </main>
       </div>
+
+      {/* 3. 핸드폰(모바일 웹앱) 전용 경영자 핵심 5대 메뉴 하단 탭바 */}
+      <nav className="md:hidden erp-sidebar-header border-t grid grid-cols-6 shrink-0 select-none z-30 pb-[env(safe-area-inset-bottom)]">
+        {[
+          {
+            key: "FINANCIAL_REPORT" as ErpMenuKey,
+            cat: "FINANCE" as ErpCategoryKey,
+            label: "경영지표",
+            icon: BarChart3,
+          },
+          {
+            key: "TAX" as ErpMenuKey,
+            cat: "FINANCE" as ErpCategoryKey,
+            label: "채권·채무",
+            icon: FileText,
+          },
+          {
+            key: "BANK_MATCHING" as ErpMenuKey,
+            cat: "FINANCE" as ErpCategoryKey,
+            label: "입출금",
+            icon: DollarSign,
+          },
+          {
+            key: "PAYROLL" as ErpMenuKey,
+            cat: "FINANCE" as ErpCategoryKey,
+            label: "급여정산",
+            icon: CreditCard,
+          },
+          {
+            key: "APPROVAL_INBOX" as ErpMenuKey,
+            cat: "APPROVAL" as ErpCategoryKey,
+            label: "결재함",
+            icon: CheckSquare,
+          },
+        ].map((nav) => {
+          const NavIcon = nav.icon;
+          const isActive = activeMenu === nav.key && !isMobileSidebarOpen;
+          return (
+            <button
+              key={nav.key}
+              type="button"
+              onClick={() => {
+                setActiveCategory(nav.cat);
+                setActiveMenu(nav.key);
+                setIsMobileSidebarOpen(false);
+              }}
+              className={`flex flex-col items-center justify-center py-2 px-1 gap-0.5 text-[10px] font-bold transition whitespace-nowrap ${
+                isActive
+                  ? "bg-[#1d4ed8] text-white"
+                  : "text-[#334155] dark:text-slate-300 hover:bg-black/5 dark:hover:bg-white/5"
+              }`}
+            >
+              <NavIcon className={`w-4 h-4 shrink-0 ${isActive ? "text-white" : ""}`} />
+              <span>{nav.label}</span>
+            </button>
+          );
+        })}
+
+        {/* 전체메뉴 드로어 버튼 */}
+        <button
+          type="button"
+          onClick={() => setIsMobileSidebarOpen((prev) => !prev)}
+          className={`flex flex-col items-center justify-center py-2 px-1 gap-0.5 text-[10px] font-bold transition whitespace-nowrap ${
+            isMobileSidebarOpen
+              ? "bg-[#1d4ed8] text-white"
+              : "text-[#334155] dark:text-slate-300 hover:bg-black/5 dark:hover:bg-white/5"
+          }`}
+        >
+          <Menu className={`w-4 h-4 shrink-0 ${isMobileSidebarOpen ? "text-white" : ""}`} />
+          <span>전체메뉴</span>
+        </button>
+      </nav>
 
       {/* Password Change Modal */}
       <PasswordChangeModal

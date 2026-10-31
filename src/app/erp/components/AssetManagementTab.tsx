@@ -68,6 +68,9 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Sub-Tab State: 요약표 (SUMMARY) vs 상세목록 (DETAIL)
+  const [activeSubTab, setActiveSubTab] = useState<"SUMMARY" | "DETAIL">("SUMMARY");
+
   // Filters
   const [searchTerm, setSearchTerm] = useState(defaultFilterModel || "");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -231,6 +234,101 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   const sortedFilteredAssets = useMemo(() => {
     return sortErpItems(filteredAssets, sortKey, sortDir);
   }, [filteredAssets, sortKey, sortDir]);
+
+  // Summary Table Sorting State & Aggregation
+  const [summarySortKey, setSummarySortKey] = useState<string>("modelName");
+  const [summarySortDir, setSummarySortDir] = useState<SortDirection>("asc");
+
+  const handleSummarySort = (key: string) => {
+    if (summarySortKey === key) {
+      setSummarySortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSummarySortKey(key);
+      setSummarySortDir("asc");
+    }
+  };
+
+  const renderSummarySortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
+    const isActive = summarySortKey === key;
+    return (
+      <th
+        onClick={() => handleSummarySort(key)}
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-${align} whitespace-nowrap`}
+        title={`${label} 기준 정렬`}
+      >
+        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+          <span>{label}</span>
+          <span className="shrink-0">
+            {isActive ? (
+              summarySortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+            ) : (
+              <ArrowUpDown className="w-3 h-3 opacity-30" />
+            )}
+          </span>
+        </div>
+      </th>
+    );
+  };
+
+  // 모델별 수량 집계 (총수량, 임대가능, 임대중)
+  const modelSummaryRows = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        key: string;
+        modelCode: string;
+        modelName: string;
+        totalQty: number;
+        availableQty: number;
+        rentedQty: number;
+      }
+    >();
+
+    for (const a of assets) {
+      const mCode = a.modelCode || "-";
+      const mName = a.modelName || "미지정 모델";
+      const k = `${mCode}__${mName}`;
+      const existing = map.get(k) || {
+        key: k,
+        modelCode: mCode,
+        modelName: mName,
+        totalQty: 0,
+        availableQty: 0,
+        rentedQty: 0,
+      };
+      existing.totalQty += 1;
+      if (a.status === "AVAILABLE") {
+        existing.availableQty += 1;
+      } else if (a.status === "RENTED") {
+        existing.rentedQty += 1;
+      }
+      map.set(k, existing);
+    }
+
+    let list = Array.from(map.values());
+    if (searchTerm.trim()) {
+      const q = searchTerm.trim().toLowerCase();
+      list = list.filter(
+        (r) =>
+          r.modelName.toLowerCase().includes(q) ||
+          r.modelCode.toLowerCase().includes(q)
+      );
+    }
+
+    return sortErpItems(list, summarySortKey, summarySortDir);
+  }, [assets, searchTerm, summarySortKey, summarySortDir]);
+
+  const summaryTotals = useMemo(() => {
+    let totalQty = 0;
+    let availableQty = 0;
+    let rentedQty = 0;
+    for (const r of modelSummaryRows) {
+      totalQty += r.totalQty;
+      availableQty += r.availableQty;
+      rentedQty += r.rentedQty;
+    }
+    return { totalQty, availableQty, rentedQty };
+  }, [modelSummaryRows]);
 
   // KPI Metrics (단일 패스 계산)
   const kpiStats = useMemo(() => {
@@ -513,53 +611,97 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
         </div>
       </div>
 
+      {/* 1.5 Sub-Tab Switcher: 요약표 vs 상세목록 */}
+      <div className="px-3 pt-2.5 border-b flex items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSubTab("SUMMARY");
+              setSelectedAsset(null);
+            }}
+            className={`px-4 py-2 text-xs font-bold border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
+              activeSubTab === "SUMMARY"
+                ? "border-blue-600 text-blue-700 bg-blue-600/5"
+                : "border-transparent opacity-65 hover:opacity-100"
+            }`}
+          >
+            <Package className="w-3.5 h-3.5" />
+            <span>요약표</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-blue-600/15 text-blue-700">
+              {formatErpNumber(modelSummaryRows.length)}개 모델
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("DETAIL")}
+            className={`px-4 py-2 text-xs font-bold border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
+              activeSubTab === "DETAIL"
+                ? "border-blue-600 text-blue-700 bg-blue-600/5"
+                : "border-transparent opacity-65 hover:opacity-100"
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>상세목록</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-slate-500/15">
+              {formatErpNumber(filteredAssets.length)}대
+            </span>
+          </button>
+        </div>
+      </div>
+
       {/* 2. Gutenberg Z-Pattern Pipeline: Search & Action Toolbar */}
       <div className="p-3 border-b flex flex-wrap items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Status Filter */}
-          <div className="flex flex-col gap-1">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="h-8 px-2 rounded text-xs border font-medium"
-            >
-              <option value="ALL">전체 자산 상태</option>
-              <option value="AVAILABLE">임대가능 (가용)</option>
-              <option value="RENTED">대여중 (현장운용)</option>
-              <option value="OUTBOUND_PENDING">출고대기</option>
-              <option value="REPAIRING">정비/수리중</option>
-              <option value="DISPOSED">폐기/매각완료</option>
-            </select>
-          </div>
+          {activeSubTab === "DETAIL" && (
+            <>
+              {/* Status Filter */}
+              <div className="flex flex-col gap-1">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="h-8 px-2 rounded text-xs border font-medium"
+                >
+                  <option value="ALL">전체 자산 상태</option>
+                  <option value="AVAILABLE">임대가능 (가용)</option>
+                  <option value="RENTED">대여중 (현장운용)</option>
+                  <option value="OUTBOUND_PENDING">출고대기</option>
+                  <option value="REPAIRING">정비/수리중</option>
+                  <option value="DISPOSED">폐기/매각완료</option>
+                </select>
+              </div>
 
-          {/* Owner Filter */}
-          <div className="flex flex-col gap-1">
-            <select
-              value={ownerFilter}
-              onChange={(e) => setOwnerFilter(e.target.value)}
-              className="h-8 px-2 rounded text-xs border font-medium"
-            >
-              <option value="ALL">전체 소유구분</option>
-              <option value="OWNED">자사자산 (당사소유)</option>
-              <option value="RENTED">외부임차 (전대용)</option>
-            </select>
-          </div>
+              {/* Owner Filter */}
+              <div className="flex flex-col gap-1">
+                <select
+                  value={ownerFilter}
+                  onChange={(e) => setOwnerFilter(e.target.value)}
+                  className="h-8 px-2 rounded text-xs border font-medium"
+                >
+                  <option value="ALL">전체 소유구분</option>
+                  <option value="OWNED">자사자산 (당사소유)</option>
+                  <option value="RENTED">외부임차 (전대용)</option>
+                </select>
+              </div>
 
-          {/* Manufacturer Filter */}
-          <div className="flex flex-col gap-1">
-            <select
-              value={manufacturerFilter}
-              onChange={(e) => setManufacturerFilter(e.target.value)}
-              className="h-8 px-2 rounded text-xs border"
-            >
-              <option value="ALL">전체 제조사</option>
-              {uniqueManufacturers.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
+              {/* Manufacturer Filter */}
+              <div className="flex flex-col gap-1">
+                <select
+                  value={manufacturerFilter}
+                  onChange={(e) => setManufacturerFilter(e.target.value)}
+                  className="h-8 px-2 rounded text-xs border"
+                >
+                  <option value="ALL">전체 제조사</option>
+                  {uniqueManufacturers.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
 
           {/* Search Box */}
           <div className="relative">
@@ -568,7 +710,11 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="자산번호 / 모델명 / 시리얼 / 고객사 검색"
+              placeholder={
+                activeSubTab === "SUMMARY"
+                  ? "모델명 / 모델코드 검색"
+                  : "자산번호 / 모델명 / 시리얼 / 고객사 검색"
+              }
               className="h-8 pl-8 pr-3 rounded text-xs border w-60"
             />
           </div>
@@ -626,136 +772,203 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
       <div className="flex-1 flex min-h-0 overflow-hidden relative">
         {/* Main Grid Table Area */}
         <div className="flex-1 overflow-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className="sticky top-0 z-10 select-none bg-[var(--bg-card)] border-b">
-              <tr>
-                {renderSortTh("자산번호", "assetNo")}
-                {renderSortTh("제품 모델명", "modelName")}
-                {renderSortTh("시리얼번호 (S/N)", "serialNo")}
-                {renderSortTh("소유구분", "ownerType", "center")}
-                {renderSortTh("현재상태", "status", "center")}
-                {renderSortTh("현재 대여처 / 배치현장", "currentCustomer")}
-                {renderSortTh("취득일자", "acquisitionDate", "right")}
-                {renderSortTh("취득원가", "acquisitionCost", "right")}
-                {renderSortTh("현재 장부가액", "bookValue", "right")}
-                <th className="py-2.5 px-3 text-center">관리</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedFilteredAssets.length === 0 ? (
+          {activeSubTab === "SUMMARY" ? (
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="sticky top-0 z-10 select-none bg-[var(--bg-card)] border-b">
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-xs opacity-60">
-                    {loading ? "자산 대장을 불러오는 중입니다..." : "조회 조건에 일치하는 자산이 없습니다."}
-                  </td>
+                  {renderSummarySortTh("제품 모델명", "modelName")}
+                  {renderSummarySortTh("모델코드", "modelCode")}
+                  {renderSummarySortTh("총수량", "totalQty", "right")}
+                  {renderSummarySortTh("임대가능", "availableQty", "right")}
+                  {renderSummarySortTh("임대중", "rentedQty", "right")}
                 </tr>
-              ) : (
-                sortedFilteredAssets.map((a) => {
-                  const isSelected = selectedAsset?.id === a.id;
-                  return (
-                    <tr
-                      key={a.id}
-                      onClick={() => handleSelectAsset(a)}
-                      className={`cursor-pointer transition border-b ${
-                        isSelected ? "bg-blue-600/10 font-medium" : "hover:bg-black/5"
-                      }`}
-                    >
-                      <td className="py-2 px-3 font-mono font-bold text-blue-700 whitespace-nowrap">
-                        {a.assetNo}
+              </thead>
+              <tbody>
+                {modelSummaryRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-xs opacity-60">
+                      {loading ? "자산 요약표를 집계하는 중입니다..." : "집계된 모델 자산이 없습니다."}
+                    </td>
+                  </tr>
+                ) : (
+                  <>
+                    {modelSummaryRows.map((row) => (
+                      <tr
+                        key={row.key}
+                        onClick={() => {
+                          setSearchTerm(row.modelName);
+                          setActiveSubTab("DETAIL");
+                        }}
+                        className="cursor-pointer transition border-b hover:bg-black/5"
+                        title="클릭 시 해당 모델의 상세목록 조회"
+                      >
+                        <td className="py-2.5 px-3 font-semibold whitespace-nowrap">
+                          {row.modelName}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono opacity-75 whitespace-nowrap">
+                          {row.modelCode}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold whitespace-nowrap">
+                          {formatErpQty(row.totalQty, "대")}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
+                          {formatErpQty(row.availableQty, "대")}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
+                          {formatErpQty(row.rentedQty, "대")}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-slate-500/10 font-bold border-t-2">
+                      <td className="py-2.5 px-3 whitespace-nowrap" colSpan={2}>
+                        합계 ({formatErpNumber(modelSummaryRows.length)}개 모델)
                       </td>
-                      <td className="py-2 px-3 whitespace-nowrap">
-                        <div className="flex flex-col">
-                          <span className="font-semibold">{a.modelName}</span>
-                          <span className="text-[10px] opacity-60 font-mono">{a.modelCode}</span>
-                        </div>
+                      <td className="py-2.5 px-3 text-right font-mono whitespace-nowrap">
+                        {formatErpQty(summaryTotals.totalQty, "대")}
                       </td>
-                      <td className="py-2 px-3 font-mono opacity-80 whitespace-nowrap">
-                        {a.serialNo || "-"}
+                      <td className="py-2.5 px-3 text-right font-mono text-emerald-700 whitespace-nowrap">
+                        {formatErpQty(summaryTotals.availableQty, "대")}
                       </td>
-                      <td className="py-2 px-3 text-center whitespace-nowrap">
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                            a.ownerType === "OWNED"
-                              ? "bg-emerald-600/10 text-emerald-700 border-emerald-600/30"
-                              : "bg-indigo-600/10 text-indigo-700 border-indigo-600/30"
-                          }`}
-                        >
-                          {a.ownerType === "OWNED" ? "자사자산" : "외부임차"}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-center whitespace-nowrap">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            a.status === "RENTED"
-                              ? "bg-blue-600 text-white"
-                              : a.status === "AVAILABLE"
-                              ? "bg-emerald-600 text-white"
-                              : a.status === "REPAIRING"
-                              ? "bg-amber-600 text-white"
-                              : a.status === "OUTBOUND_PENDING"
-                              ? "bg-sky-600 text-white"
-                              : "bg-slate-600 text-white"
-                          }`}
-                        >
-                          {a.status === "RENTED"
-                            ? "대여중"
-                            : a.status === "AVAILABLE"
-                            ? "임대가능"
-                            : a.status === "REPAIRING"
-                            ? "수리중"
-                            : a.status === "OUTBOUND_PENDING"
-                            ? "출고대기"
-                            : a.status}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 whitespace-nowrap max-w-xs truncate">
-                        {a.currentCustomer ? (
-                          <div className="flex flex-col truncate">
-                            <span className="font-medium text-emerald-800 truncate">{a.currentCustomer}</span>
-                            <span className="text-[10px] opacity-60 truncate">{a.currentSite || "-"}</span>
-                          </div>
-                        ) : (
-                          <span className="opacity-40">-</span>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono opacity-75 whitespace-nowrap">
-                        {a.acquisitionDate}
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono whitespace-nowrap">
-                        {a.acquisitionCost > 0 ? formatErpCurrency(a.acquisitionCost) : "-"}
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
-                        {a.bookValue > 0 ? formatErpCurrency(a.bookValue) : "-"}
-                      </td>
-                      <td className="py-2 px-3 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => handleSelectAsset(a)}
-                            className="px-2 py-1 rounded border text-[11px] hover:bg-black/5"
-                            title="상세 장부"
-                          >
-                            상세
-                          </button>
-                          {isAdmin && (
-                            <button
-                              onClick={() => handleDeleteAsset(a.id, a.assetNo)}
-                              className="p-1 rounded text-rose-600 hover:bg-rose-500/10"
-                              title="삭제"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
+                      <td className="py-2.5 px-3 text-right font-mono text-blue-700 whitespace-nowrap">
+                        {formatErpQty(summaryTotals.rentedQty, "대")}
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  </>
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="sticky top-0 z-10 select-none bg-[var(--bg-card)] border-b">
+                <tr>
+                  {renderSortTh("자산번호", "assetNo")}
+                  {renderSortTh("제품 모델명", "modelName")}
+                  {renderSortTh("시리얼번호 (S/N)", "serialNo")}
+                  {renderSortTh("소유구분", "ownerType", "center")}
+                  {renderSortTh("현재상태", "status", "center")}
+                  {renderSortTh("현재 대여처 / 배치현장", "currentCustomer")}
+                  {renderSortTh("취득일자", "acquisitionDate", "right")}
+                  {renderSortTh("취득원가", "acquisitionCost", "right")}
+                  {renderSortTh("현재 장부가액", "bookValue", "right")}
+                  <th className="py-2.5 px-3 text-center">관리</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedFilteredAssets.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="py-12 text-center text-xs opacity-60">
+                      {loading ? "자산 대장을 불러오는 중입니다..." : "조회 조건에 일치하는 자산이 없습니다."}
+                    </td>
+                  </tr>
+                ) : (
+                  sortedFilteredAssets.map((a) => {
+                    const isSelected = selectedAsset?.id === a.id;
+                    return (
+                      <tr
+                        key={a.id}
+                        onClick={() => handleSelectAsset(a)}
+                        className={`cursor-pointer transition border-b ${
+                          isSelected ? "bg-blue-600/10 font-medium" : "hover:bg-black/5"
+                        }`}
+                      >
+                        <td className="py-2 px-3 font-mono font-bold text-blue-700 whitespace-nowrap">
+                          {a.assetNo}
+                        </td>
+                        <td className="py-2 px-3 whitespace-nowrap">
+                          <div className="flex flex-col">
+                            <span className="font-semibold">{a.modelName}</span>
+                            <span className="text-[10px] opacity-60 font-mono">{a.modelCode}</span>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 font-mono opacity-80 whitespace-nowrap">
+                          {a.serialNo || "-"}
+                        </td>
+                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                              a.ownerType === "OWNED"
+                                ? "bg-emerald-600/10 text-emerald-700 border-emerald-600/30"
+                                : "bg-indigo-600/10 text-indigo-700 border-indigo-600/30"
+                            }`}
+                          >
+                            {a.ownerType === "OWNED" ? "자사자산" : "외부임차"}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              a.status === "RENTED"
+                                ? "bg-blue-600 text-white"
+                                : a.status === "AVAILABLE"
+                                ? "bg-emerald-600 text-white"
+                                : a.status === "REPAIRING"
+                                ? "bg-amber-600 text-white"
+                                : a.status === "OUTBOUND_PENDING"
+                                ? "bg-sky-600 text-white"
+                                : "bg-slate-600 text-white"
+                            }`}
+                          >
+                            {a.status === "RENTED"
+                              ? "대여중"
+                              : a.status === "AVAILABLE"
+                              ? "임대가능"
+                              : a.status === "REPAIRING"
+                              ? "수리중"
+                              : a.status === "OUTBOUND_PENDING"
+                              ? "출고대기"
+                              : a.status}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 whitespace-nowrap max-w-xs truncate">
+                          {a.currentCustomer ? (
+                            <div className="flex flex-col truncate">
+                              <span className="font-medium text-emerald-800 truncate">{a.currentCustomer}</span>
+                              <span className="text-[10px] opacity-60 truncate">{a.currentSite || "-"}</span>
+                            </div>
+                          ) : (
+                            <span className="opacity-40">-</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono opacity-75 whitespace-nowrap">
+                          {a.acquisitionDate}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono whitespace-nowrap">
+                          {a.acquisitionCost > 0 ? formatErpCurrency(a.acquisitionCost) : "-"}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
+                          {a.bookValue > 0 ? formatErpCurrency(a.bookValue) : "-"}
+                        </td>
+                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => handleSelectAsset(a)}
+                              className="px-2 py-1 rounded border text-[11px] hover:bg-black/5"
+                              title="상세 장부"
+                            >
+                              상세
+                            </button>
+                            {isAdmin && (
+                              <button
+                                onClick={() => handleDeleteAsset(a.id, a.assetNo)}
+                                className="p-1 rounded text-rose-600 hover:bg-rose-500/10"
+                                title="삭제"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
 
         {/* 4. Slide-over Dossier Studio (마스터-디테일 & 360도 장부) */}
-        {selectedAsset && (
+        {activeSubTab === "DETAIL" && selectedAsset && (
           <aside className="w-[420px] border-l flex flex-col h-full shrink-0 shadow-lg overflow-hidden select-none bg-[var(--bg-card)]">
             {/* Dossier Header */}
             <div className="p-3 border-b flex items-center justify-between shrink-0">

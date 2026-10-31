@@ -41,17 +41,9 @@ export const ErpHeader: React.FC<ErpHeaderProps> = ({
         <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center font-bold text-white shadow-sm shrink-0">
           <Building2 className="w-5 h-5 text-white" />
         </div>
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2">
-            <span className="font-bold tracking-tight text-sm">
-              드래곤알피에이 ERP
-            </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800 font-mono font-semibold">
-              복수사업자 통합운영
-            </span>
-          </div>
-          <span className="text-[11px] opacity-70 font-mono">
-            dragonrpa-erp / Supabase PostgreSQL 17
+        <div className="flex items-center gap-2">
+          <span className="font-bold tracking-tight text-sm">
+            드래곤알피에이 ERP
           </span>
         </div>
 
@@ -116,11 +108,6 @@ export const ErpHeader: React.FC<ErpHeaderProps> = ({
             </>
           )}
         </button>
-
-        <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded border text-xs opacity-90 erp-db-badge">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span>DB 연결됨</span>
-        </div>
 
         {/* User Chip */}
         <div className="flex items-center gap-1.5 px-2.5 py-1 border rounded text-xs erp-user-chip">

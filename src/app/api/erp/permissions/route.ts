@@ -8,6 +8,13 @@ export async function GET() {
     await pool.query(
       "ALTER TABLE erp_role_permissions ADD COLUMN IF NOT EXISTS can_bill BOOLEAN NOT NULL DEFAULT false"
     );
+    // 근로기준법 제14조 의거: 모든 역할에 대해 취업규칙(work_rules) 기본 열람 권한 보장
+    await pool.query(`
+      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
+      SELECT role_code, 'work_rules', true, false, false
+      FROM erp_custom_roles
+      ON CONFLICT (role_code, menu_key) DO UPDATE SET can_view = true
+    `);
 
     // 1. 역할 목록
     const rolesRes = await pool.query(`
@@ -103,6 +110,13 @@ export async function PUT(request: Request) {
     await pool.query(
       "ALTER TABLE erp_role_permissions ADD COLUMN IF NOT EXISTS can_bill BOOLEAN NOT NULL DEFAULT false"
     );
+    // 근로기준법 제14조 의거: 모든 역할에 대해 취업규칙(work_rules) 기본 열람 권한 보장
+    await pool.query(`
+      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
+      SELECT role_code, 'work_rules', true, false, false
+      FROM erp_custom_roles
+      ON CONFLICT (role_code, menu_key) DO UPDATE SET can_view = true
+    `);
     if (permissions.length > 0) {
       const menuKeys = permissions.map((p: any) => String(p.menuKey));
       const canViews = permissions.map((p: any) => Boolean(p.canView));

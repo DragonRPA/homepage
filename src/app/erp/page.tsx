@@ -5,7 +5,7 @@ import {
   Users, ShoppingCart, Truck, Briefcase, FileText, 
   Building2, Shield, CheckSquare, Settings, Calendar, 
   Clock, DollarSign, CreditCard, ChevronDown, ChevronRight,
-  FolderTree, Database, Package, Layers, PackageCheck, PackagePlus, ArrowLeftRight
+  FolderTree, Database, Package, Layers, PackageCheck, PackagePlus, ArrowLeftRight, BookOpen
 } from "lucide-react";
 
 import { ErpLogin } from "./components/ErpLogin";
@@ -20,6 +20,7 @@ import { ApprovalRulesTab } from "./components/ApprovalRulesTab";
 import { LeaveApplyTab } from "./components/LeaveApplyTab";
 import { LeaveManageTab } from "./components/LeaveManageTab";
 import { OtManagementTab } from "./components/OtManagementTab";
+import { WorkRulesTab } from "./components/WorkRulesTab";
 import { BankMatchingTab } from "./components/BankMatchingTab";
 import { PayrollTab } from "./components/PayrollTab";
 
@@ -47,6 +48,7 @@ export type ErpMenuKey =
   | "LEAVE_APPLY"
   | "LEAVE_MANAGE"
   | "OT_MANAGE"
+  | "WORK_RULES"
   | "APPROVAL_INBOX"
   | "APPROVAL_RULES"
   | "BANK_MATCHING"
@@ -86,6 +88,7 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "LEAVE_APPLY", label: "연차 신청", icon: Calendar },
       { key: "LEAVE_MANAGE", label: "연차 관리", icon: Users },
       { key: "OT_MANAGE", label: "초과근무 관리", icon: Clock },
+      { key: "WORK_RULES", label: "취업규칙 (표준안)", icon: BookOpen },
     ],
   },
   {
@@ -152,6 +155,7 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   LEAVE_APPLY: "leave_apply",
   LEAVE_MANAGE: "leave_manage",
   OT_MANAGE: "ot_manage",
+  WORK_RULES: "work_rules",
   APPROVAL_INBOX: "approval_inbox",
   APPROVAL_RULES: "approval_rules",
   BANK_MATCHING: "bank_matching",
@@ -283,6 +287,8 @@ export default function ErpMainPage() {
         .filter((p) => p.roleCode === effectiveRoleCode && p.canView)
         .map((p) => p.menuKey)
     );
+    // 근로기준법 제14조에 의거하여 취업규칙(work_rules)은 모든 임직원에게 항상 열람 허용
+    allowedSet.add("work_rules");
     return CATEGORIES.map((cat) => ({
       ...cat,
       items: cat.items.filter((item) => allowedSet.has(MENU_PERM_KEY_MAP[item.key])),
@@ -528,6 +534,7 @@ export default function ErpMainPage() {
                 {activeMenu === "LEAVE_APPLY" && <LeaveApplyTab currentUser={enrichedUser} />}
                 {activeMenu === "LEAVE_MANAGE" && <LeaveManageTab currentUser={enrichedUser} />}
                 {activeMenu === "OT_MANAGE" && <OtManagementTab currentUser={enrichedUser} />}
+                {activeMenu === "WORK_RULES" && <WorkRulesTab currentUser={enrichedUser} />}
                 {activeMenu === "APPROVAL_INBOX" && <ApprovalInboxTab currentUser={enrichedUser} />}
                 {activeMenu === "APPROVAL_RULES" && <ApprovalRulesTab currentUser={enrichedUser} />}
                 {activeMenu === "BANK_MATCHING" && (

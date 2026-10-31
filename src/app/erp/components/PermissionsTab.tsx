@@ -41,6 +41,7 @@ const MENU_DEFS: Array<{ key: string; name: string; category: string; hasBilling
   { key: "leave_apply", name: "연차 신청", category: "근태" },
   { key: "leave_manage", name: "연차 관리", category: "근태" },
   { key: "ot_manage", name: "초과근무 관리", category: "근태" },
+  { key: "work_rules", name: "취업규칙 (표준안)", category: "인사" },
   { key: "approval_inbox", name: "내 결재함", category: "결재" },
   { key: "approval_rules", name: "결재선 규칙 설정", category: "결재" },
   { key: "bank_matching", name: "은행 입출금 대장", category: "회계" },

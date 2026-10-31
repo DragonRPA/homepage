@@ -16,7 +16,7 @@ export async function POST(request: Request) {
 
     const { data: employees, error } = await supabaseErp
       .from("erp_employees")
-      .select("id, employee_no, login_id, name, position, department, role, password_hash, must_change_password, email, employment_status")
+      .select("id, employee_no, login_id, name, position, department, role, role_code, password_hash, must_change_password, email, employment_status")
       .ilike("login_id", cleanId)
       .limit(1);
 
@@ -59,6 +59,7 @@ export async function POST(request: Request) {
         position: emp.position,
         department: emp.department,
         role: emp.role,
+        roleCode: emp.role_code || (emp.role === "ADMIN" || emp.role === "SUPER_ADMIN" ? "ADMIN" : emp.role === "MANAGER" ? "MANAGER" : "EMPLOYEE"),
         email: emp.email,
         mustChangePassword: emp.must_change_password,
       },

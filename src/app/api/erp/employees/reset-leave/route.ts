@@ -14,10 +14,17 @@ export async function POST(request: Request) {
     try {
       await client.query("BEGIN");
 
-      // 1. Fetch all active employees
-      const empRes = await client.query(
-        "SELECT id, employee_no, name, join_date, annual_leave_grant FROM erp_employees WHERE employment_status = 'ACTIVE'"
-      );
+      // 1. Fetch all active employees (excluding 대표이사, 외주, 퇴사자)
+      const empRes = await client.query(`
+        SELECT e.id, e.employee_no, e.name, e.join_date, e.annual_leave_grant
+        FROM erp_employees e
+        LEFT JOIN erp_departments d ON e.department_id = d.id
+        WHERE COALESCE(e.employment_status, 'ACTIVE') = 'ACTIVE'
+          AND (e.leave_date IS NULL OR TRIM(e.leave_date::text) = '')
+          AND COALESCE(e.position, '') NOT LIKE '%대표%'
+          AND COALESCE(e.duty, '') NOT LIKE '%대표%'
+          AND COALESCE(d.dept_name, e.department, '') NOT LIKE '%외주%'
+      `);
 
       const employees = empRes.rows;
       let updateCount = 0;

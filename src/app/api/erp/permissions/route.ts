@@ -78,7 +78,7 @@ export async function POST(request: Request) {
   }
 }
 
-// PUT: 역할별 메뉴 권한 일괄 업데이트
+// PUT: 역할별 메뉴 권한 일괄 업데이트 (단일 UNNEST 벌크 쿼리로 즉시 저장)
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
@@ -89,25 +89,28 @@ export async function PUT(request: Request) {
     }
 
     const pool = getErpPool();
-    // Transactional upsert
-    for (const p of permissions) {
+    if (permissions.length > 0) {
+      const menuKeys = permissions.map((p: any) => String(p.menuKey));
+      const canViews = permissions.map((p: any) => Boolean(p.canView));
+      const canSaves = permissions.map((p: any) => Boolean(p.canSave));
+
       await pool.query(
         `INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save)
-         VALUES ($1, $2, $3, $4)
+         SELECT $1, UNNEST($2::text[]), UNNEST($3::boolean[]), UNNEST($4::boolean[])
          ON CONFLICT (role_code, menu_key)
          DO UPDATE SET can_view = EXCLUDED.can_view, can_save = EXCLUDED.can_save`,
-        [roleCode, p.menuKey, !!p.canView, !!p.canSave]
+        [roleCode, menuKeys, canViews, canSaves]
       );
     }
 
     return NextResponse.json({ success: true, message: "권한이 갱신되었습니다." });
   } catch (error: any) {
     console.error("PUT Permissions Error:", error);
-    return NextResponse.json({ error: "권한 갱신 실패" }, { status: 500 });
+    return NextResponse.json({ error: "권한 갱신 실패: " + error.message }, { status: 500 });
   }
 }
 
-// PATCH: 사원의 역할 배정 변경
+// PATCH: 사원의 역할 배정 변경 (role 및 role_code 동시 동기화)
 export async function PATCH(request: Request) {
   try {
     const { employeeId, roleCode } = await request.json();
@@ -116,9 +119,16 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "사원 ID와 역할 코드는 필수입니다." }, { status: 400 });
     }
 
+    const mappedRole =
+      roleCode === "ADMIN" ? "ADMIN" : roleCode === "MANAGER" ? "MANAGER" : "USER";
+
     const { data, error } = await supabaseErp
       .from("erp_employees")
-      .update({ role_code: roleCode, updated_at: new Date().toISOString() })
+      .update({
+        role_code: roleCode,
+        role: mappedRole,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", employeeId)
       .select()
       .single();

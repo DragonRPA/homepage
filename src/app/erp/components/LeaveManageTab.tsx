@@ -16,6 +16,9 @@ interface EmployeeLeave {
   position: string;
   duty?: string;
   joinDate: string;
+  leaveDate?: string | null;
+  status?: string;
+  employmentStatus?: string;
   grantDays: number;
   usedDays: number;
   remainDays: number;
@@ -99,9 +102,34 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     </th>
   );
 
+  // 연차관리 대상자 필터링 (대표이사, 외주 조직 직원, 퇴사자 제외)
+  const eligibleEmployees = useMemo(() => {
+    return employees.filter((emp) => {
+      // 1. 퇴사자 제외
+      const st = String(emp.status || emp.employmentStatus || "ACTIVE").trim().toUpperCase();
+      if (st === "RETIRED" || st === "RESIGNED" || st === "퇴사" || st === "퇴직") return false;
+      if (emp.leaveDate && String(emp.leaveDate).trim() !== "") return false;
+
+      // 2. 대표이사 제외
+      const pos = String(emp.position || "").trim();
+      const duty = String(emp.duty || "").trim();
+      if (pos.includes("대표이사") || pos === "대표" || duty.includes("대표이사") || duty === "대표") return false;
+
+      // 3. 조직이 외주인 직원 제외
+      const dept = String(emp.department || "").trim();
+      if (dept.includes("외주")) return false;
+
+      return true;
+    });
+  }, [employees]);
+
+  const uniqueDepartments = useMemo(() => {
+    return Array.from(new Set(eligibleEmployees.map((e) => e.department).filter(Boolean)));
+  }, [eligibleEmployees]);
+
   // Filtered
   const filteredEmployees = useMemo(() => {
-    return employees.filter((emp) => {
+    return eligibleEmployees.filter((emp) => {
       if (deptFilter !== "ALL" && emp.department !== deptFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
@@ -113,7 +141,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
       }
       return true;
     });
-  }, [employees, deptFilter, searchQuery]);
+  }, [eligibleEmployees, deptFilter, searchQuery]);
 
   const sortedEmployees = useMemo(() => {
     return sortErpItems(filteredEmployees, sortKey, sortDir);
@@ -220,10 +248,11 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
               className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             >
               <option value="ALL">전체 부서</option>
-              <option value="경영총괄">경영총괄</option>
-              <option value="기술개발부">기술개발부</option>
-              <option value="영업관리부">영업관리부</option>
-              <option value="고객지원부">고객지원부</option>
+              {uniqueDepartments.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
             </select>
 
             <div className="relative">

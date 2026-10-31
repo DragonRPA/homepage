@@ -69,12 +69,8 @@ interface Employee {
 }
 
 const OT_REASONS = [
-  "야간 출고 및 배차 지원",
-  "긴급 RPA 시스템 장애 조치",
-  "고객사 현장 긴급 기술지원",
-  "월말 결산 및 세금계산서 마감",
-  "비근무일 장비 점검 및 입고 검수",
-  "신규 프로젝트 릴리즈 배포",
+  "야간출고 및 배차지원",
+  "출장",
 ];
 
 const getDayOfWeekKr = (dateStr: string) => {
@@ -821,18 +817,11 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                   disabled={!isAdmin}
                   className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-bold dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
                 >
-                  {employees.map((emp) => {
-                    const hw =
-                      emp.hourlyWage !== undefined && emp.hourlyWage !== null
-                        ? Math.round(Number(emp.hourlyWage))
-                        : Math.round((Number(emp.baseSalary) || 3500000) / 209);
-                    return (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.name} ({emp.department || "미배정"} · {emp.position}) — 1시간 표준임금:{" "}
-                        {hw.toLocaleString()}원
-                      </option>
-                    );
-                  })}
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} ({emp.department || "미배정"} · {emp.position})
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1054,6 +1043,8 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                 <div className="flex items-center gap-1 flex-wrap">
                   <span className="text-[11px] font-semibold text-[#475569] mr-1">시간 단축선택:</span>
                   {[
+                    { label: "07~09시(2h)", sh: "07", sm: "00", eh: "09", em: "00" },
+                    { label: "08~09시(1h)", sh: "08", sm: "00", eh: "09", em: "00" },
                     { label: "18~20시(2h)", sh: "18", sm: "00", eh: "20", em: "00" },
                     { label: "18~21시(3h)", sh: "18", sm: "00", eh: "21", em: "00" },
                     { label: "18~22시(4h)", sh: "18", sm: "00", eh: "22", em: "00" },

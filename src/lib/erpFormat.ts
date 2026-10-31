@@ -18,6 +18,81 @@ export function formatErpNumber(val: number | string | null | undefined): string
 }
 
 /**
+ * 연차 일수 표기 헬퍼 (0.5일 반차 및 소수점 첫째자리 보존, 정수는 소수점 생략)
+ */
+export function formatErpLeaveDays(val: number | string | null | undefined): string {
+  if (val === null || val === undefined || val === "") return "0";
+  const num = typeof val === "number" ? val : parseFloat(String(val).replace(/,/g, ""));
+  if (isNaN(num)) return "0";
+  const rounded = Math.round(num * 10) / 10;
+  return Number.isInteger(rounded) ? rounded.toLocaleString("ko-KR") : rounded.toFixed(1);
+}
+
+/**
+ * 회계연도(1월 1일 ~ 12월 31일) 기준 연차 부여일수 및 연차(0년차, 1년차...) 자동 산출 SSOT
+ * - 입사 0년차(입사 연도 == 대상 연도): 15일을 해당 연도의 잔여 일수 비율로 비례 부여 (0.5일 단위 반올림)
+ * - 입사 다음 연도(1년차, targetYear - joinYear == 1)부터 매년 1월 1일 ~ 12월 31일 기준:
+ *   기본 15일 + 3년차부터 매 2년(3, 5, 7, 9...년차)마다 1일 가산 (최대 25일 한도)
+ */
+export function calculateAnnualLeaveEntitlement(
+  joinDateStr?: string | null,
+  targetYear: number = new Date().getFullYear()
+): {
+  tenureYears: number;
+  grantDays: number;
+  formulaLabel: string;
+  remainingYearDays?: number;
+  totalYearDays?: number;
+} {
+  if (!joinDateStr) {
+    return { tenureYears: 1, grantDays: 15, formulaLabel: "기본 15일" };
+  }
+  const clean = String(joinDateStr).trim().slice(0, 10);
+  const parts = clean.split("-").map(Number);
+  if (parts.length < 3 || !parts[0] || !parts[1] || !parts[2]) {
+    return { tenureYears: 1, grantDays: 15, formulaLabel: "기본 15일" };
+  }
+  const [jy, jm, jd] = parts;
+  const tenureYears = Math.max(0, targetYear - jy);
+
+  // 1. 입사 0년차 (해당 연도 중도 입사자): 15개 × (입사일~12/31 잔여일수 / 해당연도 총일수)
+  if (tenureYears === 0) {
+    const startOfYear = Date.UTC(targetYear, 0, 1);
+    const endOfYear = Date.UTC(targetYear, 11, 31);
+    const joinUtc = Date.UTC(jy, jm - 1, jd);
+
+    const totalYearDays = Math.round((endOfYear - startOfYear) / 86400000) + 1; // 365 or 366
+    const clampedJoin = Math.max(startOfYear, Math.min(endOfYear, joinUtc));
+    const remainingYearDays = Math.round((endOfYear - clampedJoin) / 86400000) + 1;
+
+    const rawGrant = (15 * remainingYearDays) / totalYearDays;
+    // 반차(0.5일) 단위로 깔끔하게 사용 가능하도록 0.5 단위 반올림 (최소 0.5일 ~ 최대 15일)
+    const grantDays = Math.min(15, Math.max(0.5, Math.round(rawGrant * 2) / 2));
+
+    return {
+      tenureYears: 0,
+      grantDays,
+      remainingYearDays,
+      totalYearDays,
+      formulaLabel: `입사 0년차 잔여비율 (15일 × ${remainingYearDays}/${totalYearDays}일)`,
+    };
+  }
+
+  // 2. 입사 다음 연도(1년차) 이후: 회계연도(1/1~12/31) 기준 부여 (3, 5, 7, 9...년차 +1일 가산)
+  const additionalDays = tenureYears >= 3 ? Math.floor((tenureYears - 1) / 2) : 0;
+  const grantDays = Math.min(25, 15 + additionalDays);
+
+  return {
+    tenureYears,
+    grantDays,
+    formulaLabel:
+      additionalDays > 0
+        ? `${tenureYears}년차 회계연도 부여 (기본 15일 + 근속가산 ${additionalDays}일)`
+        : `${tenureYears}년차 회계연도 기본 부여 (15일)`,
+  };
+}
+
+/**
  * 사용자 입력(onChange) 실시간 천단위 콤마 포맷팅 헬퍼
  * 사용자가 숫자를 칠 때 실시간으로 1,000 단위 콤마를 적용
  */

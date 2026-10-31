@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
-import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
+import { getErpPool } from "@/lib/supabaseErp";
+import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
 
-// POST: Execute annual leave quota calculation and reset for target year
+// POST: Execute annual leave quota calculation and reset for target year (회계연도 1/1 ~ 12/31 기준)
 export async function POST(request: Request) {
   try {
-    const { resetYear, executedBy, memo } = await request.json();
+    let body: any = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const { resetYear, executedBy, memo } = body;
     const targetYear = parseInt(resetYear || new Date().getFullYear().toString(), 10);
     const actor = executedBy || "ADMIN";
 
@@ -16,7 +23,7 @@ export async function POST(request: Request) {
 
       // 1. Fetch all active employees (excluding 대표이사, 외주, 퇴사자)
       const empRes = await client.query(`
-        SELECT e.id, e.employee_no, e.name, e.join_date, e.annual_leave_grant
+        SELECT e.id, e.employee_no, e.name, e.join_date::text as "joinDate", e.annual_leave_grant
         FROM erp_employees e
         LEFT JOIN erp_departments d ON e.department_id = d.id
         WHERE COALESCE(e.employment_status, 'ACTIVE') = 'ACTIVE'
@@ -31,13 +38,8 @@ export async function POST(request: Request) {
       const detailsList: any[] = [];
 
       for (const emp of employees) {
-        const joinYear = new Date(emp.join_date).getFullYear();
-        // 1년차부터 시작 (근속 연수)
-        const serviceYears = Math.max(1, targetYear - joinYear + 1);
-        
-        // 근로기준법 및 대표님 확정 공식: 3, 5, 7, 9... 년차마다 +1일 (13년차: 15+6=21)
-        const additionalDays = serviceYears >= 3 ? Math.floor((serviceYears - 1) / 2) : 0;
-        const newGrant = Math.min(25.0, 15.0 + additionalDays);
+        const entitlement = calculateAnnualLeaveEntitlement(emp.joinDate, targetYear);
+        const newGrant = entitlement.grantDays;
 
         await client.query(
           "UPDATE erp_employees SET annual_leave_grant = $1, updated_at = NOW() WHERE id = $2",
@@ -47,9 +49,10 @@ export async function POST(request: Request) {
         detailsList.push({
           id: emp.id,
           name: emp.name,
-          serviceYears,
+          tenureYears: entitlement.tenureYears,
+          formulaLabel: entitlement.formulaLabel,
           previousGrant: emp.annual_leave_grant,
-          newGrant
+          newGrant,
         });
         updateCount++;
       }
@@ -58,7 +61,13 @@ export async function POST(request: Request) {
       await client.query(
         `INSERT INTO erp_annual_leave_resets (reset_year, reset_date, total_employees_affected, executed_by, memo)
          VALUES ($1, CURRENT_DATE, $2, $3, $4)`,
-        [targetYear, updateCount, actor, memo || `${targetYear}년도 연차 일괄 초기화 (3·5·7·9년차 가산 규정 적용)`]
+        [
+          targetYear,
+          updateCount,
+          actor,
+          memo ||
+            `${targetYear}년도 회계연도(1/1~12/31) 연차 재계산 (0년차 잔여일수 비례부여 / 1년차 이상 15일+홀수년차 가산)`,
+        ]
       );
 
       // 3. Insert Audit Log (헌장 1.2 무누락 저장)

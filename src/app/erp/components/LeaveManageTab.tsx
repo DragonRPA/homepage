@@ -6,7 +6,13 @@ import {
   RotateCcw, Search, Check, AlertCircle, Plus, ShieldCheck,
   ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
-import { sortErpItems, SortDirection, formatErpNumber } from "@/lib/erpFormat";
+import { 
+  sortErpItems, 
+  SortDirection, 
+  formatErpNumber, 
+  formatErpLeaveDays, 
+  calculateAnnualLeaveEntitlement 
+} from "@/lib/erpFormat";
 
 interface EmployeeLeave {
   id: number;
@@ -68,14 +74,9 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     fetchEmployees();
   }, []);
 
-  // Calculate tenure years
+  // 회계연도(1월 1일 ~ 12월 31일) 기준 연차/근속연수(0년차, 1년차...) 산출
   const getTenureYears = (joinDateStr?: string) => {
-    if (!joinDateStr) return 0;
-    const join = new Date(joinDateStr);
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - join.getTime());
-    const diffYears = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365.25));
-    return diffYears;
+    return calculateAnnualLeaveEntitlement(joinDateStr).tenureYears;
   };
 
   const [sortKey, setSortKey] = useState<string>("employeeNo");
@@ -155,14 +156,24 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
 
   // Annual Reset & Recalculate
   const handleAnnualReset = async () => {
-    if (!confirm("전 사원의 연차를 회계연도 기준(기본 15일 + 홀수년차 가산)으로 일괄 재계산 초기화하시겠습니까?")) return;
+    const currentYr = new Date().getFullYear();
+    if (
+      !confirm(
+        `${currentYr}년도 회계연도(1/1~12/31) 기준으로 전 사원의 연차를 재계산하시겠습니까?\n\n· 입사 0년차(${currentYr}년 입사자): 15일 × 당해 잔여일수 비율 비례 부여\n· 입사 다음 연도(1년차 이상): 15일 + 근속가산(3·5·7년차...) 부여`
+      )
+    )
+      return;
     try {
       setLoading(true);
-      const res = await fetch("/api/erp/employees/reset-leave", { method: "POST" });
+      const res = await fetch("/api/erp/employees/reset-leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resetYear: currentYr }),
+      });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "연차 재계산 실패");
 
-      showToast("전 사원 연차 재계산이 완료되었습니다.");
+      showToast(data.message || "전 사원 연차 재계산이 완료되었습니다.");
       fetchEmployees();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -327,9 +338,10 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
               {sortedEmployees.map((emp) => {
                 const grant = Number(emp.grantDays || 15);
                 const used = Number(emp.usedDays || 0);
-                const remain = Number(emp.remainDays || (grant - used));
+                const remain = Number(emp.remainDays ?? grant - used);
                 const rate = grant > 0 ? Math.min(100, Math.round((used / grant) * 100)) : 0;
-                const tenure = getTenureYears(emp.joinDate);
+                const entitlement = calculateAnnualLeaveEntitlement(emp.joinDate);
+                const tenure = entitlement.tenureYears;
 
                 return (
                   <tr key={emp.id} className="hover:bg-[#ede6d6] dark:hover:bg-slate-800/40 transition">
@@ -342,19 +354,28 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                     <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">
                       {emp.joinDate ? emp.joinDate.substring(0, 10) : "-"}
                     </td>
-                    <td className="py-2 px-3 text-center whitespace-nowrap">
-                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-[#dcd4c4] border border-[#b5a894] text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300">
-                        {tenure}년차
+                    <td className="py-2 px-3 text-center whitespace-nowrap" title={entitlement.formulaLabel}>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                          tenure === 0
+                            ? "bg-[#eff6ff] border-[#93c5fd] text-[#1d4ed8] dark:bg-blue-950/50 dark:border-blue-800 dark:text-blue-300"
+                            : "bg-[#dcd4c4] border-[#b5a894] text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
+                        }`}
+                      >
+                        {tenure}년차{tenure === 0 ? " (비례)" : ""}
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
-                      {formatErpNumber(grant)}일
+                    <td
+                      className="py-2 px-3 text-right font-mono font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap"
+                      title={`규정 산출값: ${entitlement.grantDays}일 (${entitlement.formulaLabel})`}
+                    >
+                      {formatErpLeaveDays(grant)}일
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-[#b45309] dark:text-amber-400 whitespace-nowrap">
-                      {formatErpNumber(used)}일
+                      {formatErpLeaveDays(used)}일
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap">
-                      {formatErpNumber(remain)}일
+                      {formatErpLeaveDays(remain)}일
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1.5">
@@ -396,9 +417,28 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
             <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 mb-2 pb-2 border-b border-[#b5a894] dark:border-slate-800">
               연차 부여일수 직접 조정 ({selectedEmp.name})
             </h2>
-            <p className="text-xs text-[#475569] dark:text-slate-400 mb-4">
-              입사일: {selectedEmp.joinDate ? selectedEmp.joinDate.substring(0, 10) : "-"} (근속 {getTenureYears(selectedEmp.joinDate)}년차)
-            </p>
+            {(() => {
+              const ent = calculateAnnualLeaveEntitlement(selectedEmp.joinDate);
+              return (
+                <div className="mb-4 space-y-1.5 text-xs">
+                  <p className="text-[#475569] dark:text-slate-400">
+                    입사일: {selectedEmp.joinDate ? selectedEmp.joinDate.substring(0, 10) : "-"} ({ent.tenureYears}년차)
+                  </p>
+                  <div className="p-2 rounded bg-[#f4efe4] border border-[#b5a894] flex items-center justify-between dark:bg-slate-950 dark:border-slate-800">
+                    <span className="text-[11px] font-semibold text-[#1d4ed8] dark:text-blue-400">
+                      규정 산출: {formatErpLeaveDays(ent.grantDays)}일 ({ent.formulaLabel})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setNewGrantDays(ent.grantDays)}
+                      className="px-2 py-0.5 text-[10.5px] font-bold rounded bg-[#dcd4c4] hover:bg-[#d0c6b4] border border-[#b5a894] text-[#0f172a] shrink-0"
+                    >
+                      규정값 적용
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="flex flex-col gap-1 mb-4">
               <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">부여 연차 일수</label>

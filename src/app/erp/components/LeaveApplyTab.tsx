@@ -6,7 +6,7 @@ import {
   Send, Trash2, Info, ChevronRight, User,
   ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
-import { sortErpItems, SortDirection, formatErpNumber } from "@/lib/erpFormat";
+import { sortErpItems, SortDirection, formatErpNumber, formatErpLeaveDays } from "@/lib/erpFormat";
 
 interface LeaveRequest {
   id: number;
@@ -246,21 +246,21 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
               <div className="p-3 bg-[#ebe5d8] rounded border border-[#b5a894] text-center dark:bg-slate-950 dark:border-slate-800">
                 <span className="text-[10px] text-[#475569] dark:text-slate-400 block mb-1">부여 연차</span>
                 <span className="text-lg font-mono font-bold text-[#1d4ed8] dark:text-blue-400">
-                  {myInfo ? formatErpNumber(myInfo.grantDays) : "15"}
+                  {myInfo ? formatErpLeaveDays(myInfo.grantDays) : "15"}
                   <span className="text-xs font-normal text-[#475569] dark:text-slate-400 ml-0.5">일</span>
                 </span>
               </div>
               <div className="p-3 bg-[#ebe5d8] rounded border border-[#b5a894] text-center dark:bg-slate-950 dark:border-slate-800">
                 <span className="text-[10px] text-[#475569] dark:text-slate-400 block mb-1">사용 연차</span>
                 <span className="text-lg font-mono font-bold text-[#b45309] dark:text-amber-400">
-                  {myInfo ? formatErpNumber(myInfo.usedDays) : "0"}
+                  {myInfo ? formatErpLeaveDays(myInfo.usedDays) : "0"}
                   <span className="text-xs font-normal text-[#475569] dark:text-slate-400 ml-0.5">일</span>
                 </span>
               </div>
               <div className="p-3 bg-[#ebe5d8] rounded border border-[#b5a894] text-center dark:bg-slate-950 dark:border-slate-800">
                 <span className="text-[10px] text-[#475569] dark:text-slate-400 block mb-1">잔여 연차</span>
                 <span className="text-lg font-mono font-bold text-[#047857] dark:text-emerald-400">
-                  {myInfo ? formatErpNumber(myInfo.remainDays) : "15"}
+                  {myInfo ? formatErpLeaveDays(myInfo.remainDays) : "15"}
                   <span className="text-xs font-normal text-[#475569] dark:text-slate-400 ml-0.5">일</span>
                 </span>
               </div>
@@ -343,7 +343,7 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
             <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] flex items-center justify-between text-xs dark:bg-slate-950 dark:border-slate-800">
               <span className="text-[#334155] dark:text-slate-400 font-semibold">차감 예정 일수</span>
               <span className="font-mono font-bold text-[#b45309] dark:text-amber-400">
-                {formatErpNumber(calculatedDeductedDays)}일 (주말 제외)
+                {formatErpLeaveDays(calculatedDeductedDays)}일 (주말 제외)
               </span>
             </div>
 
@@ -410,7 +410,7 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
                         {l.startDate} {l.startDate !== l.endDate ? `~ ${l.endDate}` : ""}
                       </td>
                       <td className="py-2 px-3 text-center font-mono font-bold text-[#b45309] dark:text-amber-400 whitespace-nowrap">
-                        {formatErpNumber(l.deductedDays)}일
+                        {formatErpLeaveDays(l.deductedDays)}일
                       </td>
                       <td className="py-2 px-3 text-[#334155] dark:text-slate-300 max-w-xs truncate" title={l.reason}>
                         {l.reason}

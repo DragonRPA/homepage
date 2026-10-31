@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseErp, getErpPool } from "@/lib/supabaseErp";
+import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
 
 function normalizeStatusToEbro(rawStatus: string | null | undefined, leaveDate?: string | null): "ACTIVE" | "LEAVE_OF_ABSENCE" | "RETIRED" {
   if (leaveDate && String(leaveDate).trim() !== "") return "RETIRED";
@@ -56,8 +57,8 @@ export async function GET() {
         e.employment_status as "employmentStatus",
         e.profile_image_url as "profileImageUrl",
         e.annual_leave_grant as "grantDays",
-        COALESCE(SUM(CASE WHEN l.status = 'APPROVED' THEN l.deducted_days ELSE 0 END), 0) as "usedDays",
-        (e.annual_leave_grant - COALESCE(SUM(CASE WHEN l.status = 'APPROVED' THEN l.deducted_days ELSE 0 END), 0)) as "remainDays",
+        COALESCE(SUM(CASE WHEN l.status = 'APPROVED' AND EXTRACT(YEAR FROM l.start_date) = EXTRACT(YEAR FROM CURRENT_DATE) THEN l.deducted_days ELSE 0 END), 0) as "usedDays",
+        (e.annual_leave_grant - COALESCE(SUM(CASE WHEN l.status = 'APPROVED' AND EXTRACT(YEAR FROM l.start_date) = EXTRACT(YEAR FROM CURRENT_DATE) THEN l.deducted_days ELSE 0 END), 0)) as "remainDays",
         e.must_change_password as "mustChangePassword",
         e.created_at as "createdAt",
         e.updated_at as "updatedAt"
@@ -135,7 +136,12 @@ export async function POST(request: Request) {
     const tsSuffix = String(Date.now()).slice(-6);
     const cleanNo = (employeeNo && String(employeeNo).trim()) || `DR-${tsSuffix}`;
     const cleanId = (loginId && String(loginId).trim().toLowerCase()) || `user_${tsSuffix}`;
-    const parsedGrant = parseFloat(grantDays || "15.0");
+    const resolvedJoinDate = joinDate || new Date().toISOString().split("T")[0];
+    const autoEntitlement = calculateAnnualLeaveEntitlement(resolvedJoinDate);
+    const parsedGrant =
+      grantDays !== undefined && grantDays !== null && grantDays !== ""
+        ? parseFloat(grantDays)
+        : autoEntitlement.grantDays;
     const parsedDeptId =
       departmentId !== undefined && departmentId !== null && departmentId !== "" && !isNaN(Number(departmentId))
         ? Number(departmentId)

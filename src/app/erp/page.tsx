@@ -108,7 +108,7 @@ const CATEGORIES: CategoryConfig[] = [
     items: [
       { key: "BANK_MATCHING", label: "은행 입출금 대장", icon: DollarSign },
       { key: "PAYROLL", label: "급여 정산", icon: CreditCard },
-      { key: "TAX", label: "세금계산서 발행", icon: FileText },
+      { key: "TAX", label: "매입·매출 세금계산서", icon: FileText },
     ],
   },
   {

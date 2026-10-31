@@ -190,11 +190,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, billings: unissuedBillings });
     }
 
-    // 2. Issued Tax Invoices (대장 목록)
+    // 2. Issued / Collected Tax Invoices (매출·매입 대장 목록 + 채권/채무 정산 상태)
+    const ioType = searchParams.get("ioType"); // 'SALE' | 'PURCHASE' | 'ALL'
+    const settlementStatus = searchParams.get("settlementStatus"); // 'UNPAID' | 'PARTIAL' | 'PAID' | 'ALL'
+
     let query = `
       SELECT 
         id,
         invoice_no as "invoiceNo",
+        COALESCE(io_type, 'SALE') as "ioType",
+        COALESCE(source_type, 'ERP_ISSUED') as "sourceType",
         domain_type as "domainType",
         ref_id as "refId",
         supplier_entity_type as "supplierEntityType",
@@ -220,6 +225,11 @@ export async function GET(request: Request) {
         supply_amount as "supplyAmount",
         vat_amount as "vatAmount",
         total_amount as "totalAmount",
+        COALESCE(settled_amount, 0) as "settledAmount",
+        GREATEST(0, COALESCE(total_amount, 0) - COALESCE(settled_amount, 0)) as "unpaidAmount",
+        COALESCE(settlement_status, 'UNPAID') as "settlementStatus",
+        COALESCE(matched_bank_tx_ids, '[]'::jsonb) as "matchedBankTxIds",
+        settled_at as "settledAt",
         item_name as "itemName",
         status,
         nts_confirm_no as "ntsConfirmNo",
@@ -229,6 +239,14 @@ export async function GET(request: Request) {
       WHERE 1=1
     `;
     const params: any[] = [];
+    if (ioType && ioType !== "ALL") {
+      params.push(ioType);
+      query += ` AND COALESCE(io_type, 'SALE') = $${params.length}`;
+    }
+    if (settlementStatus && settlementStatus !== "ALL") {
+      params.push(settlementStatus);
+      query += ` AND COALESCE(settlement_status, 'UNPAID') = $${params.length}`;
+    }
     if (domainType && domainType !== "ALL") {
       params.push(domainType);
       query += ` AND domain_type = $${params.length}`;
@@ -519,13 +537,16 @@ export async function POST(request: Request) {
         });
       }
 
-      // CASE B: Single Issue (Manual or Direct from Domain Table)
+      // CASE B: Single Issue or Purchase Invoice Registration (Manual or Direct from Domain Table)
       const { 
+        ioType: rawIoType, sourceType: rawSourceType, ntsConfirmNo: rawNtsConfirmNo,
         domainType, refId, customerName, businessNo, ceoName,
         customerAddress, customerBizType, customerBizClass, customerEmail, customerEmail2,
         purposeType, taxItems,
         issueDate, supplyAmount, vatAmount, itemName, memo, supplierEntityType 
       } = body;
+
+      const ioType: "SALE" | "PURCHASE" = rawIoType === "PURCHASE" ? "PURCHASE" : "SALE";
 
       if (!customerName || !supplyAmount || (!itemName && (!Array.isArray(taxItems) || taxItems.length === 0))) {
         await client.query("ROLLBACK");
@@ -542,7 +563,8 @@ export async function POST(request: Request) {
       const writeDateStr = issueDate ? String(issueDate).slice(0, 10) : new Date().toISOString().split("T")[0];
       const mm = writeDateStr.slice(5, 7);
       const dd = writeDateStr.slice(8, 10);
-      const invoiceNo = `TX${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const prefix = ioType === "PURCHASE" ? "PX" : "TX";
+      const invoiceNo = `${prefix}${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
 
       const baseSingleItems = Array.isArray(taxItems) && taxItems.length > 0
         ? taxItems.map((ti: any) => ({
@@ -594,59 +616,64 @@ export async function POST(request: Request) {
         fallbackFirstItem: normalizedTaxItems[0]?.itemName || itemName,
       });
 
-      // Popbill Electronic Tax Invoice Issue Call
       const preferredSingleBizClass = selectPreferredBizItem(customerBizClass || "");
-      let ntsConfirmNo = "";
-      let singleInvoiceStatus = "ISSUED";
-      try {
-        const popRes = await registIssuePopbill({
-          corpNum: entity.bizNumRaw,
-          supplierCorpName: entity.corpName,
-          supplierCeoName: entity.ceoName,
-          supplierAddr: entity.address,
-          supplierBizType: entity.bizType,
-          supplierBizClass: entity.bizClass,
-          supplierEmail: entity.email,
-          invoicerMgtKey: invoiceNo,
-          writeDate: writeDateStr.replace(/-/g, ""),
-          purposeType: purposeType || "청구",
-          customerName: customerName.trim(),
-          customerBizNo: businessNo || "100-00-00000",
-          customerCeoName: ceoName || "대표자",
-          customerAddr: customerAddress || "",
-          customerBizType: customerBizType || "",
-          customerBizClass: preferredSingleBizClass,
-          customerEmail: customerEmail || entity.email,
-          customerEmail2: customerEmail2 || "",
-          itemName: resolvedItemName.trim(),
-          supplyAmount: supply,
-          vatAmount: vat,
-          totalAmount: total,
-          memo: resolvedSingleMemo,
-          taxItems: normalizedTaxItems,
-        });
-        ntsConfirmNo = popRes.ntsConfirmNo;
-        singleInvoiceStatus = popRes.mode === "REGISTERED_IN_POPBILL" ? "TEMP_SAVED" : "ISSUED";
-      } catch (popErr: any) {
-        console.warn("Popbill Issue Warning in Single:", popErr.message);
-        ntsConfirmNo = `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-41000000-POPBILL_TEST`;
-        singleInvoiceStatus = "ISSUED";
+      let ntsConfirmNo = rawNtsConfirmNo || "";
+      let singleInvoiceStatus = ioType === "PURCHASE" ? "SENT_NTS" : "ISSUED";
+
+      if (ioType === "SALE") {
+        // Popbill Electronic Tax Invoice Issue Call (매출 정발행)
+        try {
+          const popRes = await registIssuePopbill({
+            corpNum: entity.bizNumRaw,
+            supplierCorpName: entity.corpName,
+            supplierCeoName: entity.ceoName,
+            supplierAddr: entity.address,
+            supplierBizType: entity.bizType,
+            supplierBizClass: entity.bizClass,
+            supplierEmail: entity.email,
+            invoicerMgtKey: invoiceNo,
+            writeDate: writeDateStr.replace(/-/g, ""),
+            purposeType: purposeType || "청구",
+            customerName: customerName.trim(),
+            customerBizNo: businessNo || "100-00-00000",
+            customerCeoName: ceoName || "대표자",
+            customerAddr: customerAddress || "",
+            customerBizType: customerBizType || "",
+            customerBizClass: preferredSingleBizClass,
+            customerEmail: customerEmail || entity.email,
+            customerEmail2: customerEmail2 || "",
+            itemName: resolvedItemName.trim(),
+            supplyAmount: supply,
+            vatAmount: vat,
+            totalAmount: total,
+            memo: resolvedSingleMemo,
+            taxItems: normalizedTaxItems,
+          });
+          ntsConfirmNo = popRes.ntsConfirmNo;
+          singleInvoiceStatus = popRes.mode === "REGISTERED_IN_POPBILL" ? "TEMP_SAVED" : "ISSUED";
+        } catch (popErr: any) {
+          console.warn("Popbill Issue Warning in Single:", popErr.message);
+          ntsConfirmNo = `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-41000000-POPBILL_TEST`;
+          singleInvoiceStatus = "ISSUED";
+        }
       }
 
-      // Insert tax invoice
+      // Insert tax invoice (SALE or PURCHASE)
       const insRes = await client.query(
         `INSERT INTO erp_tax_invoices
-         (invoice_no, domain_type, ref_id, supplier_entity_type, supplier_corp_num, supplier_corp_name,
+         (invoice_no, io_type, source_type, domain_type, ref_id, supplier_entity_type, supplier_corp_num, supplier_corp_name,
           supplier_ceo_name, supplier_address, supplier_biz_type, supplier_biz_class, supplier_email,
           customer_name, business_no, ceo_name, customer_address, customer_biz_type, customer_biz_class,
           customer_email, customer_email2, purpose_type, modify_reason, tax_items,
           issue_date, supply_amount, vat_amount, total_amount, item_name,
-          status, nts_confirm_no, memo)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, '해당없음', $21::jsonb, $22, $23, $24, $25, $26, $27, $28, $29)
+          status, nts_confirm_no, memo, settled_amount, settlement_status, matched_bank_tx_ids)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, '해당없음', $23::jsonb, $24, $25, $26, $27, $28, $29, $30, $31, 0, 'UNPAID', '[]'::jsonb)
          RETURNING *`,
         [
           invoiceNo,
-          domainType || "TRADE_SALE",
+          ioType,
+          rawSourceType || (ioType === "PURCHASE" ? "MANUAL" : "ERP_ISSUED"),
+          domainType || (ioType === "PURCHASE" ? "PURCHASE_EXPENSE" : "TRADE_SALE"),
           refId || null,
           entity.key,
           entity.bizNumRaw,
@@ -672,7 +699,7 @@ export async function POST(request: Request) {
           total,
           resolvedItemName.trim(),
           singleInvoiceStatus,
-          ntsConfirmNo,
+          ntsConfirmNo || null,
           resolvedSingleMemo,
         ]
       );

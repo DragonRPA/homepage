@@ -177,7 +177,7 @@ export default function ErpMainPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [selectedEntity, setSelectedEntity] = useState<EntityScope>("ALL");
   const [rolePerms, setRolePerms] = useState<
-    Array<{ roleCode: string; menuKey: string; canView: boolean; canSave: boolean }>
+    Array<{ roleCode: string; menuKey: string; canView: boolean; canSave: boolean; canBill?: boolean }>
   >([]);
   const [employeeRolesMap, setEmployeeRolesMap] = useState<
     Record<number, { role: string; roleCode: string }>
@@ -314,14 +314,24 @@ export default function ErpMainPage() {
     return found ? Boolean(found.canSave) : false;
   }, [effectiveRoleCode, activeMenu, rolePerms]);
 
+  const activeMenuCanBill = React.useMemo(() => {
+    if (effectiveRoleCode === "ADMIN") return true;
+    const permKey = MENU_PERM_KEY_MAP[activeMenu];
+    const found = rolePerms.find(
+      (p) => p.roleCode === effectiveRoleCode && p.menuKey === permKey
+    );
+    return found ? Boolean(found.canBill) : false;
+  }, [effectiveRoleCode, activeMenu, rolePerms]);
+
   const enrichedUser = React.useMemo(() => {
     if (!currentUser) return null;
     return {
       ...currentUser,
       roleCode: effectiveRoleCode,
       canSave: activeMenuCanSave,
+      canBill: activeMenuCanBill,
     };
-  }, [currentUser, effectiveRoleCode, activeMenuCanSave]);
+  }, [currentUser, effectiveRoleCode, activeMenuCanSave, activeMenuCanBill]);
 
   const toggleTheme = () => {
     const next = theme === "light" ? "dark" : "light";

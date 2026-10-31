@@ -16,6 +16,10 @@ interface TradeTabProps {
 }
 
 export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity = "ALL", onNavigateToTax }) => {
+  const canBill =
+    currentUser?.roleCode === "ADMIN" ||
+    currentUser?.loginId === "admin" ||
+    Boolean(currentUser?.canBill);
   const [subTab, setSubTab] = useState<"products" | "purchases" | "sales" | "billings" | "settlement">("sales");
   const [loading, setLoading] = useState(false);
 
@@ -947,7 +951,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           )}
           {subTab === "sales" && (
             <>
-              {selectedSaleIds.length > 0 && (
+              {canBill && selectedSaleIds.length > 0 && (
                 <button
                   onClick={handleCreateConsolidatedBillingFromSales}
                   className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
@@ -956,13 +960,15 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                   <span>선택 계약({selectedSaleIds.length}건) 묶음 청구 생성</span>
                 </button>
               )}
-              <button
-                onClick={() => setShowAddBillingModal(true)}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>계약 기반 청구 생성</span>
-              </button>
+              {canBill && (
+                <button
+                  onClick={() => setShowAddBillingModal(true)}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>계약 기반 청구 생성</span>
+                </button>
+              )}
               <button
                 onClick={() => setShowAddSaleModal(true)}
                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
@@ -972,7 +978,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
               </button>
             </>
           )}
-          {subTab === "billings" && (
+          {subTab === "billings" && canBill && (
             <>
               {selectedBillingIds.length > 0 && (
                 <button
@@ -1200,14 +1206,16 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                       </td>
                       <td className="py-2 px-3 text-center">
                         <div className="inline-flex items-center gap-1">
-                          <button
-                            onClick={() => handleOpenBillingFromSale(s)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] transition"
-                            title="이 판매 계약의 항목을 끌어와 청구서 생성"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>청구생성</span>
-                          </button>
+                          {canBill && (
+                            <button
+                              onClick={() => handleOpenBillingFromSale(s)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] transition"
+                              title="이 판매 계약의 항목을 끌어와 청구서 생성"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>청구생성</span>
+                            </button>
+                          )}
                           <button
                             onClick={() => handleOpenEditSale(s)}
                             className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 font-bold text-[11px] transition"
@@ -1284,13 +1292,15 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                           <span className="px-2 py-0.5 bg-emerald-900/40 border border-emerald-500/40 text-emerald-300 rounded text-[11px] font-semibold font-mono">
                             발행완료 ({s.taxInvoiceNo || `#${s.taxInvoiceId}`})
                           </span>
-                        ) : (
+                        ) : canBill ? (
                           <button
                             onClick={() => handleOpenBillingFromSale(s)}
                             className="px-2 py-0.5 bg-emerald-900/50 hover:bg-emerald-800 border border-emerald-600/50 text-emerald-300 rounded text-[11px] font-semibold transition"
                           >
                             + 청구생성
                           </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-500">미청구</span>
                         )}
                       </td>
                     </tr>

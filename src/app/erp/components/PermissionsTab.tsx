@@ -22,6 +22,7 @@ interface RolePermission {
   menuKey: string;
   canView: boolean;
   canSave: boolean;
+  canBill?: boolean;
 }
 
 interface Employee {
@@ -34,7 +35,7 @@ interface Employee {
   roleCode?: string;
 }
 
-const MENU_DEFS = [
+const MENU_DEFS: Array<{ key: string; name: string; category: string; hasBilling?: boolean }> = [
   { key: "org", name: "조직 인사관리", category: "인사" },
   { key: "users", name: "사용자 및 권한", category: "인사" },
   { key: "leave_apply", name: "연차 신청", category: "근태" },
@@ -51,9 +52,9 @@ const MENU_DEFS = [
   { key: "asset", name: "자산 관리", category: "자산관리" },
   { key: "outbound_reg", name: "출고등록", category: "입출고관리" },
   { key: "inbound_reg", name: "입고등록", category: "입출고관리" },
-  { key: "trade", name: "판매용 (커머스)", category: "영업" },
-  { key: "rental", name: "임대 계약/청구", category: "영업" },
-  { key: "service", name: "용역 관리 (운영/개발)", category: "영업" },
+  { key: "trade", name: "판매용 (커머스)", category: "영업", hasBilling: true },
+  { key: "rental", name: "임대 계약/청구", category: "영업", hasBilling: true },
+  { key: "service", name: "용역 관리 (운영/개발)", category: "영업", hasBilling: true },
 ];
 
 export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?: () => void }> = ({ currentUser, onPermissionsChanged }) => {
@@ -76,7 +77,9 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
   const [loading, setLoading] = useState(false);
 
   // Editable permission matrix for selected role
-  const [workingPerms, setWorkingPerms] = useState<Record<string, { canView: boolean; canSave: boolean }>>({});
+  const [workingPerms, setWorkingPerms] = useState<
+    Record<string, { canView: boolean; canSave: boolean; canBill: boolean }>
+  >({});
   const [isDirty, setIsDirty] = useState(false);
 
   // New Role Modal
@@ -130,13 +133,14 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
   useEffect(() => {
     if (!selectedRoleCode) return;
     const currentRolePerms = permissions.filter((p) => p.roleCode === selectedRoleCode);
-    const map: Record<string, { canView: boolean; canSave: boolean }> = {};
+    const map: Record<string, { canView: boolean; canSave: boolean; canBill: boolean }> = {};
 
     MENU_DEFS.forEach((m) => {
       const found = currentRolePerms.find((p) => p.menuKey === m.key);
       map[m.key] = {
-        canView: found ? found.canView : false,
-        canSave: found ? found.canSave : false,
+        canView: found ? Boolean(found.canView) : false,
+        canSave: found ? Boolean(found.canSave) : false,
+        canBill: found ? Boolean(found.canBill) : false,
       };
     });
 
@@ -146,7 +150,7 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
 
   const saveRolePermsToDb = async (
     roleCode: string,
-    permMap: Record<string, { canView: boolean; canSave: boolean }>,
+    permMap: Record<string, { canView: boolean; canSave: boolean; canBill: boolean }>,
     silent = false
   ) => {
     try {
@@ -154,6 +158,7 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
         menuKey,
         canView: val.canView,
         canSave: val.canSave,
+        canBill: Boolean(val.canBill),
       }));
 
       // Optimistically update local permissions array so switching roles never loses state
@@ -165,6 +170,7 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
           menuKey: p.menuKey,
           canView: p.canView,
           canSave: p.canSave,
+          canBill: p.canBill,
         }));
         return [...others, ...updatedForRole];
       });
@@ -190,18 +196,19 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
     }
   };
 
-  const handleToggle = (menuKey: string, field: "canView" | "canSave") => {
+  const handleToggle = (menuKey: string, field: "canView" | "canSave" | "canBill") => {
     if (!isAdmin) return;
-    const curr = workingPerms[menuKey] || { canView: false, canSave: false };
+    const curr = workingPerms[menuKey] || { canView: false, canSave: false, canBill: false };
     const nextVal = !curr[field];
     const updatedItem = { ...curr, [field]: nextVal };
-    // If saving enabled, view must also be enabled
-    if (field === "canSave" && nextVal) {
+    // If saving or billing enabled, view must also be enabled
+    if ((field === "canSave" || field === "canBill") && nextVal) {
       updatedItem.canView = true;
     }
-    // If view disabled, save must also be disabled
+    // If view disabled, save and bill must also be disabled
     if (field === "canView" && !nextVal) {
       updatedItem.canSave = false;
+      updatedItem.canBill = false;
     }
     const nextMap = { ...workingPerms, [menuKey]: updatedItem };
     setWorkingPerms(nextMap);
@@ -211,13 +218,21 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
 
   const handleSelectAll = (field: "canView" | "canSave", val: boolean) => {
     if (!isAdmin) return;
-    const updated: Record<string, { canView: boolean; canSave: boolean }> = { ...workingPerms };
+    const updated: Record<string, { canView: boolean; canSave: boolean; canBill: boolean }> = { ...workingPerms };
     MENU_DEFS.forEach((m) => {
-      const curr = updated[m.key] || { canView: false, canSave: false };
+      const curr = updated[m.key] || { canView: false, canSave: false, canBill: false };
       if (field === "canSave") {
-        updated[m.key] = { canView: val ? true : curr.canView, canSave: val };
+        updated[m.key] = {
+          canView: val ? true : curr.canView,
+          canSave: val,
+          canBill: m.hasBilling ? val : false,
+        };
       } else {
-        updated[m.key] = { canView: val, canSave: val ? curr.canSave : false };
+        updated[m.key] = {
+          canView: val,
+          canSave: val ? curr.canSave : false,
+          canBill: val ? curr.canBill : false,
+        };
       }
     });
     setWorkingPerms(updated);
@@ -475,13 +490,14 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
                     <tr>
                       <th className="py-2.5 px-3">카테고리</th>
                       <th className="py-2.5 px-3">메뉴명 (기능 모듈)</th>
+                      <th className="py-2.5 px-3 text-center w-36">청구생성 권한 (Bill)</th>
                       <th className="py-2.5 px-3 text-center w-28">조회 권한 (View)</th>
                       <th className="py-2.5 px-3 text-center w-28">저장/수정 권한 (Save)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
                     {MENU_DEFS.map((m) => {
-                      const cur = workingPerms[m.key] || { canView: false, canSave: false };
+                      const cur = workingPerms[m.key] || { canView: false, canSave: false, canBill: false };
                       return (
                         <tr key={m.key} className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40 transition">
                           <td className="py-2 px-3 text-[#475569] dark:text-slate-400 font-medium">
@@ -491,6 +507,25 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
                           </td>
                           <td className="py-2 px-3 font-semibold text-[#0f172a] dark:text-slate-200">
                             {m.name}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            {m.hasBilling ? (
+                              <button
+                                onClick={() => handleToggle(m.key, "canBill")}
+                                disabled={!isAdmin}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-bold transition ${
+                                  cur.canBill
+                                    ? "bg-[#7c3aed] text-white shadow-xs"
+                                    : "bg-[#dcd4c4] text-[#475569] hover:bg-[#d0c6b4] border border-[#b5a894] dark:bg-slate-800 dark:text-slate-500 dark:hover:bg-slate-700"
+                                }`}
+                                title="청구 생성 및 세금계산서 발행 요청 권한"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>청구생성</span>
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-[#94a3b8]">-</span>
+                            )}
                           </td>
                           <td className="py-2 px-3 text-center">
                             <button

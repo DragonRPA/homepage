@@ -27,6 +27,10 @@ interface ServiceTabProps {
 }
 
 export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEntity = "ALL", onNavigateToTax }) => {
+  const canBill =
+    currentUser?.roleCode === "ADMIN" ||
+    currentUser?.loginId === "admin" ||
+    Boolean(currentUser?.canBill);
   const [activeType, setActiveType] = useState<"OPERATIONAL" | "DEVELOPMENT">("OPERATIONAL");
   const [loading, setLoading] = useState(false);
 
@@ -942,13 +946,15 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowAddBillingModal(true)}
-            className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-900 shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{activeType === "OPERATIONAL" ? "정기 청구 생성" : "기성금 청구 생성"}</span>
-          </button>
+          {canBill && (
+            <button
+              onClick={() => setShowAddBillingModal(true)}
+              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-900 shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{activeType === "OPERATIONAL" ? "정기 청구 생성" : "기성금 청구 생성"}</span>
+            </button>
+          )}
           <button
             onClick={() => setShowAddContractModal(true)}
             className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-bold bg-blue-700 hover:bg-blue-800 text-white border border-blue-900 shadow-sm"

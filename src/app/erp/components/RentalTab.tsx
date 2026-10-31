@@ -23,6 +23,10 @@ interface RentalTabProps {
 }
 
 export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntity = "ALL", onNavigateToTax }) => {
+  const canBill =
+    currentUser?.roleCode === "ADMIN" ||
+    currentUser?.loginId === "admin" ||
+    Boolean(currentUser?.canBill);
   const [subTab, setSubTab] = useState<"models" | "assets" | "contracts" | "billings">("assets");
   const [loading, setLoading] = useState(false);
 
@@ -1030,7 +1034,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
               <span>신규 임대계약</span>
             </button>
           )}
-          {subTab === "billings" && (
+          {subTab === "billings" && canBill && (
             <button
               onClick={() => setShowAddBillingModal(true)}
               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
@@ -1172,15 +1176,17 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     <tr key={c.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
                       <td className="py-2 px-3 text-center sticky left-0 bg-[#f4efe4] dark:bg-slate-900 border-r border-[#b5a894] dark:border-slate-800 z-10 shadow-sm">
                         <div className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenBillingFromContract(c)}
-                            className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-400 inline-flex items-center gap-1 transition"
-                            title="이 임대계약의 품목을 끌어와 청구서 생성"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>청구생성</span>
-                          </button>
+                          {canBill && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenBillingFromContract(c)}
+                              className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-400 inline-flex items-center gap-1 transition"
+                              title="이 임대계약의 품목을 끌어와 청구서 생성"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>청구생성</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleOpenEditContract(c)}

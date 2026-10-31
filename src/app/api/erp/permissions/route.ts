@@ -5,6 +5,9 @@ import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
 export async function GET() {
   try {
     const pool = getErpPool();
+    await pool.query(
+      "ALTER TABLE erp_role_permissions ADD COLUMN IF NOT EXISTS can_bill BOOLEAN NOT NULL DEFAULT false"
+    );
 
     // 1. 역할 목록
     const rolesRes = await pool.query(`
@@ -28,7 +31,8 @@ export async function GET() {
         role_code as "roleCode",
         menu_key as "menuKey",
         can_view as "canView",
-        can_save as "canSave"
+        can_save as "canSave",
+        COALESCE(can_bill, false) as "canBill"
       FROM erp_role_permissions
       ORDER BY role_code, menu_key
     `);
@@ -96,17 +100,21 @@ export async function PUT(request: Request) {
     }
 
     const pool = getErpPool();
+    await pool.query(
+      "ALTER TABLE erp_role_permissions ADD COLUMN IF NOT EXISTS can_bill BOOLEAN NOT NULL DEFAULT false"
+    );
     if (permissions.length > 0) {
       const menuKeys = permissions.map((p: any) => String(p.menuKey));
       const canViews = permissions.map((p: any) => Boolean(p.canView));
       const canSaves = permissions.map((p: any) => Boolean(p.canSave));
+      const canBills = permissions.map((p: any) => Boolean(p.canBill));
 
       await pool.query(
-        `INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save)
-         SELECT $1, UNNEST($2::text[]), UNNEST($3::boolean[]), UNNEST($4::boolean[])
+        `INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
+         SELECT $1, UNNEST($2::text[]), UNNEST($3::boolean[]), UNNEST($4::boolean[]), UNNEST($5::boolean[])
          ON CONFLICT (role_code, menu_key)
-         DO UPDATE SET can_view = EXCLUDED.can_view, can_save = EXCLUDED.can_save`,
-        [roleCode, menuKeys, canViews, canSaves]
+         DO UPDATE SET can_view = EXCLUDED.can_view, can_save = EXCLUDED.can_save, can_bill = EXCLUDED.can_bill`,
+        [roleCode, menuKeys, canViews, canSaves, canBills]
       );
     }
 

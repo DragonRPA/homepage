@@ -79,6 +79,20 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
   }, [selectedEntity]);
 
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
+  const [accountStatus, setAccountStatus] = useState<
+    Array<{
+      accountNo: string;
+      entityType: string;
+      bankName: string;
+      label?: string;
+      latestTransDate: string | null;
+      latestTransTime: string | null;
+      latestTransDatetime: string | null;
+      latestBalance: number;
+      totalCount: number;
+      lastUploadedAt: string | null;
+    }>
+  >([]);
   const [summary, setSummary] = useState({
     totalCount: 0,
     depositCount: 0,
@@ -224,6 +238,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       if (!res.ok || !data.success) throw new Error(data.error || "조회 실패");
 
       setTransactions(data.transactions || []);
+      if (Array.isArray(data.accountStatus)) setAccountStatus(data.accountStatus);
       if (data.summary) setSummary(data.summary);
     } catch (err: any) {
       showToast(err.message, "error");
@@ -571,8 +586,18 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
               className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] font-medium whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             >
               <option value="ALL">전체 계좌</option>
-              <option value="478-081383-04-018">기업은행 478-081383-04-018 [법인]</option>
-              <option value="140-129404-04-018">기업은행 140-129404-04-018 [개인]</option>
+              <option value="478-081383-04-018">
+                기업은행 478-081383-04-018 [법인]
+                {accountStatus.find((a) => a.accountNo === "478-081383-04-018")?.latestTransDate
+                  ? ` (최종: ${accountStatus.find((a) => a.accountNo === "478-081383-04-018")?.latestTransDate})`
+                  : ""}
+              </option>
+              <option value="140-129404-04-018">
+                기업은행 140-129404-04-018 [개인]
+                {accountStatus.find((a) => a.accountNo === "140-129404-04-018")?.latestTransDate
+                  ? ` (최종: ${accountStatus.find((a) => a.accountNo === "140-129404-04-018")?.latestTransDate})`
+                  : ""}
+              </option>
             </select>
           </div>
 
@@ -635,6 +660,75 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* 계좌별 마지막 업로드 데이터 기준일시 현황 바 */}
+      {accountStatus.length > 0 && (
+        <div className="px-3 py-2 bg-[#dcd4c4] border-b border-[#b5a894] dark:bg-slate-900/90 dark:border-slate-800 flex flex-wrap items-center gap-2.5 shrink-0 text-xs">
+          <span className="font-bold text-[11px] text-[#334155] dark:text-slate-400 whitespace-nowrap">
+            계좌별 마지막 업로드 데이터:
+          </span>
+          {accountStatus.map((acc) => {
+            const isSelected = accountFilter === acc.accountNo;
+            const isCorp = acc.entityType !== "INDIVIDUAL";
+            const uploadedAtStr = acc.lastUploadedAt
+              ? new Date(acc.lastUploadedAt).toLocaleString("ko-KR", {
+                  year: "numeric",
+                  month: "2-digit",
+                  day: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hour12: false,
+                })
+              : null;
+            return (
+              <button
+                key={acc.accountNo}
+                type="button"
+                onClick={() =>
+                  setAccountFilter((prev) => (prev === acc.accountNo ? "ALL" : acc.accountNo))
+                }
+                className={`inline-flex items-center gap-2 px-2.5 py-1 rounded border text-[11px] whitespace-nowrap transition ${
+                  isSelected
+                    ? "bg-[#dbeafe] border-[#1d4ed8] text-[#0f172a] shadow-xs dark:bg-blue-950/60 dark:border-blue-500 dark:text-white"
+                    : "bg-[#f4efe4] border-[#b5a894] text-[#0f172a] hover:bg-[#ebe5d8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                }`}
+                title="클릭하여 해당 계좌만 필터링"
+              >
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                    isCorp
+                      ? "bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe]"
+                      : "bg-[#fef3c7] text-[#92400e] border border-[#fde68a]"
+                  }`}
+                >
+                  {isCorp ? "법인" : "개인"}
+                </span>
+                <span className="font-semibold">{acc.bankName}</span>
+                <span className="font-mono font-bold text-[#1e293b] dark:text-slate-100">
+                  {acc.accountNo}
+                </span>
+                <span className="text-[#94a3b8]">|</span>
+                {acc.latestTransDatetime ? (
+                  <>
+                    <span className="text-[#475569] dark:text-slate-400">마지막 거래일시:</span>
+                    <span className="font-mono font-bold text-[#047857] dark:text-emerald-400">
+                      {acc.latestTransDatetime}
+                    </span>
+                    <span className="text-[#64748b] dark:text-slate-400 font-mono">
+                      (잔액 {formatErpCurrency(acc.latestBalance)} / 총 {acc.totalCount.toLocaleString()}건
+                      {uploadedAtStr ? ` · 업로드: ${uploadedAtStr}` : ""})
+                    </span>
+                  </>
+                ) : (
+                  <span className="font-semibold text-[#dc2626] dark:text-rose-400">
+                    업로드된 거래데이터 없음
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* 2. Gutenberg Z-Pattern Step 3 (Body / High-Density Grid) */}
       <div className="flex-1 overflow-auto p-3">
@@ -887,6 +981,32 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
             </div>
 
             <div className="space-y-3 text-xs">
+              {accountStatus.length > 0 && (
+                <div className="p-2.5 rounded bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-950 dark:border-slate-800 space-y-1.5">
+                  <div className="text-[11px] font-bold text-[#334155] dark:text-slate-400">
+                    계좌별 마지막 업로드 거래데이터 일시
+                  </div>
+                  {accountStatus.map((acc) => (
+                    <div
+                      key={acc.accountNo}
+                      className="flex items-center justify-between text-[11px] font-mono"
+                    >
+                      <span className="text-[#0f172a] dark:text-slate-200 font-semibold">
+                        [{acc.entityType === "INDIVIDUAL" ? "개인" : "법인"}] {acc.bankName}{" "}
+                        {acc.accountNo}
+                      </span>
+                      {acc.latestTransDatetime ? (
+                        <span className="font-bold text-[#047857] dark:text-emerald-400">
+                          최종 거래: {acc.latestTransDatetime}
+                        </span>
+                      ) : (
+                        <span className="text-[#dc2626] dark:text-rose-400">업로드 내역 없음</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400">
                   귀속 계좌 설정

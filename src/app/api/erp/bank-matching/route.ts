@@ -199,6 +199,97 @@ export async function GET(request: Request) {
       ? `${latestBalRes.rows[0].dt} ${latestBalRes.rows[0].tm}`
       : null;
 
+    // 계좌별 마지막 업로드 거래데이터 일시 및 잔액 조회
+    const accountStatsRes = await pool.query(`
+      WITH latest_per_acc AS (
+        SELECT DISTINCT ON (account_no)
+          account_no,
+          entity_type,
+          bank_name,
+          trans_date::text AS latest_trans_date,
+          trans_time AS latest_trans_time,
+          balance_after::numeric AS latest_balance
+        FROM erp_bank_transactions
+        ORDER BY account_no, trans_date DESC, trans_time DESC, id DESC
+      ),
+      agg_per_acc AS (
+        SELECT
+          account_no,
+          COUNT(*)::int AS total_count,
+          MAX(created_at) AS last_uploaded_at
+        FROM erp_bank_transactions
+        GROUP BY account_no
+      )
+      SELECT
+        l.account_no AS "accountNo",
+        l.entity_type AS "entityType",
+        l.bank_name AS "bankName",
+        l.latest_trans_date AS "latestTransDate",
+        l.latest_trans_time AS "latestTransTime",
+        l.latest_balance AS "latestBalance",
+        a.total_count AS "totalCount",
+        a.last_uploaded_at AS "lastUploadedAt"
+      FROM latest_per_acc l
+      JOIN agg_per_acc a ON a.account_no = l.account_no
+      ORDER BY l.account_no ASC
+    `);
+
+    const defaultAccounts = [
+      {
+        accountNo: "478-081383-04-018",
+        entityType: "CORP",
+        bankName: "기업은행",
+        label: "법인 계좌",
+      },
+      {
+        accountNo: "140-129404-04-018",
+        entityType: "INDIVIDUAL",
+        bankName: "기업은행",
+        label: "개인 계좌",
+      },
+    ];
+
+    const statsByAcc = new Map<string, any>();
+    for (const r of accountStatsRes.rows) {
+      statsByAcc.set(r.accountNo, {
+        accountNo: r.accountNo,
+        entityType: r.entityType || (String(r.accountNo).includes("140") ? "INDIVIDUAL" : "CORP"),
+        bankName: r.bankName || "기업은행",
+        latestTransDate: r.latestTransDate || null,
+        latestTransTime: r.latestTransTime || null,
+        latestTransDatetime: r.latestTransDate
+          ? `${r.latestTransDate} ${r.latestTransTime || "00:00:00"}`
+          : null,
+        latestBalance: Number(r.latestBalance || 0),
+        totalCount: Number(r.totalCount || 0),
+        lastUploadedAt: r.lastUploadedAt || null,
+      });
+    }
+
+    const accountStatus = defaultAccounts.map((def) => {
+      const found = statsByAcc.get(def.accountNo);
+      if (found) {
+        statsByAcc.delete(def.accountNo);
+        return { ...def, ...found };
+      }
+      return {
+        ...def,
+        latestTransDate: null,
+        latestTransTime: null,
+        latestTransDatetime: null,
+        latestBalance: 0,
+        totalCount: 0,
+        lastUploadedAt: null,
+      };
+    });
+
+    for (const extra of statsByAcc.values()) {
+      accountStatus.push({
+        label: extra.entityType === "INDIVIDUAL" ? "개인 계좌" : "법인 계좌",
+        ...extra,
+      });
+    }
+
     // KPI 집계
     let totalDeposit = 0;
     let totalWithdrawal = 0;
@@ -225,6 +316,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       transactions: result.rows,
+      accountStatus,
       summary: {
         totalCount: result.rows.length,
         depositCount,

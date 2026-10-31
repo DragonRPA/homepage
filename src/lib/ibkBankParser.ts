@@ -267,34 +267,78 @@ export function extractBankTransactionsFromRows(
 
   const transactions: ParsedBankTransaction[] = [];
 
+  let colMap = {
+    description: 5,
+    memo: 8,
+    counterpartyAccount: 6,
+    counterpartyBank: 7,
+    txChannel: 9,
+    checkAmount: 10,
+    cmsCode: 11,
+    counterpartyHolder: 12,
+  };
+
   for (const r of rows) {
     if (!r || r.length === 0) continue;
     const joinedRow = r.join(" ");
 
-    // Extract IBK metadata block if present
-    if (joinedRow.includes("계좌번호:") || joinedRow.includes("예금주명:")) {
-      const metaText = r.find((c) => c && (c.includes("계좌번호:") || c.includes("예금주명:"))) || joinedRow;
+    // Extract IBK metadata block if present ("계좌번호:" or "계좌번호 :")
+    if (/계좌번호\s*:/.test(joinedRow) || /예금주명\s*:/.test(joinedRow)) {
       if (!overrideAccountNo || overrideAccountNo === "AUTO") {
-        const accMatch = metaText.match(/계좌번호\s*:\s*([0-9-]+)/);
+        const accMatch = joinedRow.match(/계좌번호\s*:\s*([0-9-]+)/);
         if (accMatch) accountNo = accMatch[1].trim();
       }
-      const holderMatch = metaText.match(/예금주명\s*:\s*([^\r\n]+?)(?:\s{2,}|예금종류|$)/);
-      if (holderMatch) accountHolder = holderMatch[1].trim();
-      const prodMatch = metaText.match(/예금종류\s*:\s*([^\r\n]+)/);
+      const holderMatch = joinedRow.match(/예금주명\s*:\s*([ \t]*[^\r\n]+?)(?:현재잔액|조회기준일|예금종류|\r|\n|[ \t]{2,}|$)/);
+      if (holderMatch) {
+        accountHolder = holderMatch[1].trim();
+      } else if (accountNo.includes("140")) {
+        accountHolder = "드래곤알피에이";
+      }
+      const prodMatch = joinedRow.match(/예금종류\s*:\s*([ \t]*[^\r\n]+?)(?:출금가능금액|조회종료일자|\r|\n|[ \t]{2,}|$)/);
       if (prodMatch) accountProduct = prodMatch[1].trim();
-      const balMatch = metaText.match(/현재잔액\s*:\s*([0-9,]+)/);
+      const balMatch = joinedRow.match(/현재잔액\s*:\s*([0-9,]+)/);
       if (balMatch) currentBalance = parseNumeric(balMatch[1]);
-      const startMatch = metaText.match(/조회시작일자\s*:\s*(\d{4}-\d{2}-\d{2})/);
+      const startMatch = joinedRow.match(/조회시작일자\s*:\s*(\d{4}-\d{2}-\d{2})/);
       if (startMatch) periodStart = startMatch[1];
-      const endMatch = metaText.match(/조회종료일자\s*:\s*(\d{4}-\d{2}-\d{2})/);
+      const endMatch = joinedRow.match(/조회종료일자\s*:\s*(\d{4}-\d{2}-\d{2})/);
       if (endMatch) periodEnd = endMatch[1];
       continue;
     }
 
-    // Skip summary rows (",합계,...") or header rows ("거래일시")
+    // Skip summary rows (",합계,...") or parse header rows ("거래일시")
     const col0 = String(r[0] || "").trim();
     const col1 = String(r[1] || "").trim();
-    if (col0 === "합계" || col1 === "합계" || col1 === "거래일시" || col0 === "거래일시") {
+    if (col1 === "거래일시" || col0 === "거래일시") {
+      const hOffset = col0 === "거래일시" ? -1 : 0;
+      const col6Header = String(r[6 + hOffset] || "").trim();
+      if (col6Header.includes("송금메시지") || col6Header.includes("메모")) {
+        // IBK 출력용 .xls HTML 포맷: [6]송금메시지 [7]상대계좌번호 [8]상대은행
+        colMap = {
+          description: 5,
+          memo: 6,
+          counterpartyAccount: 7,
+          counterpartyBank: 8,
+          txChannel: 9,
+          checkAmount: 10,
+          cmsCode: 11,
+          counterpartyHolder: 12,
+        };
+      } else {
+        // IBK 예금 CSV 포맷: [6]상대계좌번호 [7]상대은행 [8]메모
+        colMap = {
+          description: 5,
+          counterpartyAccount: 6,
+          counterpartyBank: 7,
+          memo: 8,
+          txChannel: 9,
+          checkAmount: 10,
+          cmsCode: 11,
+          counterpartyHolder: 12,
+        };
+      }
+      continue;
+    }
+    if (col0 === "합계" || col1 === "합계") {
       continue;
     }
 
@@ -323,14 +367,14 @@ export function extractBankTransactionsFromRows(
     const withdrawalAmount = parseNumeric(r[2 + offset]);
     const depositAmount = parseNumeric(r[3 + offset]);
     const balanceAfter = parseNumeric(r[4 + offset]);
-    const description = String(r[5 + offset] ?? "").trim();
-    const counterpartyAccount = String(r[6 + offset] ?? "").trim();
-    const counterpartyBank = String(r[7 + offset] ?? "").trim();
-    const memo = String(r[8 + offset] ?? "").trim();
-    const txChannel = String(r[9 + offset] ?? "").trim();
-    const checkAmount = parseNumeric(r[10 + offset]);
-    const cmsCode = String(r[11 + offset] ?? "").trim();
-    const counterpartyHolder = String(r[12 + offset] ?? "").trim();
+    const description = String(r[colMap.description + offset] ?? "").trim();
+    const counterpartyAccount = String(r[colMap.counterpartyAccount + offset] ?? "").trim();
+    const counterpartyBank = String(r[colMap.counterpartyBank + offset] ?? "").trim();
+    const memo = String(r[colMap.memo + offset] ?? "").trim();
+    const txChannel = String(r[colMap.txChannel + offset] ?? "").trim();
+    const checkAmount = parseNumeric(r[colMap.checkAmount + offset]);
+    const cmsCode = String(r[colMap.cmsCode + offset] ?? "").trim();
+    const counterpartyHolder = String(r[colMap.counterpartyHolder + offset] ?? "").trim();
 
     const transType: "DEPOSIT" | "WITHDRAWAL" | "OPEN" =
       depositAmount > 0 ? "DEPOSIT" : withdrawalAmount > 0 ? "WITHDRAWAL" : "OPEN";

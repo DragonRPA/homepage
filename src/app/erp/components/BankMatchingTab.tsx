@@ -60,7 +60,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     .toISOString()
     .substring(0, 10);
 
-  const [startDate, setStartDate] = useState("2024-07-01");
+  const [startDate, setStartDate] = useState("2023-01-01");
   const [endDate, setEndDate] = useState(today);
   const [transType, setTransType] = useState<"ALL" | "DEPOSIT" | "WITHDRAWAL">("ALL");
   const [txChannel, setTxChannel] = useState("ALL");
@@ -251,9 +251,9 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     fetchTransactions();
   }, [startDate, endDate, transType, txChannel, matchStatus, accountFilter, selectedEntity]);
 
-  const setPeriodPreset = (preset: "ALL" | "2026" | "2025" | "2024" | "MONTH") => {
+  const setPeriodPreset = (preset: "ALL" | "2026" | "2025" | "2024" | "2023" | "MONTH") => {
     if (preset === "ALL") {
-      setStartDate("2024-07-01");
+      setStartDate("2023-01-01");
       setEndDate(today);
     } else if (preset === "2026") {
       setStartDate("2026-01-01");
@@ -262,8 +262,11 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       setStartDate("2025-01-01");
       setEndDate("2025-12-31");
     } else if (preset === "2024") {
-      setStartDate("2024-07-01");
+      setStartDate("2024-01-01");
       setEndDate("2024-12-31");
+    } else if (preset === "2023") {
+      setStartDate("2023-01-01");
+      setEndDate("2023-12-31");
     } else if (preset === "MONTH") {
       setStartDate(monthStart);
       setEndDate(today);
@@ -507,6 +510,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                 { key: "2026", label: "2026년" },
                 { key: "2025", label: "2025년" },
                 { key: "2024", label: "2024년" },
+                { key: "2023", label: "2023년" },
                 { key: "MONTH", label: "당월" },
               ].map((p) => (
                 <button

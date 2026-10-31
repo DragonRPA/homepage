@@ -41,7 +41,7 @@ function parseAmount(raw: any): number {
 }
 
 // Parse Hometax Excel (.xls / .xlsx / .csv) buffer into HometaxCollectedInvoice[]
-export function parseHometaxExcelBuffer(
+function parseHometaxExcelBuffer(
   buffer: Buffer,
   defaultIoType: "SALE" | "PURCHASE",
   ourBizNumRaw: string

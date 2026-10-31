@@ -64,7 +64,9 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
   const [endDate, setEndDate] = useState(today);
   const [transType, setTransType] = useState<"ALL" | "DEPOSIT" | "WITHDRAWAL">("ALL");
   const [txChannel, setTxChannel] = useState("ALL");
-  const [matchStatus, setMatchStatus] = useState<"ALL" | "MATCHED" | "UNMATCHED">("ALL");
+  const [matchStatus, setMatchStatus] = useState<
+    "ALL" | "MATCHED" | "UNMATCHED" | "PAYROLL" | "INVOICE"
+  >("ALL");
   const [accountFilter, setAccountFilter] = useState("ALL");
   const [search, setSearch] = useState("");
 
@@ -577,6 +579,8 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
               <option value="ALL">전체 상태</option>
               <option value="MATCHED">매칭완료</option>
               <option value="UNMATCHED">미매칭</option>
+              <option value="PAYROLL">급여 항목</option>
+              <option value="INVOICE">세금계산서 매칭</option>
             </select>
           </div>
 
@@ -847,7 +851,14 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
 
                       {/* 거래내용 */}
                       <td className="py-1.5 px-2.5 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap">
-                        {t.senderReceiver}
+                        <div className="inline-flex items-center gap-1.5">
+                          {t.matchedType === "PAYROLL" && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ede9fe] text-[#5b21b6] border border-[#c4b5fd] dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/40 whitespace-nowrap">
+                              급여
+                            </span>
+                          )}
+                          <span>{t.senderReceiver}</span>
+                        </div>
                       </td>
 
                       {/* 상대계좌예금주명 */}
@@ -872,17 +883,23 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
 
                       {/* 대사상태 */}
                       <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                            t.isMatched
-                              ? "bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30"
-                              : "bg-[#fef3c7] text-[#92400e] border border-[#fde68a] dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30"
-                          }`}
-                        >
-                          {t.isMatched
-                            ? `매칭완료 (${t.matchedId || t.matchedType || "확정"})`
-                            : "미매칭"}
-                        </span>
+                        {t.matchedType === "PAYROLL" ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ede9fe] text-[#5b21b6] border border-[#c4b5fd] dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/40 whitespace-nowrap">
+                            {t.matchedId || "급여"}
+                          </span>
+                        ) : (
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap ${
+                              t.isMatched
+                                ? "bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30"
+                                : "bg-[#fef3c7] text-[#92400e] border border-[#fde68a] dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30"
+                            }`}
+                          >
+                            {t.isMatched
+                              ? `매칭완료 (${t.matchedId || t.matchedType || "확정"})`
+                              : "미매칭"}
+                          </span>
+                        )}
                       </td>
 
                       {/* 계좌번호 */}

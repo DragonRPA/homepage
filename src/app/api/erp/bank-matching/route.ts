@@ -7,6 +7,175 @@ import {
   ParsedBankTransaction,
 } from "@/lib/ibkBankParser";
 
+const KNOWN_PAYROLL_ACCOUNTS: Record<string, { emp: string; bank: string }> = {
+  "01071939811": { emp: "이진규", bank: "기업은행" },
+  "36517252302001": { emp: "장종순", bank: "우리은행" },
+  "1002408300450": { emp: "장종순", bank: "우리은행" },
+  "3333329635820": { emp: "조경찬", bank: "카카오뱅크" },
+  "972-028656-01-018": { emp: "김승지", bank: "기업은행" },
+  "33291058226607": { emp: "박종환", bank: "하나은행" },
+  "1002753824367": { emp: "정세웅", bank: "우리은행" },
+  "00600204200039": { emp: "김효진", bank: "국민은행" },
+  "27491024160707": { emp: "강주형", bank: "하나은행" },
+  "3561014522153": { emp: "정건희", bank: "농협은행" },
+};
+
+function prevYearMonth(transDateStr: string) {
+  const [y, m] = transDateStr.split("-").map(Number);
+  if (!y || !m) return "0000";
+  if (m === 1) return `${String(y - 1).slice(-2)}12`;
+  return `${String(y).slice(-2)}${String(m - 1).padStart(2, "0")}`;
+}
+
+function classifyPayrollItem(item: ParsedBankTransaction) {
+  const entityType =
+    item.entityType || (String(item.accountNo || "").includes("140") ? "INDIVIDUAL" : "CORP");
+  if (entityType !== "CORP") return null;
+
+  const sr = String(item.senderReceiver || "").replace(/\u3000/g, " ").trim();
+  const holder = String(item.counterpartyHolder || "").replace(/\u3000/g, " ").trim();
+  const acc = String(item.counterpartyAccount || "").trim();
+  const bank = String(item.counterpartyBank || "").trim();
+  const memo = String(item.memo || "").trim();
+  const transDate = String(item.transDate || "");
+  const wAmt = Number(item.withdrawalAmount || 0);
+  const dAmt = Number(item.depositAmount || 0);
+  const combined = `${sr} ${holder} ${memo}`;
+
+  if (/가수금|가수근|운영자금|푸드트래블/.test(combined)) {
+    return null;
+  }
+
+  const EMP_NAMES = [
+    "이진규",
+    "장종순",
+    "조경찬",
+    "김승지",
+    "박종환",
+    "이정용",
+    "정세웅",
+    "김효진",
+    "강주형",
+    "정건희",
+  ];
+  let empName: string | null = null;
+  for (const name of EMP_NAMES) {
+    if (sr.includes(name) || holder.includes(name) || memo.includes(name)) {
+      empName = name;
+      break;
+    }
+  }
+  if (!empName && KNOWN_PAYROLL_ACCOUNTS[acc]) {
+    empName = KNOWN_PAYROLL_ACCOUNTS[acc].emp;
+  }
+  if (!empName) return null;
+
+  if (sr.includes("조경찬퇴직정산")) {
+    const isDiff = sr.includes("차액") || dAmt > 0;
+    return {
+      matchedType: "PAYROLL",
+      matchedId: isDiff ? "퇴직정산환입-조경찬(2609)" : "퇴직금-조경찬(2609)",
+      holder: holder || "이정용",
+      bank: bank || "우리은행",
+      memo: isDiff ? "임직원 퇴직정산 차액 환입 (조경찬)" : "임직원 퇴직금 정산 (조경찬)",
+    };
+  }
+
+  if (sr.includes("08박종환대체")) {
+    return {
+      matchedType: "PAYROLL",
+      matchedId: "급여대체-박종환(2608)",
+      holder: holder || "이정용",
+      bank: bank || "우리은행",
+      memo: "임직원 급여 대납 정산 (2026-08 귀속 박종환)",
+    };
+  }
+
+  if (sr.includes("퇴직금")) {
+    const ym = transDate.slice(2, 4) + transDate.slice(5, 7);
+    return {
+      matchedType: "PAYROLL",
+      matchedId: `퇴직금-${empName}(${ym})`,
+      holder: holder || empName,
+      bank: bank || (KNOWN_PAYROLL_ACCOUNTS[acc]?.bank ?? ""),
+      memo: `임직원 퇴직금 (${empName})`,
+    };
+  }
+
+  if (sr.includes("아르바이트") || sr.includes("일용") || ["김효진", "강주형", "정건희"].includes(empName)) {
+    const ym = transDate.slice(2, 4) + transDate.slice(5, 7);
+    return {
+      matchedType: "PAYROLL",
+      matchedId: `일용급여-${empName}(${ym})`,
+      holder: holder || empName,
+      bank: bank || (KNOWN_PAYROLL_ACCOUNTS[acc]?.bank ?? ""),
+      memo: `일용/단기 급여 (${empName})`,
+    };
+  }
+
+  if (sr.includes("중복") && dAmt > 0) {
+    return {
+      matchedType: "PAYROLL",
+      matchedId: `급여환입-${empName}(2510)`,
+      holder: holder || empName,
+      bank: bank || "우리은행",
+      memo: `급여 중복이체 환입 (${empName})`,
+    };
+  }
+
+  if (dAmt > 0 && empName === "장종순") {
+    const ym = prevYearMonth(transDate);
+    return {
+      matchedType: "PAYROLL",
+      matchedId: `급여정산환입-장종순(${ym})`,
+      holder: "장종순",
+      bank: bank || "우리은행",
+      memo: `임직원 급여 차액 정산 환입 (20${ym.slice(0, 2)}-${ym.slice(2, 4)} 귀속 장종순)`,
+    };
+  }
+
+  if (wAmt <= 0) return null;
+
+  let ym: string | null = null;
+  if (sr.includes("2064")) {
+    ym = "2604";
+  } else if (sr === "이진규07") {
+    ym = "2407";
+  } else if (sr === "2412이진규" && transDate.startsWith("2024-12")) {
+    ym = "2411";
+  } else if (sr === "2025.이진규") {
+    ym = "2505";
+  } else {
+    const m4 = (sr + " " + memo).match(/(24|25|26|27)(0[1-9]|1[0-2])/);
+    if (m4) {
+      ym = m4[0];
+    } else {
+      ym = prevYearMonth(transDate);
+    }
+  }
+
+  const fullYm = `20${ym.slice(0, 2)}-${ym.slice(2, 4)}`;
+  const isFixedBase = /급여/.test(sr) && [2000000, 4000000, 1950000].includes(wAmt);
+  const isSettlementAdd =
+    ["장종순", "조경찬", "김승지"].includes(empName) &&
+    transDate >= "2026-01-01" &&
+    !isFixedBase &&
+    wAmt < 1000000;
+
+  const labelPrefix = isSettlementAdd ? "급여정산" : "급여";
+  const memoText = isSettlementAdd
+    ? `임직원 급여/수당 정산 (${fullYm} 귀속 ${empName})`
+    : `임직원 급여 (${fullYm} 귀속 ${empName})`;
+
+  return {
+    matchedType: "PAYROLL",
+    matchedId: `${labelPrefix}-${empName}(${ym})`,
+    holder: holder || empName,
+    bank: bank || (KNOWN_PAYROLL_ACCOUNTS[acc]?.bank ?? (empName === "이정용" ? "우리은행" : "")),
+    memo: memo || memoText,
+  };
+}
+
 async function bulkUpsertBankTransactions(items: ParsedBankTransaction[]) {
   const pool = getErpPool();
   const client = await pool.connect();
@@ -17,15 +186,25 @@ async function bulkUpsertBankTransactions(items: ParsedBankTransaction[]) {
     await client.query("BEGIN");
 
     const BATCH_SIZE = 100;
+    const nowIso = new Date().toISOString();
     for (let i = 0; i < items.length; i += BATCH_SIZE) {
       const batch = items.slice(i, i + BATCH_SIZE);
       const values: any[] = [];
       const placeholders: string[] = [];
 
       batch.forEach((item, idx) => {
-        const base = idx * 21;
+        const payroll = classifyPayrollItem(item);
+        const isMatched = Boolean(payroll);
+        const matchedType = payroll ? payroll.matchedType : null;
+        const matchedId = payroll ? payroll.matchedId : null;
+        const matchedAt = payroll ? nowIso : null;
+        const finalMemo = item.memo || (payroll ? payroll.memo : null);
+        const finalHolder = item.counterpartyHolder || (payroll ? payroll.holder : null);
+        const finalBank = item.counterpartyBank || (payroll ? payroll.bank : null);
+
+        const base = idx * 25;
         placeholders.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}, $${base + 20}, $${base + 21}, false)`
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}, $${base + 20}, $${base + 21}, $${base + 22}, $${base + 23}, $${base + 24}, $${base + 25})`
         );
         values.push(
           item.entityType,
@@ -42,13 +221,17 @@ async function bulkUpsertBankTransactions(items: ParsedBankTransaction[]) {
           item.balanceAfter,
           item.senderReceiver,
           item.counterpartyAccount,
-          item.counterpartyBank,
-          item.memo,
+          finalBank,
+          finalMemo,
           item.txChannel,
           item.checkAmount,
           item.cmsCode,
-          item.counterpartyHolder,
-          item.txHash
+          finalHolder,
+          item.txHash,
+          isMatched,
+          matchedType,
+          matchedId,
+          matchedAt
         );
       });
 
@@ -57,14 +240,19 @@ async function bulkUpsertBankTransactions(items: ParsedBankTransaction[]) {
           entity_type, bank_name, account_no, account_holder, account_product,
           trans_date, trans_time, trans_type, amount, withdrawal_amount, deposit_amount,
           balance_after, sender_receiver, counterparty_account, counterparty_bank,
-          memo, tx_channel, check_amount, cms_code, counterparty_holder, tx_hash, is_matched
+          memo, tx_channel, check_amount, cms_code, counterparty_holder, tx_hash,
+          is_matched, matched_type, matched_id, matched_at
         ) VALUES ${placeholders.join(", ")}
         ON CONFLICT (tx_hash) DO UPDATE SET
           memo = COALESCE(NULLIF(EXCLUDED.memo, ''), erp_bank_transactions.memo),
           counterparty_account = COALESCE(NULLIF(EXCLUDED.counterparty_account, ''), erp_bank_transactions.counterparty_account),
           counterparty_bank = COALESCE(NULLIF(EXCLUDED.counterparty_bank, ''), erp_bank_transactions.counterparty_bank),
           tx_channel = COALESCE(NULLIF(EXCLUDED.tx_channel, ''), erp_bank_transactions.tx_channel),
-          counterparty_holder = COALESCE(NULLIF(EXCLUDED.counterparty_holder, ''), erp_bank_transactions.counterparty_holder)
+          counterparty_holder = COALESCE(NULLIF(EXCLUDED.counterparty_holder, ''), erp_bank_transactions.counterparty_holder),
+          is_matched = CASE WHEN erp_bank_transactions.is_matched THEN true ELSE EXCLUDED.is_matched END,
+          matched_type = COALESCE(erp_bank_transactions.matched_type, EXCLUDED.matched_type),
+          matched_id = COALESCE(erp_bank_transactions.matched_id, EXCLUDED.matched_id),
+          matched_at = COALESCE(erp_bank_transactions.matched_at, EXCLUDED.matched_at)
         RETURNING (xmax = 0) AS inserted`,
         values
       );
@@ -158,6 +346,10 @@ export async function GET(request: Request) {
       conditions.push(`is_matched = true`);
     } else if (matchStatus === "UNMATCHED") {
       conditions.push(`is_matched = false`);
+    } else if (matchStatus === "PAYROLL") {
+      conditions.push(`matched_type = 'PAYROLL'`);
+    } else if (matchStatus === "INVOICE") {
+      conditions.push(`matched_type IN ('SALE_INVOICE', 'PURCHASE_INVOICE', 'BILLING', 'PURCHASE')`);
     }
 
     if (accountNo && accountNo !== "ALL") {
@@ -174,7 +366,7 @@ export async function GET(request: Request) {
       params.push(`%${search.trim()}%`);
       const idx = params.length;
       conditions.push(
-        `(sender_receiver ILIKE $${idx} OR memo ILIKE $${idx} OR counterparty_holder ILIKE $${idx} OR counterparty_account ILIKE $${idx} OR counterparty_bank ILIKE $${idx} OR tx_channel ILIKE $${idx})`
+        `(sender_receiver ILIKE $${idx} OR memo ILIKE $${idx} OR counterparty_holder ILIKE $${idx} OR counterparty_account ILIKE $${idx} OR counterparty_bank ILIKE $${idx} OR tx_channel ILIKE $${idx} OR matched_id ILIKE $${idx})`
       );
     }
 

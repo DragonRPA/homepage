@@ -6,7 +6,7 @@ import {
   Building2, Shield, CheckSquare, Settings, Calendar, 
   Clock, DollarSign, CreditCard, ChevronDown, ChevronRight,
   FolderTree, Database, Package, Layers, PackageCheck, PackagePlus, ArrowLeftRight, BookOpen,
-  SlidersHorizontal, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, X, Star, BarChart3, Menu
+  SlidersHorizontal, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, X, Star, BarChart3, Menu, FileSignature
 } from "lucide-react";
 
 import { ErpLogin } from "./components/ErpLogin";
@@ -22,6 +22,7 @@ import { LeaveApplyTab } from "./components/LeaveApplyTab";
 import { LeaveManageTab } from "./components/LeaveManageTab";
 import { OtManagementTab } from "./components/OtManagementTab";
 import { WorkRulesTab } from "./components/WorkRulesTab";
+import { EmploymentContractTab } from "./components/EmploymentContractTab";
 import { BankMatchingTab } from "./components/BankMatchingTab";
 import { PayrollTab } from "./components/PayrollTab";
 import { FinancialReportTab } from "./components/FinancialReportTab";
@@ -46,6 +47,7 @@ export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "PARTNER" | "ASSET"
 
 export type ErpMenuKey =
   | "ORG"
+  | "EMPLOYMENT_CONTRACT"
   | "PERMISSIONS"
   | "LEAVE_APPLY"
   | "LEAVE_MANAGE"
@@ -87,6 +89,7 @@ const CATEGORIES: CategoryConfig[] = [
     icon: Users,
     items: [
       { key: "ORG", label: "조직 인사관리", icon: Building2 },
+      { key: "EMPLOYMENT_CONTRACT", label: "근로계약서 관리", icon: FileSignature },
       { key: "PERMISSIONS", label: "사용자 및 권한", icon: Shield },
       { key: "LEAVE_APPLY", label: "연차 신청", icon: Calendar },
       { key: "LEAVE_MANAGE", label: "연차 관리", icon: Users },
@@ -155,6 +158,7 @@ const CATEGORIES: CategoryConfig[] = [
 
 const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   ORG: "org",
+  EMPLOYMENT_CONTRACT: "org",
   PERMISSIONS: "users",
   LEAVE_APPLY: "leave_apply",
   LEAVE_MANAGE: "leave_manage",
@@ -649,6 +653,9 @@ export default function ErpMainPage() {
             ) : (
               <>
                 {activeMenu === "ORG" && <OrganizationTab currentUser={enrichedUser} />}
+                {activeMenu === "EMPLOYMENT_CONTRACT" && (
+                  <EmploymentContractTab currentUser={enrichedUser} />
+                )}
                 {activeMenu === "PERMISSIONS" && (
                   <PermissionsTab
                     currentUser={enrichedUser}

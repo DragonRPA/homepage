@@ -42,6 +42,7 @@ export interface PayrollRecord {
   otHours: number;
   otPay: number;
   annualLeaveAllowance: number;
+  severancePay?: number;
   bonus: number;
   totalGross: number;
 
@@ -388,7 +389,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const handleExportCsv = () => {
     const headers = [
       "귀속월", "지급일자", "사번", "성명", "부서", "직급", "입사일",
-      "용역계약금액", "기본급", "식대(비과세)", "차량보조금", "초과근무수당", "연차수당", "상여금", "총지급액",
+      "용역계약금액", "기본급", "식대(비과세)", "차량보조금", "초과근무수당", "연차수당", "퇴직급여", "상여금", "총지급액",
       "국민연금", "건강보험", "고용보험", "장기요양보험료", "소득세", "지방소득세",
       "연말정산소득세", "연말정산지방세", "고용보험정산분", "총공제액", "차인지급액", "상태"
     ];
@@ -406,6 +407,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       r.vehicleAllowance,
       r.otPay,
       r.annualLeaveAllowance,
+      r.severancePay || 0,
       r.bonus,
       r.totalGross,
       r.nationalPension,
@@ -623,6 +625,12 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                     <span>식대 {formatErpCurrency(r.mealAllowance)}</span>
                     {r.vehicleAllowance > 0 && <span>차량 {formatErpCurrency(r.vehicleAllowance)}</span>}
                     {r.otPay > 0 && <span>초과근무 {formatErpCurrency(r.otPay)}</span>}
+                    {r.annualLeaveAllowance > 0 && (
+                      <span className="text-[#1d4ed8] font-bold">연차수당 {formatErpCurrency(r.annualLeaveAllowance)}</span>
+                    )}
+                    {Number(r.severancePay || 0) > 0 && (
+                      <span className="text-[#6b21a8] font-bold">퇴직급여 {formatErpCurrency(r.severancePay || 0)}</span>
+                    )}
                   </div>
                 </div>
               ))
@@ -655,6 +663,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                   {renderSortTh("차량보조금", "vehicleAllowance", "right")}
                   {renderSortTh("초과근무수당", "otPay", "right")}
                   {renderSortTh("연차수당", "annualLeaveAllowance", "right")}
+                  {renderSortTh("퇴직급여", "severancePay", "right")}
                   {renderSortTh("상여금", "bonus", "right")}
                   {renderSortTh("지급합계", "totalGross", "right", "text-[#1d4ed8] font-bold bg-[#e2dbcd]/70 dark:text-blue-300 dark:bg-slate-800/90")}
 
@@ -775,6 +784,9 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                         </td>
                         <td className="py-1.5 px-2.5 text-right text-[#0f172a] dark:text-slate-300 whitespace-nowrap">
                           {formatErpCurrency(r.annualLeaveAllowance)}
+                        </td>
+                        <td className="py-1.5 px-2.5 text-right text-[#6b21a8] dark:text-purple-400 font-bold whitespace-nowrap">
+                          {formatErpCurrency(r.severancePay || 0)}
                         </td>
                         <td className="py-1.5 px-2.5 text-right text-[#475569] dark:text-slate-400 whitespace-nowrap">
                           {formatErpCurrency(r.bonus)}

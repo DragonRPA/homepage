@@ -30,6 +30,7 @@ export async function GET(request: Request) {
         COALESCE(p.meal_allowance, 0)::numeric as "mealAllowance",
         COALESCE(p.vehicle_allowance, 0)::numeric as "vehicleAllowance",
         COALESCE(p.annual_leave_allowance, 0)::numeric as "annualLeaveAllowance",
+        COALESCE(p.severance_pay, 0)::numeric as "severancePay",
         COALESCE(p.bonus, 0)::numeric as "bonus",
         COALESCE(p.total_gross, 0)::numeric as "totalGross",
         COALESCE(p.national_pension, 0)::numeric as "nationalPension",
@@ -137,7 +138,7 @@ export async function POST(request: Request) {
         const upsertRes = await pool.query(
           `INSERT INTO erp_payroll_records (
             year_month, employee_id, pay_date, service_contract_amount,
-            base_salary, meal_allowance, vehicle_allowance, ot_pay, annual_leave_allowance, bonus,
+            base_salary, meal_allowance, vehicle_allowance, ot_pay, annual_leave_allowance, severance_pay, bonus,
             total_gross, national_pension, health_insurance, employment_insurance, long_term_care_insurance,
             income_tax, local_tax, year_end_income_tax, year_end_local_tax,
             national_pension_settlement, health_insurance_settlement, long_term_care_settlement,
@@ -145,12 +146,12 @@ export async function POST(request: Request) {
             total_deduction, net_salary, status, pdf_file_name, updated_at
           ) VALUES (
             $1, $2, $3, $4,
-            $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15,
-            $16, $17, $18, $19,
-            $20, $21, $22,
-            $23, $24, $25,
-            $26, $27, $28, $29, NOW()
+            $5, $6, $7, $8, $9, $10, $11,
+            $12, $13, $14, $15, $16,
+            $17, $18, $19, $20,
+            $21, $22, $23,
+            $24, $25, $26,
+            $27, $28, $29, $30, NOW()
           )
           ON CONFLICT (year_month, employee_id)
           DO UPDATE SET
@@ -161,6 +162,7 @@ export async function POST(request: Request) {
             vehicle_allowance = EXCLUDED.vehicle_allowance,
             ot_pay = EXCLUDED.ot_pay,
             annual_leave_allowance = EXCLUDED.annual_leave_allowance,
+            severance_pay = COALESCE(EXCLUDED.severance_pay, erp_payroll_records.severance_pay, 0),
             bonus = EXCLUDED.bonus,
             total_gross = EXCLUDED.total_gross,
             national_pension = EXCLUDED.national_pension,
@@ -193,6 +195,7 @@ export async function POST(request: Request) {
             Number(r.vehicleAllowance || 0),
             Number(r.otPay || 0),
             Number(r.annualLeaveAllowance || 0),
+            Number(r.severancePay || 0),
             Number(r.bonus || 0),
             Number(r.totalGross || 0),
             Number(r.nationalPension || 0),
@@ -363,7 +366,20 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, yearMonth, action, status, bonus, baseSalary, mealAllowance, vehicleAllowance, serviceContractAmount, payDate } = body;
+    const {
+      id,
+      yearMonth,
+      action,
+      status,
+      bonus,
+      baseSalary,
+      mealAllowance,
+      vehicleAllowance,
+      annualLeaveAllowance: bodyAnnualLeave,
+      severancePay: bodySeverance,
+      serviceContractAmount,
+      payDate,
+    } = body;
 
     const pool = getErpPool();
 
@@ -433,10 +449,18 @@ export async function PATCH(request: Request) {
     const otPay = Number(rec.ot_pay || 0);
     const newMealAllowance = mealAllowance !== undefined ? Number(mealAllowance) : Number(rec.meal_allowance || 0);
     const newVehicleAllowance = vehicleAllowance !== undefined ? Number(vehicleAllowance) : Number(rec.vehicle_allowance || 0);
-    const annualLeaveAllowance = Number(rec.annual_leave_allowance || 0);
+    const annualLeaveAllowance = bodyAnnualLeave !== undefined ? Number(bodyAnnualLeave) : Number(rec.annual_leave_allowance || 0);
+    const severancePay = bodySeverance !== undefined ? Number(bodySeverance) : Number(rec.severance_pay || 0);
 
-    const totalGross = newBaseSalary + otPay + newMealAllowance + newVehicleAllowance + annualLeaveAllowance + newBonus;
-    const taxable = Math.max(0, totalGross - newMealAllowance - newVehicleAllowance);
+    const totalGross =
+      newBaseSalary +
+      otPay +
+      newMealAllowance +
+      newVehicleAllowance +
+      annualLeaveAllowance +
+      severancePay +
+      newBonus;
+    const taxable = Math.max(0, totalGross - newMealAllowance - newVehicleAllowance - severancePay);
 
     // 임직원 4대보험 가입여부 조회
     const empInsRes = await pool.query(
@@ -468,16 +492,18 @@ export async function PATCH(request: Request) {
     const updateRes = await pool.query(
       `UPDATE erp_payroll_records 
        SET base_salary = $1, bonus = $2, service_contract_amount = $3,
-           meal_allowance = $4, vehicle_allowance = $5, total_gross = $6,
-           national_pension = $7, health_insurance = $8, employment_insurance = $9,
-           long_term_care_insurance = $10, income_tax = $11, local_tax = $12,
-           total_deduction = $13, net_salary = $14, pay_date = COALESCE($15, pay_date),
+           meal_allowance = $4, vehicle_allowance = $5,
+           annual_leave_allowance = $6, severance_pay = $7, total_gross = $8,
+           national_pension = $9, health_insurance = $10, employment_insurance = $11,
+           long_term_care_insurance = $12, income_tax = $13, local_tax = $14,
+           total_deduction = $15, net_salary = $16, pay_date = COALESCE($17, pay_date),
            updated_at = NOW()
-       WHERE id = $16
+       WHERE id = $18
        RETURNING *`,
       [
         newBaseSalary, newBonus, newServiceAmt,
-        newMealAllowance, newVehicleAllowance, totalGross,
+        newMealAllowance, newVehicleAllowance,
+        annualLeaveAllowance, severancePay, totalGross,
         nationalPension, healthInsurance, employmentInsurance, longTermCareInsurance,
         incomeTax, localTax, totalDeduction, netSalary,
         payDate || null, id

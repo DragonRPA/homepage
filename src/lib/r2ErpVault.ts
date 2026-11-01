@@ -1,6 +1,6 @@
 import "server-only";
 import crypto from "crypto";
-import { sql } from "@/lib/db";
+import { getErpPool } from "@/lib/supabaseErp";
 import { decryptPii } from "@/lib/piiCrypto";
 
 /**
@@ -32,7 +32,8 @@ async function resolveR2Config(): Promise<R2ResolvedConfig> {
   let secretAccessKey = process.env.R2_ERP_SECRET_ACCESS_KEY?.trim() || "";
 
   if (!accountId || !bucket || !accessKeyId || !secretAccessKey) {
-    const rows = await sql`
+    const pool = getErpPool();
+    const res = await pool.query(`
       SELECT secret_key, encrypted_value
       FROM erp_system_secrets
       WHERE secret_key IN (
@@ -41,9 +42,9 @@ async function resolveR2Config(): Promise<R2ResolvedConfig> {
         'R2_ERP_ACCESS_KEY_ID',
         'R2_ERP_SECRET_ACCESS_KEY'
       )
-    `;
+    `);
     const map: Record<string, string> = {};
-    for (const r of rows) {
+    for (const r of res.rows) {
       map[String(r.secret_key)] = decryptPii(String(r.encrypted_value));
     }
     accountId = accountId || map.R2_ERP_ACCOUNT_ID || "";

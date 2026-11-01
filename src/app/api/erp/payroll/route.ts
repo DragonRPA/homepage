@@ -10,6 +10,30 @@ export async function GET(request: Request) {
     const yearMonth = searchParams.get("yearMonth") || today;
 
     const pool = getErpPool();
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_expense_receipts (
+        id SERIAL PRIMARY KEY,
+        employee_id BIGINT NOT NULL REFERENCES erp_employees(id) ON DELETE CASCADE,
+        expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        year_month VARCHAR(7) NOT NULL,
+        category VARCHAR(50) NOT NULL DEFAULT '식대·회식비',
+        merchant_name VARCHAR(200) NOT NULL DEFAULT '',
+        amount NUMERIC NOT NULL DEFAULT 0,
+        payment_method VARCHAR(50) NOT NULL DEFAULT '개인카드',
+        reason TEXT NOT NULL DEFAULT '',
+        receipt_file_url TEXT,
+        receipt_file_name TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'APPROVED',
+        approver_id BIGINT,
+        approved_at TIMESTAMPTZ,
+        memo TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      ALTER TABLE erp_payroll_records
+      ADD COLUMN IF NOT EXISTS personal_expense_amount NUMERIC NOT NULL DEFAULT 0;
+    `);
+
     const query = `
       SELECT 
         p.id,
@@ -33,6 +57,8 @@ export async function GET(request: Request) {
         COALESCE(p.annual_leave_allowance, 0)::numeric as "annualLeaveAllowance",
         COALESCE(p.severance_pay, 0)::numeric as "severancePay",
         COALESCE(p.bonus, 0)::numeric as "bonus",
+        COALESCE(exp.total_expense_amount, p.personal_expense_amount, 0)::numeric as "personalExpenseAmount",
+        COALESCE(exp.receipt_count, 0)::int as "expenseReceiptCount",
         COALESCE(p.total_gross, 0)::numeric as "totalGross",
         COALESCE(p.national_pension, 0)::numeric as "nationalPension",
         COALESCE(p.health_insurance, 0)::numeric as "healthInsurance",
@@ -55,7 +81,8 @@ export async function GET(request: Request) {
         p.pdf_file_name as "pdfFileName",
         p.pdf_file_url as "pdfFileUrl",
         p.created_at as "createdAt",
-        COALESCE(ot.total_ot_hours, 0)::numeric as "otHours"
+        COALESCE(ot.total_ot_hours, 0)::numeric as "otHours",
+        COALESCE(p.personal_expense_amount, 0)::numeric as "storedPersonalExpenseAmount"
       FROM erp_payroll_records p
       JOIN erp_employees e ON p.employee_id = e.id
       LEFT JOIN (
@@ -64,29 +91,47 @@ export async function GET(request: Request) {
         WHERE ot_date::text LIKE $1 || '%' AND status = 'APPROVED'
         GROUP BY employee_id
       ) ot ON ot.employee_id = p.employee_id
+      LEFT JOIN (
+        SELECT employee_id, SUM(amount) as total_expense_amount, COUNT(*)::int as receipt_count
+        FROM erp_expense_receipts
+        WHERE year_month = $1 AND status = 'APPROVED'
+        GROUP BY employee_id
+      ) exp ON exp.employee_id = p.employee_id
       WHERE p.year_month = $1
       ORDER BY e.id ASC
     `;
 
     const result = await pool.query(query, [yearMonth]);
 
-    // Summary calculation
+    // Summary calculation & dynamic sync if approved receipts changed
     let totalGrossSum = 0;
     let totalDeductionSum = 0;
     let netSalarySum = 0;
     let totalServiceContractSum = 0;
+    let totalPersonalExpenseSum = 0;
 
+    const decryptedRows = [];
     for (const r of result.rows) {
-      totalGrossSum += Number(r.totalGross);
-      totalDeductionSum += Number(r.totalDeduction);
-      netSalarySum += Number(r.netSalary);
-      totalServiceContractSum += Number(r.serviceContractAmount);
-    }
+      const personalExp = Number(r.personalExpenseAmount || 0);
+      const storedExp = Number(r.storedPersonalExpenseAmount || 0);
+      const diffExp = personalExp - storedExp;
+      const adjustedGross = Number(r.totalGross) + diffExp;
+      const adjustedNet = Number(r.netSalary) + diffExp;
 
-    const decryptedRows = result.rows.map((r: any) => ({
-      ...r,
-      salaryAccountNo: decryptPii(r.salaryAccountNo),
-    }));
+      totalGrossSum += adjustedGross;
+      totalDeductionSum += Number(r.totalDeduction);
+      netSalarySum += adjustedNet;
+      totalServiceContractSum += Number(r.serviceContractAmount);
+      totalPersonalExpenseSum += personalExp;
+
+      decryptedRows.push({
+        ...r,
+        personalExpenseAmount: personalExp,
+        totalGross: adjustedGross,
+        netSalary: adjustedNet,
+        salaryAccountNo: decryptPii(r.salaryAccountNo),
+      });
+    }
 
     return NextResponse.json({
       success: true,
@@ -98,6 +143,7 @@ export async function GET(request: Request) {
         totalDeductionSum,
         netSalarySum,
         totalServiceContractSum,
+        totalPersonalExpenseSum,
       },
     });
   } catch (error: any) {
@@ -293,6 +339,18 @@ export async function POST(request: Request) {
       };
     }
 
+    const expRes = await pool.query(`
+      SELECT employee_id, SUM(COALESCE(amount, 0))::numeric as total_expense
+      FROM erp_expense_receipts
+      WHERE year_month = $1 AND status = 'APPROVED'
+      GROUP BY employee_id
+    `, [yearMonth]);
+
+    const expMap: Record<number, number> = {};
+    for (const row of expRes.rows) {
+      expMap[row.employee_id] = Number(row.total_expense || 0);
+    }
+
     const insertedRecords = [];
     for (const emp of empRes.rows) {
       const baseSalary = Number(emp.base_salary || 3500000);
@@ -304,11 +362,22 @@ export async function POST(request: Request) {
       const otPay = empOt.otPay > 0 ? empOt.otPay : Math.round(hourlyRate * 1.5 * otHours);
       const mealAllowance = Number(emp.meal_allowance ?? 200000);
       const vehicleAllowance = Number(emp.vehicle_allowance ?? 0);
+      const personalExpenseAmount = Number(expMap[emp.id] || 0);
       const annualLeaveAllowance = 0;
       const bonus = 0;
-      const totalGross = baseSalary + otPay + mealAllowance + vehicleAllowance + annualLeaveAllowance + bonus;
+      const totalGross =
+        baseSalary +
+        otPay +
+        mealAllowance +
+        vehicleAllowance +
+        annualLeaveAllowance +
+        bonus +
+        personalExpenseAmount;
 
-      const taxable = Math.max(0, totalGross - mealAllowance - vehicleAllowance);
+      const taxable = Math.max(
+        0,
+        totalGross - mealAllowance - vehicleAllowance - personalExpenseAmount
+      );
 
       const nationalPension = emp.ins_national_pension !== false ? Math.floor(taxable * 0.045) : 0;
       const healthInsurance = emp.ins_health_insurance !== false ? Math.floor(taxable * 0.03545) : 0;
@@ -326,9 +395,9 @@ export async function POST(request: Request) {
       const upsertRes = await pool.query(
         `INSERT INTO erp_payroll_records (
           year_month, employee_id, service_contract_amount, base_salary, ot_pay, meal_allowance, vehicle_allowance,
-          annual_leave_allowance, bonus, total_gross, national_pension, health_insurance,
+          personal_expense_amount, annual_leave_allowance, bonus, total_gross, national_pension, health_insurance,
           employment_insurance, long_term_care_insurance, income_tax, local_tax, total_deduction, net_salary, status, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'DRAFT', NOW())
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'DRAFT', NOW())
         ON CONFLICT (year_month, employee_id)
         DO UPDATE SET
           service_contract_amount = COALESCE(EXCLUDED.service_contract_amount, erp_payroll_records.service_contract_amount),
@@ -336,6 +405,7 @@ export async function POST(request: Request) {
           ot_pay = EXCLUDED.ot_pay,
           meal_allowance = EXCLUDED.meal_allowance,
           vehicle_allowance = EXCLUDED.vehicle_allowance,
+          personal_expense_amount = EXCLUDED.personal_expense_amount,
           annual_leave_allowance = EXCLUDED.annual_leave_allowance,
           total_gross = EXCLUDED.total_gross,
           national_pension = EXCLUDED.national_pension,
@@ -350,7 +420,7 @@ export async function POST(request: Request) {
         RETURNING id`,
         [
           yearMonth, emp.id, serviceContractAmount, baseSalary, otPay, mealAllowance, vehicleAllowance,
-          annualLeaveAllowance, bonus, totalGross, nationalPension, healthInsurance,
+          personalExpenseAmount, annualLeaveAllowance, bonus, totalGross, nationalPension, healthInsurance,
           employmentInsurance, longTermCareInsurance, incomeTax, localTax, totalDeduction, netSalary
         ]
       );
@@ -383,6 +453,7 @@ export async function PATCH(request: Request) {
       vehicleAllowance,
       annualLeaveAllowance: bodyAnnualLeave,
       severancePay: bodySeverance,
+      personalExpenseAmount: bodyPersonalExpense,
       serviceContractAmount,
       payDate,
     } = body;
@@ -457,6 +528,10 @@ export async function PATCH(request: Request) {
     const newVehicleAllowance = vehicleAllowance !== undefined ? Number(vehicleAllowance) : Number(rec.vehicle_allowance || 0);
     const annualLeaveAllowance = bodyAnnualLeave !== undefined ? Number(bodyAnnualLeave) : Number(rec.annual_leave_allowance || 0);
     const severancePay = bodySeverance !== undefined ? Number(bodySeverance) : Number(rec.severance_pay || 0);
+    const personalExpenseAmount =
+      bodyPersonalExpense !== undefined
+        ? Number(bodyPersonalExpense)
+        : Number(rec.personal_expense_amount || 0);
 
     const totalGross =
       newBaseSalary +
@@ -465,8 +540,12 @@ export async function PATCH(request: Request) {
       newVehicleAllowance +
       annualLeaveAllowance +
       severancePay +
-      newBonus;
-    const taxable = Math.max(0, totalGross - newMealAllowance - newVehicleAllowance - severancePay);
+      newBonus +
+      personalExpenseAmount;
+    const taxable = Math.max(
+      0,
+      totalGross - newMealAllowance - newVehicleAllowance - severancePay - personalExpenseAmount
+    );
 
     // 임직원 4대보험 가입여부 조회
     const empInsRes = await pool.query(
@@ -499,17 +578,17 @@ export async function PATCH(request: Request) {
       `UPDATE erp_payroll_records 
        SET base_salary = $1, bonus = $2, service_contract_amount = $3,
            meal_allowance = $4, vehicle_allowance = $5,
-           annual_leave_allowance = $6, severance_pay = $7, total_gross = $8,
-           national_pension = $9, health_insurance = $10, employment_insurance = $11,
-           long_term_care_insurance = $12, income_tax = $13, local_tax = $14,
-           total_deduction = $15, net_salary = $16, pay_date = COALESCE($17, pay_date),
+           annual_leave_allowance = $6, severance_pay = $7, personal_expense_amount = $8, total_gross = $9,
+           national_pension = $10, health_insurance = $11, employment_insurance = $12,
+           long_term_care_insurance = $13, income_tax = $14, local_tax = $15,
+           total_deduction = $16, net_salary = $17, pay_date = COALESCE($18, pay_date),
            updated_at = NOW()
-       WHERE id = $18
+       WHERE id = $19
        RETURNING *`,
       [
         newBaseSalary, newBonus, newServiceAmt,
         newMealAllowance, newVehicleAllowance,
-        annualLeaveAllowance, severancePay, totalGross,
+        annualLeaveAllowance, severancePay, personalExpenseAmount, totalGross,
         nationalPension, healthInsurance, employmentInsurance, longTermCareInsurance,
         incomeTax, localTax, totalDeduction, netSalary,
         payDate || null, id

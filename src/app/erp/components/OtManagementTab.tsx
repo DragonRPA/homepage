@@ -64,13 +64,28 @@ interface Employee {
   name: string;
   department: string;
   position: string;
+  duty?: string;
+  role?: string;
+  roleCode?: string;
+  status?: string;
+  employmentStatus?: string;
+  leaveDate?: string | null;
   baseSalary?: number;
   hourlyWage?: number;
+}
+
+interface DepartmentItem {
+  id: string;
+  deptName: string;
+  managerName: string | null;
 }
 
 const OT_REASONS = [
   "야간출고 및 배차지원",
   "출장",
+  "휴일 입출고 및 검수",
+  "긴급 A/S 및 현장지원",
+  "야간 정비 및 재고실사",
 ];
 
 const getDayOfWeekKr = (dateStr: string) => {
@@ -84,17 +99,107 @@ const getDayOfWeekKr = (dateStr: string) => {
 };
 
 export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
-  const isAdmin =
-    currentUser?.role === "ADMIN" ||
-    currentUser?.role === "SUPER_ADMIN" ||
-    currentUser?.loginId === "admin";
-  const currentUserId = currentUser?.id;
-
   const currentMonth = new Date().toISOString().substring(0, 7);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [overtimes, setOvertimes] = useState<Overtime[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [departments, setDepartments] = useState<DepartmentItem[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // 현재 로그인한 임직원 레코드 매핑
+  const currentEmpRecord = useMemo(() => {
+    if (!currentUser) return null;
+    return (
+      employees.find((e) => Number(e.id) === Number(currentUser.id)) ||
+      employees.find((e) => e.employeeNo && e.employeeNo === currentUser.employeeNo) ||
+      employees.find((e) => e.name && e.name === currentUser.name) ||
+      null
+    );
+  }, [employees, currentUser]);
+
+  const currentUserId = Number(currentEmpRecord?.id || currentUser?.id || 1);
+  const currentUserDept = String(
+    currentEmpRecord?.department || currentUser?.department || ""
+  ).trim();
+
+  // 최고관리자 / 대표이사 여부
+  const isSuperAdmin = useMemo(() => {
+    const roleUpper = String(currentEmpRecord?.role || currentUser?.role || "").toUpperCase();
+    const roleCodeUpper = String(
+      currentEmpRecord?.roleCode || currentUser?.roleCode || ""
+    ).toUpperCase();
+    const pos = String(currentEmpRecord?.position || currentUser?.position || "").trim();
+    const duty = String(currentEmpRecord?.duty || currentUser?.duty || "").trim();
+    return (
+      currentUser?.loginId === "admin" ||
+      roleUpper === "ADMIN" ||
+      roleUpper === "SUPER_ADMIN" ||
+      roleCodeUpper === "ADMIN" ||
+      pos.includes("대표이사") ||
+      pos === "대표" ||
+      duty.includes("대표이사") ||
+      duty === "대표"
+    );
+  }, [currentEmpRecord, currentUser]);
+
+  // 부서장(팀장) 여부 판정
+  const isDeptHead = useMemo(() => {
+    if (isSuperAdmin) return false;
+    const roleUpper = String(currentEmpRecord?.role || currentUser?.role || "").toUpperCase();
+    const roleCodeUpper = String(
+      currentEmpRecord?.roleCode || currentUser?.roleCode || ""
+    ).toUpperCase();
+    const duty = String(currentEmpRecord?.duty || currentUser?.duty || "").trim();
+    const pos = String(currentEmpRecord?.position || currentUser?.position || "").trim();
+    const myName = String(currentEmpRecord?.name || currentUser?.name || "").trim();
+    const isNamedManagerInDept = departments.some(
+      (d) => d.managerName && myName && d.managerName.trim() === myName
+    );
+    return (
+      duty.includes("팀장") ||
+      duty.includes("부서장") ||
+      duty.includes("본부장") ||
+      duty.includes("실장") ||
+      duty.includes("센터장") ||
+      pos.includes("팀장") ||
+      pos.includes("부서장") ||
+      roleUpper === "MANAGER" ||
+      roleCodeUpper === "MANAGER" ||
+      isNamedManagerInDept
+    );
+  }, [isSuperAdmin, currentEmpRecord, currentUser, departments]);
+
+  // 부서장(팀장) 또는 최고관리자는 소속 부서 구성원의 초과근무 입력 및 승인 가능
+  const isAdmin = isSuperAdmin || isDeptHead;
+
+  // 초과근무 입력 가능 대상 임직원 목록 (퇴사자/대표이사/외주 제외 + 부서장은 소속 부서 구성원 전원, 일반 구성원은 본인)
+  const selectableEmployees = useMemo(() => {
+    const activeList = employees.filter((emp) => {
+      const st = String(emp.status || emp.employmentStatus || "ACTIVE")
+        .trim()
+        .toUpperCase();
+      if (st === "RETIRED" || st === "RESIGNED" || st === "퇴사" || st === "퇴직") return false;
+      if (emp.leaveDate && String(emp.leaveDate).trim() !== "") return false;
+      const pos = String(emp.position || "").trim();
+      const duty = String(emp.duty || "").trim();
+      if (
+        pos.includes("대표이사") ||
+        pos === "대표" ||
+        duty.includes("대표이사") ||
+        duty === "대표"
+      )
+        return false;
+      const dept = String(emp.department || "").trim();
+      if (dept.includes("외주")) return false;
+
+      if (isSuperAdmin) return true;
+      if (isDeptHead) {
+        return !currentUserDept || dept === currentUserDept;
+      }
+      return Number(emp.id) === currentUserId;
+    });
+    return activeList.length > 0 ? activeList : employees;
+  }, [employees, isSuperAdmin, isDeptHead, currentUserDept, currentUserId]);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -236,15 +341,20 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [otRes, empRes] = await Promise.all([
+      const [otRes, empRes, deptRes] = await Promise.all([
         fetch(`/api/erp/overtimes?month=${selectedMonth}`),
         fetch("/api/erp/employees"),
+        fetch("/api/erp/departments"),
       ]);
       const otData = await otRes.json();
       const empData = await empRes.json();
+      const deptData = await deptRes.json().catch(() => ({ success: false }));
 
       if (otData.success) setOvertimes(otData.overtimes || []);
       if (empData.success) setEmployees(empData.employees || []);
+      if (deptData.success && Array.isArray(deptData.departments)) {
+        setDepartments(deptData.departments);
+      }
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -259,19 +369,22 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
   // Unique departments from employees + overtimes
   const departmentList = useMemo(() => {
     const s = new Set<string>();
-    employees.forEach((e) => {
+    selectableEmployees.forEach((e) => {
       if (e.department) s.add(e.department);
     });
-    overtimes.forEach((o) => {
-      if (o.department) s.add(o.department);
-    });
     return Array.from(s);
-  }, [employees, overtimes]);
+  }, [selectableEmployees]);
 
   // Selected employee in modal & real-time overtime breakdown calculation
   const selectedModalEmp = useMemo(() => {
-    return employees.find((e) => Number(e.id) === Number(otForm.employeeId)) || employees[0] || null;
-  }, [employees, otForm.employeeId]);
+    return (
+      selectableEmployees.find((e) => Number(e.id) === Number(otForm.employeeId)) ||
+      employees.find((e) => Number(e.id) === Number(otForm.employeeId)) ||
+      selectableEmployees[0] ||
+      employees[0] ||
+      null
+    );
+  }, [selectableEmployees, employees, otForm.employeeId]);
 
   const modalEmpHourlyWage = useMemo(() => {
     if (!selectedModalEmp) return 16746;
@@ -291,9 +404,23 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
     });
   }, [otForm.otDate, normalizedStartTime, normalizedEndTime, modalEmpHourlyWage, otForm.isHoliday]);
 
+  // 권한 범위 내 초과근무 내역
+  const scopedOvertimes = useMemo(() => {
+    if (isSuperAdmin) return overtimes;
+    if (isDeptHead) {
+      const allowedIds = new Set(selectableEmployees.map((e) => Number(e.id)));
+      return overtimes.filter(
+        (ot) =>
+          allowedIds.has(Number(ot.employeeId)) ||
+          (currentUserDept && String(ot.department || "").trim() === currentUserDept)
+      );
+    }
+    return overtimes.filter((ot) => Number(ot.employeeId) === currentUserId);
+  }, [overtimes, isSuperAdmin, isDeptHead, selectableEmployees, currentUserDept, currentUserId]);
+
   // Filtered
   const filteredOvertimes = useMemo(() => {
-    return overtimes.filter((ot) => {
+    return scopedOvertimes.filter((ot) => {
       if (statusFilter !== "ALL" && ot.status !== statusFilter) return false;
       if (deptFilter !== "ALL" && ot.department !== deptFilter) return false;
       if (searchQuery.trim()) {
@@ -307,7 +434,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
       }
       return true;
     });
-  }, [overtimes, statusFilter, deptFilter, searchQuery]);
+  }, [scopedOvertimes, statusFilter, deptFilter, searchQuery]);
 
   // Sorting State
   const [sortKey, setSortKey] = useState<string>("otDate");
@@ -358,13 +485,13 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
 
   // KPIs
   const kpis = useMemo(() => {
-    const totalCount = overtimes.length;
+    const totalCount = scopedOvertimes.length;
     let approvedHours = 0;
     let approvedOtPay = 0;
     let totalOtPay = 0;
     let pendingCount = 0;
 
-    overtimes.forEach((o) => {
+    scopedOvertimes.forEach((o) => {
       const pay = Number(o.otPay || 0);
       if (o.status !== "REJECTED") {
         totalOtPay += pay;
@@ -378,7 +505,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
     });
 
     return { totalCount, approvedHours, approvedOtPay, totalOtPay, pendingCount };
-  }, [overtimes]);
+  }, [scopedOvertimes]);
 
   // Submit OT Form
   const handleSubmitOt = async (e: React.FormEvent) => {
@@ -598,7 +725,11 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
           <button
             onClick={() => {
               const initDate = new Date().toISOString().substring(0, 10);
-              const defaultEmpId = currentUserId || employees[0]?.id || 1;
+              const defaultEmp =
+                selectableEmployees.find((e) => Number(e.id) === currentUserId) ||
+                selectableEmployees[0] ||
+                employees[0];
+              const defaultEmpId = defaultEmp ? Number(defaultEmp.id) : currentUserId || 1;
               setOtForm({
                 employeeId: defaultEmpId,
                 otDate: initDate,
@@ -803,26 +934,43 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
             </h2>
 
             <div className="space-y-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">대상 임직원</label>
-                <select
-                  value={otForm.employeeId}
-                  onChange={(e) =>
-                    setOtForm({
-                      ...otForm,
-                      employeeId: parseInt(e.target.value),
-                      customOtPay: null,
-                    })
-                  }
-                  disabled={!isAdmin}
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-bold dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                >
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.name} ({emp.department || "미배정"} · {emp.position})
-                    </option>
-                  ))}
-                </select>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
+                    대상 임직원 (퀵선택)
+                  </label>
+                  {isDeptHead && (
+                    <span className="text-[10.5px] font-bold text-[#1d4ed8] dark:text-blue-400">
+                      부서장(팀장) 권한 · {currentUserDept} 구성원 입력 가능
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5 p-2 rounded bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-950 dark:border-slate-800">
+                  {selectableEmployees.map((emp) => {
+                    const isSelected = Number(otForm.employeeId) === Number(emp.id);
+                    return (
+                      <button
+                        key={emp.id}
+                        type="button"
+                        disabled={!isAdmin && Number(emp.id) !== currentUserId}
+                        onClick={() =>
+                          setOtForm({
+                            ...otForm,
+                            employeeId: Number(emp.id),
+                            customOtPay: null,
+                          })
+                        }
+                        className={`px-2.5 py-1.5 rounded text-xs font-bold border whitespace-nowrap transition ${
+                          isSelected
+                            ? "bg-[#1d4ed8] text-white border-[#1e40af] shadow-xs"
+                            : "bg-[#ebe5d8] hover:bg-[#dcd4c4] text-[#0f172a] border-[#b5a894] dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
+                        } disabled:opacity-50`}
+                      >
+                        {emp.name} ({emp.department || "미배정"} · {emp.position})
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -1158,19 +1306,29 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">근무 사유 프리셋</label>
-                <select
-                  value={OT_REASONS.includes(otForm.reason) ? otForm.reason : OT_REASONS[0]}
-                  onChange={(e) => setOtForm({ ...otForm, reason: e.target.value })}
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                >
-                  {OT_REASONS.map((r, idx) => (
-                    <option key={idx} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
+                  근무 사유 프리셋 (퀵선택)
+                </label>
+                <div className="flex flex-wrap gap-1.5 p-2 rounded bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-950 dark:border-slate-800">
+                  {OT_REASONS.map((r) => {
+                    const isSelected = otForm.reason === r;
+                    return (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setOtForm({ ...otForm, reason: r })}
+                        className={`px-2.5 py-1.5 rounded text-xs font-bold border whitespace-nowrap transition ${
+                          isSelected
+                            ? "bg-[#1d4ed8] text-white border-[#1e40af] shadow-xs"
+                            : "bg-[#ebe5d8] hover:bg-[#dcd4c4] text-[#0f172a] border-[#b5a894] dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
+                        }`}
+                      >
+                        {r}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="flex flex-col gap-1">

@@ -6,7 +6,7 @@ import {
   Building2, Shield, CheckSquare, Settings, Calendar, 
   Clock, DollarSign, CreditCard, ChevronDown, ChevronRight,
   FolderTree, Database, Package, Layers, PackageCheck, PackagePlus, ArrowLeftRight, BookOpen,
-  SlidersHorizontal, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, X, Star, BarChart3, Menu, FileSignature
+  SlidersHorizontal, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, X, Star, BarChart3, Menu, FileSignature, Receipt
 } from "lucide-react";
 
 import { ErpLogin } from "./components/ErpLogin";
@@ -21,6 +21,7 @@ import { ApprovalRulesTab } from "./components/ApprovalRulesTab";
 import { LeaveApplyTab } from "./components/LeaveApplyTab";
 import { LeaveManageTab } from "./components/LeaveManageTab";
 import { OtManagementTab } from "./components/OtManagementTab";
+import { ExpenseReceiptTab } from "./components/ExpenseReceiptTab";
 import { WorkRulesTab } from "./components/WorkRulesTab";
 import { EmploymentContractTab } from "./components/EmploymentContractTab";
 import { BankMatchingTab } from "./components/BankMatchingTab";
@@ -52,6 +53,7 @@ export type ErpMenuKey =
   | "LEAVE_APPLY"
   | "LEAVE_MANAGE"
   | "OT_MANAGE"
+  | "EXPENSE_RECEIPT"
   | "WORK_RULES"
   | "APPROVAL_INBOX"
   | "APPROVAL_RULES"
@@ -94,6 +96,7 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "LEAVE_APPLY", label: "연차 신청", icon: Calendar },
       { key: "LEAVE_MANAGE", label: "연차 관리", icon: Users },
       { key: "OT_MANAGE", label: "초과근무 관리", icon: Clock },
+      { key: "EXPENSE_RECEIPT", label: "개인경비 영수증 등록", icon: Receipt },
       { key: "WORK_RULES", label: "취업규칙 (표준안)", icon: BookOpen },
     ],
   },
@@ -163,6 +166,7 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   LEAVE_APPLY: "leave_apply",
   LEAVE_MANAGE: "leave_manage",
   OT_MANAGE: "ot_manage",
+  EXPENSE_RECEIPT: "expense_receipt",
   WORK_RULES: "work_rules",
   APPROVAL_INBOX: "approval_inbox",
   APPROVAL_RULES: "approval_rules",
@@ -665,6 +669,7 @@ export default function ErpMainPage() {
                 {activeMenu === "LEAVE_APPLY" && <LeaveApplyTab currentUser={enrichedUser} />}
                 {activeMenu === "LEAVE_MANAGE" && <LeaveManageTab currentUser={enrichedUser} />}
                 {activeMenu === "OT_MANAGE" && <OtManagementTab currentUser={enrichedUser} />}
+                {activeMenu === "EXPENSE_RECEIPT" && <ExpenseReceiptTab currentUser={enrichedUser} />}
                 {activeMenu === "WORK_RULES" && <WorkRulesTab currentUser={enrichedUser} />}
                 {activeMenu === "APPROVAL_INBOX" && <ApprovalInboxTab currentUser={enrichedUser} />}
                 {activeMenu === "APPROVAL_RULES" && <ApprovalRulesTab currentUser={enrichedUser} />}

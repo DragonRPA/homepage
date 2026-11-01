@@ -10,6 +10,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  ShieldCheck,
+  UserCheck,
 } from "lucide-react";
 import {
   sortErpItems,
@@ -28,6 +30,8 @@ interface EmployeeLeave {
   department: string;
   position: string;
   duty?: string;
+  role?: string;
+  roleCode?: string;
   joinDate: string;
   leaveDate?: string | null;
   status?: string;
@@ -54,17 +58,16 @@ interface LeaveHistoryItem {
   approverName: string | null;
 }
 
-export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
-  const isAdmin =
-    currentUser?.canSave !== undefined
-      ? Boolean(currentUser.canSave)
-      : currentUser?.role === "ADMIN" ||
-        currentUser?.role === "SUPER_ADMIN" ||
-        currentUser?.role === "MANAGER" ||
-        currentUser?.loginId === "admin";
+interface DepartmentItem {
+  id: string;
+  deptName: string;
+  managerName: string | null;
+}
 
+export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const [employees, setEmployees] = useState<EmployeeLeave[]>([]);
   const [leaves, setLeaves] = useState<LeaveHistoryItem[]>([]);
+  const [departments, setDepartments] = useState<DepartmentItem[]>([]);
   const [selectedHistoryEmpId, setSelectedHistoryEmpId] = useState<string>("ALL");
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -87,18 +90,23 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
   const fetchEmployees = async () => {
     setLoading(true);
     try {
-      const [empRes, leaveRes] = await Promise.all([
+      const [empRes, leaveRes, deptRes] = await Promise.all([
         fetch("/api/erp/employees"),
         fetch("/api/erp/leaves"),
+        fetch("/api/erp/departments"),
       ]);
       const empData = await empRes.json();
       const leaveData = await leaveRes.json();
+      const deptData = await deptRes.json().catch(() => ({ success: false }));
       if (!empRes.ok || !empData.success)
         throw new Error(empData.error || "사원 목록 조회 실패");
 
       setEmployees(empData.employees || []);
       if (leaveData.success && leaveData.leaves) {
         setLeaves(leaveData.leaves);
+      }
+      if (deptData.success && Array.isArray(deptData.departments)) {
+        setDepartments(deptData.departments);
       }
     } catch (err: any) {
       showToast(err.message, "error");
@@ -110,6 +118,80 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
   useEffect(() => {
     fetchEmployees();
   }, []);
+
+  // 현재 로그인한 임직원 레코드 매핑
+  const currentEmpRecord = useMemo(() => {
+    if (!currentUser) return null;
+    return (
+      employees.find((e) => Number(e.id) === Number(currentUser.id)) ||
+      employees.find((e) => e.employeeNo && e.employeeNo === currentUser.employeeNo) ||
+      employees.find((e) => e.name && e.name === currentUser.name) ||
+      null
+    );
+  }, [employees, currentUser]);
+
+  const currentUserId = Number(currentEmpRecord?.id || currentUser?.id || 0);
+  const currentUserDept = String(
+    currentEmpRecord?.department || currentUser?.department || ""
+  ).trim();
+
+  // 1) 전사 최고관리자 / 대표이사 여부
+  const isSuperAdmin = useMemo(() => {
+    const roleUpper = String(currentEmpRecord?.role || currentUser?.role || "").toUpperCase();
+    const roleCodeUpper = String(
+      currentEmpRecord?.roleCode || currentUser?.roleCode || ""
+    ).toUpperCase();
+    const pos = String(currentEmpRecord?.position || currentUser?.position || "").trim();
+    const duty = String(currentEmpRecord?.duty || currentUser?.duty || "").trim();
+    return (
+      currentUser?.loginId === "admin" ||
+      roleUpper === "ADMIN" ||
+      roleUpper === "SUPER_ADMIN" ||
+      roleCodeUpper === "ADMIN" ||
+      pos.includes("대표이사") ||
+      pos === "대표" ||
+      duty.includes("대표이사") ||
+      duty === "대표"
+    );
+  }, [currentEmpRecord, currentUser]);
+
+  // 2) 부서장(팀장) 여부 판정 (직책이 팀장/부서장/본부장/실장이거나, MANAGER 역할이거나, 부서 테이블의 managerName에 지정된 경우)
+  const isDeptHead = useMemo(() => {
+    if (isSuperAdmin) return false;
+    const roleUpper = String(currentEmpRecord?.role || currentUser?.role || "").toUpperCase();
+    const roleCodeUpper = String(
+      currentEmpRecord?.roleCode || currentUser?.roleCode || ""
+    ).toUpperCase();
+    const duty = String(currentEmpRecord?.duty || currentUser?.duty || "").trim();
+    const pos = String(currentEmpRecord?.position || currentUser?.position || "").trim();
+    const myName = String(currentEmpRecord?.name || currentUser?.name || "").trim();
+
+    const isNamedManagerInDept = departments.some(
+      (d) => d.managerName && myName && d.managerName.trim() === myName
+    );
+
+    return (
+      duty.includes("팀장") ||
+      duty.includes("부서장") ||
+      duty.includes("본부장") ||
+      duty.includes("실장") ||
+      duty.includes("센터장") ||
+      pos.includes("팀장") ||
+      pos.includes("부서장") ||
+      roleUpper === "MANAGER" ||
+      roleCodeUpper === "MANAGER" ||
+      isNamedManagerInDept
+    );
+  }, [isSuperAdmin, currentEmpRecord, currentUser, departments]);
+
+  // 3) 조회 권한 스코프: ALL (대표이사/최고관리자) | DEPT (부서장/팀장 -> 본인 부서 구성원 전원) | SELF (일반 구성원 -> 본인만)
+  const viewScope: "ALL" | "DEPT" | "SELF" = useMemo(() => {
+    if (isSuperAdmin) return "ALL";
+    if (isDeptHead) return "DEPT";
+    return "SELF";
+  }, [isSuperAdmin, isDeptHead]);
+
+  const isAdmin = isSuperAdmin;
 
   const getTenureYears = (joinDateStr?: string) => {
     return calculateAnnualLeaveEntitlement(joinDateStr).tenureYears;
@@ -157,7 +239,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     </th>
   );
 
-  // 연차관리 대상자 필터링 (대표이사, 외주 조직 직원, 퇴사자 제외)
+  // 연차관리 대상자 필터링 (대표이사, 외주 조직 직원, 퇴사자 제외 + 권한 스코프 적용)
   const eligibleEmployees = useMemo(() => {
     return employees.filter((emp) => {
       const st = String(emp.status || emp.employmentStatus || "ACTIVE")
@@ -179,9 +261,18 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
       const dept = String(emp.department || "").trim();
       if (dept.includes("외주")) return false;
 
+      // 권한별 연차 조회 범위 제한
+      if (viewScope === "DEPT") {
+        // 부서장(팀장): 해당 부서 구성원의 모든 연차 표시
+        if (currentUserDept && dept !== currentUserDept) return false;
+      } else if (viewScope === "SELF") {
+        // 부서장이 아닌 일반 구성원: 본인만 표시
+        if (Number(emp.id) !== currentUserId) return false;
+      }
+
       return true;
     });
-  }, [employees]);
+  }, [employees, viewScope, currentUserDept, currentUserId]);
 
   const uniqueDepartments = useMemo(() => {
     return Array.from(new Set(eligibleEmployees.map((e) => e.department).filter(Boolean)));
@@ -189,8 +280,8 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
 
   const filteredEmployees = useMemo(() => {
     return eligibleEmployees.filter((emp) => {
-      if (deptFilter !== "ALL" && emp.department !== deptFilter) return false;
-      if (searchQuery.trim()) {
+      if (viewScope === "ALL" && deptFilter !== "ALL" && emp.department !== deptFilter) return false;
+      if (viewScope !== "SELF" && searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
         return (
           emp.name.toLowerCase().includes(q) ||
@@ -200,20 +291,38 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
       }
       return true;
     });
-  }, [eligibleEmployees, deptFilter, searchQuery]);
+  }, [eligibleEmployees, viewScope, deptFilter, searchQuery]);
 
   const sortedEmployees = useMemo(() => {
     return sortErpItems(filteredEmployees, sortKey, sortDir);
   }, [filteredEmployees, sortKey, sortDir]);
 
+  // 권한 범위 내 허용된 연차 사용내역만 필터링
+  const scopedLeaves = useMemo(() => {
+    const allowedEmpIds = new Set(eligibleEmployees.map((e) => Number(e.id)));
+    if (viewScope === "SELF") {
+      return leaves.filter((l) => Number(l.employeeId) === currentUserId);
+    }
+    if (viewScope === "DEPT") {
+      return leaves.filter(
+        (l) =>
+          allowedEmpIds.has(Number(l.employeeId)) ||
+          (currentUserDept && String(l.department || "").trim() === currentUserDept)
+      );
+    }
+    return leaves.filter((l) => allowedEmpIds.size === 0 || allowedEmpIds.has(Number(l.employeeId)));
+  }, [leaves, eligibleEmployees, viewScope, currentUserId, currentUserDept]);
+
   // 상세 사용내역 필터링 및 일자 오름차순 정렬
   const filteredLeaveHistory = useMemo(() => {
     const list =
-      selectedHistoryEmpId === "ALL"
-        ? leaves
-        : leaves.filter((l) => String(l.employeeId) === selectedHistoryEmpId);
+      viewScope === "SELF"
+        ? scopedLeaves
+        : selectedHistoryEmpId === "ALL"
+        ? scopedLeaves
+        : scopedLeaves.filter((l) => String(l.employeeId) === selectedHistoryEmpId);
     return [...list].sort((a, b) => a.startDate.localeCompare(b.startDate));
-  }, [leaves, selectedHistoryEmpId]);
+  }, [scopedLeaves, selectedHistoryEmpId, viewScope]);
 
   // Annual Reset & Recalculate
   const handleAnnualReset = async () => {
@@ -326,39 +435,61 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
 
       {/* Top Header */}
       <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
-            <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
-              전사 연차 관리 대장
+            <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
+              {viewScope === "ALL"
+                ? "전사 연차 관리 대장"
+                : viewScope === "DEPT"
+                ? `${currentUserDept || "소속 부서"} 구성원 연차 관리 대장`
+                : `${currentEmpRecord?.name || currentUser?.name || "본인"} 연차 사용내역`}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <select
-              value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
-              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
-            >
-              <option value="ALL">전체 부서</option>
-              {uniqueDepartments.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+          {/* 권한 스코프 안내 배지 */}
+          {viewScope === "DEPT" && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-bold bg-[#dbeafe] text-[#1e40af] border border-[#93c5fd] whitespace-nowrap">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>부서장(팀장) 권한 · {currentUserDept} 구성원 전체 조회</span>
+            </span>
+          )}
+          {viewScope === "SELF" && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-bold bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] whitespace-nowrap">
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>개인 연차 조회 · 본인 연차 및 사용내역 전용</span>
+            </span>
+          )}
 
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-[#475569] dark:text-slate-400" />
-              <input
-                type="text"
-                placeholder="사원명 / 사번 검색"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] pl-8 pr-3 py-1.5 rounded w-44 focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
-              />
+          {viewScope !== "SELF" && (
+            <div className="flex items-center gap-2">
+              {viewScope === "ALL" && (
+                <select
+                  value={deptFilter}
+                  onChange={(e) => setDeptFilter(e.target.value)}
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                >
+                  <option value="ALL">전체 부서</option>
+                  {uniqueDepartments.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-[#475569] dark:text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="부서 구성원 성명 / 사번 검색"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] pl-8 pr-3 py-1.5 rounded w-48 focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                />
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -373,7 +504,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
 
           <button
             onClick={handleExportCsv}
-            className="px-3 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] text-xs font-bold rounded flex items-center gap-1.5 border border-[#b5a894] shadow transition dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
+            className="px-3 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] text-xs font-bold rounded flex items-center gap-1.5 border border-[#b5a894] shadow transition dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 whitespace-nowrap"
           >
             <Download className="w-3.5 h-3.5" />
             <span>엑셀 내보내기</span>
@@ -382,7 +513,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
           {isAdmin && (
             <button
               onClick={handleAnnualReset}
-              className="px-3 py-1.5 bg-[#b45309] hover:bg-[#92400e] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
+              className="px-3 py-1.5 bg-[#b45309] hover:bg-[#92400e] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition whitespace-nowrap"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>연 단위 연차 초기화/재계산</span>
@@ -391,7 +522,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
         </div>
       </div>
 
-      {/* Main Content Area: Summary Table + Detailed 2026 Leave Ledger */}
+      {/* Main Content Area: Summary Table + Detailed Leave Ledger */}
       <div className="flex-1 overflow-auto p-4 flex flex-col gap-4">
         {/* 1. 임직원별 연차 보유/사용 집계표 */}
         <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-auto shrink-0 dark:bg-slate-900 dark:border-slate-800">
@@ -409,7 +540,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 {renderSortTh("잔여 연차", "remainDays", "right")}
                 {renderSortTh("공가/특별(미차감)", "nonDeductedCount", "center")}
                 {renderSortTh("소진율", "usedDays", "center")}
-                <th className="py-2 px-3 whitespace-nowrap text-center">조정</th>
+                {isAdmin && <th className="py-2 px-3 whitespace-nowrap text-center">조정</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
@@ -425,12 +556,15 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 return (
                   <tr
                     key={emp.id}
-                    onClick={() =>
+                    onClick={() => {
+                      if (viewScope === "SELF") return;
                       setSelectedHistoryEmpId((prev) =>
                         prev === String(emp.id) ? "ALL" : String(emp.id)
-                      )
-                    }
-                    className={`cursor-pointer transition ${
+                      );
+                    }}
+                    className={`transition ${
+                      viewScope !== "SELF" ? "cursor-pointer" : ""
+                    } ${
                       selectedHistoryEmpId === String(emp.id)
                         ? "bg-[#dbeafe]/60 dark:bg-blue-950/30"
                         : "hover:bg-[#ede6d6] dark:hover:bg-slate-800/40"
@@ -505,11 +639,11 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                         </span>
                       </div>
                     </td>
-                    <td
-                      className="py-2 px-3 text-center whitespace-nowrap"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {isAdmin && (
+                    {isAdmin && (
+                      <td
+                        className="py-2 px-3 text-center whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <button
                           onClick={() => {
                             setSelectedEmp(emp);
@@ -520,8 +654,8 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                         >
                           부여 조정
                         </button>
-                      )}
-                    </td>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -529,42 +663,49 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
           </table>
         </div>
 
-        {/* 2. 2026년 연차 및 공가 사용 상세 내역 대장 */}
+        {/* 2. 연차 및 공가 사용 상세 내역 대장 */}
         <div className="flex-1 bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs flex flex-col overflow-hidden min-h-[280px] dark:bg-slate-900 dark:border-slate-800">
           <div className="p-2.5 bg-[#e2dbcd] border-b border-[#b5a894] flex flex-wrap items-center justify-between gap-2 shrink-0 dark:bg-slate-800 dark:border-slate-700">
             <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
-              연차 및 공가 사용 상세 내역 ({filteredLeaveHistory.length}건)
+              {viewScope === "SELF"
+                ? `본인 연차 및 공가 사용 상세 내역 (${filteredLeaveHistory.length}건)`
+                : viewScope === "DEPT"
+                ? `${currentUserDept} 구성원 연차 및 공가 사용 상세 내역 (${filteredLeaveHistory.length}건)`
+                : `연차 및 공가 사용 상세 내역 (${filteredLeaveHistory.length}건)`}
             </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setSelectedHistoryEmpId("ALL")}
-                className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
-                  selectedHistoryEmpId === "ALL"
-                    ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
-                    : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
-                }`}
-              >
-                전체 ({leaves.length})
-              </button>
-              {eligibleEmployees.map((emp) => {
-                const cnt = leaves.filter((l) => l.employeeId === emp.id).length;
-                return (
-                  <button
-                    key={emp.id}
-                    type="button"
-                    onClick={() => setSelectedHistoryEmpId(String(emp.id))}
-                    className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
-                      selectedHistoryEmpId === String(emp.id)
-                        ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
-                        : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
-                    }`}
-                  >
-                    {emp.name} ({cnt})
-                  </button>
-                );
-              })}
-            </div>
+
+            {viewScope !== "SELF" && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedHistoryEmpId("ALL")}
+                  className={`px-2.5 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap ${
+                    selectedHistoryEmpId === "ALL"
+                      ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
+                      : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
+                  }`}
+                >
+                  {viewScope === "DEPT" ? `${currentUserDept} 전체` : "전체"} ({scopedLeaves.length})
+                </button>
+                {eligibleEmployees.map((emp) => {
+                  const cnt = scopedLeaves.filter((l) => Number(l.employeeId) === Number(emp.id)).length;
+                  return (
+                    <button
+                      key={emp.id}
+                      type="button"
+                      onClick={() => setSelectedHistoryEmpId(String(emp.id))}
+                      className={`px-2.5 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap ${
+                        selectedHistoryEmpId === String(emp.id)
+                          ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
+                          : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
+                      }`}
+                    >
+                      {emp.name} ({cnt})
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-auto">

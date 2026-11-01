@@ -44,6 +44,8 @@ export interface PayrollRecord {
   annualLeaveAllowance: number;
   severancePay?: number;
   bonus: number;
+  personalExpenseAmount?: number;
+  expenseReceiptCount?: number;
   totalGross: number;
 
   // 공제 및 정산 항목
@@ -92,6 +94,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     totalDeductionSum: 0,
     netSalarySum: 0,
     totalServiceContractSum: 0,
+    totalPersonalExpenseSum: 0,
   });
   const [loading, setLoading] = useState(false);
 
@@ -106,6 +109,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const [inputMealAllowance, setInputMealAllowance] = useState("0");
   const [inputVehicleAllowance, setInputVehicleAllowance] = useState("0");
   const [inputBonus, setInputBonus] = useState("0");
+  const [inputPersonalExpense, setInputPersonalExpense] = useState("0");
   const [inputServiceAmount, setInputServiceAmount] = useState("0");
 
   // OCR Upload Modal
@@ -287,6 +291,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
           mealAllowance: cleanErpNumber(inputMealAllowance),
           vehicleAllowance: cleanErpNumber(inputVehicleAllowance),
           bonus: cleanErpNumber(inputBonus),
+          personalExpenseAmount: cleanErpNumber(inputPersonalExpense),
           serviceContractAmount: cleanErpNumber(inputServiceAmount),
         }),
       });
@@ -389,7 +394,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const handleExportCsv = () => {
     const headers = [
       "귀속월", "지급일자", "사번", "성명", "부서", "직급", "입사일",
-      "용역계약금액", "기본급", "식대(비과세)", "차량보조금", "초과근무수당", "연차수당", "퇴직급여", "상여금", "총지급액",
+      "용역계약금액", "기본급", "식대(비과세)", "차량보조금", "초과근무수당", "연차수당", "퇴직급여", "상여금", "개인경비정산", "총지급액",
       "국민연금", "건강보험", "고용보험", "장기요양보험료", "소득세", "지방소득세",
       "연말정산소득세", "연말정산지방세", "고용보험정산분", "총공제액", "차인지급액", "상태"
     ];
@@ -409,6 +414,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       r.annualLeaveAllowance,
       r.severancePay || 0,
       r.bonus,
+      r.personalExpenseAmount || 0,
       r.totalGross,
       r.nationalPension,
       r.healthInsurance,
@@ -590,6 +596,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                             setInputMealAllowance(toErpInputString(r.mealAllowance ?? 200000));
                             setInputVehicleAllowance(toErpInputString(r.vehicleAllowance ?? 0));
                             setInputBonus(toErpInputString(r.bonus));
+                            setInputPersonalExpense(toErpInputString(r.personalExpenseAmount ?? 0));
                             setInputServiceAmount(toErpInputString(r.serviceContractAmount));
                             setEditModalOpen(true);
                           }}
@@ -635,6 +642,9 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                     {Number(r.severancePay || 0) > 0 && (
                       <span className="text-[#6b21a8] font-bold">퇴직급여 {formatErpCurrency(r.severancePay || 0)}</span>
                     )}
+                    {Number(r.personalExpenseAmount || 0) > 0 && (
+                      <span className="text-[#047857] font-bold">개인경비 {formatErpCurrency(r.personalExpenseAmount || 0)}</span>
+                    )}
                   </div>
                 </div>
               ))
@@ -669,6 +679,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                   {renderSortTh("연차수당", "annualLeaveAllowance", "right")}
                   {renderSortTh("퇴직급여", "severancePay", "right")}
                   {renderSortTh("상여금", "bonus", "right")}
+                  {renderSortTh("개인경비 정산", "personalExpenseAmount", "right", "text-[#047857] font-bold bg-[#ecfdf5]/70 dark:text-emerald-300")}
                   {renderSortTh("지급합계", "totalGross", "right", "text-[#1d4ed8] font-bold bg-[#e2dbcd]/70 dark:text-blue-300 dark:bg-slate-800/90")}
 
                   {/* 공제 및 정산 항목 */}
@@ -717,6 +728,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                                 setInputMealAllowance(toErpInputString(r.mealAllowance ?? 200000));
                                 setInputVehicleAllowance(toErpInputString(r.vehicleAllowance ?? 0));
                                 setInputBonus(toErpInputString(r.bonus));
+                                setInputPersonalExpense(toErpInputString(r.personalExpenseAmount ?? 0));
                                 setInputServiceAmount(toErpInputString(r.serviceContractAmount));
                                 setEditModalOpen(true);
                               }}
@@ -795,6 +807,14 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                         <td className="py-1.5 px-2.5 text-right text-[#475569] dark:text-slate-400 whitespace-nowrap">
                           {formatErpCurrency(r.bonus)}
                         </td>
+                        <td className="py-1.5 px-2.5 text-right font-bold text-[#047857] bg-[#ecfdf5]/50 dark:text-emerald-300 dark:bg-emerald-950/20 whitespace-nowrap">
+                          {formatErpCurrency(r.personalExpenseAmount || 0)}
+                          {(r.expenseReceiptCount || 0) > 0 && (
+                            <span className="ml-1 text-[9px] font-sans px-1 py-0.5 bg-[#d1fae5] text-[#047857] rounded border border-[#6ee7b7]">
+                              {r.expenseReceiptCount}건
+                            </span>
+                          )}
+                        </td>
                         <td className="py-1.5 px-2.5 text-right font-bold text-[#1d4ed8] bg-[#dbeafe]/40 dark:text-blue-300 dark:bg-blue-950/20 whitespace-nowrap">
                           {formatErpCurrency(r.totalGross)}
                         </td>
@@ -864,6 +884,11 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
           <div className="flex items-center gap-1.5 bg-[#fef3c7] px-2.5 py-1 rounded border border-[#f59e0b] dark:bg-amber-950/40">
             <span className="text-[#92400e] dark:text-amber-400 font-bold">💼 용역계약총액: </span>
             <span className="font-bold text-[#b45309] dark:text-amber-300">{formatErpCurrency(summary.totalServiceContractSum)}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-[#ecfdf5] px-2.5 py-1 rounded border border-[#10b981] dark:bg-emerald-950/40">
+            <span className="text-[#047857] dark:text-emerald-400 font-bold">🧾 개인경비총액: </span>
+            <span className="font-bold text-[#047857] dark:text-emerald-300">{formatErpCurrency(summary.totalPersonalExpenseSum || 0)}</span>
           </div>
 
           <span className="text-[#94a3b8] dark:text-slate-600">|</span>
@@ -1109,16 +1134,30 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
-                  상여금 (원)
-                </label>
-                <input
-                  type="text"
-                  value={inputBonus}
-                  onChange={(e) => setInputBonus(formatErpInputNumber(e.target.value))}
-                  className="bg-[#ebe5d8] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-[#334155] dark:text-slate-400 font-semibold">
+                    상여금 (원)
+                  </label>
+                  <input
+                    type="text"
+                    value={inputBonus}
+                    onChange={(e) => setInputBonus(formatErpInputNumber(e.target.value))}
+                    className="bg-[#ebe5d8] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-[#047857] dark:text-emerald-400 font-bold">
+                    개인경비 정산 (원) [비과세]
+                  </label>
+                  <input
+                    type="text"
+                    value={inputPersonalExpense}
+                    onChange={(e) => setInputPersonalExpense(formatErpInputNumber(e.target.value))}
+                    className="bg-[#ecfdf5] border border-[#10b981] text-xs text-[#047857] font-bold px-3 py-2 rounded focus:outline-none focus:border-[#047857] font-mono dark:bg-slate-950 dark:border-emerald-700 dark:text-emerald-300"
+                  />
+                </div>
               </div>
             </div>
 

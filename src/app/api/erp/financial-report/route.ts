@@ -88,7 +88,6 @@ function classifyBankTxAccount(row: any): {
       return { majorAccount: "PAYROLL", subAccount, sign: 1 };
     }
     if (dAmt > 0) {
-      // 급여 정산환입 또는 중복환입은 급여 차감(-1)
       return { majorAccount: "PAYROLL", subAccount, sign: -1 };
     }
     return null;
@@ -132,13 +131,14 @@ function classifyBankTxAccount(row: any): {
 
   if (wAmt <= 0) return null;
 
-  // 6. 세금과공과 (국세, 부가세, 주민세, 지방세, 세무서, 국고)
+  // 6. 세금과공과 (부가세, 법인세, 원천세, 납부항목은 사용자 요청에 따라 0으로 초기화하고 국세청 별도 조회값으로 관리하므로 자동집계에서 분리)
   if (
     txChannel === "국세" ||
     txChannel === "지로" ||
-    /국세|부가세|주민세|지방세|금천|노원|국고|세무서/.test(combined)
+    /국세|부가세|주민세|지방세|금천|노원|국고|세무서|서울시세입금/.test(combined)
   ) {
-    return { majorAccount: "TAX_DUES", subAccount: "국세·부가세·지방세", sign: 1 };
+    // 사용자 요청: "원천세, 부가세와 법인세도 항목을 만들어서 포함해줘. 부가세, 법인세, 원천세, 납부항목은 값을 0으로 먼저 채워줘, 세무일정에 따른 값은 내가 국세청에서 따로 조회해서 요청할게."
+    return null;
   }
 
   // 7. 미매칭 출금 중 하드웨어/전자상거래 자재 매입 (체크카드 등) vs 일반 판관비
@@ -170,9 +170,55 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const year = searchParams.get("year") || "2026"; // '2026' | '2025' | '2024' | '2023' | 'ALL'
     const entityType = searchParams.get("entityType") || "ALL"; // 'ALL' | 'CORP' | 'INDIVIDUAL'
-    const amountBasis = searchParams.get("amountBasis") || "SUPPLY"; // 'SUPPLY' (공급가액 기준) | 'TOTAL' (부가세포함 총액 기준)
+    const amountBasis = searchParams.get("amountBasis") || "SUPPLY"; // 'SUPPLY' | 'TOTAL'
 
     const pool = getErpPool();
+
+    // 0. 연도별 주석(remark) 및 세무 항목(원천세, 부가세, 법인세, 납부항목) 조회
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_financial_remarks (
+        id SERIAL PRIMARY KEY,
+        year VARCHAR(10) NOT NULL,
+        entity_type VARCHAR(20) NOT NULL DEFAULT 'ALL',
+        remark_text TEXT DEFAULT '',
+        tax_withholding NUMERIC DEFAULT 0,
+        tax_vat NUMERIC DEFAULT 0,
+        tax_corporate NUMERIC DEFAULT 0,
+        tax_payment NUMERIC DEFAULT 0,
+        updated_by VARCHAR(100),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (year, entity_type)
+      )
+    `);
+
+    const remarkRes = await pool.query(
+      `SELECT remark_text,
+              COALESCE(tax_withholding, 0)::numeric AS tax_withholding,
+              COALESCE(tax_vat, 0)::numeric AS tax_vat,
+              COALESCE(tax_corporate, 0)::numeric AS tax_corporate,
+              COALESCE(tax_payment, 0)::numeric AS tax_payment,
+              updated_at
+       FROM erp_financial_remarks
+       WHERE year = $1 AND entity_type = $2
+       LIMIT 1`,
+      [year, entityType]
+    );
+
+    const remarkRow = remarkRes.rows[0] || {
+      remark_text: "",
+      tax_withholding: 0,
+      tax_vat: 0,
+      tax_corporate: 0,
+      tax_payment: 0,
+      updated_at: null,
+    };
+
+    const taxItems = {
+      withholdingTax: Number(remarkRow.tax_withholding || 0), // 원천세 (초기값 0)
+      vatTax: Number(remarkRow.tax_vat || 0),                 // 부가세 (초기값 0)
+      corporateTax: Number(remarkRow.tax_corporate || 0),     // 법인세 (초기값 0)
+      taxPayment: Number(remarkRow.tax_payment || 0),         // 납부항목 (초기값 0)
+    };
 
     // 1. 세금계산서 조회 (매출 + 매입)
     const invParams: any[] = [];
@@ -195,6 +241,7 @@ export async function GET(request: Request) {
               COALESCE(supply_amount, 0)::numeric AS supply_amount,
               COALESCE(vat_amount, 0)::numeric AS vat_amount,
               COALESCE(total_amount, 0)::numeric AS total_amount,
+              COALESCE(reconciled_amount, 0)::numeric AS reconciled_amount,
               COALESCE(settlement_status, 'UNPAID') AS settlement_status
        FROM erp_tax_invoices
        ${invWhere}
@@ -220,15 +267,81 @@ export async function GET(request: Request) {
               account_no, trans_date::text AS trans_date, trans_time, trans_type,
               COALESCE(withdrawal_amount, 0)::numeric AS withdrawal_amount,
               COALESCE(deposit_amount, 0)::numeric AS deposit_amount,
+              COALESCE(balance_after, 0)::numeric AS balance_after,
               sender_receiver, counterparty_holder, counterparty_bank, counterparty_account,
               tx_channel, memo, is_matched, matched_type, matched_id
        FROM erp_bank_transactions
        ${bankWhere}
-       ORDER BY trans_date ASC, id ASC`,
+       ORDER BY trans_date ASC, trans_time ASC, id ASC`,
       bankParams
     );
 
+    // 2-2. BS/CF 구성을 위한 기초·기말 통장 잔액 조회 (연도 기준)
+    const endCutoff = year === "ALL" ? "2099-12-31" : `${year}-12-31`;
+    const startCutoff = year === "ALL" ? "1900-01-01" : `${Number(year) - 1}-12-31`;
+
+    const balEndRes = await pool.query(
+      `SELECT DISTINCT ON (account_no)
+              account_no,
+              COALESCE(entity_type, CASE WHEN account_no LIKE '%140%' THEN 'INDIVIDUAL' ELSE 'CORP' END) AS entity_type,
+              COALESCE(balance_after, 0)::numeric AS balance_after,
+              trans_date::text AS trans_date
+       FROM erp_bank_transactions
+       WHERE trans_date <= $1
+       ORDER BY account_no, trans_date DESC, trans_time DESC, id DESC`,
+      [endCutoff]
+    );
+
+    const balStartRes = await pool.query(
+      `SELECT DISTINCT ON (account_no)
+              account_no,
+              COALESCE(entity_type, CASE WHEN account_no LIKE '%140%' THEN 'INDIVIDUAL' ELSE 'CORP' END) AS entity_type,
+              COALESCE(balance_after, 0)::numeric AS balance_after,
+              trans_date::text AS trans_date
+       FROM erp_bank_transactions
+       WHERE trans_date <= $1
+       ORDER BY account_no, trans_date DESC, trans_time DESC, id DESC`,
+      [startCutoff]
+    );
+
+    let cashEnding = 0;
+    let cashEndingCorp = 0;
+    let cashEndingIndiv = 0;
+    for (const r of balEndRes.rows) {
+      if (entityType !== "ALL" && r.entity_type !== entityType) continue;
+      const b = Number(r.balance_after || 0);
+      cashEnding += b;
+      if (r.entity_type === "CORP") cashEndingCorp += b;
+      else cashEndingIndiv += b;
+    }
+
+    let cashBeginning = 0;
+    for (const r of balStartRes.rows) {
+      if (entityType !== "ALL" && r.entity_type !== entityType) continue;
+      cashBeginning += Number(r.balance_after || 0);
+    }
+
+    // 2-3. 유형자산(렌탈자산 + 일반비품) 조회 (BS 비유동자산용)
+    const assetRes = await pool.query(`
+      SELECT COALESCE(SUM(purchase_price), 0)::numeric AS fixed_assets
+      FROM erp_assets
+    `);
+    const rentalAssetRes = await pool.query(`
+      SELECT COALESCE(SUM(acquisition_cost), 0)::numeric AS rental_assets,
+             COALESCE(SUM(accumulated_depreciation), 0)::numeric AS accum_dep
+      FROM erp_rental_assets
+    `).catch(() => ({ rows: [{ rental_assets: 0, accum_dep: 0 }] }));
+
+    const tangibleAssets =
+      Number(assetRes.rows[0]?.fixed_assets || 0) +
+      Number(rentalAssetRes.rows[0]?.rental_assets || 0);
+    const accumDepreciation = Number(rentalAssetRes.rows[0]?.accum_dep || 0);
+
     const details: FinancialDetailItem[] = [];
+
+    // 채권(매출 미수금) / 채무(매입 미지급금) 집계 (BS용)
+    let accountsReceivable = 0;
+    let accountsPayable = 0;
 
     // 3. 세금계산서 분류 적재 (예정/미수금 포함 정상 처리 가정)
     for (const row of invRes.rows) {
@@ -236,9 +349,12 @@ export async function GET(request: Request) {
       const supply = Number(row.supply_amount || 0);
       const vat = Number(row.vat_amount || 0);
       const total = Number(row.total_amount || supply + vat);
+      const reconciled = Number(row.reconciled_amount || 0);
+      const remain = row.settlement_status === "PAID" ? 0 : Math.max(0, total - reconciled);
       const ent = (row.entity_type === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP") as "CORP" | "INDIVIDUAL";
 
       if (row.io_type === "SALE") {
+        accountsReceivable += remain;
         let subAccount = "운영·유지보수 용역매출";
         if (row.domain_type === "RENTAL") subAccount = "렌탈·임대 매출";
         else if (row.domain_type === "TRADE_SALE") subAccount = "상품·장비 판매매출";
@@ -261,6 +377,7 @@ export async function GET(request: Request) {
           refNo: row.invoice_no || `INV-${row.id}`,
         });
       } else {
+        accountsPayable += remain;
         const cls = classifyPurchaseInvoiceSubAccount(
           row.customer_name || "",
           row.item_name || "",
@@ -285,15 +402,56 @@ export async function GET(request: Request) {
       }
     }
 
-    // 4. 통장 입출금(급여, 4대보험, 카드/경비, 국세 등) 분류 적재
+    // 4. 통장 입출금(급여, 4대보험, 카드/경비 등) 분류 적재 및 현금흐름(CF) 집계
+    let cfSaleInflow = 0;
+    let cfOtherOperatingInflow = 0;
+    let cfPurchaseOutflow = 0;
+    let cfPayrollOutflow = 0;
+    let cfOpexOutflow = 0;
+    let cfTaxOutflow = taxItems.withholdingTax + taxItems.vatTax + taxItems.corporateTax + taxItems.taxPayment;
+    let cfInvestingInflow = 0;
+    let cfInvestingOutflow = 0;
+    let cfFinancingInflow = 0;
+    let cfFinancingOutflow = 0;
+
     for (const row of bankRes.rows) {
+      const wAmt = Number(row.withdrawal_amount || 0);
+      const dAmt = Number(row.deposit_amount || 0);
+      const isMatched = Boolean(row.is_matched);
+      const matchedType = String(row.matched_type || "");
+      const sr = String(row.sender_receiver || "").replace(/\u3000/g, " ").trim();
+      const holder = String(row.counterparty_holder || "").replace(/\u3000/g, " ").trim();
+      const memo = String(row.memo || "").trim();
+      const combined = `${sr} ${holder} ${memo}`;
+
+      // CF (현금흐름표) 실제 통장 입출금 기준 집계
+      if (isMatched && matchedType === "SALE_INVOICE") {
+        cfSaleInflow += dAmt;
+      } else if (isMatched && matchedType === "PURCHASE_INVOICE") {
+        cfPurchaseOutflow += wAmt;
+      } else if (/가수금|가수근|운영자금|법인준비/.test(combined) || (row.entity_type === "INDIVIDUAL" && (sr === "이정용" || holder === "이정용"))) {
+        cfFinancingInflow += dAmt;
+        cfFinancingOutflow += wAmt;
+      } else {
+        const cls = classifyBankTxAccount(row);
+        if (cls) {
+          if (cls.majorAccount === "PAYROLL") {
+            cfPayrollOutflow += wAmt - dAmt;
+          } else if (cls.majorAccount === "COGS") {
+            cfPurchaseOutflow += wAmt - dAmt;
+          } else if (cls.majorAccount === "OPEX") {
+            cfOpexOutflow += wAmt - dAmt;
+          } else if (cls.majorAccount === "NON_OP") {
+            cfOtherOperatingInflow += dAmt;
+          }
+        }
+      }
+
       const cls = classifyBankTxAccount(row);
       if (!cls) continue;
 
       const ym = String(row.trans_date).slice(0, 7);
-      const rawAmt = Number(row.withdrawal_amount || 0) > 0
-        ? Number(row.withdrawal_amount)
-        : Number(row.deposit_amount || 0);
+      const rawAmt = wAmt > 0 ? wAmt : dAmt;
       const signedAmt = rawAmt * cls.sign;
       const ent = (row.entity_type === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP") as "CORP" | "INDIVIDUAL";
 
@@ -354,7 +512,7 @@ export async function GET(request: Request) {
       return rowMap.get(key)!;
     };
 
-    // 기본 표준 하위계정 미리 생성하여 표 구조 일관성 유지
+    // 기본 표준 하위계정 미리 생성하여 표 구조 일관성 유지 (원천세, 부가세, 법인세, 납부항목 기본 0원 포함)
     const defaultSubAccounts: Array<[AccountRow["majorAccount"], string]> = [
       ["REVENUE", "운영·유지보수 용역매출"],
       ["REVENUE", "상품·장비 판매매출"],
@@ -377,11 +535,20 @@ export async function GET(request: Request) {
       ["OPEX", "소모품·플랫폼·IT구독비"],
       ["OPEX", "체크카드·현장운영경비"],
       ["OPEX", "기타지급수수료·경비"],
-      ["TAX_DUES", "국세·부가세·지방세"],
+      ["TAX_DUES", "원천세"],
+      ["TAX_DUES", "부가세"],
+      ["TAX_DUES", "법인세"],
+      ["TAX_DUES", "납부항목"],
     ];
     for (const [maj, sub] of defaultSubAccounts) {
       ensureRow(maj, sub);
     }
+
+    // 세무 항목(원천세, 부가세, 법인세, 납부항목) 총액 반영 (기본 0원)
+    ensureRow("TAX_DUES", "원천세").total = taxItems.withholdingTax;
+    ensureRow("TAX_DUES", "부가세").total = taxItems.vatTax;
+    ensureRow("TAX_DUES", "법인세").total = taxItems.corporateTax;
+    ensureRow("TAX_DUES", "납부항목").total = taxItems.taxPayment;
 
     const monthlyTotals: Record<
       string,
@@ -433,7 +600,11 @@ export async function GET(request: Request) {
     let grandCogs = 0;
     let grandPayroll = 0;
     let grandOpex = 0;
-    let grandTaxDues = 0;
+    let grandTaxDues =
+      taxItems.withholdingTax +
+      taxItems.vatTax +
+      taxItems.corporateTax +
+      taxItems.taxPayment;
     let grandNonOp = 0;
 
     for (const m of months) {
@@ -446,13 +617,129 @@ export async function GET(request: Request) {
       grandCogs += mt.cogs;
       grandPayroll += mt.payroll;
       grandOpex += mt.opex;
-      grandTaxDues += mt.taxDues;
       grandNonOp += mt.nonOp;
     }
 
     const grandGrossProfit = grandRevenue - grandCogs;
     const grandOperatingProfit = grandGrossProfit - grandPayroll - grandOpex;
-    const grandNetOperatingCash = grandOperatingProfit - grandTaxDues;
+    const grandNetIncome = grandOperatingProfit - grandTaxDues;
+
+    // 7. 재무제표 (BS / PL / CF / Remark) 구조 생성
+    // [PL: 손익계산서]
+    const plStatement = {
+      revenue: grandRevenue,
+      revenueSub: Array.from(rowMap.values()).filter((r) => r.majorAccount === "REVENUE"),
+      cogs: grandCogs,
+      cogsSub: Array.from(rowMap.values()).filter((r) => r.majorAccount === "COGS"),
+      grossProfit: grandGrossProfit,
+      grossMarginRate: grandRevenue > 0 ? Number(((grandGrossProfit / grandRevenue) * 100).toFixed(1)) : 0,
+      payroll: grandPayroll,
+      payrollSub: Array.from(rowMap.values()).filter((r) => r.majorAccount === "PAYROLL"),
+      opex: grandOpex,
+      opexSub: Array.from(rowMap.values()).filter((r) => r.majorAccount === "OPEX"),
+      operatingProfit: grandOperatingProfit,
+      operatingMarginRate:
+        grandRevenue > 0 ? Number(((grandOperatingProfit / grandRevenue) * 100).toFixed(1)) : 0,
+      taxItems: {
+        withholdingTax: taxItems.withholdingTax,
+        vatTax: taxItems.vatTax,
+        corporateTax: taxItems.corporateTax,
+        taxPayment: taxItems.taxPayment,
+        totalTax: grandTaxDues,
+      },
+      netIncome: grandNetIncome,
+      netMarginRate: grandRevenue > 0 ? Number(((grandNetIncome / grandRevenue) * 100).toFixed(1)) : 0,
+    };
+
+    // [BS: 재무상태표 (자산 = 부채 + 자본 보존 항등식)]
+    const currentAssets = cashEnding + accountsReceivable;
+    const nonCurrentAssets = Math.max(0, tangibleAssets - accumDepreciation);
+    const totalAssets = currentAssets + nonCurrentAssets;
+
+    const currentLiabilities =
+      accountsPayable +
+      taxItems.withholdingTax +
+      taxItems.vatTax +
+      taxItems.corporateTax +
+      taxItems.taxPayment;
+    const nonCurrentLiabilities = 0; // 가수금 1회 반환 완료로 0원
+    const totalLiabilities = currentLiabilities + nonCurrentLiabilities;
+
+    const capitalStock = entityType === "INDIVIDUAL" ? 0 : 10000000; // 기본 자본금 1,000만원
+    const currentTermNetIncome = grandNetIncome;
+    const retainedEarningsBefore = totalAssets - totalLiabilities - capitalStock - currentTermNetIncome;
+    const totalEquity = totalAssets - totalLiabilities;
+
+    const bsStatement = {
+      assets: {
+        cashAndEquivalents: cashEnding,
+        cashCorp: cashEndingCorp,
+        cashIndiv: cashEndingIndiv,
+        accountsReceivable,
+        vatPrepaid: 0, // 부가세 대급금 (초기 0)
+        currentAssets,
+        tangibleAssets,
+        accumDepreciation,
+        nonCurrentAssets,
+        totalAssets,
+      },
+      liabilities: {
+        accountsPayable,
+        withholdingTaxPayable: taxItems.withholdingTax, // 원천세 예수금 (초기 0)
+        vatTaxPayable: taxItems.vatTax,                 // 부가세 예수금 (초기 0)
+        corporateTaxPayable: taxItems.corporateTax,     // 미지급 법인세 (초기 0)
+        taxPaymentPayable: taxItems.taxPayment,         // 세무 납부항목 (초기 0)
+        currentLiabilities,
+        nonCurrentLiabilities,
+        totalLiabilities,
+      },
+      equity: {
+        capitalStock,
+        retainedEarningsBefore,
+        currentTermNetIncome,
+        totalEquity,
+      },
+    };
+
+    // [CF: 현금흐름표]
+    const operatingCashFlow =
+      cfSaleInflow +
+      cfOtherOperatingInflow -
+      cfPurchaseOutflow -
+      cfPayrollOutflow -
+      cfOpexOutflow -
+      cfTaxOutflow;
+    const investingCashFlow = cfInvestingInflow - cfInvestingOutflow;
+    const financingCashFlow = cfFinancingInflow - cfFinancingOutflow;
+    const netCashChange = cashEnding - cashBeginning;
+
+    const cfStatement = {
+      beginningCash: cashBeginning,
+      operating: {
+        saleInflow: cfSaleInflow,
+        otherInflow: cfOtherOperatingInflow,
+        purchaseOutflow: cfPurchaseOutflow,
+        payrollOutflow: cfPayrollOutflow,
+        opexOutflow: cfOpexOutflow,
+        withholdingTaxOutflow: taxItems.withholdingTax,
+        vatTaxOutflow: taxItems.vatTax,
+        corporateTaxOutflow: taxItems.corporateTax,
+        taxPaymentOutflow: taxItems.taxPayment,
+        netOperatingCashFlow: operatingCashFlow,
+      },
+      investing: {
+        inflow: cfInvestingInflow,
+        outflow: cfInvestingOutflow,
+        netInvestingCashFlow: investingCashFlow,
+      },
+      financing: {
+        inflow: cfFinancingInflow,
+        outflow: cfFinancingOutflow,
+        netFinancingCashFlow: financingCashFlow,
+      },
+      netCashChange,
+      endingCash: cashEnding,
+    };
 
     return NextResponse.json({
       success: true,
@@ -460,7 +747,9 @@ export async function GET(request: Request) {
       entityType,
       amountBasis,
       months,
-      accountRows: Array.from(rowMap.values()).filter((r) => r.count > 0 || r.total !== 0),
+      accountRows: Array.from(rowMap.values()).filter(
+        (r) => r.majorAccount === "TAX_DUES" || r.count > 0 || r.total !== 0
+      ),
       monthlyTotals,
       summary: {
         revenue: grandRevenue,
@@ -473,8 +762,21 @@ export async function GET(request: Request) {
         operatingMarginRate:
           grandRevenue > 0 ? Number(((grandOperatingProfit / grandRevenue) * 100).toFixed(1)) : 0,
         taxDues: grandTaxDues,
-        netOperatingCash: grandNetOperatingCash,
+        netOperatingCash: grandNetIncome,
         nonOp: grandNonOp,
+      },
+      statements: {
+        bs: bsStatement,
+        pl: plStatement,
+        cf: cfStatement,
+        remark: {
+          text: remarkRow.remark_text || "",
+          taxWithholding: taxItems.withholdingTax,
+          taxVat: taxItems.vatTax,
+          taxCorporate: taxItems.corporateTax,
+          taxPayment: taxItems.taxPayment,
+          updatedAt: remarkRow.updated_at || null,
+        },
       },
       details,
     });
@@ -482,6 +784,59 @@ export async function GET(request: Request) {
     console.error("GET Financial Report Error:", error);
     return NextResponse.json(
       { error: "경영지표 보고서 조회 실패: " + error.message },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const {
+      year = "2026",
+      entityType = "ALL",
+      remarkText = "",
+      taxWithholding = 0,
+      taxVat = 0,
+      taxCorporate = 0,
+      taxPayment = 0,
+      updatedBy = "ADMIN",
+    } = body;
+
+    const pool = getErpPool();
+    await pool.query(
+      `INSERT INTO erp_financial_remarks (
+        year, entity_type, remark_text, tax_withholding, tax_vat, tax_corporate, tax_payment, updated_by, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      ON CONFLICT (year, entity_type)
+      DO UPDATE SET
+        remark_text = EXCLUDED.remark_text,
+        tax_withholding = EXCLUDED.tax_withholding,
+        tax_vat = EXCLUDED.tax_vat,
+        tax_corporate = EXCLUDED.tax_corporate,
+        tax_payment = EXCLUDED.tax_payment,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = NOW()`,
+      [
+        year,
+        entityType,
+        remarkText,
+        Number(taxWithholding || 0),
+        Number(taxVat || 0),
+        Number(taxCorporate || 0),
+        Number(taxPayment || 0),
+        updatedBy,
+      ]
+    );
+
+    return NextResponse.json({
+      success: true,
+      message: `${year === "ALL" ? "전체 연도" : year + "년"} 재무제표 주석(Remark) 및 세무 항목이 저장되었습니다.`,
+    });
+  } catch (error: any) {
+    console.error("POST Financial Remark Error:", error);
+    return NextResponse.json(
+      { error: "주석 및 세무 항목 저장 실패: " + error.message },
       { status: 500 }
     );
   }

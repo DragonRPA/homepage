@@ -683,7 +683,7 @@ export async function GET(request: Request) {
     const nonCurrentLiabilities = 0; // 가수금 1회 반환 완료로 0원
     const totalLiabilities = currentLiabilities + nonCurrentLiabilities;
 
-    const capitalStock = entityType === "INDIVIDUAL" ? 0 : 10000000; // 기본 자본금 1,000만원
+    const capitalStock = entityType === "INDIVIDUAL" ? 0 : 5000000; // (주)드래곤알피에이 납입자본금 500만원 (1,000주 × 5,000원)
     const currentTermNetIncome = grandNetIncome;
     const retainedEarningsBefore = totalAssets - totalLiabilities - capitalStock - currentTermNetIncome;
     const totalEquity = totalAssets - totalLiabilities;

@@ -1489,7 +1489,13 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
             <div className="flex items-center gap-1.5">
               {rightViewMode === "SCAN" && form.scanFileUrl && (
                 <a
-                  href={form.scanFileUrl}
+                  href={
+                    form.scanFileUrl.startsWith("/api/erp/vault")
+                      ? `${form.scanFileUrl}&download=1&filename=${encodeURIComponent(
+                          form.scanFileName || `근로계약서_${form.employeeName}.pdf`
+                        )}`
+                      : form.scanFileUrl
+                  }
                   download={form.scanFileName || `근로계약서_${form.employeeName}.pdf`}
                   target="_blank"
                   rel="noreferrer"
@@ -1500,7 +1506,13 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
               )}
               {rightViewMode === "PLEDGE_SCAN" && form.pledgeScanUrl && (
                 <a
-                  href={form.pledgeScanUrl}
+                  href={
+                    form.pledgeScanUrl.startsWith("/api/erp/vault")
+                      ? `${form.pledgeScanUrl}&download=1&filename=${encodeURIComponent(
+                          form.pledgeScanName || `보안서약서_${form.employeeName}.pdf`
+                        )}`
+                      : form.pledgeScanUrl
+                  }
                   download={form.pledgeScanName || `보안서약서_${form.employeeName}.pdf`}
                   target="_blank"
                   rel="noreferrer"

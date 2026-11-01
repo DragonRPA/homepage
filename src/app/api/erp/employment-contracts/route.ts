@@ -1,5 +1,32 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { encryptPii, decryptPii, hashPassword } from "@/lib/piiCrypto";
+import { putErpPrivateObject } from "@/lib/r2ErpVault";
+
+async function uploadDataUrlToR2IfNeeded(
+  rawUrl: string | null | undefined,
+  fileName: string | null | undefined,
+  folder: string
+): Promise<string | null> {
+  if (!rawUrl || typeof rawUrl !== "string") return null;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  if (!trimmed.startsWith("data:")) return trimmed;
+
+  const match = trimmed.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return trimmed;
+  const mimeType = match[1] || "application/pdf";
+  const buffer = Buffer.from(match[2], "base64");
+  const orig = fileName || "document.pdf";
+  const ext = (orig.split(".").pop() || "pdf").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const safeSlug = orig
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-zA-Z0-9가-힣_-]/g, "_")
+    .slice(0, 50);
+  const objectKey = `${folder}/${Date.now()}_${safeSlug}.${ext}`;
+  await putErpPrivateObject(objectKey, buffer, mimeType);
+  return `/api/erp/vault?key=${encodeURIComponent(objectKey)}`;
+}
 
 async function ensureEmploymentContractsTable(pool: any) {
   await pool.query(`
@@ -13,7 +40,7 @@ async function ensureEmploymentContractsTable(pool: any) {
       employee_name VARCHAR(100) NOT NULL,
       employee_phone VARCHAR(50),
       employee_address TEXT,
-      resident_reg_no VARCHAR(50),
+      resident_reg_no TEXT,
       employer_name VARCHAR(100) NOT NULL DEFAULT '주식회사 드래곤알피에이',
       employer_phone VARCHAR(50) DEFAULT '010-9224-4097',
       employer_address TEXT DEFAULT '서울 금천구 서부샛길 528, 547호',
@@ -50,7 +77,7 @@ async function ensureEmploymentContractsTable(pool: any) {
 
   await pool.query(`
     ALTER TABLE erp_employment_contracts
-    ADD COLUMN IF NOT EXISTS resident_reg_no VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS resident_reg_no TEXT,
     ADD COLUMN IF NOT EXISTS pledge_date DATE,
     ADD COLUMN IF NOT EXISTS pledge_scan_name VARCHAR(255),
     ADD COLUMN IF NOT EXISTS pledge_scan_url TEXT;
@@ -58,7 +85,7 @@ async function ensureEmploymentContractsTable(pool: any) {
 
   await pool.query(`
     ALTER TABLE erp_employees
-    ADD COLUMN IF NOT EXISTS resident_reg_no VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS resident_reg_no TEXT,
     ADD COLUMN IF NOT EXISTS pledge_date DATE,
     ADD COLUMN IF NOT EXISTS pledge_scan_name VARCHAR(255),
     ADD COLUMN IF NOT EXISTS pledge_scan_url TEXT;
@@ -149,6 +176,7 @@ export async function GET(request: Request) {
     const res = await pool.query(query, params);
     const contracts = res.rows.map((r: any) => ({
       ...r,
+      residentRegNo: decryptPii(r.residentRegNo),
       baseSalary: Number(r.baseSalary || 0),
       mealAllowance: Number(r.mealAllowance || 0),
       vehicleAllowance: Number(r.vehicleAllowance || 0),
@@ -264,6 +292,13 @@ export async function POST(request: Request) {
       }
     }
 
+    const encryptedResidentNo =
+      residentRegNo && String(residentRegNo).trim()
+        ? encryptPii(String(residentRegNo).trim())
+        : null;
+    const storedScanUrl = await uploadDataUrlToR2IfNeeded(scanFileUrl, scanFileName, "contracts");
+    const storedPledgeUrl = await uploadDataUrlToR2IfNeeded(pledgeScanUrl, pledgeScanName, "pledges");
+
     if (!resolvedEmpId && registerNewEmployee) {
       const tsSuffix = String(Date.now()).slice(-6);
       const empNo = `DR-${tsSuffix}`;
@@ -280,14 +315,15 @@ export async function POST(request: Request) {
           phone, address, resident_reg_no, pledge_date, pledge_scan_name, pledge_scan_url,
           join_date, employment_status, annual_leave_grant
         ) VALUES (
-          $1, $2, '1111', $3, $4, $5,
-          'USER', 'EMPLOYEE', $6, $7, $8, $9,
-          $10, $11, $12, $13, $14, $15,
-          $16, 'ACTIVE', 11.0
+          $1, $2, $3, $4, $5, $6,
+          'USER', 'EMPLOYEE', $7, $8, $9, $10,
+          $11, $12, $13, $14, $15, $16,
+          $17, 'ACTIVE', 11.0
         ) RETURNING id`,
         [
           empNo,
           loginId,
+          hashPassword("1111"),
           String(employeeName).trim(),
           newEmployeePosition || "사원",
           newEmployeeDepartment || "렌탈운영팀",
@@ -297,10 +333,10 @@ export async function POST(request: Request) {
           vAll,
           employeePhone || null,
           employeeAddress || null,
-          residentRegNo || null,
+          encryptedResidentNo,
           effPledgeDate,
           pledgeScanName || null,
-          pledgeScanUrl || null,
+          storedPledgeUrl || null,
           effStartDate,
         ]
       );
@@ -335,10 +371,10 @@ export async function POST(request: Request) {
           vAll,
           employeePhone ? String(employeePhone).trim() : "",
           employeeAddress ? String(employeeAddress).trim() : "",
-          residentRegNo ? String(residentRegNo).trim() : "",
+          encryptedResidentNo || "",
           effPledgeDate || null,
           pledgeScanName || "",
-          pledgeScanUrl || "",
+          storedPledgeUrl || "",
           resolvedEmpId,
         ]
       );
@@ -377,7 +413,7 @@ export async function POST(request: Request) {
         String(employeeName).trim(),
         employeePhone || null,
         employeeAddress || null,
-        residentRegNo || null,
+        encryptedResidentNo,
         employerName,
         employerPhone,
         employerAddress,
@@ -401,10 +437,10 @@ export async function POST(request: Request) {
         payMethod,
         effContractDate,
         scanFileName || null,
-        scanFileUrl || null,
+        storedScanUrl || null,
         effPledgeDate || null,
         pledgeScanName || null,
-        pledgeScanUrl || null,
+        storedPledgeUrl || null,
         memo || null,
         createdBy,
       ]
@@ -478,6 +514,13 @@ export async function PUT(request: Request) {
         ? Number(employeeId)
         : null;
 
+    const encryptedResidentNo =
+      residentRegNo && String(residentRegNo).trim()
+        ? encryptPii(String(residentRegNo).trim())
+        : null;
+    const storedScanUrl = await uploadDataUrlToR2IfNeeded(scanFileUrl, scanFileName, "contracts");
+    const storedPledgeUrl = await uploadDataUrlToR2IfNeeded(pledgeScanUrl, pledgeScanName, "pledges");
+
     await pool.query(
       `UPDATE erp_employment_contracts
        SET
@@ -527,7 +570,7 @@ export async function PUT(request: Request) {
         employeeName,
         employeePhone || null,
         employeeAddress || null,
-        residentRegNo || null,
+        encryptedResidentNo,
         employerName,
         employerPhone,
         employerAddress,
@@ -551,10 +594,10 @@ export async function PUT(request: Request) {
         payMethod,
         contractDate,
         scanFileName || null,
-        scanFileUrl || null,
+        storedScanUrl || null,
         pledgeDate || null,
         pledgeScanName || null,
-        pledgeScanUrl || null,
+        storedPledgeUrl || null,
         memo || null,
         Number(id),
       ]
@@ -588,10 +631,10 @@ export async function PUT(request: Request) {
           vAll,
           employeePhone ? String(employeePhone).trim() : "",
           employeeAddress ? String(employeeAddress).trim() : "",
-          residentRegNo ? String(residentRegNo).trim() : "",
+          encryptedResidentNo || "",
           pledgeDate || null,
           pledgeScanName || "",
-          pledgeScanUrl || "",
+          storedPledgeUrl || "",
           resolvedEmpId,
         ]
       );

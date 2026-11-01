@@ -12,11 +12,12 @@ export async function POST(request: Request) {
       );
     }
 
-    // Server-side audit log
+    // Server-side audit log (PIPA compliant masked logging)
+    const maskedPhone = String(phone).replace(/(\d{3})-?(\d{2,4})-?(\d{4})/, "$1-****-$3");
+    const maskedEmail = String(email).replace(/(^.{2}).*(@.*$)/, "$1***$2");
     console.log(`[Contact Submission] Date: ${new Date().toISOString()}`);
-    console.log(`Company: ${companyName}, Person: ${contactPerson}, Phone: ${phone}, Email: ${email}`);
+    console.log(`Company: ${companyName}, Person: ${contactPerson}, Phone: ${maskedPhone}, Email: ${maskedEmail}`);
     console.log(`Type: ${serviceType}`);
-    console.log(`Message: ${message}`);
 
     // In production, send via Resend API or SMTP:
     // const resendApiKey = process.env.RESEND_API_KEY;

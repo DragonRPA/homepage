@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { decryptPii } from "@/lib/piiCrypto";
 
 // GET: 특정 귀속연월의 급여 정산 대장 조회
 export async function GET(request: Request) {
@@ -82,12 +83,17 @@ export async function GET(request: Request) {
       totalServiceContractSum += Number(r.serviceContractAmount);
     }
 
+    const decryptedRows = result.rows.map((r: any) => ({
+      ...r,
+      salaryAccountNo: decryptPii(r.salaryAccountNo),
+    }));
+
     return NextResponse.json({
       success: true,
       yearMonth,
-      records: result.rows,
+      records: decryptedRows,
       summary: {
-        count: result.rows.length,
+        count: decryptedRows.length,
         totalGrossSum,
         totalDeductionSum,
         netSalarySum,

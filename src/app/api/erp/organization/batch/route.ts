@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { encryptPii, decryptPii, hashPassword } from "@/lib/piiCrypto";
 
 function normalizeStatusToDb(rawStatus: string | null | undefined): "ACTIVE" | "LEAVE" | "RETIRED" {
   const s = (rawStatus || "ACTIVE").toUpperCase();
@@ -129,7 +130,7 @@ export async function POST(request: Request) {
       const insEmploymentInsurance = u.insEmploymentInsurance !== undefined ? Boolean(u.insEmploymentInsurance) : true;
       const insIndustrialAccident = u.insIndustrialAccident !== undefined ? Boolean(u.insIndustrialAccident) : true;
       const salaryBankName = u.salaryBankName ? String(u.salaryBankName).trim() : null;
-      const salaryAccountNo = u.salaryAccountNo ? String(u.salaryAccountNo).trim() : null;
+      const salaryAccountNo = u.salaryAccountNo ? encryptPii(String(u.salaryAccountNo).trim()) : null;
       const salaryAccountHolder = u.salaryAccountHolder ? String(u.salaryAccountHolder).trim() : null;
       const phone = u.phone ? String(u.phone).trim() : null;
       const email = u.email ? String(u.email).trim() : null;
@@ -143,7 +144,7 @@ export async function POST(request: Request) {
         const loginIdToSave = u.loginId && String(u.loginId).trim() ? String(u.loginId).trim().toLowerCase() : undefined;
         const pwdToSave =
           u.passwordHash && String(u.passwordHash).trim() && !String(u.passwordHash).startsWith("__HASHED__")
-            ? String(u.passwordHash).trim()
+            ? hashPassword(String(u.passwordHash).trim())
             : null;
 
         await client.query(
@@ -216,10 +217,11 @@ export async function POST(request: Request) {
         const tsSuffix = `${Date.now().toString().slice(-5)}${idx}`;
         const empNo = (u.employeeNo && String(u.employeeNo).trim()) || `DR-${tsSuffix}`;
         const loginId = (u.loginId && String(u.loginId).trim().toLowerCase()) || `user_${tsSuffix}`;
-        const pwd =
+        const rawPwd =
           u.passwordHash && String(u.passwordHash).trim() && !String(u.passwordHash).startsWith("__HASHED__")
             ? String(u.passwordHash).trim()
             : "1111";
+        const pwd = hashPassword(rawPwd);
 
         await client.query(
           `INSERT INTO erp_employees (
@@ -342,6 +344,7 @@ export async function POST(request: Request) {
 
     const finalUsers = finalEmpsRes.rows.map((row: any) => ({
       ...row,
+      salaryAccountNo: decryptPii(row.salaryAccountNo),
       status: normalizeStatusToEbro(row.employmentStatus),
       employmentStatus: normalizeStatusToDb(row.employmentStatus),
     }));

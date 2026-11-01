@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseErp, getErpPool } from "@/lib/supabaseErp";
 import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
+import { encryptPii, decryptPii, hashPassword } from "@/lib/piiCrypto";
 
 function normalizeStatusToEbro(rawStatus: string | null | undefined, leaveDate?: string | null): "ACTIVE" | "LEAVE_OF_ABSENCE" | "RETIRED" {
   if (leaveDate && String(leaveDate).trim() !== "") return "RETIRED";
@@ -48,6 +49,7 @@ export async function GET() {
         e.salary_bank_name as "salaryBankName",
         e.salary_account_no as "salaryAccountNo",
         e.salary_account_holder as "salaryAccountHolder",
+        e.resident_reg_no as "residentRegNo",
         e.email, 
         e.phone, 
         e.birth_date::text as "birthDate",
@@ -73,6 +75,8 @@ export async function GET() {
     const result = await pool.query(query);
     const employees = result.rows.map((row: any) => ({
       ...row,
+      salaryAccountNo: decryptPii(row.salaryAccountNo),
+      residentRegNo: decryptPii(row.residentRegNo),
       status: normalizeStatusToEbro(row.employmentStatus, row.leaveDate),
       employmentStatus: normalizeStatusToDb(row.employmentStatus, row.leaveDate),
     }));
@@ -162,10 +166,11 @@ export async function POST(request: Request) {
 
     const effTier = tier_level !== undefined ? Number(tier_level) : tierLevel !== undefined ? Number(tierLevel) : 0;
     const dbStatus = normalizeStatusToDb(status || employmentStatus || "ACTIVE");
-    const pwdToSave =
+    const rawPwd =
       passwordHash && String(passwordHash).trim() && passwordHash !== "__HASHED__"
         ? String(passwordHash).trim()
         : "1111";
+    const pwdToSave = hashPassword(rawPwd);
 
     const { data, error } = await supabaseErp
       .from("erp_employees")
@@ -193,7 +198,7 @@ export async function POST(request: Request) {
         ins_employment_insurance: insEmploymentInsurance !== undefined ? Boolean(insEmploymentInsurance) : true,
         ins_industrial_accident: insIndustrialAccident !== undefined ? Boolean(insIndustrialAccident) : true,
         salary_bank_name: salaryBankName ? String(salaryBankName).trim() : null,
-        salary_account_no: salaryAccountNo ? String(salaryAccountNo).trim() : null,
+        salary_account_no: salaryAccountNo ? encryptPii(String(salaryAccountNo).trim()) : null,
         salary_account_holder: salaryAccountHolder ? String(salaryAccountHolder).trim() : null,
         email: email ? String(email).trim() : null,
         phone: phone ? String(phone).trim() : null,
@@ -241,7 +246,7 @@ export async function POST(request: Request) {
         insEmploymentInsurance: data.ins_employment_insurance ?? true,
         insIndustrialAccident: data.ins_industrial_accident ?? true,
         salaryBankName: data.salary_bank_name || "",
-        salaryAccountNo: data.salary_account_no || "",
+        salaryAccountNo: decryptPii(data.salary_account_no) || "",
         salaryAccountHolder: data.salary_account_holder || "",
         profileImageUrl: data.profile_image_url || undefined,
       },
@@ -305,7 +310,7 @@ export async function PUT(request: Request) {
     if (name !== undefined && String(name).trim()) updatePayload.name = String(name).trim();
     if (loginId !== undefined && String(loginId).trim()) updatePayload.login_id = String(loginId).trim().toLowerCase();
     if (passwordHash && String(passwordHash).trim() && !String(passwordHash).startsWith("__HASHED__")) {
-      updatePayload.password_hash = String(passwordHash).trim();
+      updatePayload.password_hash = hashPassword(String(passwordHash).trim());
     }
     if (position !== undefined) updatePayload.position = position;
     if (duty !== undefined) updatePayload.duty = duty;
@@ -352,7 +357,7 @@ export async function PUT(request: Request) {
     if (insEmploymentInsurance !== undefined) updatePayload.ins_employment_insurance = Boolean(insEmploymentInsurance);
     if (insIndustrialAccident !== undefined) updatePayload.ins_industrial_accident = Boolean(insIndustrialAccident);
     if (salaryBankName !== undefined) updatePayload.salary_bank_name = salaryBankName ? String(salaryBankName).trim() : null;
-    if (salaryAccountNo !== undefined) updatePayload.salary_account_no = salaryAccountNo ? String(salaryAccountNo).trim() : null;
+    if (salaryAccountNo !== undefined) updatePayload.salary_account_no = salaryAccountNo ? encryptPii(String(salaryAccountNo).trim()) : null;
     if (salaryAccountHolder !== undefined) updatePayload.salary_account_holder = salaryAccountHolder ? String(salaryAccountHolder).trim() : null;
     if (status !== undefined || employmentStatus !== undefined) {
       updatePayload.employment_status = normalizeStatusToDb(status ?? employmentStatus);
@@ -394,7 +399,7 @@ export async function PUT(request: Request) {
         insEmploymentInsurance: data.ins_employment_insurance ?? true,
         insIndustrialAccident: data.ins_industrial_accident ?? true,
         salaryBankName: data.salary_bank_name || "",
-        salaryAccountNo: data.salary_account_no || "",
+        salaryAccountNo: decryptPii(data.salary_account_no) || "",
         salaryAccountHolder: data.salary_account_holder || "",
         profileImageUrl: data.profile_image_url || undefined,
       },

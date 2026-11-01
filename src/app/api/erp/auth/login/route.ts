@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseErp } from "@/lib/supabaseErp";
+import { verifyPassword, hashPassword } from "@/lib/piiCrypto";
 
 export async function POST(request: Request) {
   try {
@@ -41,12 +42,20 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check Password
-    if (emp.password_hash !== password) {
+    // Check Password (supports scrypt one-way salted hash & transparent legacy migration)
+    if (!verifyPassword(password, emp.password_hash)) {
       return NextResponse.json(
         { error: "비밀번호가 일치하지 않습니다. (초기 비밀번호: 1111)" },
         { status: 401 }
       );
+    }
+
+    // Auto-upgrade legacy plaintext password to scrypt hash if not yet hashed
+    if (emp.password_hash && !String(emp.password_hash).startsWith("scrypt$")) {
+      await supabaseErp
+        .from("erp_employees")
+        .update({ password_hash: hashPassword(password) })
+        .eq("id", emp.id);
     }
 
     return NextResponse.json({

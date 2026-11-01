@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseErp } from "@/lib/supabaseErp";
+import { verifyPassword, hashPassword } from "@/lib/piiCrypto";
 
 export async function POST(request: Request) {
   try {
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "사원 정보를 찾을 수 없습니다." }, { status: 404 });
     }
 
-    if (employees[0].password_hash !== currentPassword) {
+    if (!verifyPassword(currentPassword, employees[0].password_hash)) {
       return NextResponse.json(
         { error: "현재 비밀번호가 일치하지 않습니다." },
         { status: 401 }
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
     const { error: updateErr } = await supabaseErp
       .from("erp_employees")
       .update({
-        password_hash: newPassword,
+        password_hash: hashPassword(newPassword),
         must_change_password: false,
         updated_at: new Date().toISOString(),
       })

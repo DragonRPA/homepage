@@ -80,7 +80,7 @@ export const STANDARD_ACCOUNT_SUBJECTS: StandardAccountSubject[] = [
     label: "복리후생비(식대·다과·경조사)",
     direction: "WITHDRAWAL",
     majorAccount: "OPEX",
-    subAccount: "체크카드·현장운영경비",
+    subAccount: "복리후생비(식대·다과·경조사)",
     sign: 1,
   },
   {
@@ -183,8 +183,8 @@ export const STANDARD_ACCOUNT_SUBJECTS: StandardAccountSubject[] = [
     code: "WTH_TAX_PUBLIC",
     label: "세금과공과(국세·지방세·벌과금)",
     direction: "WITHDRAWAL",
-    majorAccount: "OPEX",
-    subAccount: "기타지급수수료·경비",
+    majorAccount: "TAX_DUES",
+    subAccount: "납부항목",
     sign: 1,
   },
   {

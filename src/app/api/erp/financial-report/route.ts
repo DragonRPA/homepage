@@ -78,6 +78,10 @@ function classifyBankTxAccount(row: any): {
 
   // 1-B. 사용자가 통장 입출금에 명시적으로 지정한 계정과목(ACCOUNT_SUBJECT)이 있으면 최우선 반영
   if (isMatched && matchedType === "ACCOUNT_SUBJECT" && matchedId) {
+    // 세금과공과(원천세·부가세·법인세·납부항목)는 국세청 별도 조회값(초기 0원)으로 관리하므로 통장 자동합산에서 분리
+    if (matchedId.includes("세금과공과") || matchedId === "WTH_TAX_PUBLIC") {
+      return null;
+    }
     const resolved = resolveExplicitAccountSubject(matchedId, dAmt > 0);
     if (resolved) {
       return resolved;
@@ -331,15 +335,19 @@ export async function GET(request: Request) {
     }
 
     // 2-3. 유형자산(렌탈자산 + 일반비품) 조회 (BS 비유동자산용)
-    const assetRes = await pool.query(`
-      SELECT COALESCE(SUM(purchase_price), 0)::numeric AS fixed_assets
-      FROM erp_assets
-    `);
-    const rentalAssetRes = await pool.query(`
-      SELECT COALESCE(SUM(acquisition_cost), 0)::numeric AS rental_assets,
-             COALESCE(SUM(accumulated_depreciation), 0)::numeric AS accum_dep
-      FROM erp_rental_assets
-    `).catch(() => ({ rows: [{ rental_assets: 0, accum_dep: 0 }] }));
+    const assetRes = await pool
+      .query(`
+        SELECT COALESCE(SUM(purchase_price), 0)::numeric AS fixed_assets
+        FROM erp_assets
+      `)
+      .catch(() => ({ rows: [{ fixed_assets: 0 }] }));
+    const rentalAssetRes = await pool
+      .query(`
+        SELECT COALESCE(SUM(acquisition_cost), 0)::numeric AS rental_assets,
+               COALESCE(SUM(accumulated_depreciation), 0)::numeric AS accum_dep
+        FROM erp_rental_assets
+      `)
+      .catch(() => ({ rows: [{ rental_assets: 0, accum_dep: 0 }] }));
 
     const tangibleAssets =
       Number(assetRes.rows[0]?.fixed_assets || 0) +
@@ -535,6 +543,7 @@ export async function GET(request: Request) {
       ["PAYROLL", "퇴직급여·정산"],
       ["PAYROLL", "일용직급여"],
       ["PAYROLL", "4대보험료(기관납부)"],
+      ["OPEX", "복리후생비(식대·다과·경조사)"],
       ["OPEX", "임차료·관리비"],
       ["OPEX", "통신비"],
       ["OPEX", "차량유지·렌트비"],

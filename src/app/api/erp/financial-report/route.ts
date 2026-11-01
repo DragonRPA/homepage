@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { resolveExplicitAccountSubject } from "@/lib/erpAccountSubjects";
 
-export interface FinancialDetailItem {
+interface FinancialDetailItem {
   id: string;
   source: "TAX_INVOICE" | "BANK_TX";
   entityType: "CORP" | "INDIVIDUAL";

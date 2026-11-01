@@ -43,7 +43,7 @@ async function ensureExpenseSchema(pool: any) {
  * 특정 귀속연월 + 임직원의 승인된 개인경비 합계를 급여 정산 대장(erp_payroll_records)에 실시간 반영
  * - 개인경비 환급액은 실비변상 비과세 항목이므로 지급합계(total_gross)와 실지급액(net_salary)에 1:1 가산됨
  */
-export async function syncPayrollPersonalExpense(
+async function syncPayrollPersonalExpense(
   pool: any,
   yearMonth: string,
   employeeId: number

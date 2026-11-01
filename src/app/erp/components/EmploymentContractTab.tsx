@@ -676,7 +676,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
   const totalAnnual = totalMonthly * 12;
 
   return (
-    <div className="flex flex-col min-h-full md:h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 md:overflow-hidden font-sans">
+    <div className="flex flex-col h-full min-h-0 bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 overflow-y-auto lg:overflow-hidden font-sans">
       {/* 인쇄 시 현재 선택된 A4 양식(근로계약서 또는 정보보호서약서)만 출력 */}
       <style jsx global>{`
         @media print {
@@ -855,9 +855,9 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       )}
 
       {/* 2. 본문 마스터-디테일 스튜디오 */}
-      <div className="flex-1 md:overflow-hidden grid grid-cols-1 lg:grid-cols-12 gap-3 p-2.5 md:p-3">
+      <div className="flex-1 min-h-0 lg:overflow-hidden grid grid-cols-1 lg:grid-cols-12 gap-3 p-2.5 md:p-3">
         {/* 좌측 (5열): 연도별 근로계약서·보안서약서 보관 대장 + 편집 폼 */}
-        <div className="lg:col-span-5 flex flex-col gap-3 md:overflow-y-auto pr-0.5">
+        <div className="lg:col-span-5 flex flex-col gap-3 min-h-0 lg:h-full lg:overflow-y-auto pr-1 pb-6">
           {/* 2-1. 연도별 근로계약서 & 보안서약서 보관 목록 */}
           <div className="bg-[#f4efe4] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800 shrink-0">
             <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 flex items-center justify-between">
@@ -872,7 +872,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
               </span>
             </div>
 
-            <div className="max-h-[235px] overflow-auto">
+            <div className="max-h-[195px] overflow-auto">
               <table className="w-full text-xs text-left border-collapse">
                 <thead className="bg-[#dcd4c4] text-[#0f172a] font-bold border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700">
                   <tr>
@@ -997,8 +997,8 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
           </div>
 
           {/* 2-2. 근로계약 및 입사 보안서약서 상세 입력·편집 패널 */}
-          <div className="bg-[#f4efe4] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800 flex flex-col">
-            <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 flex items-center justify-between">
+          <div className="bg-[#f4efe4] border border-[#b5a894] rounded shadow-xs dark:bg-slate-900 dark:border-slate-800 flex flex-col shrink-0">
+            <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 flex items-center justify-between sticky top-0 z-10 rounded-t">
               <div className="flex items-center gap-2 text-xs font-bold">
                 <span>
                   {selectedContractId
@@ -1424,13 +1424,29 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                     <span>신규 입사자로 사원대장 동시 등록</span>
                   </label>
                 )}
+
+                <button
+                  type="button"
+                  onClick={handleSaveContract}
+                  disabled={saving}
+                  className="ml-auto px-3 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs whitespace-nowrap transition disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>
+                    {saving
+                      ? "저장 중..."
+                      : selectedContractId
+                      ? "계약서·보안서약 수정 저장"
+                      : "신규 저장"}
+                  </span>
+                </button>
               </div>
             </div>
           </div>
         </div>
 
         {/* 우측 (7열): 근로계약서 양식 / 근로계약서 스캔본 / 정보보호서약서 양식 / 보안서약서 스캔본 4탭 뷰어 */}
-        <div className="lg:col-span-7 flex flex-col bg-[#f4efe4] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800">
+        <div className="lg:col-span-7 flex flex-col min-h-0 lg:h-full bg-[#f4efe4] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800">
           {/* 우측 상단 4종 뷰 전환 탭 */}
           <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex flex-wrap items-center gap-1">
@@ -1533,7 +1549,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
           </div>
 
           {/* 우측 본문 영역 */}
-          <div className="flex-1 overflow-y-auto p-3 md:p-5 bg-[#dcd4c4] dark:bg-slate-950 flex justify-center">
+          <div className="flex-1 min-h-0 overflow-y-auto p-3 md:p-5 bg-[#dcd4c4] dark:bg-slate-950 flex justify-center items-start">
             {rightViewMode === "SCAN" ? (
               form.scanFileUrl ? (
                 <div className="w-full h-full min-h-[650px] bg-white rounded border border-[#b5a894] overflow-hidden flex flex-col">

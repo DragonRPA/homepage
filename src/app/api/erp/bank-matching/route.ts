@@ -892,48 +892,298 @@ export async function POST(request: Request) {
   }
 }
 
-// PATCH: 거래 대사(매칭), 메모 수정 또는 대사 취소
+// PATCH: 거래 대사(매칭), 계정과목 일괄 지정, 세금계산서 연동 매칭, 메모 수정 또는 대사 취소
 export async function PATCH(request: Request) {
+  const pool = getErpPool();
+  const client = await pool.connect();
+
   try {
-    const { id, action, matchedType, matchedId, memo } = await request.json();
+    const body = await request.json();
+    const { id, ids, action, matchedType, matchedId, accountSubject, invoiceIds, forceComplete, settleReason, memo } = body;
+
+    await client.query("BEGIN");
+
+    // 1. BATCH_ASSIGN_ACCOUNT: 통장 미매칭 입출금 1~N건에 계정과목을 지정하여 미결 정리
+    if (action === "BATCH_ASSIGN_ACCOUNT") {
+      const targetIds: number[] = Array.isArray(ids)
+        ? ids.map((n: any) => Number(n)).filter((n: number) => n > 0)
+        : id
+        ? [Number(id)]
+        : [];
+      const subjectLabel = String(accountSubject || matchedId || "").trim();
+      if (targetIds.length === 0 || !subjectLabel) {
+        await client.query("ROLLBACK");
+        return NextResponse.json(
+          { error: "정리할 거래내역과 지정할 계정과목을 선택해 주십시오." },
+          { status: 400 }
+        );
+      }
+
+      const memoText = memo && String(memo).trim() ? String(memo).trim() : null;
+      await client.query(
+        `UPDATE erp_bank_transactions
+         SET is_matched = true,
+             matched_type = 'ACCOUNT_SUBJECT',
+             matched_id = $1,
+             memo = COALESCE($2, memo),
+             matched_at = NOW()
+         WHERE id = ANY($3::bigint[])`,
+        [subjectLabel, memoText, targetIds]
+      );
+
+      await client.query("COMMIT");
+      return NextResponse.json({
+        success: true,
+        count: targetIds.length,
+        message: `선택한 통장 내역 ${targetIds.length}건을 [${subjectLabel}] 계정과목으로 정리 완료했습니다.`,
+      });
+    }
+
+    // 2. MATCH_INVOICES: 통장 거래 1~N건과 미결 세금계산서 1~N건을 엮어 양방향 매칭 완결
+    if (action === "MATCH_INVOICES") {
+      const targetTxIds: number[] = Array.isArray(ids)
+        ? ids.map((n: any) => Number(n)).filter((n: number) => n > 0)
+        : id
+        ? [Number(id)]
+        : [];
+      const targetInvIds: number[] = Array.isArray(invoiceIds)
+        ? invoiceIds.map((n: any) => Number(n)).filter((n: number) => n > 0)
+        : [];
+
+      if (targetTxIds.length === 0 || targetInvIds.length === 0) {
+        await client.query("ROLLBACK");
+        return NextResponse.json(
+          { error: "연결할 통장 거래내역과 세금계산서를 각각 1건 이상 선택해 주십시오." },
+          { status: 400 }
+        );
+      }
+
+      const txRes = await client.query(
+        "SELECT * FROM erp_bank_transactions WHERE id = ANY($1::bigint[]) FOR UPDATE",
+        [targetTxIds]
+      );
+      const invRes = await client.query(
+        "SELECT * FROM erp_tax_invoices WHERE id = ANY($1::bigint[]) ORDER BY issue_date ASC, id ASC FOR UPDATE",
+        [targetInvIds]
+      );
+
+      if (txRes.rows.length === 0 || invRes.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return NextResponse.json({ error: "대상 거래내역 또는 세금계산서를 찾을 수 없습니다." }, { status: 404 });
+      }
+
+      const firstInv = invRes.rows[0];
+      const ioType = firstInv.io_type || "SALE";
+      const expectedMatchedType = ioType === "PURCHASE" ? "PURCHASE_INVOICE" : "SALE_INVOICE";
+
+      let totalSelectedTxAmt = 0;
+      for (const tx of txRes.rows) {
+        totalSelectedTxAmt +=
+          ioType === "PURCHASE"
+            ? Number(tx.withdrawal_amount || tx.amount || 0)
+            : Number(tx.deposit_amount || tx.amount || 0);
+      }
+
+      let remainingPoolAmt = totalSelectedTxAmt;
+      const invoiceNos: string[] = [];
+
+      for (let i = 0; i < invRes.rows.length; i++) {
+        const inv = invRes.rows[i];
+        invoiceNos.push(inv.invoice_no);
+        const invTotal = Number(inv.total_amount || 0);
+        const prevSettled = Number(inv.settled_amount || 0);
+        const invUnpaid = Math.max(0, invTotal - prevSettled);
+
+        const prevTxIds: number[] = Array.isArray(inv.matched_bank_tx_ids)
+          ? inv.matched_bank_tx_ids.map((n: any) => Number(n)).filter((n: number) => n > 0)
+          : [];
+        const mergedTxIds = Array.from(new Set([...prevTxIds, ...targetTxIds]));
+
+        let nextSettled = invTotal;
+        let nextStatus = "PAID";
+
+        if (!forceComplete) {
+          const allocated = Math.min(invUnpaid, Math.max(0, remainingPoolAmt));
+          remainingPoolAmt = Math.max(0, remainingPoolAmt - allocated);
+          const candidateSettled = prevSettled + allocated;
+          const isPaid = candidateSettled >= invTotal - 1000;
+          nextSettled = isPaid ? invTotal : Math.min(invTotal, candidateSettled);
+          nextStatus = isPaid ? "PAID" : nextSettled > 0 ? "PARTIAL" : "UNPAID";
+        }
+
+        let updatedMemo = inv.memo || "";
+        if (forceComplete && settleReason) {
+          const tag = `[${settleReason}]`;
+          if (!updatedMemo.includes(tag)) {
+            updatedMemo = updatedMemo ? `${updatedMemo} | ${tag}` : tag;
+          }
+        }
+
+        await client.query(
+          `UPDATE erp_tax_invoices
+           SET settled_amount = $1,
+               settlement_status = $2,
+               matched_bank_tx_ids = $3::jsonb,
+               memo = $4,
+               settled_at = NOW()
+           WHERE id = $5`,
+          [nextSettled, nextStatus, JSON.stringify(mergedTxIds), updatedMemo, inv.id]
+        );
+
+        const billStatus = nextStatus === "PAID" ? "PAID" : nextStatus === "PARTIAL" ? "PARTIAL" : "UNPAID";
+        await client.query(
+          `UPDATE erp_service_billings SET payment_status = $1 WHERE tax_invoice_id = $2`,
+          [billStatus, inv.id]
+        );
+        await client.query(
+          `UPDATE erp_rental_billings
+           SET payment_status = $1,
+               paid_amount = CASE WHEN $1 = 'PAID' THEN total_amount WHEN $1 = 'UNPAID' THEN 0 ELSE LEAST(total_amount, $2::numeric) END
+           WHERE tax_invoice_id = $3`,
+          [billStatus, nextSettled, inv.id]
+        );
+        await client.query(
+          `UPDATE erp_trade_billings
+           SET payment_status = $1,
+               paid_amount = CASE WHEN $1 = 'PAID' THEN total_amount WHEN $1 = 'UNPAID' THEN 0 ELSE LEAST(total_amount, $2::numeric) END
+           WHERE tax_invoice_id = $3`,
+          [billStatus, nextSettled, inv.id]
+        );
+      }
+
+      const joinedInvNos = invoiceNos.join(",");
+      const memoNote =
+        memo && String(memo).trim()
+          ? String(memo).trim()
+          : settleReason
+          ? `${firstInv.customer_name} (${settleReason})`
+          : null;
+
+      await client.query(
+        `UPDATE erp_bank_transactions
+         SET is_matched = true,
+             matched_type = $1,
+             matched_id = $2,
+             memo = COALESCE($3, memo),
+             matched_at = NOW()
+         WHERE id = ANY($4::bigint[])`,
+        [expectedMatchedType, joinedInvNos, memoNote, targetTxIds]
+      );
+
+      await client.query("COMMIT");
+      return NextResponse.json({
+        success: true,
+        message: `통장 내역 ${targetTxIds.length}건과 세금계산서 ${targetInvIds.length}건을 연결하여 대사 완결했습니다.`,
+      });
+    }
 
     if (!id) {
+      await client.query("ROLLBACK");
       return NextResponse.json({ error: "거래 ID가 누락되었습니다." }, { status: 400 });
     }
 
-    const pool = getErpPool();
-
+    // 3. UNMATCH: 대사 취소 시 만약 세금계산서(SALE_INVOICE / PURCHASE_INVOICE)와 연결된 건이었다면 해당 세금계산서도 재계산/복원
     if (action === "UNMATCH") {
-      await pool.query(
+      const txId = Number(id);
+      const linkedInvsRes = await client.query(
+        `SELECT * FROM erp_tax_invoices WHERE matched_bank_tx_ids @> $1::jsonb FOR UPDATE`,
+        [JSON.stringify([txId])]
+      );
+
+      for (const inv of linkedInvsRes.rows) {
+        const ioType = inv.io_type || "SALE";
+        const totalAmount = Number(inv.total_amount || 0);
+        const prevTxIds: number[] = Array.isArray(inv.matched_bank_tx_ids)
+          ? inv.matched_bank_tx_ids.map((n: any) => Number(n)).filter((n: number) => n > 0)
+          : [];
+        const remainingTxIds = prevTxIds.filter((tid) => tid !== txId);
+
+        let nextSettled = 0;
+        if (remainingTxIds.length > 0) {
+          const remRes = await client.query(
+            "SELECT * FROM erp_bank_transactions WHERE id = ANY($1::bigint[])",
+            [remainingTxIds]
+          );
+          for (const rtx of remRes.rows) {
+            nextSettled +=
+              ioType === "PURCHASE"
+                ? Number(rtx.withdrawal_amount || rtx.amount || 0)
+                : Number(rtx.deposit_amount || rtx.amount || 0);
+          }
+        }
+
+        const isPaid = remainingTxIds.length > 0 && nextSettled >= totalAmount - 1000;
+        const finalSettled = isPaid ? totalAmount : nextSettled;
+        const nextStatus = isPaid ? "PAID" : finalSettled > 0 ? "PARTIAL" : "UNPAID";
+
+        await client.query(
+          `UPDATE erp_tax_invoices
+           SET settled_amount = $1,
+               settlement_status = $2,
+               matched_bank_tx_ids = $3::jsonb,
+               settled_at = CASE WHEN $2 = 'UNPAID' THEN NULL ELSE NOW() END
+           WHERE id = $4`,
+          [finalSettled, nextStatus, JSON.stringify(remainingTxIds), inv.id]
+        );
+
+        const billStatus = nextStatus === "PAID" ? "PAID" : nextStatus === "PARTIAL" ? "PARTIAL" : "UNPAID";
+        await client.query(`UPDATE erp_service_billings SET payment_status = $1 WHERE tax_invoice_id = $2`, [
+          billStatus,
+          inv.id,
+        ]);
+        await client.query(
+          `UPDATE erp_rental_billings
+           SET payment_status = $1,
+               paid_amount = CASE WHEN $1 = 'PAID' THEN total_amount WHEN $1 = 'UNPAID' THEN 0 ELSE LEAST(total_amount, $2::numeric) END
+           WHERE tax_invoice_id = $3`,
+          [billStatus, finalSettled, inv.id]
+        );
+        await client.query(
+          `UPDATE erp_trade_billings
+           SET payment_status = $1,
+               paid_amount = CASE WHEN $1 = 'PAID' THEN total_amount WHEN $1 = 'UNPAID' THEN 0 ELSE LEAST(total_amount, $2::numeric) END
+           WHERE tax_invoice_id = $3`,
+          [billStatus, finalSettled, inv.id]
+        );
+      }
+
+      await client.query(
         `UPDATE erp_bank_transactions 
          SET is_matched = false, matched_type = null, matched_id = null, matched_at = null 
          WHERE id = $1`,
-        [id]
+        [txId]
       );
+
+      await client.query("COMMIT");
       return NextResponse.json({ success: true, message: "대사가 취소되었습니다." });
     }
 
     if (action === "UPDATE_MEMO") {
-      await pool.query(
-        `UPDATE erp_bank_transactions SET memo = $1 WHERE id = $2`,
-        [memo ? memo.trim() : null, id]
-      );
+      await client.query(`UPDATE erp_bank_transactions SET memo = $1 WHERE id = $2`, [
+        memo ? memo.trim() : null,
+        id,
+      ]);
+      await client.query("COMMIT");
       return NextResponse.json({ success: true, message: "메모가 저장되었습니다." });
     }
 
-    // MATCH action
+    // 4. 일반 단건 MATCH action
     const now = new Date().toISOString();
-    await pool.query(
+    await client.query(
       `UPDATE erp_bank_transactions 
        SET is_matched = true, matched_type = $1, matched_id = $2, matched_at = $3, memo = COALESCE($4, memo)
        WHERE id = $5`,
-      [matchedType || "BILLING", matchedId ? String(matchedId) : null, now, memo, id]
+      [matchedType || "ACCOUNT_SUBJECT", matchedId ? String(matchedId) : null, now, memo, id]
     );
 
+    await client.query("COMMIT");
     return NextResponse.json({ success: true, message: "대사 매칭이 완료되었습니다." });
   } catch (error: any) {
+    await client.query("ROLLBACK");
     console.error("PATCH Bank Matching Error:", error);
     return NextResponse.json({ error: "대사 처리 실패: " + error.message }, { status: 500 });
+  } finally {
+    client.release();
   }
 }
 

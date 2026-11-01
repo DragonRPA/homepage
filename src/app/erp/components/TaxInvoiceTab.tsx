@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { EntityType, getEntity } from "@/lib/businessEntities";
 import { formatErpNumber, formatErpCurrency, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { STANDARD_ACCOUNT_SUBJECTS } from "@/lib/erpAccountSubjects";
 import { ContractTaxInvoiceSection, BuyerTaxSpec, createDefaultTaxSpec, extractPartnerTaxSpec } from "./ContractTaxInvoiceSection";
 
 interface TaxInvoiceTabProps {
@@ -105,6 +106,9 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const [selectedBankTxIds, setSelectedBankTxIds] = useState<Set<number>>(new Set());
   const [bankSearchTerm, setBankSearchTerm] = useState("");
   const [manualSettleInput, setManualSettleInput] = useState<string>("");
+  const [settleReasonInput, setSettleReasonInput] = useState<string>("수수료/단수절사 차액 상계 완납");
+  const [rowSubjectMap, setRowSubjectMap] = useState<Record<number, string>>({});
+  const [batchSubject, setBatchSubject] = useState<string>("");
 
   // Hometax Free Self-RPA & Excel Upload State (No Popbill Paid Scraping)
   const [htStartDate, setHtStartDate] = useState(() => {
@@ -406,8 +410,16 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       const res = await fetch(`/api/erp/tax-invoices/reconcile?invoiceId=${inv.id}`);
       const data = await res.json();
       if (data.success) {
+        const cands = data.candidateTransactions || [];
         setLinkedBankTxs(data.linkedTransactions || []);
-        setCandidateBankTxs(data.candidateTransactions || []);
+        setCandidateBankTxs(cands);
+        const initSubjMap: Record<number, string> = {};
+        for (const tx of cands) {
+          if (tx.recommendedAccount) {
+            initSubjMap[Number(tx.id)] = tx.recommendedAccount;
+          }
+        }
+        setRowSubjectMap(initSubjMap);
       } else {
         throw new Error(data.error || "입출금 대사 후보 조회 실패");
       }
@@ -438,8 +450,8 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     }
   };
 
-  // Match Selected Bank Transactions in Reconcile Modal
-  const handleConfirmBankMatch = async () => {
+  // Match Selected Bank Transactions in Reconcile Modal (forceComplete: 금액 불일치 시에도 차액 상계/완납 종결)
+  const handleConfirmBankMatch = async (forceComplete = false) => {
     if (!reconcileInvoice || selectedBankTxIds.size === 0) {
       showToast("연결할 통장 입출금 내역을 1건 이상 선택해 주십시오.", "error");
       return;
@@ -453,6 +465,8 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
           action: "MATCH",
           invoiceId: reconcileInvoice.id,
           bankTxIds: Array.from(selectedBankTxIds),
+          forceComplete,
+          settleReason: forceComplete ? settleReasonInput : undefined,
         }),
       });
       const data = await res.json();
@@ -464,6 +478,39 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         settledAmount: data.settledAmount,
         settlementStatus: data.settlementStatus,
       });
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setReconcileLoading(false);
+    }
+  };
+
+  // 세금계산서 외 일반 입출금 내역에 계정과목을 지정하여 미결(미매칭) 후보에서 즉시 정리·소거
+  const handleClassifyBankTxInModal = async (txIds: number[], accountSubject: string) => {
+    if (!reconcileInvoice || txIds.length === 0 || !accountSubject) {
+      showToast("계정과목을 선택해 주십시오.", "error");
+      return;
+    }
+    try {
+      setReconcileLoading(true);
+      const res = await fetch("/api/erp/tax-invoices/reconcile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "CLASSIFY_BANK_TX",
+          bankTxIds: txIds,
+          accountSubject,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "계정과목 정리 실패");
+      showToast(data.message);
+      setSelectedBankTxIds((prev) => {
+        const next = new Set(prev);
+        for (const id of txIds) next.delete(id);
+        return next;
+      });
+      await openReconcileModal(reconcileInvoice);
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -949,6 +996,29 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         .includes(q)
     );
   }, [candidateBankTxs, bankSearchTerm]);
+
+  const modalAccountSubjects = useMemo(() => {
+    const isPurchase = reconcileInvoice?.ioType === "PURCHASE";
+    const dir = isPurchase ? "WITHDRAWAL" : "DEPOSIT";
+    return STANDARD_ACCOUNT_SUBJECTS.filter((s) => s.direction === dir || s.direction === "BOTH");
+  }, [reconcileInvoice]);
+
+  const selectedBankTxSum = useMemo(() => {
+    if (!reconcileInvoice || selectedBankTxIds.size === 0) return 0;
+    const isPurchase = reconcileInvoice.ioType === "PURCHASE";
+    return candidateBankTxs.reduce((sum, tx) => {
+      if (!selectedBankTxIds.has(Number(tx.id))) return sum;
+      const amt = isPurchase
+        ? Number(tx.withdrawalAmount || tx.amount || 0)
+        : Number(tx.depositAmount || tx.amount || 0);
+      return sum + amt;
+    }, 0);
+  }, [reconcileInvoice, candidateBankTxs, selectedBankTxIds]);
+
+  const reconcileUnpaidBalance = useMemo(() => {
+    if (!reconcileInvoice) return 0;
+    return Math.max(0, Number(reconcileInvoice.totalAmount || 0) - Number(reconcileInvoice.settledAmount || 0));
+  }, [reconcileInvoice]);
 
   const activeStats = activeSubTab === "PURCHASE_LEDGER" ? apStats : arStats;
   const isPurchaseTab = activeSubTab === "PURCHASE_LEDGER";
@@ -2328,61 +2398,115 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
               {/* 2. Candidate Bank Transactions from IBK erp_bank_transactions */}
               <div className="border border-[#b5a894] rounded bg-[#ebe5d8] overflow-hidden">
                 <div className="px-3 py-2 bg-[#dfd7c7] border-b border-[#b5a894] flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-bold">
-                    통장 {reconcileInvoice.ioType === "PURCHASE" ? "출금" : "입금"} 후보 목록 (거래처명·금액 유사도 순 정렬)
-                  </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold">
+                      통장 {reconcileInvoice.ioType === "PURCHASE" ? "출금" : "입금"} 후보 목록 ({filteredCandidateTxs.length}건)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedBankTxIds.size === filteredCandidateTxs.length && filteredCandidateTxs.length > 0) {
+                          setSelectedBankTxIds(new Set());
+                        } else {
+                          setSelectedBankTxIds(new Set(filteredCandidateTxs.map((t) => Number(t.id))));
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded border border-[#b5a894] bg-[#f4efe4] hover:bg-[#e2dbcd] text-[10px] font-bold"
+                    >
+                      {selectedBankTxIds.size === filteredCandidateTxs.length && filteredCandidateTxs.length > 0
+                        ? "전체 선택 해제"
+                        : "현재 목록 전체 선택"}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* 선택 건 일괄 계정과목 정리 바 (세금계산서 외 일반 입출금 일괄 소거) */}
+                    {selectedBankTxIds.size > 0 && (
+                      <div className="flex items-center gap-1.5 bg-[#f4efe4] px-2 py-1 rounded border border-[#b5a894]">
+                        <span className="text-[10px] font-bold text-[#44403c] whitespace-nowrap">
+                          선택 {selectedBankTxIds.size}건 계정과목 정리:
+                        </span>
+                        <select
+                          value={batchSubject || modalAccountSubjects[0]?.label || ""}
+                          onChange={(e) => setBatchSubject(e.target.value)}
+                          className="h-6 px-1.5 rounded border border-[#b5a894] bg-white text-[11px] font-bold text-[#1c1917]"
+                        >
+                          {modalAccountSubjects.map((s) => (
+                            <option key={s.code} value={s.label}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleClassifyBankTxInModal(
+                              Array.from(selectedBankTxIds),
+                              batchSubject || modalAccountSubjects[0]?.label || ""
+                            )
+                          }
+                          className="h-6 px-2 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-[10px] font-bold whitespace-nowrap"
+                        >
+                          일괄 정리 확정
+                        </button>
+                      </div>
+                    )}
                     <input
                       type="text"
                       value={bankSearchTerm}
                       onChange={(e) => setBankSearchTerm(e.target.value)}
                       placeholder="입출금자명, 금액, 일자 검색..."
-                      className="h-7 px-2.5 rounded border border-[#b5a894] bg-[#f4efe4] text-xs w-52"
+                      className="h-7 px-2.5 rounded border border-[#b5a894] bg-[#f4efe4] text-xs w-48"
                     />
                   </div>
                 </div>
 
                 <div className="max-h-64 overflow-y-auto">
                   <table className="w-full text-xs border-collapse">
-                    <thead className="sticky top-0 bg-[#ded6c5] border-b border-[#b5a894] font-bold">
+                    <thead className="sticky top-0 bg-[#ded6c5] border-b border-[#b5a894] font-bold z-10">
                       <tr>
-                        <th className="p-2 text-center w-12 border-r border-[#b5a894]">선택</th>
-                        <th className="p-2 text-center w-28 border-r border-[#b5a894]">매칭 분석</th>
-                        <th className="p-2 text-left w-24 border-r border-[#b5a894]">거래일자</th>
-                        <th className="p-2 text-left border-r border-[#b5a894]">기재내용 / 상대예금주</th>
-                        <th className="p-2 text-right w-32 border-r border-[#b5a894]">
+                        <th className="p-2 text-center w-10 border-r border-[#b5a894] whitespace-nowrap">선택</th>
+                        <th className="p-2 text-center w-24 border-r border-[#b5a894] whitespace-nowrap">매칭 분석</th>
+                        <th className="p-2 text-left w-24 border-r border-[#b5a894] whitespace-nowrap">거래일자</th>
+                        <th className="p-2 text-left border-r border-[#b5a894] whitespace-nowrap">기재내용 / 상대예금주</th>
+                        <th className="p-2 text-right w-28 border-r border-[#b5a894] whitespace-nowrap">
                           {reconcileInvoice.ioType === "PURCHASE" ? "출금금액" : "입금금액"}
                         </th>
-                        <th className="p-2 text-left">비고/계좌</th>
+                        <th className="p-2 text-left w-64 border-r border-[#b5a894] whitespace-nowrap">
+                          세금계산서 외 계정과목 지정 정리
+                        </th>
+                        <th className="p-2 text-left whitespace-nowrap">계좌번호</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#b5a894]">
                       {reconcileLoading ? (
                         <tr>
-                          <td colSpan={6} className="p-6 text-center text-[#78716c]">
+                          <td colSpan={7} className="p-6 text-center text-[#78716c]">
                             통장 입출금 내역을 비교 분석하는 중입니다...
                           </td>
                         </tr>
                       ) : filteredCandidateTxs.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="p-6 text-center text-[#78716c]">
+                          <td colSpan={7} className="p-6 text-center text-[#78716c]">
                             조건에 해당하는 미매칭 통장 입출금 내역이 없습니다.
                           </td>
                         </tr>
                       ) : (
                         filteredCandidateTxs.map((tx) => {
-                          const checked = selectedBankTxIds.has(Number(tx.id));
+                          const txId = Number(tx.id);
+                          const checked = selectedBankTxIds.has(txId);
                           const amt = reconcileInvoice.ioType === "PURCHASE"
                             ? Number(tx.withdrawalAmount || tx.amount || 0)
                             : Number(tx.depositAmount || tx.amount || 0);
+                          const currentSubj =
+                            rowSubjectMap[txId] || tx.recommendedAccount || modalAccountSubjects[0]?.label || "";
                           return (
                             <tr
                               key={tx.id}
                               onClick={() => {
                                 setSelectedBankTxIds((prev) => {
                                   const next = new Set(prev);
-                                  if (next.has(Number(tx.id))) next.delete(Number(tx.id));
-                                  else next.add(Number(tx.id));
+                                  if (next.has(txId)) next.delete(txId);
+                                  else next.add(txId);
                                   return next;
                                 });
                               }}
@@ -2390,7 +2514,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                                 checked ? "bg-teal-50" : tx.matchScore >= 50 ? "bg-amber-50/40" : ""
                               }`}
                             >
-                              <td className="p-2 text-center border-r border-[#b5a894]">
+                              <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
                                 {checked ? (
                                   <CheckSquare className="w-4 h-4 text-teal-700 mx-auto" />
                                 ) : (
@@ -2420,6 +2544,36 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                               <td className="p-2 text-right font-mono font-bold border-r border-[#b5a894] whitespace-nowrap text-blue-900">
                                 {formatErpCurrency(amt)}
                               </td>
+                              <td
+                                className="p-1.5 border-r border-[#b5a894] whitespace-nowrap"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="flex items-center gap-1">
+                                  <select
+                                    value={currentSubj}
+                                    onChange={(e) =>
+                                      setRowSubjectMap((prev) => ({
+                                        ...prev,
+                                        [txId]: e.target.value,
+                                      }))
+                                    }
+                                    className="h-6 px-1.5 rounded border border-[#b5a894] bg-[#f4efe4] text-[10px] font-bold text-[#1c1917] flex-1 min-w-[140px]"
+                                  >
+                                    {modalAccountSubjects.map((s) => (
+                                      <option key={s.code} value={s.label}>
+                                        {s.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleClassifyBankTxInModal([txId], currentSubj)}
+                                    className="h-6 px-2 rounded bg-slate-700 hover:bg-slate-800 text-white text-[10px] font-bold shrink-0"
+                                  >
+                                    계정정리
+                                  </button>
+                                </div>
+                              </td>
                               <td className="p-2 text-[10px] text-[#78716c] font-mono whitespace-nowrap">
                                 {tx.accountNo}
                               </td>
@@ -2431,6 +2585,49 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                   </table>
                 </div>
               </div>
+
+              {/* 2-B. 선택 통장내역 금액 비교 및 차액 정산 사유 바 */}
+              {selectedBankTxIds.size > 0 && (
+                <div className="p-2.5 rounded border border-teal-700 bg-teal-50/70 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-3 font-mono">
+                    <span>
+                      미결 잔액: <b className="text-rose-700">{formatErpCurrency(reconcileUnpaidBalance)}</b>
+                    </span>
+                    <span>|</span>
+                    <span>
+                      선택 통장합계 ({selectedBankTxIds.size}건):{" "}
+                      <b className="text-teal-800">{formatErpCurrency(selectedBankTxSum)}</b>
+                    </span>
+                    <span>|</span>
+                    <span>
+                      차액:{" "}
+                      <b
+                        className={
+                          Math.abs(reconcileUnpaidBalance - selectedBankTxSum) <= 1000
+                            ? "text-emerald-700"
+                            : "text-amber-800"
+                        }
+                      >
+                        {formatErpCurrency(reconcileUnpaidBalance - selectedBankTxSum)}
+                      </b>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-[#44403c] whitespace-nowrap">차액 종결 사유:</span>
+                    <select
+                      value={settleReasonInput}
+                      onChange={(e) => setSettleReasonInput(e.target.value)}
+                      className="h-6 px-2 rounded border border-[#b5a894] bg-white text-[11px] font-bold text-[#1c1917]"
+                    >
+                      <option value="수수료/단수절사 차액 상계 완납">수수료/단수절사 차액 상계 완납</option>
+                      <option value="합산이체/복합결제 정산 완납">합산이체/복합결제 정산 완납</option>
+                      <option value="일부 감액/에누리 합의 완납">일부 감액/에누리 합의 완납</option>
+                      <option value="원천징수/공제 후 입금 완납">원천징수/공제 후 입금 완납</option>
+                      <option value="타계좌/카드 분할정산 완납">타계좌/카드 분할정산 완납</option>
+                    </select>
+                  </div>
+                </div>
+              )}
 
               {/* 3. Manual Settle Amount Adjustment */}
               <div className="p-3 rounded border border-[#b5a894] bg-[#ebe5d8] flex flex-wrap items-center justify-between gap-2">
@@ -2461,7 +2658,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="pt-3 mt-3 border-t border-[#b5a894] flex items-center justify-between shrink-0">
+            <div className="pt-3 mt-3 border-t border-[#b5a894] flex flex-wrap items-center justify-between gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setReconcileInvoice(null)}
@@ -2469,19 +2666,36 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
               >
                 닫기
               </button>
-              <button
-                type="button"
-                disabled={selectedBankTxIds.size === 0 || reconcileLoading}
-                onClick={handleConfirmBankMatch}
-                className={`h-8 px-4 rounded font-bold text-xs flex items-center gap-1.5 shadow ${
-                  selectedBankTxIds.size > 0
-                    ? "bg-teal-700 hover:bg-teal-800 text-white cursor-pointer"
-                    : "bg-[#d8d0c2] text-[#a8a29e] cursor-not-allowed"
-                }`}
-              >
-                <Link2 className="w-3.5 h-3.5" />
-                <span>선택한 통장 내역 ({selectedBankTxIds.size}건) 대사 연결 확정</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {selectedBankTxIds.size > 0 && selectedBankTxSum < reconcileUnpaidBalance - 1000 && (
+                  <button
+                    type="button"
+                    disabled={reconcileLoading}
+                    onClick={() => handleConfirmBankMatch(false)}
+                    className="h-8 px-3 rounded border border-teal-700 bg-[#f4efe4] hover:bg-teal-50 text-teal-900 font-bold text-xs flex items-center gap-1.5"
+                  >
+                    <Link2 className="w-3.5 h-3.5" />
+                    <span>선택 금액({formatErpCurrency(selectedBankTxSum)})만큼만 부분수납 반영</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={selectedBankTxIds.size === 0 || reconcileLoading}
+                  onClick={() => handleConfirmBankMatch(true)}
+                  className={`h-8 px-4 rounded font-bold text-xs flex items-center gap-1.5 shadow ${
+                    selectedBankTxIds.size > 0
+                      ? "bg-teal-700 hover:bg-teal-800 text-white cursor-pointer"
+                      : "bg-[#d8d0c2] text-[#a8a29e] cursor-not-allowed"
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>
+                    {selectedBankTxIds.size > 0 && Math.abs(reconcileUnpaidBalance - selectedBankTxSum) > 1000
+                      ? `선택 통장내역 (${selectedBankTxIds.size}건) 엮어 전액 완납 종결 확정`
+                      : `선택한 통장 내역 (${selectedBankTxIds.size}건) 대사 완결 확정`}
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

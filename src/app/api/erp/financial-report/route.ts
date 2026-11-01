@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { resolveExplicitAccountSubject } from "@/lib/erpAccountSubjects";
 
 export interface FinancialDetailItem {
   id: string;
@@ -53,7 +54,7 @@ function classifyPurchaseInvoiceSubAccount(customerName: string, itemName: strin
 }
 
 function classifyBankTxAccount(row: any): {
-  majorAccount: "COGS" | "PAYROLL" | "OPEX" | "TAX_DUES" | "NON_OP";
+  majorAccount: "REVENUE" | "COGS" | "PAYROLL" | "OPEX" | "TAX_DUES" | "NON_OP";
   subAccount: string;
   sign: 1 | -1;
 } | null {
@@ -73,6 +74,14 @@ function classifyBankTxAccount(row: any): {
   // 1. 이미 매출/매입 세금계산서와 매칭된 입출금은 세금계산서(발생주의)에서 집계하므로 이중집계 제외
   if (isMatched && (matchedType === "SALE_INVOICE" || matchedType === "PURCHASE_INVOICE")) {
     return null;
+  }
+
+  // 1-B. 사용자가 통장 입출금에 명시적으로 지정한 계정과목(ACCOUNT_SUBJECT)이 있으면 최우선 반영
+  if (isMatched && matchedType === "ACCOUNT_SUBJECT" && matchedId) {
+    const resolved = resolveExplicitAccountSubject(matchedId, dAmt > 0);
+    if (resolved) {
+      return resolved;
+    }
   }
 
   // 2. 급여(PAYROLL) 매칭 건

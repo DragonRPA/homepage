@@ -17,8 +17,12 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CheckSquare,
+  Square,
+  CheckCircle2,
 } from "lucide-react";
 import { formatErpCurrency, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { STANDARD_ACCOUNT_SUBJECTS, recommendAccountSubjectForTx } from "@/lib/erpAccountSubjects";
 
 interface BankTransaction {
   id: number;
@@ -143,12 +147,24 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 1:1 대사 매칭 모달
+  // 1:1 대사 매칭 모달 (탭 1: 계정과목 지정 정리 / 탭 2: 미결 세금계산서와 엮어 매칭 완결)
   const [matchModalOpen, setMatchModalOpen] = useState(false);
+  const [matchModalTab, setMatchModalTab] = useState<"ACCOUNT" | "INVOICE">("ACCOUNT");
   const [selectedTrans, setSelectedTrans] = useState<BankTransaction | null>(null);
-  const [matchedType, setMatchedType] = useState("BILLING");
+  const [matchedType, setMatchedType] = useState("ACCOUNT_SUBJECT");
   const [matchedId, setMatchedId] = useState("");
   const [matchMemo, setMatchMemo] = useState("");
+  const [unpaidInvoices, setUnpaidInvoices] = useState<any[]>([]);
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<number>>(new Set());
+  const [invoiceSearchTerm, setInvoiceSearchTerm] = useState("");
+  const [settleReason, setSettleReason] = useState("수수료/단수절사 차액 상계 완납");
+
+  // 미매칭 통장 내역 다중 선택 및 일괄 계정과목 정리 상태
+  const [selectedTxIds, setSelectedTxIds] = useState<Set<number>>(new Set());
+  const [batchAccountSubject, setBatchAccountSubject] = useState<string>(
+    STANDARD_ACCOUNT_SUBJECTS[0]?.label || ""
+  );
+  const [rowAccountMap, setRowAccountMap] = useState<Record<number, string>>({});
 
   const [toastMessage, setToastMessage] = useState<{
     type: "success" | "error";
@@ -219,6 +235,65 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     }
     return sortErpItems(transactions, sortKey, sortDir);
   }, [transactions, sortKey, sortDir]);
+
+  const unmatchedVisibleTransactions = useMemo(
+    () => sortedTransactions.filter((t) => !t.isMatched),
+    [sortedTransactions]
+  );
+
+  const filteredModalInvoices = useMemo(() => {
+    if (!selectedTrans) return [];
+    const isDep = selectedTrans.depositAmount > 0;
+    const expectedIo = isDep ? "SALE" : "PURCHASE";
+    const txEntity =
+      selectedTrans.entityType || (selectedTrans.accountNo?.includes("140") ? "INDIVIDUAL" : "CORP");
+    const txAmt = isDep ? selectedTrans.depositAmount : selectedTrans.withdrawalAmount;
+    const srNorm = (selectedTrans.senderReceiver || "").replace(/\s+/g, "").toLowerCase();
+    const holderNorm = (selectedTrans.counterpartyHolder || "").replace(/\s+/g, "").toLowerCase();
+    const q = invoiceSearchTerm.trim().toLowerCase();
+
+    return unpaidInvoices
+      .filter((inv) => {
+        const io = inv.ioType || "SALE";
+        if (io !== expectedIo) return false;
+        const ent = inv.supplierEntityType || "CORP";
+        if (ent !== txEntity) return false;
+        if (!q) return true;
+        return (
+          inv.customerName?.toLowerCase().includes(q) ||
+          inv.itemName?.toLowerCase().includes(q) ||
+          inv.invoiceNo?.toLowerCase().includes(q) ||
+          String(inv.totalAmount || "").includes(q) ||
+          String(inv.issueDate || "").includes(q)
+        );
+      })
+      .map((inv) => {
+        const unpaidAmt = Math.max(0, Number(inv.totalAmount || 0) - Number(inv.settledAmount || 0));
+        const custNorm = String(inv.customerName || "")
+          .replace(/\(주\)|주식회사|㈜|\s+/g, "")
+          .toLowerCase();
+        let score = 0;
+        if (
+          custNorm.length >= 2 &&
+          (srNorm.includes(custNorm) || custNorm.includes(srNorm) || holderNorm.includes(custNorm))
+        ) {
+          score += 50;
+        }
+        if (Math.abs(unpaidAmt - txAmt) <= 1000) score += 45;
+        return { ...inv, unpaidAmt, matchScore: score };
+      })
+      .sort((a, b) => {
+        if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+        return String(b.issueDate || "").localeCompare(String(a.issueDate || ""));
+      });
+  }, [selectedTrans, unpaidInvoices, invoiceSearchTerm]);
+
+  const selectedInvoicesSum = useMemo(() => {
+    return filteredModalInvoices.reduce((acc, inv) => {
+      if (!selectedInvoiceIds.has(Number(inv.id))) return acc;
+      return acc + Number(inv.unpaidAmt || 0);
+    }, 0);
+  }, [filteredModalInvoices, selectedInvoiceIds]);
 
   const fetchTransactions = async () => {
     setLoading(true);
@@ -394,9 +469,115 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     }
   };
 
+  // 미결 세금계산서 목록 로드 (통장 입출금 ➔ 세금계산서 역방향 매칭용)
+  const fetchUnpaidInvoicesForMatch = async (tx?: BankTransaction) => {
+    try {
+      const targetEntity =
+        tx?.entityType ||
+        (tx?.accountNo?.includes("140") ? "INDIVIDUAL" : selectedEntity !== "ALL" ? selectedEntity : "ALL");
+      const params = new URLSearchParams();
+      if (targetEntity !== "ALL") params.set("supplierEntityType", targetEntity);
+      const res = await fetch(`/api/erp/tax-invoices?${params.toString()}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.invoices)) {
+        const list = data.invoices.filter((inv: any) => (inv.settlementStatus || "UNPAID") !== "PAID");
+        setUnpaidInvoices(list);
+      }
+    } catch (e) {
+      console.error("Failed to fetch unpaid invoices:", e);
+    }
+  };
+
+  // 단건 또는 다건 계정과목 즉시 지정 정리
+  const handleAssignAccountSubject = async (ids: number[], subjectLabel: string, customMemo?: string) => {
+    if (ids.length === 0 || !subjectLabel.trim()) {
+      showToast("거래내역과 지정할 계정과목을 선택해 주십시오.", "error");
+      return;
+    }
+    try {
+      const res = await fetch("/api/erp/bank-matching", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "BATCH_ASSIGN_ACCOUNT",
+          ids,
+          accountSubject: subjectLabel.trim(),
+          memo: customMemo,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "계정과목 지정 실패");
+
+      showToast(data.message || "계정과목 정리가 완료되었습니다.");
+      setSelectedTxIds((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+      setMatchModalOpen(false);
+      fetchTransactions();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  // 통장 거래내역과 선택한 미결 세금계산서(1~N건)를 엮어 매칭 완결
+  const handleMatchWithInvoices = async (forceComplete: boolean) => {
+    if (!selectedTrans || selectedInvoiceIds.size === 0) {
+      showToast("연결할 미결 세금계산서를 1건 이상 선택해 주십시오.", "error");
+      return;
+    }
+    try {
+      const res = await fetch("/api/erp/bank-matching", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "MATCH_INVOICES",
+          ids: [selectedTrans.id],
+          invoiceIds: Array.from(selectedInvoiceIds),
+          forceComplete,
+          settleReason: forceComplete ? settleReason : undefined,
+          memo: matchMemo.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "세금계산서 연동 대사 실패");
+
+      showToast(data.message);
+      setMatchModalOpen(false);
+      setSelectedInvoiceIds(new Set());
+      fetchTransactions();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  // 대사 매칭 모달 열기
+  const openMatchModal = (t: BankTransaction) => {
+    setSelectedTrans(t);
+    const rec = recommendAccountSubjectForTx(t);
+    const isDep = t.depositAmount > 0;
+    const defaultSubj =
+      rec ||
+      STANDARD_ACCOUNT_SUBJECTS.find((s) => s.direction === (isDep ? "DEPOSIT" : "WITHDRAWAL"))?.label ||
+      "";
+    setMatchedType("ACCOUNT_SUBJECT");
+    setMatchedId(defaultSubj);
+    setMatchMemo(t.memo || "");
+    setMatchModalTab("ACCOUNT");
+    setSelectedInvoiceIds(new Set());
+    setInvoiceSearchTerm("");
+    setMatchModalOpen(true);
+    fetchUnpaidInvoicesForMatch(t);
+  };
+
   // 대사 매칭 확정
   const handleManualMatch = async () => {
     if (!selectedTrans) return;
+    if (matchModalTab === "INVOICE") {
+      await handleMatchWithInvoices(true);
+      return;
+    }
     try {
       const res = await fetch("/api/erp/bank-matching", {
         method: "PATCH",
@@ -404,7 +585,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
         body: JSON.stringify({
           id: selectedTrans.id,
           matchedType,
-          matchedId: matchedId.trim() || `BILL-${Date.now().toString().slice(-4)}`,
+          matchedId: matchedId.trim() || "기타지급수수료·현장운영경비",
           memo: matchMemo.trim() || selectedTrans.memo,
         }),
       });
@@ -801,6 +982,49 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
         </div>
       )}
 
+      {/* 미매칭 항목 다중 선택 시 일괄 계정과목 지정 바 */}
+      {selectedTxIds.size > 0 && (
+        <div className="px-3 py-2 bg-[#fef3c7] border-b border-[#b5a894] dark:bg-amber-950/60 dark:border-amber-800 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-[#92400e] dark:text-amber-300">
+              선택된 미매칭 거래 {selectedTxIds.size}건
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedTxIds(new Set())}
+              className="px-2 py-0.5 rounded border border-[#b5a894] bg-[#f4efe4] text-[11px] font-bold text-[#0f172a]"
+            >
+              선택 해제
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-bold text-[11px] text-[#334155] dark:text-slate-300 whitespace-nowrap">
+              일괄 계정과목 지정:
+            </span>
+            <select
+              value={batchAccountSubject}
+              onChange={(e) => setBatchAccountSubject(e.target.value)}
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs font-bold text-[#0f172a] px-2.5 py-1 rounded focus:outline-none focus:border-[#1d4ed8]"
+            >
+              {STANDARD_ACCOUNT_SUBJECTS.map((s) => (
+                <option key={s.code} value={s.label}>
+                  [{s.direction === "DEPOSIT" ? "입금" : "출금"}] {s.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() =>
+                handleAssignAccountSubject(Array.from(selectedTxIds), batchAccountSubject)
+              }
+              className="px-3 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white font-bold text-xs shadow-xs whitespace-nowrap"
+            >
+              선택 {selectedTxIds.size}건 계정과목 일괄 확정
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 2. Gutenberg Z-Pattern Step 3 (Body / High-Density Grid) */}
       <div className="flex-1 md:overflow-auto p-2.5 md:p-3">
         <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-hidden md:h-full flex flex-col dark:bg-slate-900 dark:border-slate-800">
@@ -882,7 +1106,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                                 : "bg-[#fef3c7] text-[#92400e] border border-[#fde68a]"
                             }`}
                           >
-                            {t.isMatched ? "매칭완료" : "미매칭"}
+                            {t.isMatched ? `매칭완료 (${t.matchedId || "확정"})` : "미매칭"}
                           </span>
                         )}
 
@@ -895,16 +1119,10 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                           </button>
                         ) : (
                           <button
-                            onClick={() => {
-                              setSelectedTrans(t);
-                              setMatchedType(t.depositAmount > 0 ? "BILLING" : "PURCHASE");
-                              setMatchedId("");
-                              setMatchMemo(t.memo || "");
-                              setMatchModalOpen(true);
-                            }}
+                            onClick={() => openMatchModal(t)}
                             className="px-2 py-0.5 bg-[#1d4ed8] text-white rounded text-[10px] font-bold"
                           >
-                            매칭
+                            매칭·계정정리
                           </button>
                         )}
                       </div>
@@ -920,8 +1138,32 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
             <table className="w-full text-xs text-left border-collapse">
               <thead className="bg-[#e2dbcd] text-[#0f172a] font-semibold border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
                 <tr>
+                  <th className="py-2 px-2 whitespace-nowrap text-center border-r border-[#c4b6a0] dark:border-slate-700 w-10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (
+                          unmatchedVisibleTransactions.length > 0 &&
+                          unmatchedVisibleTransactions.every((t) => selectedTxIds.has(t.id))
+                        ) {
+                          setSelectedTxIds(new Set());
+                        } else {
+                          setSelectedTxIds(new Set(unmatchedVisibleTransactions.map((t) => t.id)));
+                        }
+                      }}
+                      title="미매칭 항목 전체 선택"
+                      className="inline-flex items-center justify-center"
+                    >
+                      {unmatchedVisibleTransactions.length > 0 &&
+                      unmatchedVisibleTransactions.every((t) => selectedTxIds.has(t.id)) ? (
+                        <CheckSquare className="w-3.5 h-3.5 text-[#1d4ed8]" />
+                      ) : (
+                        <Square className="w-3.5 h-3.5 text-[#475569]" />
+                      )}
+                    </button>
+                  </th>
                   <th className="py-2 px-2.5 whitespace-nowrap text-center border-r border-[#c4b6a0] dark:border-slate-700">
-                    조치
+                    조치 / 빠른 계정정리
                   </th>
                   {renderSortTh("거래일시", "transDate")}
                   {renderSortTh("구분", "transType", "center")}
@@ -942,42 +1184,100 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                 {sortedTransactions.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={14}
+                      colSpan={15}
                       className="py-16 text-center text-[#475569] dark:text-slate-500 whitespace-nowrap"
                     >
                       조회된 은행 입출금 내역이 없습니다.
                     </td>
                   </tr>
                 ) : (
-                  sortedTransactions.map((t) => (
-                    <tr
-                      key={t.id}
-                      className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40 transition"
-                    >
-                      {/* 핵심 액션 컬럼 좌측 배치 (헌장 3.2 준수) */}
-                      <td className="py-1.5 px-2.5 text-center whitespace-nowrap border-r border-[#d5cbb8] dark:border-slate-800">
-                        {t.isMatched ? (
-                          <button
-                            onClick={() => handleUnmatch(t.id)}
-                            className="px-2 py-0.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] font-bold transition dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
-                          >
-                            매칭 취소
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              setSelectedTrans(t);
-                              setMatchedType(t.depositAmount > 0 ? "BILLING" : "PURCHASE");
-                              setMatchedId("");
-                              setMatchMemo(t.memo || "");
-                              setMatchModalOpen(true);
-                            }}
-                            className="px-2 py-0.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white rounded text-[11px] font-bold transition shadow-xs"
-                          >
-                            대사 매칭
-                          </button>
-                        )}
-                      </td>
+                  sortedTransactions.map((t) => {
+                    const isChecked = selectedTxIds.has(t.id);
+                    const isDep = t.depositAmount > 0;
+                    const dir = isDep ? "DEPOSIT" : "WITHDRAWAL";
+                    const subjectOptions = STANDARD_ACCOUNT_SUBJECTS.filter(
+                      (s) => s.direction === dir || s.direction === "BOTH"
+                    );
+                    const recommendedSubj =
+                      rowAccountMap[t.id] ||
+                      recommendAccountSubjectForTx(t) ||
+                      subjectOptions[0]?.label ||
+                      "";
+                    return (
+                      <tr
+                        key={t.id}
+                        className={`hover:bg-[#f4efe4] dark:hover:bg-slate-800/40 transition ${
+                          isChecked ? "bg-amber-50/70" : ""
+                        }`}
+                      >
+                        <td className="py-1.5 px-2 text-center whitespace-nowrap border-r border-[#d5cbb8] dark:border-slate-800">
+                          {!t.isMatched ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedTxIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(t.id)) next.delete(t.id);
+                                  else next.add(t.id);
+                                  return next;
+                                })
+                              }
+                            >
+                              {isChecked ? (
+                                <CheckSquare className="w-3.5 h-3.5 text-[#1d4ed8] mx-auto" />
+                              ) : (
+                                <Square className="w-3.5 h-3.5 text-[#64748b] mx-auto" />
+                              )}
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-[#047857] font-bold">✓</span>
+                          )}
+                        </td>
+
+                        {/* 핵심 액션 컬럼 좌측 배치 (헌장 3.2 준수) */}
+                        <td className="py-1.5 px-2.5 text-center whitespace-nowrap border-r border-[#d5cbb8] dark:border-slate-800">
+                          {t.isMatched ? (
+                            <button
+                              onClick={() => handleUnmatch(t.id)}
+                              className="px-2 py-0.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] font-bold transition dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+                            >
+                              매칭 취소
+                            </button>
+                          ) : (
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                onClick={() => openMatchModal(t)}
+                                className="px-2 py-0.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white rounded text-[11px] font-bold transition shadow-xs"
+                              >
+                                대사 매칭
+                              </button>
+                              <select
+                                value={recommendedSubj}
+                                onChange={(e) =>
+                                  setRowAccountMap((prev) => ({
+                                    ...prev,
+                                    [t.id]: e.target.value,
+                                  }))
+                                }
+                                className="h-5 px-1 rounded border border-[#b5a894] bg-[#f4efe4] text-[10px] font-bold text-[#0f172a] max-w-[130px]"
+                              >
+                                {subjectOptions.map((s) => (
+                                  <option key={s.code} value={s.label}>
+                                    {s.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => handleAssignAccountSubject([t.id], recommendedSubj)}
+                                className="px-1.5 py-0.5 bg-[#334155] hover:bg-[#1e293b] text-white rounded text-[10px] font-bold transition"
+                                title="선택한 계정과목으로 즉시 미결 정리"
+                              >
+                                계정정리
+                              </button>
+                            </div>
+                          )}
+                        </td>
 
                       {/* 거래일시 */}
                       <td className="py-1.5 px-2.5 font-mono text-[#334155] dark:text-slate-300 whitespace-nowrap">
@@ -1091,7 +1391,8 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -1525,25 +1826,45 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
         </div>
       )}
 
-      {/* 1:1 대사 매칭 모달 */}
+      {/* 1:1 / 1:N 대사 매칭 및 계정과목 정리 모달 */}
       {matchModalOpen && selectedTrans && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-md shadow-2xl text-[#0f172a] dark:bg-slate-900 dark:border-slate-800 dark:text-white">
-            <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 mb-2 pb-2 border-b border-[#b5a894] dark:border-slate-800 flex items-center gap-1.5">
-              <LinkIcon className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
-              <span>통장 대사 매칭</span>
-            </h2>
+          <div className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-2xl shadow-2xl text-[#0f172a] dark:bg-slate-900 dark:border-slate-800 dark:text-white max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#b5a894] dark:border-slate-800 shrink-0">
+              <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 flex items-center gap-1.5">
+                <LinkIcon className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
+                <span>통장 입출금 대사 · 계정과목 지정 및 미결 세금계산서 연결</span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => setMatchModalOpen(false)}
+                className="p-1 rounded hover:bg-[#dcd4c4] dark:hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-            <div className="p-3 bg-[#f4efe4] rounded border border-[#b5a894] mb-4 text-xs space-y-1 dark:bg-slate-950/60 dark:border-slate-800">
-              <div className="flex justify-between">
-                <span className="text-[#475569] dark:text-slate-400">거래일시:</span>
-                <span className="text-[#0f172a] dark:text-slate-200 font-mono">
+            {/* 선택한 통장 거래 요약 배너 */}
+            <div className="p-3 bg-[#f4efe4] rounded border border-[#b5a894] mb-3 text-xs grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0 dark:bg-slate-950/60 dark:border-slate-800">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-[#475569] font-bold">거래일시</span>
+                <span className="text-[#0f172a] dark:text-slate-200 font-mono font-bold">
                   {selectedTrans.transDate} {selectedTrans.transTime}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-[#475569] dark:text-slate-400">거래금액:</span>
-                <span className="text-[#1d4ed8] dark:text-blue-400 font-bold font-mono">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-[#475569] font-bold">구분 / 거래구분</span>
+                <span className="font-bold text-[#0f172a] dark:text-slate-200">
+                  {selectedTrans.depositAmount > 0 ? "입금" : "출금"} ({selectedTrans.txChannel || "-"})
+                </span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-[#475569] font-bold">거래금액</span>
+                <span
+                  className={`font-bold font-mono text-sm ${
+                    selectedTrans.depositAmount > 0 ? "text-[#1d4ed8]" : "text-[#dc2626]"
+                  }`}
+                >
                   {formatErpCurrency(
                     selectedTrans.depositAmount > 0
                       ? selectedTrans.depositAmount
@@ -1551,60 +1872,242 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                   )}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-[#475569] dark:text-slate-400">거래내용:</span>
-                <span className="text-[#0f172a] dark:text-slate-100 font-bold">
-                  {selectedTrans.senderReceiver}
+              <div className="flex flex-col">
+                <span className="text-[10px] text-[#475569] font-bold">거래내용 / 예금주</span>
+                <span className="text-[#0f172a] dark:text-slate-100 font-bold truncate">
+                  {selectedTrans.senderReceiver}{" "}
+                  {selectedTrans.counterpartyHolder ? `(${selectedTrans.counterpartyHolder})` : ""}
                 </span>
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                  대사 대상 구분
-                </label>
-                <select
-                  value={matchedType}
-                  onChange={(e) => setMatchedType(e.target.value)}
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
-                >
-                  <option value="BILLING">매출 청구서 (세금계산서)</option>
-                  <option value="CONTRACT">임대/유통/용역 계약</option>
-                  <option value="PURCHASE">매입/비용 지급</option>
-                  <option value="PAYROLL">급여/4대보험/원천세</option>
-                  <option value="OTHER">기타 수납/가수금</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                  매칭 대상 번호
-                </label>
-                <input
-                  type="text"
-                  value={matchedId}
-                  onChange={(e) => setMatchedId(e.target.value)}
-                  placeholder="INV-202610-001"
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded font-mono focus:outline-none focus:border-[#1d4ed8]"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                  메모
-                </label>
-                <input
-                  type="text"
-                  value={matchMemo}
-                  onChange={(e) => setMatchMemo(e.target.value)}
-                  placeholder="메모"
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
-                />
-              </div>
+            {/* 상단 모드 전환 탭 */}
+            <div className="grid grid-cols-2 gap-1.5 mb-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setMatchModalTab("ACCOUNT")}
+                className={`py-2 px-3 rounded text-xs font-bold border transition ${
+                  matchModalTab === "ACCOUNT"
+                    ? "bg-[#1d4ed8] text-white border-[#1d4ed8] shadow-xs"
+                    : "bg-[#f4efe4] text-[#334155] border-[#b5a894] hover:bg-[#e2dbcd]"
+                }`}
+              >
+                ① 계정과목 지정하여 미결 정리
+              </button>
+              <button
+                type="button"
+                onClick={() => setMatchModalTab("INVOICE")}
+                className={`py-2 px-3 rounded text-xs font-bold border transition ${
+                  matchModalTab === "INVOICE"
+                    ? "bg-[#047857] text-white border-[#047857] shadow-xs"
+                    : "bg-[#f4efe4] text-[#334155] border-[#b5a894] hover:bg-[#e2dbcd]"
+                }`}
+              >
+                ② 미결 세금계산서와 엮어 매칭 완결 ({filteredModalInvoices.length}건)
+              </button>
             </div>
 
-            <div className="mt-5 pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2">
+            {/* 탭 본문 */}
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
+              {matchModalTab === "ACCOUNT" ? (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400">
+                      {selectedTrans.depositAmount > 0 ? "입금" : "출금"} 표준 계정과목 빠른 선택
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      {STANDARD_ACCOUNT_SUBJECTS.filter(
+                        (s) =>
+                          s.direction ===
+                            (selectedTrans.depositAmount > 0 ? "DEPOSIT" : "WITHDRAWAL") ||
+                          s.direction === "BOTH"
+                      ).map((subj) => {
+                        const active =
+                          matchedType === "ACCOUNT_SUBJECT" && matchedId === subj.label;
+                        return (
+                          <button
+                            key={subj.code}
+                            type="button"
+                            onClick={() => {
+                              setMatchedType("ACCOUNT_SUBJECT");
+                              setMatchedId(subj.label);
+                            }}
+                            className={`p-2 rounded border text-left text-[11px] font-bold transition truncate ${
+                              active
+                                ? "bg-[#dbeafe] border-[#1d4ed8] text-[#1e40af] shadow-xs"
+                                : "bg-[#f4efe4] border-[#b5a894] text-[#0f172a] hover:bg-[#e2dbcd]"
+                            }`}
+                          >
+                            {subj.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-[#c4b6a0]">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
+                        대사 분류 구분
+                      </label>
+                      <select
+                        value={matchedType}
+                        onChange={(e) => setMatchedType(e.target.value)}
+                        className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
+                      >
+                        <option value="ACCOUNT_SUBJECT">계정과목 지정 (재무제표 직접 반영)</option>
+                        <option value="PAYROLL">급여/4대보험/원천세</option>
+                        <option value="CONTRACT">임대/유통/용역 계약</option>
+                        <option value="OTHER">기타 수납/가수금</option>
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
+                        지정 계정과목명 / 매칭 대상 번호
+                      </label>
+                      <input
+                        type="text"
+                        value={matchedId}
+                        onChange={(e) => setMatchedId(e.target.value)}
+                        placeholder="계정과목명 또는 관리번호"
+                        className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded font-bold focus:outline-none focus:border-[#1d4ed8]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
+                      비고 / 적요 메모
+                    </label>
+                    <input
+                      type="text"
+                      value={matchMemo}
+                      onChange={(e) => setMatchMemo(e.target.value)}
+                      placeholder="특이사항 또는 상세 적요 입력"
+                      className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-[#334155]">
+                      미결 {selectedTrans.depositAmount > 0 ? "매출" : "매입"} 세금계산서 선택 (복수 선택 가능)
+                    </span>
+                    <input
+                      type="text"
+                      value={invoiceSearchTerm}
+                      onChange={(e) => setInvoiceSearchTerm(e.target.value)}
+                      placeholder="거래처명, 품목, 금액 검색..."
+                      className="h-7 px-2.5 rounded border border-[#b5a894] bg-[#f4efe4] text-xs w-52"
+                    />
+                  </div>
+
+                  <div className="max-h-56 overflow-y-auto border border-[#b5a894] rounded bg-[#f4efe4]">
+                    <table className="w-full text-xs border-collapse">
+                      <thead className="sticky top-0 bg-[#ded6c5] border-b border-[#b5a894] font-bold">
+                        <tr>
+                          <th className="p-2 text-center w-10 border-r border-[#b5a894]">선택</th>
+                          <th className="p-2 text-left w-24 border-r border-[#b5a894]">작성일자</th>
+                          <th className="p-2 text-left border-r border-[#b5a894]">거래처명 / 품목</th>
+                          <th className="p-2 text-right w-28 border-r border-[#b5a894]">합계금액</th>
+                          <th className="p-2 text-right w-28">미결잔액</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#b5a894]">
+                        {filteredModalInvoices.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="p-6 text-center text-[#64748b]">
+                              연결 가능한 미수납/미지급 세금계산서가 없습니다.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredModalInvoices.map((inv) => {
+                            const invId = Number(inv.id);
+                            const checked = selectedInvoiceIds.has(invId);
+                            return (
+                              <tr
+                                key={inv.id}
+                                onClick={() =>
+                                  setSelectedInvoiceIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(invId)) next.delete(invId);
+                                    else next.add(invId);
+                                    return next;
+                                  })
+                                }
+                                className={`cursor-pointer hover:bg-[#e2dbcd] transition ${
+                                  checked ? "bg-emerald-50" : inv.matchScore >= 45 ? "bg-amber-50/50" : ""
+                                }`}
+                              >
+                                <td className="p-2 text-center border-r border-[#b5a894]">
+                                  {checked ? (
+                                    <CheckSquare className="w-4 h-4 text-[#047857] mx-auto" />
+                                  ) : (
+                                    <Square className="w-4 h-4 text-[#64748b] mx-auto" />
+                                  )}
+                                </td>
+                                <td className="p-2 font-mono border-r border-[#b5a894] whitespace-nowrap">
+                                  {String(inv.issueDate || "").slice(0, 10)}
+                                </td>
+                                <td className="p-2 border-r border-[#b5a894]">
+                                  <div className="font-bold text-[#0f172a]">{inv.customerName}</div>
+                                  <div className="text-[10px] text-[#64748b] truncate">{inv.itemName}</div>
+                                </td>
+                                <td className="p-2 text-right font-mono border-r border-[#b5a894] whitespace-nowrap">
+                                  {formatErpCurrency(inv.totalAmount)}
+                                </td>
+                                <td className="p-2 text-right font-mono font-bold text-[#dc2626] whitespace-nowrap">
+                                  {formatErpCurrency(inv.unpaidAmt)}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {selectedInvoiceIds.size > 0 && (
+                    <div className="p-2.5 rounded border border-[#047857] bg-[#ecfdf5] flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-mono text-[11px] flex flex-wrap items-center gap-2">
+                        <span>
+                          통장 거래금액:{" "}
+                          <b>
+                            {formatErpCurrency(
+                              selectedTrans.depositAmount > 0
+                                ? selectedTrans.depositAmount
+                                : selectedTrans.withdrawalAmount
+                            )}
+                          </b>
+                        </span>
+                        <span>|</span>
+                        <span>
+                          선택 세금계산서 미결합계 ({selectedInvoiceIds.size}건):{" "}
+                          <b className="text-[#047857]">{formatErpCurrency(selectedInvoicesSum)}</b>
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-bold">차액 종결 사유:</span>
+                        <select
+                          value={settleReason}
+                          onChange={(e) => setSettleReason(e.target.value)}
+                          className="h-6 px-2 rounded border border-[#b5a894] bg-white text-[11px] font-bold"
+                        >
+                          <option value="수수료/단수절사 차액 상계 완납">수수료/단수절사 차액 상계 완납</option>
+                          <option value="합산이체/복합결제 정산 완납">합산이체/복합결제 정산 완납</option>
+                          <option value="일부 감액/에누리 합의 완납">일부 감액/에누리 합의 완납</option>
+                          <option value="원천징수/공제 후 입금 완납">원천징수/공제 후 입금 완납</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-[#b5a894] dark:border-slate-800 flex flex-wrap justify-between gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setMatchModalOpen(false)}
@@ -1612,13 +2115,38 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
               >
                 취소
               </button>
-              <button
-                type="button"
-                onClick={handleManualMatch}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-[#1d4ed8] hover:bg-[#1e40af] rounded shadow-xs transition"
-              >
-                대사 확정
-              </button>
+
+              {matchModalTab === "ACCOUNT" ? (
+                <button
+                  type="button"
+                  onClick={handleManualMatch}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-[#1d4ed8] hover:bg-[#1e40af] rounded shadow-xs transition flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>[{matchedId || "계정과목"}] 대사 확정</span>
+                </button>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  {selectedInvoiceIds.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleMatchWithInvoices(false)}
+                      className="px-3 py-1.5 text-xs font-bold text-[#047857] bg-[#f4efe4] hover:bg-[#ecfdf5] rounded border border-[#047857] transition"
+                    >
+                      통장 금액만큼만 부분정산 연결
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={selectedInvoiceIds.size === 0}
+                    onClick={() => handleMatchWithInvoices(true)}
+                    className="px-4 py-1.5 text-xs font-bold text-white bg-[#047857] hover:bg-[#065f46] disabled:opacity-50 rounded shadow-xs transition flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>선택 세금계산서 ({selectedInvoiceIds.size}건) 엮어 완납 종결</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

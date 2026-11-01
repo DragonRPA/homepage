@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { recommendAccountSubjectForTx } from "@/lib/erpAccountSubjects";
 
 // Normalize counterparty/company names by stripping legal entity prefixes/suffixes and spaces
 function normalizeCompanyName(raw?: string): string {
@@ -315,12 +316,14 @@ export async function GET(request: Request) {
       .filter((tx) => !matchedIds.includes(Number(tx.id)))
       .map((tx) => {
         const { score, reasons, nameMatched, amountExact } = computeMatchScore(inv, tx);
+        const recommendedAccount = recommendAccountSubjectForTx(tx);
         return {
           ...tx,
           matchScore: score,
           matchReasons: reasons,
           nameMatched,
           amountExact,
+          recommendedAccount,
         };
       })
       .sort((a, b) => {
@@ -332,7 +335,7 @@ export async function GET(request: Request) {
       success: true,
       invoice: inv,
       linkedTransactions: linkedTxs,
-      candidateTransactions: scoredCandidates.slice(0, 80),
+      candidateTransactions: scoredCandidates.slice(0, 150),
     });
   } catch (error: any) {
     console.error("GET Reconcile Candidates Error:", error);
@@ -912,10 +915,10 @@ export async function POST(request: Request) {
     }
 
     // =========================================================================
-    // ACTION 2: MATCH (선택한 세금계산서 1건과 통장 입출금 1~N건 연결 대사)
+    // ACTION 2: MATCH (선택한 세금계산서 1건과 통장 입출금 1~N건 연결 대사 — 금액 불일치 시 전액 완납 종결 지원)
     // =========================================================================
     if (action === "MATCH") {
-      const { invoiceId, bankTxIds } = body;
+      const { invoiceId, bankTxIds, forceComplete, settleReason } = body;
       if (!invoiceId || !Array.isArray(bankTxIds) || bankTxIds.length === 0) {
         await client.query("ROLLBACK");
         return NextResponse.json({ error: "세금계산서 ID와 연결할 통장 거래 내역을 선택해 주십시오." }, { status: 400 });
@@ -948,18 +951,29 @@ export async function POST(request: Request) {
         sumTxAmount += amt;
       }
 
-      const isPaid = sumTxAmount >= totalAmount - 1000;
-      const finalSettled = isPaid ? totalAmount : sumTxAmount;
+      const isPaid = Boolean(forceComplete) || sumTxAmount >= totalAmount - 1000;
+      const finalSettled = isPaid ? totalAmount : Math.min(totalAmount, sumTxAmount);
       const nextStatus = isPaid ? "PAID" : finalSettled > 0 ? "PARTIAL" : "UNPAID";
+      const diffAmt = totalAmount - sumTxAmount;
+
+      let updatedMemo = inv.memo || "";
+      if (forceComplete && Math.abs(diffAmt) > 0) {
+        const reasonTag = settleReason ? `[${settleReason}]` : "[차액상계 완납종결]";
+        const diffNote = `${reasonTag} 통장합계 ₩${sumTxAmount.toLocaleString()} / 차액 ₩${diffAmt.toLocaleString()}`;
+        if (!updatedMemo.includes(diffNote)) {
+          updatedMemo = updatedMemo ? `${updatedMemo} | ${diffNote}` : diffNote;
+        }
+      }
 
       await client.query(
         `UPDATE erp_tax_invoices
          SET settled_amount = $1,
              settlement_status = $2,
              matched_bank_tx_ids = $3::jsonb,
+             memo = $4,
              settled_at = NOW()
-         WHERE id = $4`,
-        [finalSettled, nextStatus, JSON.stringify(mergedTxIds), inv.id]
+         WHERE id = $5`,
+        [finalSettled, nextStatus, JSON.stringify(mergedTxIds), updatedMemo, inv.id]
       );
 
       await syncLinkedBillingsPaymentStatus(
@@ -971,15 +985,32 @@ export async function POST(request: Request) {
         inv.ref_id ? Number(inv.ref_id) : null
       );
 
-      await client.query(
-        `UPDATE erp_bank_transactions
-         SET is_matched = true,
-             matched_type = $1,
-             matched_id = $2,
-             matched_at = NOW()
-         WHERE id = ANY($3::bigint[])`,
-        [ioType === "PURCHASE" ? "PURCHASE_INVOICE" : "SALE_INVOICE", inv.invoice_no, mergedTxIds]
-      );
+      for (const tx of txRes.rows) {
+        const prevMatchedId = String(tx.matched_id || "");
+        const prevType = String(tx.matched_type || "");
+        const expectedType = ioType === "PURCHASE" ? "PURCHASE_INVOICE" : "SALE_INVOICE";
+        let nextMatchedId = inv.invoice_no;
+        if (prevType === expectedType && prevMatchedId && !prevMatchedId.includes(inv.invoice_no)) {
+          nextMatchedId = `${prevMatchedId},${inv.invoice_no}`;
+        }
+        const txNote =
+          forceComplete && settleReason
+            ? tx.memo
+              ? `${tx.memo} (${settleReason})`
+              : `${inv.customer_name} ${settleReason}`
+            : tx.memo;
+
+        await client.query(
+          `UPDATE erp_bank_transactions
+           SET is_matched = true,
+               matched_type = $1,
+               matched_id = $2,
+               memo = COALESCE($3, memo),
+               matched_at = NOW()
+           WHERE id = $4`,
+          [expectedType, nextMatchedId, txNote, tx.id]
+        );
+      }
 
       await client.query("COMMIT");
       return NextResponse.json({
@@ -987,7 +1018,48 @@ export async function POST(request: Request) {
         settledAmount: finalSettled,
         settlementStatus: nextStatus,
         matchedBankTxIds: mergedTxIds,
-        message: `${ioType === "PURCHASE" ? "매입채무 지급" : "매출채권 수납"} 대사가 완료되었습니다.`,
+        message: isPaid
+          ? `${ioType === "PURCHASE" ? "매입채무 지급" : "매출채권 수납"} 완납 종결 처리되었습니다.`
+          : `부분 ${ioType === "PURCHASE" ? "지급" : "수납"} (₩${finalSettled.toLocaleString()}) 반영되었습니다.`,
+      });
+    }
+
+    // =========================================================================
+    // ACTION 2-B: CLASSIFY_BANK_TX (세금계산서 외 일반 입출금 내역 계정과목 지정 정리)
+    // =========================================================================
+    if (action === "CLASSIFY_BANK_TX") {
+      const { bankTxIds, accountSubject, memo } = body;
+      const targetIds: number[] = Array.isArray(bankTxIds)
+        ? bankTxIds.map((n: any) => Number(n)).filter((n: number) => n > 0)
+        : [];
+      if (targetIds.length === 0 || !accountSubject || !String(accountSubject).trim()) {
+        await client.query("ROLLBACK");
+        return NextResponse.json(
+          { error: "정리할 통장 거래내역과 지정할 계정과목을 선택해 주십시오." },
+          { status: 400 }
+        );
+      }
+
+      const subjectLabel = String(accountSubject).trim();
+      const memoText = memo && String(memo).trim() ? String(memo).trim() : null;
+
+      await client.query(
+        `UPDATE erp_bank_transactions
+         SET is_matched = true,
+             matched_type = 'ACCOUNT_SUBJECT',
+             matched_id = $1,
+             memo = COALESCE($2, memo),
+             matched_at = NOW()
+         WHERE id = ANY($3::bigint[])`,
+        [subjectLabel, memoText, targetIds]
+      );
+
+      await client.query("COMMIT");
+      return NextResponse.json({
+        success: true,
+        classifiedCount: targetIds.length,
+        accountSubject: subjectLabel,
+        message: `선택한 통장 내역 ${targetIds.length}건을 [${subjectLabel}] 계정과목으로 정리 완료했습니다.`,
       });
     }
 

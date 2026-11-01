@@ -15,6 +15,8 @@ import {
   ArrowDown,
   X,
   Check,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { formatErpCurrency, sortErpItems, SortDirection } from "@/lib/erpFormat";
 
@@ -253,6 +255,40 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     fetchTransactions();
   }, [startDate, endDate, transType, txChannel, matchStatus, accountFilter, selectedEntity]);
 
+  const formatMonthRange = (year: number, monthIndex0: number) => {
+    const first = new Date(year, monthIndex0, 1);
+    const last = new Date(year, monthIndex0 + 1, 0);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const y = first.getFullYear();
+    const m = pad(first.getMonth() + 1);
+    return {
+      start: `${y}-${m}-01`,
+      end: `${y}-${m}-${pad(last.getDate())}`,
+      label: `${y}-${m}`,
+    };
+  };
+
+  const shiftMonthPeriod = (delta: number) => {
+    // 현재 startDate가 특정 월의 1일이면 그 월을 기준으로, 아니면 현재 월을 기준으로 이동
+    const [sy, sm, sd] = startDate.split("-").map(Number);
+    const [ey, em] = endDate.split("-").map(Number);
+    const isSingleMonthView = sy === ey && sm === em && sd === 1;
+    const baseYear = isSingleMonthView ? sy : new Date().getFullYear();
+    const baseMonth0 = isSingleMonthView ? sm - 1 : new Date().getMonth();
+    const range = formatMonthRange(baseYear, baseMonth0 + delta);
+    setStartDate(range.start);
+    setEndDate(range.end);
+  };
+
+  const activeMonthLabel = useMemo(() => {
+    const [sy, sm, sd] = startDate.split("-").map(Number);
+    const [ey, em] = endDate.split("-").map(Number);
+    if (sy && sm && sy === ey && sm === em && sd === 1) {
+      return `${sy}.${String(sm).padStart(2, "0")}월`;
+    }
+    return "당월";
+  }, [startDate, endDate]);
+
   const setPeriodPreset = (preset: "ALL" | "2026" | "2025" | "2024" | "2023" | "MONTH") => {
     if (preset === "ALL") {
       setStartDate("2023-01-01");
@@ -270,8 +306,10 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       setStartDate("2023-01-01");
       setEndDate("2023-12-31");
     } else if (preset === "MONTH") {
-      setStartDate(monthStart);
-      setEndDate(today);
+      const now = new Date();
+      const range = formatMonthRange(now.getFullYear(), now.getMonth());
+      setStartDate(range.start);
+      setEndDate(range.end);
     }
   };
 
@@ -513,7 +551,6 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                 { key: "2025", label: "2025년" },
                 { key: "2024", label: "2024년" },
                 { key: "2023", label: "2023년" },
-                { key: "MONTH", label: "당월" },
               ].map((p) => (
                 <button
                   key={p.key}
@@ -524,6 +561,32 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                   {p.label}
                 </button>
               ))}
+              <div className="inline-flex items-center rounded border border-[#b5a894] bg-[#f4efe4] shrink-0 overflow-hidden dark:bg-slate-800 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => shiftMonthPeriod(-1)}
+                  className="px-1.5 py-1.5 text-[#0f172a] hover:bg-[#dcd4c4] border-r border-[#b5a894] transition dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700"
+                  title="이전 월 (1개월 이동)"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPeriodPreset("MONTH")}
+                  className="px-2 py-1.5 text-[11px] font-bold text-[#0f172a] hover:bg-[#dcd4c4] whitespace-nowrap transition dark:text-slate-200 dark:hover:bg-slate-700"
+                  title="당월 초기화"
+                >
+                  {activeMonthLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => shiftMonthPeriod(1)}
+                  className="px-1.5 py-1.5 text-[#0f172a] hover:bg-[#dcd4c4] border-l border-[#b5a894] transition dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700"
+                  title="다음 월 (1개월 이동)"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           </div>
 

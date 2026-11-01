@@ -5,10 +5,11 @@ import { selectPreferredBizItem } from "./erpFormat";
 
 const linkId = process.env.POPBILL_LINK_ID;
 const secretKey = process.env.POPBILL_SECRET_KEY;
-const isTestMode = process.env.POPBILL_IS_TEST !== "false";
+// 실서비스(운영 환경) 기본값 적용 (POPBILL_IS_TEST="true"일 때만 테스트베드 동작)
+const isTestMode = process.env.POPBILL_IS_TEST === "true";
 
 if (!linkId || !secretKey) {
-  console.warn("서버 환경변수 (POPBILL_LINK_ID, POPBILL_SECRET_KEY)가 설정되지 않았습니다. 기본 테스트 모드로 동작합니다.");
+  console.warn("서버 환경변수 (POPBILL_LINK_ID, POPBILL_SECRET_KEY)가 설정되지 않았습니다.");
 }
 
 // Popbill SDK Global Configuration (Server-Side Only)
@@ -23,24 +24,14 @@ popbill.config({
 
 export const popbillTaxService = popbill.TaxinvoiceService();
 
-// 팝빌 테스트베드(test.popbill.com)에 등록된 대표 연동회원 사업자번호 (8068803266: 주식회사 드래곤알피에이)
+// 팝빌에 등록된 대표 연동회원 사업자번호 (8068803266: 주식회사 드래곤알피에이)
 export const POPBILL_REGISTERED_CORP_NUM = "8068803266";
 
-// 유효한 10자리 사업자등록번호 체크섬 검증 및 보정 (테스트베드에서 100-00-00000 등 더미 번호로 인한 -11001021 오류 방지)
+// 유효한 10자리 사업자등록번호 검증 및 정규화 (실제 서비스에서는 임의 사업자번호 치환 금지)
 function sanitizePopbillBizNo(rawBizNo?: string): string {
   const digits = (rawBizNo || "").replace(/[^0-9]/g, "");
   if (digits.length !== 10 || digits === "1000000000" || digits === "0000000000") {
-    return "2950302683"; // 유효한 체크섬 사업자번호 기본값
-  }
-  const weights = [1, 3, 7, 1, 3, 7, 1, 3, 5];
-  let sum = 0;
-  for (let i = 0; i < 9; i++) {
-    sum += parseInt(digits[i], 10) * weights[i];
-  }
-  sum += Math.floor((parseInt(digits[8], 10) * 5) / 10);
-  const checkDigit = (10 - (sum % 10)) % 10;
-  if (checkDigit !== parseInt(digits[9], 10)) {
-    return isTestMode ? "2950302683" : digits;
+    throw new Error(`유효하지 않은 거래처 사업자등록번호(${rawBizNo || "미입력"})입니다. 10자리 사업자등록번호를 확인해 주세요.`);
   }
   return digits;
 }
@@ -164,16 +155,16 @@ function buildPopbillTaxinvoiceObj(params: PopbillIssueParams, activeCorpNum: st
 }
 
 /**
- * 팝빌 전자세금계산서 발행 및 테스트베드 문서함 자동 등록
- * 1) registIssue(즉시발행) 시도 -> 공동인증서가 등록되어 있으면 즉시 국세청(테스트베드) 발행 완료
- * 2) 공동인증서 미등록(-10002009) 또는 미가입 사업자(-11000005) 오류 시:
- *    테스트베드에 가입된 법인 사업자(8068803266)의 문서함에 `register`(임시문서 등록) API를 호출하여
- *    test.popbill.com 웹 화면 및 팝빌 공식 뷰어 팝업에서 실제 세금계산서를 100% 조회/검증할 수 있도록 저장합니다.
+ * 팝빌 전자세금계산서 정식 발행 (운영 환경)
+ * 1) registIssue(즉시발행) 시도 -> 공동인증서가 등록되어 있으면 즉시 국세청 정식 발행 완료 및 실제 승인번호 반환
+ * 2) 공동인증서 미등록(-10002009) 시:
+ *    팝빌 임시문서함에 `register`(임시문서 등록) API를 호출하여 실제 저장하고,
+ *    가짜 승인번호를 생성하지 않으며 상태를 TEMP_SAVED(임시저장)로 반환합니다.
  */
 export async function registIssuePopbill(params: PopbillIssueParams): Promise<any> {
   const defaultEntity = BUSINESS_ENTITIES.CORP;
   const rawCorpNum = (params.corpNum || defaultEntity.bizNumRaw).replace(/[^0-9]/g, "");
-  const activeCorpNum = isTestMode ? POPBILL_REGISTERED_CORP_NUM : rawCorpNum;
+  const activeCorpNum = rawCorpNum || POPBILL_REGISTERED_CORP_NUM;
   const taxinvoiceObj = buildPopbillTaxinvoiceObj(params, activeCorpNum);
 
   return new Promise((resolve, reject) => {
@@ -181,112 +172,142 @@ export async function registIssuePopbill(params: PopbillIssueParams): Promise<an
       activeCorpNum,
       taxinvoiceObj,
       (res: any) => {
+        const realConfirmNo = res?.ntsConfirmNum || res?.ntsconfirmNum || null;
         resolve({
           success: true,
           isLivePopbill: true,
           mode: "ISSUED",
           corpNumUsed: activeCorpNum,
           res,
-          ntsConfirmNo:
-            res?.ntsConfirmNum ||
-            `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-41000000-${Math.floor(10000000 + Math.random() * 90000000)}`,
+          ntsConfirmNo: realConfirmNo,
+          message: `[팝빌 정식 발행 완료] 국세청 승인번호: ${realConfirmNo || "발급 완료"}`,
         });
       },
       (err: any) => {
-        // 인증서 미등록(-10002009) 등으로 즉시발행 실패 시 -> 팝빌 테스트베드 문서함에 실제 등록(register) 수행
-        popbillTaxService.register(
-          activeCorpNum,
-          taxinvoiceObj,
-          (regRes: any) => {
-            const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-            const testConfirmNo = `${dateStr}-POPBILL-REG-${params.invoicerMgtKey.slice(-4)}`;
-            resolve({
-              success: true,
-              isLivePopbill: true,
-              mode: "REGISTERED_IN_POPBILL",
-              corpNumUsed: activeCorpNum,
-              res: regRes,
-              ntsConfirmNo: testConfirmNo,
-              message: `[팝빌 테스트베드 등록 완료] 공동인증서 미등록 상태로 팝빌 임시문서함에 실제 저장되었습니다. (test.popbill.com 에서 즉시 확인 가능)`,
-            });
-          },
-          (regErr: any) => {
-            // 이미 동일한 관리번호(MgtKey)로 팝빌 임시문서함에 등록되어 있는 경우 -> 공동인증서로 전자서명 발행(issue) 시도
-            if (regErr?.code === -11000003 || String(regErr?.message || "").includes("이미")) {
-              popbillTaxService.issue(
-                activeCorpNum,
-                popbill.MgtKeyType.SELL,
-                params.invoicerMgtKey,
-                params.memo || "전자서명 발행",
-                "",
-                true,
-                "",
-                (issueRes: any) => {
-                  resolve({
-                    success: true,
-                    isLivePopbill: true,
-                    mode: "ISSUED_FROM_TEMP",
-                    corpNumUsed: activeCorpNum,
-                    res: issueRes,
-                    ntsConfirmNo:
-                      issueRes?.ntsConfirmNum ||
-                      `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-41000000-${Math.floor(10000000 + Math.random() * 90000000)}`,
-                    message: `[팝빌 전자서명 발행 완료] 임시문서함에 등록되어 있던 세금계산서가 공동인증서로 정식 발행되었습니다. (국세청 승인번호: ${issueRes?.ntsConfirmNum || "-"})`,
-                  });
-                },
-                (_issueErr: any) => {
-                  // 이미 발행 완료(300) 상태인 경우 getInfo로 실제 국세청 승인번호 조회
-                  popbillTaxService.getInfo(
-                    activeCorpNum,
-                    popbill.MgtKeyType.SELL,
-                    params.invoicerMgtKey,
-                    (infoRes: any) => {
-                      const realNtsNo =
-                        infoRes?.ntsconfirmNum ||
-                        infoRes?.ntsConfirmNum ||
-                        `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-POPBILL-REG-${params.invoicerMgtKey.slice(-4)}`;
-                      resolve({
-                        success: true,
-                        isLivePopbill: true,
-                        mode: "ALREADY_IN_POPBILL",
-                        corpNumUsed: activeCorpNum,
-                        ntsConfirmNo: realNtsNo,
-                        message: `[팝빌 발행 확인 완료] 국세청 승인번호: ${realNtsNo}`,
-                      });
-                    },
-                    () => {
-                      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-                      resolve({
-                        success: true,
-                        isLivePopbill: true,
-                        mode: "ALREADY_IN_POPBILL",
-                        corpNumUsed: activeCorpNum,
-                        ntsConfirmNo: `${dateStr}-POPBILL-REG-${params.invoicerMgtKey.slice(-4)}`,
-                        message: `[팝빌 확인 완료] 이미 팝빌 문서함에 등록된 세금계산서입니다.`,
-                      });
-                    }
-                  );
-                }
-              );
-              return;
-            }
-
-            if (isTestMode) {
-              console.warn(`[팝빌 연동 경고] (${regErr.code}: ${regErr.message})`);
-              const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-              const testConfirmNo = `${dateStr}-41000000-${Math.floor(10000000 + Math.random() * 90000000)}`;
+        // 공동인증서 미등록(-10002009)인 경우 팝빌 임시문서함에 실제 등록(register) 수행
+        const errCode = Number(err?.code);
+        const errMsg = String(err?.message || "");
+        if (errCode === -10002009 || errMsg.includes("인증서")) {
+          popbillTaxService.register(
+            activeCorpNum,
+            taxinvoiceObj,
+            (regRes: any) => {
               resolve({
                 success: true,
-                isLivePopbill: false,
-                isTestMode: true,
-                ntsConfirmNo: testConfirmNo,
-                message: `[팝빌 테스트 모드] (${regErr.message})`,
+                isLivePopbill: true,
+                mode: "REGISTERED_IN_POPBILL",
+                corpNumUsed: activeCorpNum,
+                res: regRes,
+                ntsConfirmNo: null,
+                message: `[팝빌 임시문서함 등록 완료] 공동인증서가 등록되지 않아 팝빌 임시문서함에 저장되었습니다. 팝빌에 공동인증서를 등록한 후 발행해 주세요.`,
               });
-            } else {
-              reject(new Error(`[팝빌 오류 ${err.code}] ${err.message}`));
+            },
+            (regErr: any) => {
+              if (regErr?.code === -11000003 || String(regErr?.message || "").includes("이미")) {
+                popbillTaxService.issue(
+                  activeCorpNum,
+                  popbill.MgtKeyType.SELL,
+                  params.invoicerMgtKey,
+                  params.memo || "전자서명 발행",
+                  "",
+                  true,
+                  "",
+                  (issueRes: any) => {
+                    const realConfirmNo = issueRes?.ntsConfirmNum || issueRes?.ntsconfirmNum || null;
+                    resolve({
+                      success: true,
+                      isLivePopbill: true,
+                      mode: "ISSUED_FROM_TEMP",
+                      corpNumUsed: activeCorpNum,
+                      res: issueRes,
+                      ntsConfirmNo: realConfirmNo,
+                      message: `[팝빌 전자서명 발행 완료] 국세청 승인번호: ${realConfirmNo || "-"}`,
+                    });
+                  },
+                  (_issueErr: any) => {
+                    popbillTaxService.getInfo(
+                      activeCorpNum,
+                      popbill.MgtKeyType.SELL,
+                      params.invoicerMgtKey,
+                      (infoRes: any) => {
+                        const realNtsNo = infoRes?.ntsconfirmNum || infoRes?.ntsConfirmNum || null;
+                        resolve({
+                          success: true,
+                          isLivePopbill: true,
+                          mode: realNtsNo ? "ALREADY_IN_POPBILL" : "REGISTERED_IN_POPBILL",
+                          corpNumUsed: activeCorpNum,
+                          ntsConfirmNo: realNtsNo,
+                          message: realNtsNo
+                            ? `[팝빌 발행 확인 완료] 국세청 승인번호: ${realNtsNo}`
+                            : `[팝빌 임시문서함 보관중] 공동인증서 서명 대기 상태입니다.`,
+                        });
+                      },
+                      (infoErr: any) => {
+                        reject(new Error(`[팝빌 오류 ${infoErr?.code || err.code}] ${infoErr?.message || err.message}`));
+                      }
+                    );
+                  }
+                );
+                return;
+              }
+              reject(new Error(`[팝빌 등록 오류 ${regErr.code}] ${regErr.message}`));
             }
-          }
-        );
+          );
+          return;
+        }
+
+        // 이미 동일 관리번호로 등록된 경우(-11000003) -> 전자서명 발행(issue) 또는 상태 조회(getInfo)
+        if (errCode === -11000003 || errMsg.includes("이미")) {
+          popbillTaxService.getInfo(
+            activeCorpNum,
+            popbill.MgtKeyType.SELL,
+            params.invoicerMgtKey,
+            (infoRes: any) => {
+              const realNtsNo = infoRes?.ntsconfirmNum || infoRes?.ntsConfirmNum || null;
+              if (realNtsNo) {
+                resolve({
+                  success: true,
+                  isLivePopbill: true,
+                  mode: "ALREADY_IN_POPBILL",
+                  corpNumUsed: activeCorpNum,
+                  ntsConfirmNo: realNtsNo,
+                  message: `[팝빌 발행 확인 완료] 국세청 승인번호: ${realNtsNo}`,
+                });
+              } else {
+                popbillTaxService.issue(
+                  activeCorpNum,
+                  popbill.MgtKeyType.SELL,
+                  params.invoicerMgtKey,
+                  params.memo || "전자서명 발행",
+                  "",
+                  true,
+                  "",
+                  (issueRes: any) => {
+                    const issuedNo = issueRes?.ntsConfirmNum || issueRes?.ntsconfirmNum || null;
+                    resolve({
+                      success: true,
+                      isLivePopbill: true,
+                      mode: "ISSUED_FROM_TEMP",
+                      corpNumUsed: activeCorpNum,
+                      res: issueRes,
+                      ntsConfirmNo: issuedNo,
+                      message: `[팝빌 전자서명 발행 완료] 국세청 승인번호: ${issuedNo || "-"}`,
+                    });
+                  },
+                  (issueErr: any) => {
+                    reject(new Error(`[팝빌 발행 오류 ${issueErr.code}] ${issueErr.message}`));
+                  }
+                );
+              }
+            },
+            (infoErr: any) => {
+              reject(new Error(`[팝빌 오류 ${infoErr.code}] ${infoErr.message}`));
+            }
+          );
+          return;
+        }
+
+        reject(new Error(`[팝빌 발행 오류 ${err.code}] ${err.message}`));
       }
     );
   });
@@ -296,7 +317,7 @@ export async function registIssuePopbill(params: PopbillIssueParams): Promise<an
  * 팝빌 전자세금계산서 상태 및 국세청 승인번호 조회
  */
 export async function getPopbillInfo(mgtKey: string, corpNum?: string): Promise<any> {
-  const cNum = isTestMode ? POPBILL_REGISTERED_CORP_NUM : (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/-/g, "");
+  const cNum = (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
   return new Promise((resolve, reject) => {
     popbillTaxService.getInfo(
       cNum,
@@ -304,25 +325,17 @@ export async function getPopbillInfo(mgtKey: string, corpNum?: string): Promise<
       mgtKey,
       (res: any) => resolve(res),
       (err: any) => {
-        if (isTestMode) {
-          resolve({
-            stateCode: 100,
-            ntsresult: "팝빌 테스트베드 임시문서함 등록",
-            ntsconfirmNum: `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-POPBILL-TEST`,
-          });
-        } else {
-          reject(new Error(`[팝빌 오류 ${err.code}] ${err.message}`));
-        }
+        reject(new Error(`[팝빌 오류 ${err.code}] ${err.message}`));
       }
     );
   });
 }
 
 /**
- * 팝빌 세금계산서 공식 뷰어 팝업 URL 조회 (test.popbill.com 공식 팝업)
+ * 팝빌 세금계산서 공식 뷰어 팝업 URL 조회
  */
 export async function getPopbillPopUpURL(mgtKey: string, corpNum?: string): Promise<string> {
-  const cNum = isTestMode ? POPBILL_REGISTERED_CORP_NUM : (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/-/g, "");
+  const cNum = (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
   return new Promise((resolve, reject) => {
     popbillTaxService.getPopUpURL(
       cNum,
@@ -330,21 +343,17 @@ export async function getPopbillPopUpURL(mgtKey: string, corpNum?: string): Prom
       mgtKey,
       (url: string) => resolve(url),
       (err: any) => {
-        if (isTestMode) {
-          resolve(`/api/erp/tax-invoices/viewer?invoiceNo=${encodeURIComponent(mgtKey)}`);
-        } else {
-          reject(new Error(`[팝빌 오류 ${err.code}] ${err.message}`));
-        }
+        reject(new Error(`[팝빌 오류 ${err.code}] ${err.message}`));
       }
     );
   });
 }
 
 /**
- * 팝빌 세금계산서 즉시 인쇄 URL 조회 (test.popbill.com 공식 인쇄 팝업)
+ * 팝빌 세금계산서 즉시 인쇄 URL 조회
  */
 export async function getPopbillPrintURL(mgtKey: string, corpNum?: string): Promise<string> {
-  const cNum = isTestMode ? POPBILL_REGISTERED_CORP_NUM : (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/-/g, "");
+  const cNum = (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
   return new Promise((resolve, reject) => {
     popbillTaxService.getPrintURL(
       cNum,
@@ -352,24 +361,20 @@ export async function getPopbillPrintURL(mgtKey: string, corpNum?: string): Prom
       mgtKey,
       (url: string) => resolve(url),
       (err: any) => {
-        if (isTestMode) {
-          resolve(`/api/erp/tax-invoices/viewer?invoiceNo=${encodeURIComponent(mgtKey)}&print=1`);
-        } else {
-          reject(new Error(`[팝빌 오류 ${err.code}] ${err.message}`));
-        }
+        reject(new Error(`[팝빌 오류 ${err.code}] ${err.message}`));
       }
     );
   });
 }
 
 /**
- * 팝빌 테스트베드 자동 로그인 / 임시문서함 / 공동인증서 등록 팝업 URL 조회
+ * 팝빌 자동 로그인 / 임시문서함 / 공동인증서 등록 팝업 URL 조회
  */
 export async function getPopbillPortalURL(
   toGo: "LOGIN" | "CERT" | "TEMP" = "LOGIN",
   corpNum?: string
 ): Promise<string> {
-  const cNum = isTestMode ? POPBILL_REGISTERED_CORP_NUM : (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/-/g, "");
+  const cNum = (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
   return new Promise((resolve, reject) => {
     if (toGo === "CERT") {
       popbillTaxService.getTaxCertURL(
@@ -392,7 +397,7 @@ export async function getPopbillPortalURL(
  * 팝빌 발행완료(stateCode: 300) 상태의 세금계산서를 국세청(NTS)으로 즉시 전송 요청 (sendToNTS)
  */
 export async function sendToNTSPopbill(mgtKey: string, corpNum?: string): Promise<any> {
-  const cNum = isTestMode ? POPBILL_REGISTERED_CORP_NUM : (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
+  const cNum = (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
   return new Promise((resolve, reject) => {
     popbillTaxService.sendToNTS(
       cNum,
@@ -463,10 +468,26 @@ export async function sendToNTSPopbill(mgtKey: string, corpNum?: string): Promis
 }
 
 /**
+ * 팝빌 세금계산서 문서 삭제 (임시저장 또는 발행취소 상태 문서 삭제)
+ */
+export async function deletePopbillInvoice(mgtKey: string, corpNum?: string): Promise<any> {
+  const cNum = (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
+  return new Promise((resolve) => {
+    popbillTaxService.delete(
+      cNum,
+      popbill.MgtKeyType.SELL,
+      mgtKey,
+      (res: any) => resolve({ success: true, res }),
+      (err: any) => resolve({ success: false, code: err?.code, message: err?.message })
+    );
+  });
+}
+
+/**
  * 팝빌 등록 공동인증서 유효성 및 상세 정보 조회
  */
 export async function getPopbillCertInfo(corpNum?: string): Promise<any> {
-  const cNum = isTestMode ? POPBILL_REGISTERED_CORP_NUM : (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/-/g, "");
+  const cNum = (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
   return new Promise((resolve) => {
     popbillTaxService.checkCertValidation(
       cNum,
@@ -501,7 +522,7 @@ export async function getPopbillCertInfo(corpNum?: string): Promise<any> {
 }
 
 /**
- * 홈택스(Hometax) 전자세금계산서 표준 수집 DTO (팝빌 유료 HTTaxinvoiceService 미사용 - 자체 RPA / 홈택스 엑셀 파서 전용)
+ * 홈택스(Hometax) 전자세금계산서 표준 수집 DTO (자체 RPA / 홈택스 엑셀 파서 전용)
  */
 export interface HometaxCollectedInvoice {
   ioType: "SALE" | "PURCHASE";
@@ -526,5 +547,3 @@ export interface HometaxCollectedInvoice {
   mgtKey?: string;
   sourceChannel: "HOMETAX_RPA" | "EXCEL_UPLOAD";
 }
-
-

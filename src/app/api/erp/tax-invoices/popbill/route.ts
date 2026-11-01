@@ -168,7 +168,7 @@ export async function POST(request: Request) {
           writeDate: writeDateStr,
           purposeType: inv.purpose_type || "청구",
           customerName: inv.customer_name,
-          customerBizNo: inv.business_no || "2950302683",
+          customerBizNo: inv.business_no || "",
           customerCeoName: inv.ceo_name || "대표자",
           customerAddr: inv.customer_address || "",
           customerBizType: inv.customer_biz_type || "",
@@ -183,15 +183,20 @@ export async function POST(request: Request) {
           taxItems: Array.isArray(inv.tax_items) ? inv.tax_items : [],
         });
 
-        // Update DB
-        const ntsConfirm = popResult.ntsConfirmNo || `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-41000000-POPBILL`;
+        // Update DB with real NTS confirmation number only (null if TEMP_SAVED)
+        const ntsConfirm = popResult.ntsConfirmNo || null;
         const nextStatus = popResult.mode === "REGISTERED_IN_POPBILL" ? "TEMP_SAVED" : "ISSUED";
         await pool.query(
-          "UPDATE erp_tax_invoices SET status = $1, nts_confirm_no = $2 WHERE id = $3",
+          "UPDATE erp_tax_invoices SET status = $1, nts_confirm_no = COALESCE($2, nts_confirm_no) WHERE id = $3",
           [nextStatus, ntsConfirm, invoiceId]
         );
 
-        const popupUrl = await getPopbillPopUpURL(inv.invoice_no, activeCorpNum);
+        let popupUrl = "";
+        try {
+          popupUrl = await getPopbillPopUpURL(inv.invoice_no, activeCorpNum);
+        } catch {
+          popupUrl = `/api/erp/tax-invoices/viewer?invoiceNo=${encodeURIComponent(inv.invoice_no)}`;
+        }
 
         return NextResponse.json({
           success: true,
@@ -204,7 +209,7 @@ export async function POST(request: Request) {
       } catch (popErr: any) {
         return NextResponse.json({
           error: popErr.message,
-          suggestion: "팝빌 테스트 환경(test.popbill.com) 연동회원 사업자번호를 확인해 주십시오.",
+          suggestion: "팝빌 연동 사업자번호, 공동인증서 등록 여부 및 거래처 사업자번호(10자리)를 확인해 주십시오.",
         }, { status: 400 });
       }
     }

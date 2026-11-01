@@ -816,8 +816,31 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         body: JSON.stringify({ action: actionType }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "팝빌 테스트베드 URL 생성 실패");
+      if (!res.ok || !data.success) throw new Error(data.error || "팝빌 포털 URL 생성 실패");
       window.open(data.url, "_blank", "width=1100,height=820,scrollbars=yes");
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  const handleDeleteInvoice = async (inv: any) => {
+    if (
+      !window.confirm(
+        `[${inv.invoiceNo}] ${inv.customerName} (${formatErpCurrency(inv.totalAmount)})\n해당 세금계산서 데이터 및 연결된 예정 수납 매칭을 삭제하시겠습니까?`
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/erp/tax-invoices?id=${inv.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "삭제 실패");
+      showToast(data.message || "세금계산서가 삭제되었습니다.");
+      setDetailInvoice(null);
+      await fetchIssuedInvoices();
+      await fetchUnissuedBillings();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -1052,8 +1075,16 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
           </button>
 
           <button
+            onClick={() => handleOpenPopbillPortal("CERT_URL")}
+            className="hidden sm:flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-slate-800 bg-slate-200 hover:bg-slate-300 border border-slate-400 shadow-sm whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>공동인증서 관리</span>
+          </button>
+
+          <button
             onClick={() => handleOpenPopbillPortal("PORTAL_URL")}
-            className="hidden sm:flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-indigo-800 bg-indigo-100 hover:bg-indigo-200 border border-indigo-400 shadow-sm whitespace-nowrap shrink-0"
+            className="hidden sm:flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-indigo-800 bg-indigo-100 hover:bg-indigo-200 border border-indigo-400 shadow-sm whitespace-nowrap shrink-0 cursor-pointer"
           >
             <ExternalLink className="w-3.5 h-3.5" />
             <span>팝빌 문서함</span>
@@ -2916,6 +2947,13 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                       </button>
                     </>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteInvoice(inv)}
+                    className="px-3.5 py-1.5 rounded border border-rose-600 text-rose-700 hover:bg-rose-50 font-bold text-xs"
+                  >
+                    삭제
+                  </button>
                 </div>
               </div>
             </div>

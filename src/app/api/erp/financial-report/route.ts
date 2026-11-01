@@ -241,7 +241,7 @@ export async function GET(request: Request) {
               COALESCE(supply_amount, 0)::numeric AS supply_amount,
               COALESCE(vat_amount, 0)::numeric AS vat_amount,
               COALESCE(total_amount, 0)::numeric AS total_amount,
-              COALESCE(reconciled_amount, 0)::numeric AS reconciled_amount,
+              COALESCE(settled_amount, 0)::numeric AS reconciled_amount,
               COALESCE(settlement_status, 'UNPAID') AS settlement_status
        FROM erp_tax_invoices
        ${invWhere}

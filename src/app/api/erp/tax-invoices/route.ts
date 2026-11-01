@@ -1,8 +1,113 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { BUSINESS_ENTITIES, getEntity } from "@/lib/businessEntities";
-import { registIssuePopbill } from "@/lib/popbillService";
+import { registIssuePopbill, deletePopbillInvoice } from "@/lib/popbillService";
 import { resolveContractItemTemplate, resolveContractTaxItemsTemplate, selectPreferredBizItem } from "@/lib/erpFormat";
+
+function normalizeNameForAutoMatch(raw?: string): string {
+  if (!raw) return "";
+  return String(raw)
+    .replace(/\(주\)|주식회사|（주）|\(유\)|유한회사|㈜|사단법인|\(사\)|재단법인|\(재\)/g, "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/[^가-힣a-zA-Z0-9]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+// 신규 세금계산서 발행/등록 직후 미매칭 통장 입출금 내역(erp_bank_transactions)과 자동 대사 및 원천 청구 수납 연동
+async function tryAutoReconcileNewInvoice(client: any, invoice: any) {
+  const ioType = invoice.io_type || "SALE";
+  const entityType = invoice.supplier_entity_type || "CORP";
+  const totalAmt = Number(invoice.total_amount || 0);
+  if (totalAmt <= 0) return invoice;
+
+  const invName = normalizeNameForAutoMatch(invoice.customer_name);
+  const invCeo = normalizeNameForAutoMatch(invoice.ceo_name);
+  if (!invName || invName.length < 2) return invoice;
+
+  const txCond =
+    ioType === "PURCHASE"
+      ? `(COALESCE(withdrawal_amount, 0) > 0 OR trans_type = 'WITHDRAWAL')`
+      : `(COALESCE(deposit_amount, 0) > 0 OR trans_type = 'DEPOSIT')`;
+
+  const candRes = await client.query(
+    `SELECT id, trans_date::text AS trans_date,
+            COALESCE(deposit_amount, 0)::numeric AS deposit_amount,
+            COALESCE(withdrawal_amount, 0)::numeric AS withdrawal_amount,
+            sender_receiver, counterparty_holder, memo
+     FROM erp_bank_transactions
+     WHERE ${txCond}
+       AND COALESCE(entity_type, CASE WHEN account_no LIKE '%140%' THEN 'INDIVIDUAL' ELSE 'CORP' END) = $1
+       AND COALESCE(is_matched, false) = false
+     ORDER BY trans_date DESC, id DESC
+     LIMIT 200`,
+    [entityType]
+  );
+
+  const invDate = new Date(String(invoice.issue_date).slice(0, 10)).getTime();
+  let matchedTx: any = null;
+
+  for (const tx of candRes.rows) {
+    const txAmt = ioType === "PURCHASE" ? Number(tx.withdrawal_amount) : Number(tx.deposit_amount);
+    if (Math.abs(txAmt - totalAmt) > 1000) continue;
+
+    const txDate = new Date(String(tx.trans_date).slice(0, 10)).getTime();
+    const diffDays = Math.round((txDate - invDate) / (1000 * 60 * 60 * 24));
+    if (diffDays < -35 || diffDays > 60) continue;
+
+    const sr = normalizeNameForAutoMatch(tx.sender_receiver);
+    const ch = normalizeNameForAutoMatch(tx.counterparty_holder);
+    const mm = normalizeNameForAutoMatch(tx.memo);
+
+    const isNameMatched =
+      (sr && (sr.includes(invName) || invName.includes(sr))) ||
+      (ch && (ch.includes(invName) || invName.includes(ch))) ||
+      (mm && mm.includes(invName)) ||
+      (invCeo && invCeo.length >= 2 && ((sr && sr.includes(invCeo)) || (ch && ch.includes(invCeo))));
+
+    if (isNameMatched) {
+      matchedTx = tx;
+      break;
+    }
+  }
+
+  if (!matchedTx) return invoice;
+
+  const txId = Number(matchedTx.id);
+  const updInv = await client.query(
+    `UPDATE erp_tax_invoices
+     SET settled_amount = $1,
+         settlement_status = 'PAID',
+         matched_bank_tx_ids = $2::jsonb,
+         settled_at = NOW()
+     WHERE id = $3
+     RETURNING *`,
+    [totalAmt, JSON.stringify([txId]), invoice.id]
+  );
+
+  await client.query(
+    `UPDATE erp_bank_transactions
+     SET is_matched = true,
+         matched_type = $1,
+         matched_id = $2,
+         matched_at = NOW()
+     WHERE id = $3`,
+    [ioType === "PURCHASE" ? "PURCHASE_INVOICE" : "SALE_INVOICE", invoice.invoice_no, txId]
+  );
+
+  // 연결된 청구 테이블 수납완료 동기화
+  await client.query(`UPDATE erp_service_billings SET payment_status = 'PAID' WHERE tax_invoice_id = $1`, [invoice.id]);
+  await client.query(
+    `UPDATE erp_rental_billings SET payment_status = 'PAID', paid_amount = total_amount WHERE tax_invoice_id = $1`,
+    [invoice.id]
+  );
+  await client.query(
+    `UPDATE erp_trade_billings SET payment_status = 'PAID', paid_amount = total_amount WHERE tax_invoice_id = $1`,
+    [invoice.id]
+  );
+
+  return updInv.rows[0] || invoice;
+}
 
 // GET: List tax invoices or unissued billings
 export async function GET(request: Request) {
@@ -391,44 +496,38 @@ export async function POST(request: Request) {
           const randomSuffix = Math.floor(1000 + Math.random() * 9000);
           const invoiceNo = `TX${dateStr}-${String(i + 1).padStart(2, "0")}${randomSuffix}`;
 
-          // Popbill Electronic Tax Invoice Issue Call (Test Mode Supported)
-          let ntsConfirmNo = "";
+          // Popbill Electronic Tax Invoice Issue Call (Real Production Service)
+          let ntsConfirmNo: string | null = null;
           let invoiceStatus = "ISSUED";
           const preferredBizClass = selectPreferredBizItem(item.customerBizClass || "");
-          try {
-            const popRes = await registIssuePopbill({
-              corpNum: entity.bizNumRaw,
-              supplierCorpName: entity.corpName,
-              supplierCeoName: entity.ceoName,
-              supplierAddr: entity.address,
-              supplierBizType: entity.bizType,
-              supplierBizClass: entity.bizClass,
-              supplierEmail: entity.email,
-              invoicerMgtKey: invoiceNo,
-              writeDate: writeDateStr.replace(/-/g, ""),
-              purposeType: item.purposeType || "청구",
-              customerName: item.customerName,
-              customerBizNo: item.businessNo || "100-00-00000",
-              customerCeoName: item.ceoName || "대표자",
-              customerAddr: item.customerAddress || "",
-              customerBizType: item.customerBizType || "",
-              customerBizClass: preferredBizClass,
-              customerEmail: item.customerEmail || entity.email,
-              customerEmail2: item.customerEmail2 || "",
-              itemName: resolvedItemName,
-              supplyAmount: supply,
-              vatAmount: vat,
-              totalAmount: total,
-              memo: resolvedMemo,
-              taxItems: normalizedTaxItems,
-            });
-            ntsConfirmNo = popRes.ntsConfirmNo;
-            invoiceStatus = popRes.mode === "REGISTERED_IN_POPBILL" ? "TEMP_SAVED" : "ISSUED";
-          } catch (popErr: any) {
-            console.warn("Popbill Issue Warning in Batch:", popErr.message);
-            ntsConfirmNo = `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-41000000-POPBILL_TEST`;
-            invoiceStatus = "ISSUED";
-          }
+          const popRes = await registIssuePopbill({
+            corpNum: entity.bizNumRaw,
+            supplierCorpName: entity.corpName,
+            supplierCeoName: entity.ceoName,
+            supplierAddr: entity.address,
+            supplierBizType: entity.bizType,
+            supplierBizClass: entity.bizClass,
+            supplierEmail: entity.email,
+            invoicerMgtKey: invoiceNo,
+            writeDate: writeDateStr.replace(/-/g, ""),
+            purposeType: item.purposeType || "청구",
+            customerName: item.customerName,
+            customerBizNo: item.businessNo || "",
+            customerCeoName: item.ceoName || "대표자",
+            customerAddr: item.customerAddress || "",
+            customerBizType: item.customerBizType || "",
+            customerBizClass: preferredBizClass,
+            customerEmail: item.customerEmail || entity.email,
+            customerEmail2: item.customerEmail2 || "",
+            itemName: resolvedItemName,
+            supplyAmount: supply,
+            vatAmount: vat,
+            totalAmount: total,
+            memo: resolvedMemo,
+            taxItems: normalizedTaxItems,
+          });
+          ntsConfirmNo = popRes.ntsConfirmNo || null;
+          invoiceStatus = popRes.mode === "REGISTERED_IN_POPBILL" ? "TEMP_SAVED" : "ISSUED";
 
           // Insert into erp_tax_invoices
           const insRes = await client.query(
@@ -474,7 +573,6 @@ export async function POST(request: Request) {
             ]
           );
           const savedInvoice = insRes.rows[0];
-          issuedInvoices.push(savedInvoice);
 
           // Link to all original billing/sale records in the group
           for (const bItem of group) {
@@ -508,6 +606,10 @@ export async function POST(request: Request) {
               }
             }
           }
+
+          // 통장 입금 내역이 이미 존재하는 경우 즉시 자동 대사 및 원천 청구 수납 완료 연동
+          const reconciledInvoice = await tryAutoReconcileNewInvoice(client, savedInvoice);
+          issuedInvoices.push(reconciledInvoice);
 
           // Audit log for each invoice
           await client.query(
@@ -617,45 +719,39 @@ export async function POST(request: Request) {
       });
 
       const preferredSingleBizClass = selectPreferredBizItem(customerBizClass || "");
-      let ntsConfirmNo = rawNtsConfirmNo || "";
+      let ntsConfirmNo: string | null = rawNtsConfirmNo || null;
       let singleInvoiceStatus = ioType === "PURCHASE" ? "SENT_NTS" : "ISSUED";
 
       if (ioType === "SALE") {
-        // Popbill Electronic Tax Invoice Issue Call (매출 정발행)
-        try {
-          const popRes = await registIssuePopbill({
-            corpNum: entity.bizNumRaw,
-            supplierCorpName: entity.corpName,
-            supplierCeoName: entity.ceoName,
-            supplierAddr: entity.address,
-            supplierBizType: entity.bizType,
-            supplierBizClass: entity.bizClass,
-            supplierEmail: entity.email,
-            invoicerMgtKey: invoiceNo,
-            writeDate: writeDateStr.replace(/-/g, ""),
-            purposeType: purposeType || "청구",
-            customerName: customerName.trim(),
-            customerBizNo: businessNo || "100-00-00000",
-            customerCeoName: ceoName || "대표자",
-            customerAddr: customerAddress || "",
-            customerBizType: customerBizType || "",
-            customerBizClass: preferredSingleBizClass,
-            customerEmail: customerEmail || entity.email,
-            customerEmail2: customerEmail2 || "",
-            itemName: resolvedItemName.trim(),
-            supplyAmount: supply,
-            vatAmount: vat,
-            totalAmount: total,
-            memo: resolvedSingleMemo,
-            taxItems: normalizedTaxItems,
-          });
-          ntsConfirmNo = popRes.ntsConfirmNo;
-          singleInvoiceStatus = popRes.mode === "REGISTERED_IN_POPBILL" ? "TEMP_SAVED" : "ISSUED";
-        } catch (popErr: any) {
-          console.warn("Popbill Issue Warning in Single:", popErr.message);
-          ntsConfirmNo = `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-41000000-POPBILL_TEST`;
-          singleInvoiceStatus = "ISSUED";
-        }
+        // Popbill Electronic Tax Invoice Issue Call (매출 정발행 - 실제 운영 서비스)
+        const popRes = await registIssuePopbill({
+          corpNum: entity.bizNumRaw,
+          supplierCorpName: entity.corpName,
+          supplierCeoName: entity.ceoName,
+          supplierAddr: entity.address,
+          supplierBizType: entity.bizType,
+          supplierBizClass: entity.bizClass,
+          supplierEmail: entity.email,
+          invoicerMgtKey: invoiceNo,
+          writeDate: writeDateStr.replace(/-/g, ""),
+          purposeType: purposeType || "청구",
+          customerName: customerName.trim(),
+          customerBizNo: businessNo || "",
+          customerCeoName: ceoName || "대표자",
+          customerAddr: customerAddress || "",
+          customerBizType: customerBizType || "",
+          customerBizClass: preferredSingleBizClass,
+          customerEmail: customerEmail || entity.email,
+          customerEmail2: customerEmail2 || "",
+          itemName: resolvedItemName.trim(),
+          supplyAmount: supply,
+          vatAmount: vat,
+          totalAmount: total,
+          memo: resolvedSingleMemo,
+          taxItems: normalizedTaxItems,
+        });
+        ntsConfirmNo = popRes.ntsConfirmNo || null;
+        singleInvoiceStatus = popRes.mode === "REGISTERED_IN_POPBILL" ? "TEMP_SAVED" : "ISSUED";
       }
 
       // Insert tax invoice (SALE or PURCHASE)
@@ -727,6 +823,9 @@ export async function POST(request: Request) {
         }
       }
 
+      // 통장 입출금 내역이 이미 존재하는 경우 즉시 자동 대사 및 원천 청구 수납 완료 연동
+      const finalInvoice = await tryAutoReconcileNewInvoice(client, invoice);
+
       await client.query(
         `INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
          VALUES ('TAX_INVOICE', 'MANUAL_ISSUE', $1, 'ADMIN', $2)`,
@@ -734,7 +833,7 @@ export async function POST(request: Request) {
       );
 
       await client.query("COMMIT");
-      return NextResponse.json({ success: true, invoice });
+      return NextResponse.json({ success: true, invoice: finalInvoice });
     } catch (e: any) {
       await client.query("ROLLBACK");
       throw e;
@@ -744,5 +843,77 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error("POST Tax Invoice Error:", error);
     return NextResponse.json({ error: "세금계산서 발행 실패: " + error.message }, { status: 500 });
+  }
+}
+
+// DELETE: 세금계산서 삭제 (연결된 청구 수납 및 통장 매칭 해제 포함)
+export async function DELETE(request: Request) {
+  const pool = getErpPool();
+  const client = await pool.connect();
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+    if (!id) {
+      return NextResponse.json({ error: "삭제할 세금계산서 id가 필요합니다." }, { status: 400 });
+    }
+
+    await client.query("BEGIN");
+    const invRes = await client.query("SELECT * FROM erp_tax_invoices WHERE id = $1 FOR UPDATE", [Number(id)]);
+    if (invRes.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "해당 세금계산서를 찾을 수 없습니다." }, { status: 404 });
+    }
+    const inv = invRes.rows[0];
+
+    // 1. 연결된 통장 거래 매칭 해제
+    const matchedIds: number[] = Array.isArray(inv.matched_bank_tx_ids)
+      ? inv.matched_bank_tx_ids.map((n: any) => Number(n)).filter((n: number) => n > 0)
+      : [];
+    if (matchedIds.length > 0) {
+      await client.query(
+        `UPDATE erp_bank_transactions
+         SET is_matched = false, matched_type = NULL, matched_id = NULL, matched_at = NULL
+         WHERE id = ANY($1::bigint[])`,
+        [matchedIds]
+      );
+    }
+
+    // 2. 연결된 원천 청구(렌탈/용역/무역) 세금계산서 ID 및 수납 상태 해제
+    await client.query(
+      "UPDATE erp_service_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID' WHERE tax_invoice_id = $1",
+      [inv.id]
+    );
+    await client.query(
+      "UPDATE erp_rental_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID', paid_amount = 0 WHERE tax_invoice_id = $1",
+      [inv.id]
+    );
+    await client.query(
+      "UPDATE erp_trade_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID', paid_amount = 0 WHERE tax_invoice_id = $1",
+      [inv.id]
+    );
+    await client.query("UPDATE erp_trade_sales SET tax_invoice_id = NULL WHERE tax_invoice_id = $1", [inv.id]);
+
+    // 3. 팝빌 임시문서함 문서인 경우 팝빌에서도 삭제 시도
+    if (inv.invoice_no && inv.io_type !== "PURCHASE") {
+      try {
+        await deletePopbillInvoice(inv.invoice_no, inv.supplier_corp_num);
+      } catch {
+        // 팝빌에 없거나 이미 국세청 전송된 경우 무시하고 ERP DB 정리 진행
+      }
+    }
+
+    await client.query("DELETE FROM erp_tax_invoices WHERE id = $1", [inv.id]);
+    await client.query("COMMIT");
+
+    return NextResponse.json({
+      success: true,
+      message: `세금계산서(${inv.invoice_no}) 및 연결된 예정 수납 매칭이 삭제되었습니다.`,
+    });
+  } catch (error: any) {
+    await client.query("ROLLBACK");
+    console.error("DELETE Tax Invoice Error:", error);
+    return NextResponse.json({ error: "세금계산서 삭제 실패: " + error.message }, { status: 500 });
+  } finally {
+    client.release();
   }
 }

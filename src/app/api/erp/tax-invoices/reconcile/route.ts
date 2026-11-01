@@ -199,6 +199,53 @@ function computeMatchScore(inv: any, tx: any): {
   return { score, reasons, nameMatched, amountExact };
 }
 
+// 세금계산서 수납/지급 상태 변경 시 연결된 원천 청구(렌탈·용역·무역) 테이블의 payment_status 및 paid_amount를 양방향 자동 동기화
+async function syncLinkedBillingsPaymentStatus(
+  client: any,
+  invoiceId: number,
+  settlementStatus: string,
+  settledAmount: number,
+  refType?: string | null,
+  refId?: number | null
+) {
+  const billPaymentStatus =
+    settlementStatus === "PAID" ? "PAID" : settlementStatus === "PARTIAL" ? "PARTIAL" : "UNPAID";
+
+  // 1) 용역 청구 (erp_service_billings)
+  await client.query(
+    `UPDATE erp_service_billings
+     SET payment_status = $1
+     WHERE tax_invoice_id = $2 OR ($3 = 'SERVICE' AND id = $4)`,
+    [billPaymentStatus, invoiceId, refType || "", refId || -1]
+  );
+
+  // 2) 렌탈 청구 (erp_rental_billings)
+  await client.query(
+    `UPDATE erp_rental_billings
+     SET payment_status = $1,
+         paid_amount = CASE
+           WHEN $1 = 'PAID' THEN total_amount
+           WHEN $1 = 'UNPAID' THEN 0
+           ELSE LEAST(total_amount, $2::numeric)
+         END
+     WHERE tax_invoice_id = $3 OR ($4 = 'RENTAL' AND id = $5)`,
+    [billPaymentStatus, settledAmount, invoiceId, refType || "", refId || -1]
+  );
+
+  // 3) 무역 청구 (erp_trade_billings)
+  await client.query(
+    `UPDATE erp_trade_billings
+     SET payment_status = $1,
+         paid_amount = CASE
+           WHEN $1 = 'PAID' THEN total_amount
+           WHEN $1 = 'UNPAID' THEN 0
+           ELSE LEAST(total_amount, $2::numeric)
+         END
+     WHERE tax_invoice_id = $3 OR ($4 = 'TRADE' AND id = $5)`,
+    [billPaymentStatus, settledAmount, invoiceId, refType || "", refId || -1]
+  );
+}
+
 // GET: Retrieve candidate bank transactions for a specific tax invoice OR list already matched bank transactions
 export async function GET(request: Request) {
   try {
@@ -320,7 +367,7 @@ export async function POST(request: Request) {
                  COALESCE(settled_amount, 0)::numeric AS settled_amount,
                  COALESCE(settlement_status, 'UNPAID') AS settlement_status,
                  COALESCE(matched_bank_tx_ids, '[]'::jsonb) AS matched_bank_tx_ids,
-                 item_name, memo
+                 item_name, memo, ref_type, ref_id
           FROM erp_tax_invoices
           ORDER BY issue_date ASC, id ASC
         `)
@@ -764,6 +811,15 @@ export async function POST(request: Request) {
                 [totalAmount, JSON.stringify(txIds), inv.id]
               );
 
+              await syncLinkedBillingsPaymentStatus(
+                client,
+                Number(inv.id),
+                "PAID",
+                totalAmount,
+                inv.ref_type,
+                inv.ref_id ? Number(inv.ref_id) : null
+              );
+
               if (newlyMatched) {
                 const firstTx = txIds.length > 0 ? subTxMap.get(txIds[0]) : null;
                 const sumTxAmt = txIds.reduce((acc, tid) => {
@@ -800,6 +856,14 @@ export async function POST(request: Request) {
                        settled_at = NULL
                    WHERE id = $1`,
                   [inv.id]
+                );
+                await syncLinkedBillingsPaymentStatus(
+                  client,
+                  Number(inv.id),
+                  "UNPAID",
+                  0,
+                  inv.ref_type,
+                  inv.ref_id ? Number(inv.ref_id) : null
                 );
               }
             }
@@ -898,6 +962,15 @@ export async function POST(request: Request) {
         [finalSettled, nextStatus, JSON.stringify(mergedTxIds), inv.id]
       );
 
+      await syncLinkedBillingsPaymentStatus(
+        client,
+        Number(inv.id),
+        nextStatus,
+        finalSettled,
+        inv.ref_type,
+        inv.ref_id ? Number(inv.ref_id) : null
+      );
+
       await client.query(
         `UPDATE erp_bank_transactions
          SET is_matched = true,
@@ -984,6 +1057,15 @@ export async function POST(request: Request) {
         [finalSettled, nextStatus, JSON.stringify(remainingTxIds), inv.id]
       );
 
+      await syncLinkedBillingsPaymentStatus(
+        client,
+        Number(inv.id),
+        nextStatus,
+        finalSettled,
+        inv.ref_type,
+        inv.ref_id ? Number(inv.ref_id) : null
+      );
+
       await client.query("COMMIT");
       return NextResponse.json({
         success: true,
@@ -1020,6 +1102,15 @@ export async function POST(request: Request) {
              settled_at = CASE WHEN $2 = 'UNPAID' THEN NULL ELSE NOW() END
          WHERE id = $3`,
         [nextSettled, nextStatus, inv.id]
+      );
+
+      await syncLinkedBillingsPaymentStatus(
+        client,
+        Number(inv.id),
+        nextStatus,
+        nextSettled,
+        inv.ref_type,
+        inv.ref_id ? Number(inv.ref_id) : null
       );
 
       await client.query("COMMIT");

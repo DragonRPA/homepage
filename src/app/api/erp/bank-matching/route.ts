@@ -176,11 +176,149 @@ function classifyPayrollItem(item: ParsedBankTransaction) {
   };
 }
 
+function normalizeCompanyForMatch(raw?: string): string {
+  if (!raw) return "";
+  return String(raw)
+    .replace(/\(주\)|주식회사|（주）|\(유\)|유한회사|㈜|사단법인|\(사\)|재단법인|\(재\)/g, "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/[^가-힣a-zA-Z0-9]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+// 통장 거래내역 업로드/등록 직후 미수납/미지급 세금계산서(erp_tax_invoices) 및 원천 청구와 자동 대사 수행
+async function autoReconcileUnpaidInvoicesWithBank(client: any): Promise<number> {
+  const unpaidInvs = (
+    await client.query(`
+      SELECT id, invoice_no, COALESCE(io_type, 'SALE') AS io_type,
+             COALESCE(supplier_entity_type, 'CORP') AS entity_type,
+             customer_name, ceo_name, issue_date::text AS issue_date,
+             COALESCE(total_amount, 0)::numeric AS total_amount,
+             COALESCE(settled_amount, 0)::numeric AS settled_amount,
+             COALESCE(matched_bank_tx_ids, '[]'::jsonb) AS matched_bank_tx_ids
+      FROM erp_tax_invoices
+      WHERE COALESCE(settlement_status, 'UNPAID') != 'PAID'
+        AND COALESCE(total_amount, 0) > 0
+      ORDER BY issue_date ASC, id ASC
+    `)
+  ).rows;
+
+  if (unpaidInvs.length === 0) return 0;
+
+  const unmatchedTxs = (
+    await client.query(`
+      SELECT id,
+             COALESCE(entity_type, CASE WHEN account_no LIKE '%140%' THEN 'INDIVIDUAL' ELSE 'CORP' END) AS entity_type,
+             trans_date::text AS trans_date,
+             COALESCE(deposit_amount, 0)::numeric AS deposit_amount,
+             COALESCE(withdrawal_amount, 0)::numeric AS withdrawal_amount,
+             sender_receiver, counterparty_holder, memo
+      FROM erp_bank_transactions
+      WHERE COALESCE(is_matched, false) = false
+      ORDER BY trans_date ASC, id ASC
+    `)
+  ).rows;
+
+  if (unmatchedTxs.length === 0) return 0;
+
+  const usedTxIds = new Set<number>();
+  let newlyReconciledCount = 0;
+
+  for (const inv of unpaidInvs) {
+    const ioType = inv.io_type || "SALE";
+    const entityType = inv.entity_type || "CORP";
+    const totalAmt = Number(inv.total_amount || 0);
+    const prevSettled = Number(inv.settled_amount || 0);
+    const remainingAmt = Math.max(0, totalAmt - prevSettled);
+    if (remainingAmt <= 0) continue;
+
+    const invName = normalizeCompanyForMatch(inv.customer_name);
+    const invCeo = normalizeCompanyForMatch(inv.ceo_name);
+    if (!invName || invName.length < 2) continue;
+
+    const invDate = new Date(String(inv.issue_date).slice(0, 10)).getTime();
+    let matchedTx: any = null;
+
+    for (const tx of unmatchedTxs) {
+      if (usedTxIds.has(Number(tx.id))) continue;
+      if (tx.entity_type !== entityType) continue;
+
+      const txAmt = ioType === "PURCHASE" ? Number(tx.withdrawal_amount) : Number(tx.deposit_amount);
+      if (txAmt <= 0) continue;
+      if (Math.abs(txAmt - remainingAmt) > 1000 && Math.abs(txAmt - totalAmt) > 1000) continue;
+
+      const txDate = new Date(String(tx.trans_date).slice(0, 10)).getTime();
+      const diffDays = Math.round((txDate - invDate) / (1000 * 60 * 60 * 24));
+      if (diffDays < -35 || diffDays > 60) continue;
+
+      const sr = normalizeCompanyForMatch(tx.sender_receiver);
+      const ch = normalizeCompanyForMatch(tx.counterparty_holder);
+      const mm = normalizeCompanyForMatch(tx.memo);
+
+      const isNameMatched =
+        (sr && (sr.includes(invName) || invName.includes(sr))) ||
+        (ch && (ch.includes(invName) || invName.includes(ch))) ||
+        (mm && mm.includes(invName)) ||
+        (invCeo && invCeo.length >= 2 && ((sr && sr.includes(invCeo)) || (ch && ch.includes(invCeo))));
+
+      if (isNameMatched) {
+        matchedTx = tx;
+        break;
+      }
+    }
+
+    if (matchedTx) {
+      const txId = Number(matchedTx.id);
+      usedTxIds.add(txId);
+      const prevIds: number[] = Array.isArray(inv.matched_bank_tx_ids)
+        ? inv.matched_bank_tx_ids.map((n: any) => Number(n)).filter((n: number) => n > 0)
+        : [];
+      const mergedIds = Array.from(new Set([...prevIds, txId]));
+
+      await client.query(
+        `UPDATE erp_tax_invoices
+         SET settled_amount = $1,
+             settlement_status = 'PAID',
+             matched_bank_tx_ids = $2::jsonb,
+             settled_at = NOW()
+         WHERE id = $3`,
+        [totalAmt, JSON.stringify(mergedIds), inv.id]
+      );
+
+      await client.query(
+        `UPDATE erp_bank_transactions
+         SET is_matched = true,
+             matched_type = $1,
+             matched_id = $2,
+             matched_at = NOW()
+         WHERE id = $3`,
+        [ioType === "PURCHASE" ? "PURCHASE_INVOICE" : "SALE_INVOICE", inv.invoice_no, txId]
+      );
+
+      // 원천 청구(용역·렌탈·무역) 수납완료 자동 동기화
+      await client.query(`UPDATE erp_service_billings SET payment_status = 'PAID' WHERE tax_invoice_id = $1`, [inv.id]);
+      await client.query(
+        `UPDATE erp_rental_billings SET payment_status = 'PAID', paid_amount = total_amount WHERE tax_invoice_id = $1`,
+        [inv.id]
+      );
+      await client.query(
+        `UPDATE erp_trade_billings SET payment_status = 'PAID', paid_amount = total_amount WHERE tax_invoice_id = $1`,
+        [inv.id]
+      );
+
+      newlyReconciledCount++;
+    }
+  }
+
+  return newlyReconciledCount;
+}
+
 async function bulkUpsertBankTransactions(items: ParsedBankTransaction[]) {
   const pool = getErpPool();
   const client = await pool.connect();
   let insertedCount = 0;
   let duplicateCount = 0;
+  let autoReconciledCount = 0;
 
   try {
     await client.query("BEGIN");
@@ -263,6 +401,9 @@ async function bulkUpsertBankTransactions(items: ParsedBankTransaction[]) {
       }
     }
 
+    // 신규 통장 입출금 반영 후 미수납/미지급 세금계산서와 자동 대사 실행
+    autoReconciledCount = await autoReconcileUnpaidInvoicesWithBank(client);
+
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");
@@ -271,7 +412,7 @@ async function bulkUpsertBankTransactions(items: ParsedBankTransaction[]) {
     client.release();
   }
 
-  return { insertedCount, duplicateCount };
+  return { insertedCount, duplicateCount, autoReconciledCount };
 }
 
 // GET: 은행 입출금 거래내역 및 1:1 대사 통계 조회
@@ -702,39 +843,49 @@ export async function POST(request: Request) {
     const txHash = `${targetAccount}|${transDate}|${finalTransTime}|${wthAmt}|${depAmt}|${numBal}`;
 
     const pool = getErpPool();
-    const res = await pool.query(
-      `INSERT INTO erp_bank_transactions (
-        entity_type, bank_name, account_no, account_holder,
-        trans_date, trans_time, trans_type, amount, withdrawal_amount, deposit_amount,
-        balance_after, sender_receiver, counterparty_account, counterparty_bank,
-        counterparty_holder, tx_channel, memo, tx_hash, is_matched
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, false)
-      ON CONFLICT (tx_hash) DO UPDATE SET
-        memo = COALESCE(NULLIF(EXCLUDED.memo, ''), erp_bank_transactions.memo)
-      RETURNING *`,
-      [
-        assignedEntity,
-        bankName || "기업은행",
-        targetAccount,
-        assignedEntity === "INDIVIDUAL" ? "드래곤알피에이" : "주식회사 드래곤알피에이",
-        transDate,
-        finalTransTime,
-        finalType,
-        numAmt,
-        wthAmt,
-        depAmt,
-        numBal,
-        senderReceiver.trim(),
-        counterpartyAccount || null,
-        counterpartyBank || null,
-        counterpartyHolder || null,
-        txChannel || "수기등록",
-        memo ? memo.trim() : null,
-        txHash,
-      ]
-    );
-
-    return NextResponse.json({ success: true, transaction: res.rows[0] });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const res = await client.query(
+        `INSERT INTO erp_bank_transactions (
+          entity_type, bank_name, account_no, account_holder,
+          trans_date, trans_time, trans_type, amount, withdrawal_amount, deposit_amount,
+          balance_after, sender_receiver, counterparty_account, counterparty_bank,
+          counterparty_holder, tx_channel, memo, tx_hash, is_matched
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, false)
+        ON CONFLICT (tx_hash) DO UPDATE SET
+          memo = COALESCE(NULLIF(EXCLUDED.memo, ''), erp_bank_transactions.memo)
+        RETURNING *`,
+        [
+          assignedEntity,
+          bankName || "기업은행",
+          targetAccount,
+          assignedEntity === "INDIVIDUAL" ? "드래곤알피에이" : "주식회사 드래곤알피에이",
+          transDate,
+          finalTransTime,
+          finalType,
+          numAmt,
+          wthAmt,
+          depAmt,
+          numBal,
+          senderReceiver.trim(),
+          counterpartyAccount || null,
+          counterpartyBank || null,
+          counterpartyHolder || null,
+          txChannel || "수기등록",
+          memo ? memo.trim() : null,
+          txHash,
+        ]
+      );
+      const autoReconciledCount = await autoReconcileUnpaidInvoicesWithBank(client);
+      await client.query("COMMIT");
+      return NextResponse.json({ success: true, transaction: res.rows[0], autoReconciledCount });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
   } catch (error: any) {
     console.error("POST Bank Transaction Error:", error);
     return NextResponse.json({ error: "은행 거래 등록 실패: " + error.message }, { status: 500 });

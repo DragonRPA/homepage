@@ -189,16 +189,16 @@ export async function PATCH(request: Request) {
     if (stepId) {
       await pool.query(
         `UPDATE erp_approval_steps 
-         SET status = $1, comment = $2, acted_at = $3 
-         WHERE id = $4 AND approver_id = $5`,
-        [nextStatus, comment || null, now, stepId, approverId]
+         SET status = $1, comment = $2, acted_at = $3, approver_id = $4
+         WHERE id = $5`,
+        [nextStatus, comment || null, now, approverId, stepId]
       );
     } else {
       await pool.query(
         `UPDATE erp_approval_steps 
-         SET status = $1, comment = $2, acted_at = $3 
-         WHERE request_id = $4 AND approver_id = $5 AND status = 'PENDING'`,
-        [nextStatus, comment || null, now, requestId, approverId]
+         SET status = $1, comment = $2, acted_at = $3, approver_id = $4
+         WHERE request_id = $5 AND status = 'PENDING'`,
+        [nextStatus, comment || null, now, approverId, requestId]
       );
     }
 

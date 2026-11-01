@@ -287,27 +287,31 @@ export const ApprovalInboxTab: React.FC<{ currentUser: any }> = ({ currentUser }
                   </h3>
                 </div>
 
-                {selectedRequest.status === "PENDING" && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setTargetRejectReq(selectedRequest);
-                        setRejectComment("");
-                        setRejectModalOpen(true);
-                      }}
-                      className="px-3 py-1.5 bg-[#fef2f2] hover:bg-[#fee2e2] text-[#991b1b] text-xs font-bold rounded border border-[#fecaca] transition"
-                    >
-                      반려
-                    </button>
-                    <button
-                      onClick={() => handleApprove(selectedRequest)}
-                      className="px-4 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1 shadow transition"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>원클릭 승인</span>
-                    </button>
-                  </div>
-                )}
+                  {/* 결재 권한이 있는 결재자(step.approverId === currentUserId) 또는 최고관리자만 결재 버튼 표시 (기안자 본인은 대기만 가능) */}
+                  {selectedRequest.status === "PENDING" &&
+                    (isAdmin ||
+                      selectedRequest.steps?.some((st) => Number(st.approverId) === Number(currentUserId))) &&
+                    Number(selectedRequest.requesterId) !== Number(currentUserId) && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setTargetRejectReq(selectedRequest);
+                          setRejectComment("");
+                          setRejectModalOpen(true);
+                        }}
+                        className="px-3 py-1.5 bg-[#fef2f2] hover:bg-[#fee2e2] text-[#991b1b] text-xs font-bold rounded border border-[#fecaca] transition"
+                      >
+                        반려
+                      </button>
+                      <button
+                        onClick={() => handleApprove(selectedRequest)}
+                        className="px-4 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1 shadow transition"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>승인</span>
+                      </button>
+                    </div>
+                  )}
               </div>
 
               {/* Body */}
@@ -348,14 +352,23 @@ export const ApprovalInboxTab: React.FC<{ currentUser: any }> = ({ currentUser }
                   </h4>
                   <div className="space-y-2 text-xs">
                     {selectedRequest.payload ? (
-                      Object.entries(selectedRequest.payload).map(([k, v]) => (
-                        <div key={k} className="flex items-start justify-between py-1 border-b border-[#c4b6a0] dark:border-slate-800/80">
-                          <span className="text-[#475569] dark:text-slate-400 font-medium">{k}</span>
-                          <span className="text-[#0f172a] dark:text-slate-200 font-semibold text-right max-w-xs break-all">
-                            {typeof v === "object" ? JSON.stringify(v) : String(v)}
-                          </span>
-                        </div>
-                      ))
+                      Object.entries(selectedRequest.payload)
+                        .filter(([k]) => !["leaveType", "startDate", "endDate", "deductedDays", "durationDays", "reason"].includes(k))
+                        .concat(
+                          Object.entries(selectedRequest.payload).filter(([k]) =>
+                            ["leaveType", "startDate", "endDate", "deductedDays", "durationDays", "reason"].includes(k)
+                          ).length === Object.keys(selectedRequest.payload).length
+                            ? Object.entries(selectedRequest.payload)
+                            : []
+                        )
+                        .map(([k, v]) => (
+                          <div key={k} className="flex items-start justify-between py-1 border-b border-[#c4b6a0] dark:border-slate-800/80">
+                            <span className="text-[#475569] dark:text-slate-400 font-medium">{k}</span>
+                            <span className="text-[#0f172a] dark:text-slate-200 font-semibold text-right max-w-xs break-all">
+                              {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                            </span>
+                          </div>
+                        ))
                     ) : (
                       <p className="text-[#475569]">추가 상세 데이터가 없습니다.</p>
                     )}

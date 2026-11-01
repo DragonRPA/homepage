@@ -10,6 +10,7 @@ import {
   ArrowUp,
   ArrowDown,
   ShieldCheck,
+  UserCheck,
 } from "lucide-react";
 import {
   sortErpItems,
@@ -63,15 +64,8 @@ interface Employee {
 
 export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const currentUserId = currentUser?.id;
-  const isAdmin =
-    currentUser?.role === "ADMIN" ||
-    currentUser?.role === "SUPER_ADMIN" ||
-    currentUser?.role === "MANAGER" ||
-    currentUser?.loginId === "admin";
 
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [selectedEmpId, setSelectedEmpId] = useState<number | null>(null);
-  const [historyEmpFilter, setHistoryEmpFilter] = useState<string>("ALL");
   const [allLeaves, setAllLeaves] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortKey, setSortKey] = useState<string>("startDate");
@@ -116,51 +110,28 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
     </th>
   );
 
-  // 연차 대상 재직 임직원 목록 (퇴사자/외주/대표이사 제외)
-  const activeEmployees = useMemo(() => {
-    return employees.filter((emp) => {
-      const st = String(emp.status || emp.employmentStatus || "ACTIVE")
-        .trim()
-        .toUpperCase();
-      if (st === "RETIRED" || st === "RESIGNED" || st === "퇴사" || st === "퇴직") return false;
-      if (emp.leaveDate && String(emp.leaveDate).trim() !== "") return false;
-      const pos = String(emp.position || "").trim();
-      const duty = String(emp.duty || "").trim();
-      if (pos.includes("대표이사") || pos === "대표" || duty.includes("대표이사") || duty === "대표")
-        return false;
-      const dept = String(emp.department || "").trim();
-      if (dept.includes("외주")) return false;
-      return true;
-    });
-  }, [employees]);
-
-  const targetEmployee = useMemo(() => {
-    if (selectedEmpId) {
-      const found = employees.find((e) => Number(e.id) === Number(selectedEmpId));
-      if (found) return found;
-    }
-    const selfFound = employees.find(
-      (e) => e.id === currentUserId || e.loginId === currentUser?.loginId
+  // 각자 본인의 연차만 상신 및 조회하도록 로그인한 본인 사원 정보로 고정
+  const selfEmployee = useMemo(() => {
+    return (
+      employees.find((e) => Number(e.id) === Number(currentUserId)) ||
+      employees.find((e) => e.loginId && e.loginId === currentUser?.loginId) ||
+      employees.find((e) => e.name && e.name === currentUser?.name) ||
+      null
     );
-    if (selfFound && !String(selfFound.position || "").includes("대표이사")) {
-      return selfFound;
-    }
-    return activeEmployees[0] || selfFound || null;
-  }, [employees, activeEmployees, selectedEmpId, currentUserId, currentUser]);
+  }, [employees, currentUserId, currentUser]);
 
-  const filteredLeaves = useMemo(() => {
-    if (!isAdmin) {
-      return allLeaves.filter(
-        (l) => l.employeeId === currentUserId || l.employeeName === currentUser?.name
-      );
-    }
-    if (historyEmpFilter === "ALL") return allLeaves;
-    return allLeaves.filter((l) => String(l.employeeId) === historyEmpFilter);
-  }, [allLeaves, isAdmin, currentUserId, currentUser, historyEmpFilter]);
+  const myLeaves = useMemo(() => {
+    const myEmpId = Number(selfEmployee?.id || currentUserId || 0);
+    return allLeaves.filter(
+      (l) =>
+        Number(l.employeeId) === myEmpId ||
+        (currentUser?.name && l.employeeName === currentUser.name)
+    );
+  }, [allLeaves, selfEmployee, currentUserId, currentUser]);
 
   const sortedLeaves = useMemo(() => {
-    return sortErpItems(filteredLeaves, sortKey, sortDir);
-  }, [filteredLeaves, sortKey, sortDir]);
+    return sortErpItems(myLeaves, sortKey, sortDir);
+  }, [myLeaves, sortKey, sortDir]);
 
   // Form State
   const [leaveType, setLeaveType] = useState<LeaveTypeCode>("ANNUAL");
@@ -174,7 +145,7 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
   } | null>(null);
   const showToast = (text: string, type: "success" | "error" = "success") => {
     setToastMessage({ type, text });
-    setTimeout(() => setToastMessage(null), 3000);
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
   const fetchData = async () => {
@@ -253,19 +224,21 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
     }
     if (
       !isNonDeducting &&
-      targetEmployee &&
-      Number(targetEmployee.remainDays) < calculatedDeductedDays
+      selfEmployee &&
+      Number(selfEmployee.remainDays) < calculatedDeductedDays
     ) {
       if (!confirm("잔여 연차 일수를 초과합니다. 그래도 상신하시겠습니까?")) return;
     }
 
     try {
       const finalEndDate = isSingleDayOnly ? startDate : endDate;
+      const myEmpId = selfEmployee?.id || currentUserId;
       const res = await fetch("/api/erp/leaves", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          employeeId: targetEmployee?.id || currentUserId || 1,
+          employeeId: myEmpId,
+          requesterId: myEmpId,
           leaveType,
           startDate,
           endDate: finalEndDate,
@@ -276,10 +249,11 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "휴가 신청 실패");
 
+      const approverLabel = data.approverName ? ` (${data.approverName} 결재함)` : "";
       showToast(
         isNonDeducting
-          ? `[${currentTypeMeta.shortLabel}] 연차 미소진(0일 차감) 휴가 신청이 결재함으로 상신되었습니다.`
-          : "연차 신청이 제출되어 결재함으로 상신되었습니다."
+          ? `[${currentTypeMeta.shortLabel}] 휴가 신청이 부서장 내 결재함${approverLabel}으로 상신되었습니다.`
+          : `연차 신청이 부서장 내 결재함${approverLabel}으로 상신되었습니다.`
       );
       setReason("");
       fetchData();
@@ -289,13 +263,13 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("해당 휴가 내역을 삭제(취소)하시겠습니까?")) return;
+    if (!confirm("해당 연차 신청을 취소(삭제)하시겠습니까?")) return;
     try {
       const res = await fetch(`/api/erp/leaves?id=${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "삭제 실패");
 
-      showToast("휴가 내역이 삭제되었습니다.");
+      showToast("연차 신청이 취소되었습니다.");
       fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -324,6 +298,14 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
           <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
             연차 및 공가 신청
           </span>
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-[#dbeafe] text-[#1e40af] border border-[#93c5fd]">
+            <UserCheck className="w-3 h-3" />
+            <span>
+              신청자: {selfEmployee?.name || currentUser?.name} (
+              {selfEmployee?.department || currentUser?.department || "소속부서"}{" "}
+              {selfEmployee?.position || currentUser?.position || ""})
+            </span>
+          </span>
         </div>
 
         <button
@@ -344,11 +326,11 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
           <div className="bg-[#f4efe4] border border-[#b5a894] rounded p-4 shadow-xs dark:bg-slate-900 dark:border-slate-800">
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
-                {targetEmployee?.name || currentUser?.name} 연차 보유 현황
+                {selfEmployee?.name || currentUser?.name} 연차 보유 현황
               </span>
-              {Number(targetEmployee?.nonDeductedCount || 0) > 0 && (
+              {Number(selfEmployee?.nonDeductedCount || 0) > 0 && (
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0]">
-                  공가/예비군 {targetEmployee?.nonDeductedCount}건 (미차감)
+                  공가/예비군 {selfEmployee?.nonDeductedCount}건 (미차감)
                 </span>
               )}
             </div>
@@ -358,7 +340,7 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
                   부여 연차
                 </span>
                 <span className="text-lg font-mono font-bold text-[#1d4ed8] dark:text-blue-400">
-                  {targetEmployee ? formatErpLeaveDays(targetEmployee.grantDays) : "15"}
+                  {selfEmployee ? formatErpLeaveDays(selfEmployee.grantDays) : "15"}
                   <span className="text-xs font-normal text-[#475569] dark:text-slate-400 ml-0.5">
                     일
                   </span>
@@ -369,7 +351,7 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
                   사용 연차
                 </span>
                 <span className="text-lg font-mono font-bold text-[#b45309] dark:text-amber-400">
-                  {targetEmployee ? formatErpLeaveDays(targetEmployee.usedDays) : "0"}
+                  {selfEmployee ? formatErpLeaveDays(selfEmployee.usedDays) : "0"}
                   <span className="text-xs font-normal text-[#475569] dark:text-slate-400 ml-0.5">
                     일
                   </span>
@@ -380,7 +362,7 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
                   잔여 연차
                 </span>
                 <span className="text-lg font-mono font-bold text-[#047857] dark:text-emerald-400">
-                  {targetEmployee ? formatErpLeaveDays(targetEmployee.remainDays) : "15"}
+                  {selfEmployee ? formatErpLeaveDays(selfEmployee.remainDays) : "15"}
                   <span className="text-xs font-normal text-[#475569] dark:text-slate-400 ml-0.5">
                     일
                   </span>
@@ -389,34 +371,19 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
             </div>
           </div>
 
-          {/* Application Form */}
+          {/* Application Form (본인 연차 상신 전용) */}
           <form
             onSubmit={handleSubmit}
             className="bg-[#f4efe4] border border-[#b5a894] rounded p-4 shadow-xs space-y-3 dark:bg-slate-900 dark:border-slate-800"
           >
-            <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200 block pb-2 border-b border-[#b5a894] dark:border-slate-800">
-              휴가 신청 작성
-            </span>
-
-            {isAdmin && activeEmployees.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] text-[#334155] dark:text-slate-400 font-bold">
-                  대상 사원 선택
-                </label>
-                <select
-                  value={targetEmployee?.id || ""}
-                  onChange={(e) => setSelectedEmpId(Number(e.target.value))}
-                  className="bg-[#ebe5d8] border border-[#b5a894] text-xs text-[#0f172a] px-2.5 py-1.5 rounded font-bold focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                >
-                  {activeEmployees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.name} ({emp.department} {emp.position} | 잔여{" "}
-                      {formatErpLeaveDays(emp.remainDays)}일)
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <div className="flex items-center justify-between pb-2 border-b border-[#b5a894] dark:border-slate-800">
+              <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
+                휴가 신청 작성
+              </span>
+              <span className="text-[11px] font-bold text-[#475569] dark:text-slate-400">
+                결재처: 소속 부서장 (내 결재함)
+              </span>
+            </div>
 
             {/* 1. 연차 소진 휴가 */}
             <div className="flex flex-col gap-1">
@@ -551,53 +518,19 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
               <Send className="w-3.5 h-3.5" />
               <span>
                 {isNonDeducting
-                  ? `${currentTypeMeta.shortLabel} 신청 제출 (연차 미차감)`
-                  : "연차 신청 제출"}
+                  ? `${currentTypeMeta.shortLabel} 신청 상신`
+                  : "연차 신청 상신"}
               </span>
             </button>
           </form>
         </div>
 
-        {/* Right: Leave History Table (8 cols) */}
+        {/* Right: My Leave History Table (8 cols) */}
         <div className="col-span-12 lg:col-span-8 bg-[#ebe5d8] border border-[#b5a894] rounded flex flex-col overflow-hidden dark:bg-slate-900 dark:border-slate-800">
           <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] text-xs font-bold text-[#0f172a] flex flex-wrap items-center justify-between gap-2 dark:bg-slate-800/80 dark:border-slate-700 dark:text-slate-300">
-            <span>휴가 사용 및 결재 이력 ({formatErpNumber(filteredLeaves.length)}건)</span>
-
-            {isAdmin && (
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setHistoryEmpFilter("ALL")}
-                  className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
-                    historyEmpFilter === "ALL"
-                      ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
-                      : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
-                  }`}
-                >
-                  전체 ({allLeaves.length})
-                </button>
-                {activeEmployees.map((emp) => {
-                  const cnt = allLeaves.filter((l) => l.employeeId === emp.id).length;
-                  return (
-                    <button
-                      key={emp.id}
-                      type="button"
-                      onClick={() => {
-                        setHistoryEmpFilter(String(emp.id));
-                        setSelectedEmpId(emp.id);
-                      }}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
-                        historyEmpFilter === String(emp.id)
-                          ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
-                          : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
-                      }`}
-                    >
-                      {emp.name} ({cnt})
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <span>
+              {selfEmployee?.name || currentUser?.name} 연차 신청 및 결재 이력 ({formatErpNumber(myLeaves.length)}건)
+            </span>
           </div>
 
           <div className="flex-1 overflow-auto">
@@ -636,14 +569,14 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
                         className="hover:bg-[#ede6d6] dark:hover:bg-slate-800/40 transition"
                       >
                         <td className="py-2 px-3 text-center whitespace-nowrap border-r border-[#d5cbb8] dark:border-slate-800">
-                          {l.status === "PENDING" || isAdmin ? (
+                          {l.status === "PENDING" ? (
                             <button
                               onClick={() => handleDelete(l.id)}
                               className="px-2 py-0.5 bg-[#fef2f2] hover:bg-[#fee2e2] text-[#b91c1c] border border-[#fecaca] rounded text-[11px] font-bold inline-flex items-center gap-1 transition"
-                              title="삭제"
+                              title="상신 취소"
                             >
                               <Trash2 className="w-3 h-3" />
-                              <span>삭제</span>
+                              <span>취소</span>
                             </button>
                           ) : (
                             <span className="text-[#94a3b8]">-</span>

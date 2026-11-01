@@ -23,6 +23,7 @@ import { LeaveManageTab } from "./components/LeaveManageTab";
 import { OtManagementTab } from "./components/OtManagementTab";
 import { ExpenseReceiptTab } from "./components/ExpenseReceiptTab";
 import { WorkRulesTab } from "./components/WorkRulesTab";
+import { RetirementPensionGuideTab } from "./components/RetirementPensionGuideTab";
 import { EmploymentContractTab } from "./components/EmploymentContractTab";
 import { BankMatchingTab } from "./components/BankMatchingTab";
 import { PayrollTab } from "./components/PayrollTab";
@@ -55,6 +56,7 @@ export type ErpMenuKey =
   | "OT_MANAGE"
   | "EXPENSE_RECEIPT"
   | "WORK_RULES"
+  | "RETIREMENT_PENSION_GUIDE"
   | "APPROVAL_INBOX"
   | "APPROVAL_RULES"
   | "FINANCIAL_REPORT"
@@ -98,6 +100,7 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "OT_MANAGE", label: "초과근무 관리", icon: Clock },
       { key: "EXPENSE_RECEIPT", label: "개인경비 영수증 등록", icon: Receipt },
       { key: "WORK_RULES", label: "취업규칙 (표준안)", icon: BookOpen },
+      { key: "RETIREMENT_PENSION_GUIDE", label: "퇴직연금 도입 안내", icon: FileText },
     ],
   },
   {
@@ -168,6 +171,7 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   OT_MANAGE: "ot_manage",
   EXPENSE_RECEIPT: "expense_receipt",
   WORK_RULES: "work_rules",
+  RETIREMENT_PENSION_GUIDE: "work_rules",
   APPROVAL_INBOX: "approval_inbox",
   APPROVAL_RULES: "approval_rules",
   FINANCIAL_REPORT: "bank_matching",
@@ -671,6 +675,9 @@ export default function ErpMainPage() {
                 {activeMenu === "OT_MANAGE" && <OtManagementTab currentUser={enrichedUser} />}
                 {activeMenu === "EXPENSE_RECEIPT" && <ExpenseReceiptTab currentUser={enrichedUser} />}
                 {activeMenu === "WORK_RULES" && <WorkRulesTab currentUser={enrichedUser} />}
+                {activeMenu === "RETIREMENT_PENSION_GUIDE" && (
+                  <RetirementPensionGuideTab currentUser={enrichedUser} />
+                )}
                 {activeMenu === "APPROVAL_INBOX" && <ApprovalInboxTab currentUser={enrichedUser} />}
                 {activeMenu === "APPROVAL_RULES" && <ApprovalRulesTab currentUser={enrichedUser} />}
                 {activeMenu === "FINANCIAL_REPORT" && (

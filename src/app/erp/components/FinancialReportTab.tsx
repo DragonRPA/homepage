@@ -15,6 +15,7 @@ import {
   TrendingUp,
   ArrowLeftRight,
   MessageSquare,
+  Printer,
 } from "lucide-react";
 import { formatErpCurrency } from "@/lib/erpFormat";
 
@@ -606,6 +607,17 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
 
         {/* 우측 액션 버튼 */}
         <div className="flex items-center gap-2 shrink-0">
+          <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-800 dark:border-slate-700">
+            <img
+              src="/ci-dragonrpa.png"
+              alt="주식회사 드래곤알피에이 CI"
+              className="w-5 h-5 object-contain"
+            />
+            <span className="text-[11px] font-bold text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
+              주식회사 드래곤알피에이 결산재무제표
+            </span>
+          </div>
+
           <button
             type="button"
             onClick={fetchReport}
@@ -614,6 +626,15 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
             title="조회"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="px-2.5 py-1.5 bg-[#334155] hover:bg-[#1e293b] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs whitespace-nowrap transition"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>보고서 인쇄</span>
           </button>
 
           <button

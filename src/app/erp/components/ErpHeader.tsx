@@ -54,9 +54,11 @@ export const ErpHeader: React.FC<ErpHeaderProps> = ({
           </button>
         )}
 
-        <div className="w-7 h-7 md:w-8 md:h-8 rounded bg-blue-600 flex items-center justify-center font-bold text-white shadow-sm shrink-0">
-          <Building2 className="w-4 h-4 md:w-5 md:h-5 text-white" />
-        </div>
+        <img
+          src="/ci-dragonrpa.png"
+          alt="주식회사 드래곤알피에이 CI"
+          className="w-7 h-7 md:w-8 md:h-8 rounded bg-white border border-slate-300 p-0.5 object-contain shadow-xs shrink-0"
+        />
         <div className="flex items-center gap-2 shrink-0">
           <span className="font-bold tracking-tight text-xs md:text-sm whitespace-nowrap">
             드래곤ERP

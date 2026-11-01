@@ -944,7 +944,11 @@ export const WorkRulesTab: React.FC<WorkRulesTabProps> = () => {
         <div className="flex-1 bg-[#ebe5d8] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 rounded flex flex-col overflow-hidden min-w-0">
           <div className="px-4 py-2.5 border-b border-[#b5a894] bg-[#dfd7c7] dark:bg-slate-950 dark:border-slate-800 text-xs font-bold text-[#44403c] dark:text-slate-300 flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2">
-              <FileText className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+              <img
+                src="/ci-dragonrpa.png"
+                alt="주식회사 드래곤알피에이 CI"
+                className="w-6 h-6 rounded bg-white border border-[#b5a894] p-0.5 object-contain shrink-0"
+              />
               <span>
                 주식회사 드래곤알피에이 취업규칙 전문 (고용노동부 표준취업규칙 기준)
               </span>

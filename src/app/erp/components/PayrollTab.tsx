@@ -456,7 +456,11 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       <div className="p-2.5 md:p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="flex items-center gap-1.5">
-            <CreditCard className="w-4 h-4 text-[#1d4ed8]" />
+            <img
+              src="/ci-dragonrpa.png"
+              alt="주식회사 드래곤알피에이 CI"
+              className="w-5 h-5 rounded bg-white border border-[#b5a894] p-0.5 object-contain shrink-0"
+            />
             <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
               월별 임직원 급여 정산
             </span>

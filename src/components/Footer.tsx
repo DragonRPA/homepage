@@ -9,10 +9,12 @@ export default function Footer() {
           
           {/* Company Brand */}
           <div className="md:col-span-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
-                <Bot className="w-5 h-5" />
-              </div>
+            <div className="flex items-center gap-2.5">
+              <img
+                src="/ci-dragonrpa.png"
+                alt="주식회사 드래곤알피에이 CI"
+                className="w-9 h-9 rounded-lg object-contain bg-white p-0.5 shadow-xs"
+              />
               <span className="font-bold text-lg text-white tracking-tight">
                 Dragon<span className="text-blue-500">RPA</span>
               </span>

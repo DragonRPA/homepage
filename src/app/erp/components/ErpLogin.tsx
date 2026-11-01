@@ -53,9 +53,11 @@ export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess }) => {
     <div data-theme="light" className="erp-app-container min-h-screen flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-lg border p-6 select-none shadow-sm erp-login-card">
         <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-12 h-12 bg-blue-600 rounded flex items-center justify-center mb-3 shadow">
-            <Building2 className="w-7 h-7 text-white" />
-          </div>
+          <img
+            src="/ci-dragonrpa.png"
+            alt="주식회사 드래곤알피에이 CI"
+            className="w-16 h-16 rounded-lg bg-white border border-slate-200 p-1 object-contain mb-3 shadow-xs"
+          />
           <h1 className="text-lg font-bold tracking-tight">
             (주)드래곤알피에이 ERP
           </h1>

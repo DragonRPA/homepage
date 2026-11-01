@@ -22,10 +22,12 @@ export default function Header() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <div className="flex items-center gap-3">
-            <a href="#" className="flex items-center gap-2 group">
-              <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm group-hover:bg-blue-700 transition-colors">
-                <Bot className="w-6 h-6" />
-              </div>
+            <a href="/" className="flex items-center gap-2.5 group">
+              <img
+                src="/ci-dragonrpa.png"
+                alt="주식회사 드래곤알피에이 CI"
+                className="w-10 h-10 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shadow-xs"
+              />
               <div className="flex flex-col">
                 <span className="font-bold text-xl tracking-tight text-slate-900 leading-none">
                   Dragon<span className="text-blue-600">RPA</span>

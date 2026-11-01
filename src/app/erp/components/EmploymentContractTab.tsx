@@ -1597,11 +1597,33 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                 </div>
               )
             ) : rightViewMode === "PLEDGE_DOC" ? (
-              /* ③ 정보보호 서약서 A4 표준 양식 (제공된 장종순 정보보호 서약서 원본 100% 재현) */
+              /* ③ 정보보호 서약서 A4 표준 양식 (제공된 장종순 정보보호 서약서 원본 100% 재현 + 공식 CI 포함) */
               <div
                 id="printable-active-document"
                 className="w-full max-w-[760px] bg-white text-black p-8 md:p-12 rounded shadow-md border border-[#b5a894] font-serif leading-relaxed text-[14px]"
               >
+                {/* 공식 발행 문서 상단 CI 헤더 */}
+                <div className="flex items-center justify-between border-b border-neutral-300 pb-3 mb-6">
+                  <div className="flex items-center gap-2.5">
+                    <img
+                      src="/ci-dragonrpa.png"
+                      alt="주식회사 드래곤알피에이 CI"
+                      className="w-11 h-11 object-contain"
+                    />
+                    <div className="font-sans leading-tight">
+                      <div className="text-xs font-extrabold text-neutral-900">
+                        {form.employerName}
+                      </div>
+                      <div className="text-[10px] text-neutral-500 font-mono">
+                        DRAGON RPA CO., LTD. · 공식 인사/보안 서식
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right font-mono text-[10.5px] text-neutral-500">
+                    문서번호: {form.contractNo || "SP-OFFICIAL"}
+                  </div>
+                </div>
+
                 <div className="text-center mb-8 pt-2">
                   <h1 className="text-2xl font-bold tracking-[0.25em] underline underline-offset-8">
                     정보보호 서약서
@@ -1698,19 +1720,46 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                     <span className="text-neutral-700">(서명/날인)</span>
                   </div>
 
-                  <div className="w-80 pt-4 text-left font-bold text-base tracking-wide">
-                    {form.employerName} 귀중
+                  <div className="w-80 pt-4 flex items-center gap-2.5 text-left font-bold text-base tracking-wide">
+                    <img
+                      src="/ci-dragonrpa.png"
+                      alt="주식회사 드래곤알피에이 CI"
+                      className="w-7 h-7 object-contain"
+                    />
+                    <span>{form.employerName} 귀중</span>
                   </div>
                 </div>
               </div>
             ) : (
-              /* ① 표준 근로계약서 A4 문서 양식 */
+              /* ① 표준 근로계약서 A4 문서 양식 (공식 CI 포함) */
               <div
                 id="printable-active-document"
                 className="w-full max-w-[760px] bg-white text-black p-6 md:p-10 rounded shadow-md border border-[#b5a894] font-serif leading-relaxed text-[13.5px]"
               >
+                {/* 공식 발행 문서 상단 CI 헤더 */}
+                <div className="flex items-center justify-between border-b border-neutral-300 pb-2.5 mb-5">
+                  <div className="flex items-center gap-2.5">
+                    <img
+                      src="/ci-dragonrpa.png"
+                      alt="주식회사 드래곤알피에이 CI"
+                      className="w-10 h-10 object-contain"
+                    />
+                    <div className="font-sans leading-tight">
+                      <div className="text-xs font-extrabold text-neutral-900">
+                        {form.employerName}
+                      </div>
+                      <div className="text-[10px] text-neutral-500 font-mono">
+                        DRAGON RPA CO., LTD. · 표준 근로계약서
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right font-mono text-[10.5px] text-neutral-500">
+                    계약번호: {form.contractNo || "신규발행"}
+                  </div>
+                </div>
+
                 {/* 타이틀 박스 */}
-                <div className="border border-black py-2.5 px-8 mx-auto w-64 text-center mb-7">
+                <div className="border border-black py-2.5 px-8 mx-auto w-64 text-center mb-6">
                   <h1 className="text-xl font-bold tracking-[0.25em]">근 로 계 약 서</h1>
                 </div>
 
@@ -1851,8 +1900,15 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                   <div className="grid grid-cols-12 gap-y-1">
                     <div className="col-span-2 font-bold">(사업주)</div>
                     <div className="col-span-10 space-y-1">
-                      <div className="flex justify-between">
-                        <span>사업체명 : {form.employerName}</span>
+                      <div className="flex justify-between items-center">
+                        <span className="inline-flex items-center gap-1.5 font-semibold">
+                          <img
+                            src="/ci-dragonrpa.png"
+                            alt="CI"
+                            className="w-5 h-5 object-contain inline-block"
+                          />
+                          <span>사업체명 : {form.employerName}</span>
+                        </span>
                         <span>(전화 : {form.employerPhone})</span>
                       </div>
                       <div>주 소 : {form.employerAddress}</div>

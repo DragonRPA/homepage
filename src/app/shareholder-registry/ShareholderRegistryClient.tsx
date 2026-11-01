@@ -543,7 +543,14 @@ export default function ShareholderRegistryClient() {
                         </tr>
                         <tr>
                           <td className="text-center font-bold text-[12.5px] py-1.5">
-                            {companyName}
+                            <span className="inline-flex items-center justify-center gap-1.5">
+                              <img
+                                src="/ci-dragonrpa.png"
+                                alt="CI"
+                                className="w-5 h-5 object-contain inline-block"
+                              />
+                              <span>{companyName}</span>
+                            </span>
                           </td>
                         </tr>
                       </tbody>

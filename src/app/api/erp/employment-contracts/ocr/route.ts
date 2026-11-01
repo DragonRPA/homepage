@@ -105,30 +105,32 @@ async function analyzeContractWithAi(
     : "";
   const fileBlock = fileName ? `\n[파일명 힌트]: ${fileName}` : "";
 
-  const prompt = `당신은 대한민국 표준 근로계약서 스캔본/문서 정밀 판독 AI 전문가입니다.
-제공된 근로계약서 이미지 및 텍스트 힌트를 분석하여 아래 근로계약 핵심 항목을 정확히 추출하세요.${fileBlock}${hintBlock}
+  const prompt = `당신은 대한민국 표준 근로계약서 및 정보보호(보안)서약서 스캔본/문서 정밀 판독 AI 전문가입니다.
+제공된 이미지 및 텍스트 힌트를 분석하여 아래 핵심 항목을 정확히 추출하세요.${fileBlock}${hintBlock}
 
 [추출 필드 및 규칙]:
-1. "employeeName": 근로자 성명 (예: "박종환", "장종순", "김승지", "조경찬")
-2. "employeePhone": 근로자 연락처 (예: "010-8683-9775")
-3. "employeeAddress": 근로자 주소 (예: "서울 금천구 시흥대로146길 25-19")
-4. "startDate": 근로계약기간 개시일 ("YYYY-MM-DD" 형식, 예: "2026-04-20")
-5. "endDate": 근로계약기간 종료일 ("YYYY-MM-DD" 형식, 기간의 정함이 없으면 "")
-6. "contractYear": 근로계약 체결 연도 4자리 (예: "2026")
-7. "workplace": 근무장소 (예: "서울시 금천구 벚꽃로278, SJ테크노빌 B155호")
-8. "jobDescription": 업무의 내용 (예: "주식회사 현대렌탈서비스의 렌탈자산 입/출고/배송 설치 등")
-9. "workStartTime": 소정근로 시작시간 ("HH:MM" 형식, 예: "09:00")
-10. "workEndTime": 소정근로 종료시간 ("HH:MM" 형식, 예: "18:00")
-11. "breakMinutes": 휴게시간(분 단위 숫자, 기본 60)
-12. "workDays": 근무일 (예: "매주 월~금요일 근무")
-13. "weeklyHoliday": 주휴일 (예: "주휴일 매주 토~일요일")
-14. "baseSalary": 월급(기본급) 숫자 (예: 2800000)
-15. "hourlyWageNote": 시급 표기 문구 (예: "시급은 통상시급" 또는 "시급 10,500 원")
-16. "mealAllowance": 식대 숫자 (예: 200000)
-17. "vehicleAllowance": 차량보조금 숫자 (없으면 0)
-18. "payDay": 임금지급일 숫자 (예: 10)
-19. "payMethod": 지급방법 (예: "근로자 명의 예금통장에 입금")
-20. "contractDate": 계약 체결일자 ("YYYY-MM-DD" 형식, 예: "2026-04-20")
+1. "docKind": 문서 종류 ("CONTRACT" = 근로계약서, "PLEDGE" = 정보보호서약서/보안서약서)
+2. "employeeName": 근로자(서약자) 성명 (예: "박종환", "장종순", "김승지", "조경찬")
+3. "residentRegNo": 주민등록번호 ("000000-0000000" 형식, 예: "780217-1241810", 없으면 "")
+4. "employeePhone": 근로자 연락처 (예: "010-8683-9775")
+5. "employeeAddress": 근로자 주소 (예: "서울 금천구 시흥대로146길 25-19")
+6. "startDate": 근로계약기간 개시일 또는 서약일 ("YYYY-MM-DD" 형식, 예: "2025-11-03")
+7. "endDate": 근로계약기간 종료일 ("YYYY-MM-DD" 형식, 기간의 정함이 없으면 "")
+8. "contractYear": 체결/서약 연도 4자리 (예: "2025")
+9. "workplace": 근무장소 (예: "서울시 금천구 벚꽃로278, SJ테크노빌 B155호")
+10. "jobDescription": 업무의 내용 (예: "주식회사 현대렌탈서비스의 렌탈자산 입/출고/배송 설치 등")
+11. "workStartTime": 소정근로 시작시간 ("HH:MM" 형식, 예: "09:00")
+12. "workEndTime": 소정근로 종료시간 ("HH:MM" 형식, 예: "18:00")
+13. "breakMinutes": 휴게시간(분 단위 숫자, 기본 60)
+14. "workDays": 근무일 (예: "매주 월~금요일 근무")
+15. "weeklyHoliday": 주휴일 (예: "주휴일 매주 토~일요일")
+16. "baseSalary": 월급(기본급) 숫자 (예: 2800000)
+17. "hourlyWageNote": 시급 표기 문구 (예: "시급은 통상시급" 또는 "시급 10,500 원")
+18. "mealAllowance": 식대 숫자 (예: 200000)
+19. "vehicleAllowance": 차량보조금 숫자 (없으면 0)
+20. "payDay": 임금지급일 숫자 (예: 10)
+21. "payMethod": 지급방법 (예: "근로자 명의 예금통장에 입금")
+22. "contractDate": 계약 체결일자 또는 서약일자 ("YYYY-MM-DD" 형식, 예: "2025-11-03")
 
 반드시 순수 JSON 객체만 반환하세요.`;
 
@@ -220,7 +222,9 @@ export async function POST(request: Request) {
     }
 
     const parsed: any = {
+      docKind: "CONTRACT",
       employeeName: "",
+      residentRegNo: "",
       employeePhone: "",
       employeeAddress: "",
       startDate: "",
@@ -251,7 +255,9 @@ export async function POST(request: Request) {
         fileName
       );
       if (aiRes && typeof aiRes === "object") {
+        if (aiRes.docKind) parsed.docKind = String(aiRes.docKind).trim();
         if (aiRes.employeeName) parsed.employeeName = String(aiRes.employeeName).trim();
+        if (aiRes.residentRegNo) parsed.residentRegNo = String(aiRes.residentRegNo).trim();
         if (aiRes.employeePhone) parsed.employeePhone = String(aiRes.employeePhone).trim();
         if (aiRes.employeeAddress) parsed.employeeAddress = String(aiRes.employeeAddress).trim();
         if (aiRes.startDate) parsed.startDate = String(aiRes.startDate).trim();
@@ -275,6 +281,13 @@ export async function POST(request: Request) {
 
     // 2. 결정론적 정규식 보완 (텍스트 기반)
     if (textToParse) {
+      if (textToParse.includes("정보보호") || textToParse.includes("서약서")) {
+        parsed.docKind = "PLEDGE";
+      }
+      if (!parsed.residentRegNo) {
+        const rrnM = textToParse.match(/(\d{6})\s*-\s*([1-4]\d{6})/);
+        if (rrnM) parsed.residentRegNo = `${rrnM[1]}-${rrnM[2]}`;
+      }
       if (!parsed.employeeName) {
         const nameM =
           textToParse.match(/성\s*명\s*[:：]\s*([가-힣]{2,5})\s*\(서명\)/) ||
@@ -318,10 +331,23 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3. 파일명 힌트 보완 (예: 근로계약서_박종환.pdf)
-    if (!parsed.employeeName && fileName) {
-      const fnM = String(fileName).match(/근로계약서[_\s-]*([가-힣]{2,4})/);
-      if (fnM) parsed.employeeName = fnM[1];
+    // 3. 파일명 힌트 보완 (예: 근로계약서_박종환.pdf 또는 보안서약서_장종순_20251103.pdf)
+    if (fileName) {
+      if (/보안|서약|정보보호/.test(fileName)) {
+        parsed.docKind = "PLEDGE";
+      }
+      if (!parsed.employeeName) {
+        const fnM = String(fileName).match(/(?:근로계약서|보안서약서|정보보호서약서)[_\s-]*([가-힣]{2,4})/);
+        if (fnM) parsed.employeeName = fnM[1];
+      }
+      if (!parsed.contractDate) {
+        const dtM = String(fileName).match(/(20\d{2})(\d{2})(\d{2})/);
+        if (dtM) {
+          parsed.contractDate = `${dtM[1]}-${dtM[2]}-${dtM[3]}`;
+          if (!parsed.startDate) parsed.startDate = parsed.contractDate;
+          if (!parsed.contractYear) parsed.contractYear = dtM[1];
+        }
+      }
     }
 
     if (parsed.startDate && !parsed.contractYear) {

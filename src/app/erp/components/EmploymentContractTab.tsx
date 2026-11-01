@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   FileSignature,
   RefreshCw,
-  Plus,
   Upload,
   Printer,
   Save,
@@ -15,8 +14,7 @@ import {
   TrendingUp,
   FileText,
   CheckCircle2,
-  X,
-  Calendar,
+  ShieldCheck,
 } from "lucide-react";
 import { formatErpCurrency } from "@/lib/erpFormat";
 
@@ -24,12 +22,13 @@ export interface EmploymentContractItem {
   id: number;
   contractNo: string;
   contractYear: string;
-  contractType: "NEW_HIRE" | "RENEWAL";
+  contractType: "NEW_HIRE" | "RENEWAL" | "SECURITY_PLEDGE";
   status: "DRAFT" | "SIGNED" | "ARCHIVED" | "EXPIRED";
   employeeId: number | null;
   employeeName: string;
   employeePhone: string;
   employeeAddress: string;
+  residentRegNo: string;
   employerName: string;
   employerPhone: string;
   employerAddress: string;
@@ -55,6 +54,9 @@ export interface EmploymentContractItem {
   contractDate: string;
   scanFileName: string | null;
   scanFileUrl: string | null;
+  pledgeDate: string | null;
+  pledgeScanName: string | null;
+  pledgeScanUrl: string | null;
   memo: string | null;
   employeeNo?: string;
   department?: string;
@@ -81,7 +83,7 @@ interface EmploymentContractTabProps {
 }
 
 const CONTRACT_TYPE_LABELS: Record<
-  "NEW_HIRE" | "RENEWAL",
+  "NEW_HIRE" | "RENEWAL" | "SECURITY_PLEDGE",
   { label: string; badgeClass: string }
 > = {
   NEW_HIRE: {
@@ -94,24 +96,10 @@ const CONTRACT_TYPE_LABELS: Record<
     badgeClass:
       "bg-[#d1fae5] text-[#065f46] border border-[#a7f3d0] dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30",
   },
-};
-
-const STATUS_LABELS: Record<string, { label: string; badgeClass: string }> = {
-  SIGNED: {
-    label: "체결완료",
-    badgeClass: "bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0]",
-  },
-  ARCHIVED: {
-    label: "보관(이력)",
-    badgeClass: "bg-[#f1f5f9] text-[#334155] border border-[#cbd5e1]",
-  },
-  EXPIRED: {
-    label: "기간만료/퇴사",
-    badgeClass: "bg-[#fee2e2] text-[#991b1b] border border-[#fecaca]",
-  },
-  DRAFT: {
-    label: "작성중",
-    badgeClass: "bg-[#fef3c7] text-[#92400e] border border-[#fde68a]",
+  SECURITY_PLEDGE: {
+    label: "보안서약서(입사1회)",
+    badgeClass:
+      "bg-[#ede9fe] text-[#5b21b6] border border-[#c4b5fd] dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/30",
   },
 };
 
@@ -127,9 +115,11 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // 선택된 계약서 및 편집 폼 상태
+  // 선택된 계약서 및 우측 뷰 모드: DOCUMENT(근로계약서) | SCAN(근로계약서 스캔) | PLEDGE_DOC(정보보호서약서 양식) | PLEDGE_SCAN(보안서약서 스캔)
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
-  const [rightViewMode, setRightViewMode] = useState<"DOCUMENT" | "SCAN">("DOCUMENT");
+  const [rightViewMode, setRightViewMode] = useState<
+    "DOCUMENT" | "SCAN" | "PLEDGE_DOC" | "PLEDGE_SCAN"
+  >("DOCUMENT");
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const currentYearStr = todayStr.slice(0, 4);
@@ -138,12 +128,13 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     id: 0,
     contractNo: "",
     contractYear: currentYearStr,
-    contractType: "NEW_HIRE" as "NEW_HIRE" | "RENEWAL",
+    contractType: "NEW_HIRE" as "NEW_HIRE" | "RENEWAL" | "SECURITY_PLEDGE",
     status: "SIGNED" as "DRAFT" | "SIGNED" | "ARCHIVED" | "EXPIRED",
     employeeId: "" as string | number,
     employeeName: "박종환",
     employeePhone: "010-8683-9775",
     employeeAddress: "서울 금천구 시흥대로146길 25-19",
+    residentRegNo: "",
     employerName: "주식회사 드래곤알피에이",
     employerPhone: "010-9224-4097",
     employerAddress: "서울 금천구 서부샛길 528, 547호",
@@ -168,6 +159,9 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     contractDate: "2026-04-20",
     scanFileName: "",
     scanFileUrl: "",
+    pledgeDate: "2026-04-20",
+    pledgeScanName: "",
+    pledgeScanUrl: "",
     memo: "",
     syncEmployeeMaster: true,
     registerNewEmployee: false,
@@ -179,6 +173,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
   const [ocrLoading, setOcrLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pledgeFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchAllData = async () => {
     setLoading(true);
@@ -197,7 +192,6 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       if (cData.success && Array.isArray(cData.contracts)) {
         setContracts(cData.contracts);
         if (cData.contracts.length > 0 && !selectedContractId) {
-          // 기본적으로 박종환(2026) 또는 첫 번째 계약 선택
           const defaultTarget =
             cData.contracts.find((c: EmploymentContractItem) => c.employeeName === "박종환") ||
             cData.contracts[0];
@@ -217,6 +211,11 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
 
   const loadContractIntoForm = (c: EmploymentContractItem) => {
     setSelectedContractId(c.id);
+    if (c.contractType === "SECURITY_PLEDGE") {
+      setRightViewMode(c.pledgeScanUrl || c.scanFileUrl ? "PLEDGE_SCAN" : "PLEDGE_DOC");
+    } else if (rightViewMode === "PLEDGE_SCAN" && !c.pledgeScanUrl) {
+      setRightViewMode("DOCUMENT");
+    }
     setForm({
       id: c.id,
       contractNo: c.contractNo || "",
@@ -227,6 +226,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       employeeName: c.employeeName || "",
       employeePhone: c.employeePhone || "",
       employeeAddress: c.employeeAddress || "",
+      residentRegNo: c.residentRegNo || "",
       employerName: c.employerName || "주식회사 드래곤알피에이",
       employerPhone: c.employerPhone || "010-9224-4097",
       employerAddress: c.employerAddress || "서울 금천구 서부샛길 528, 547호",
@@ -252,6 +252,9 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       contractDate: c.contractDate || c.startDate || todayStr,
       scanFileName: c.scanFileName || "",
       scanFileUrl: c.scanFileUrl || "",
+      pledgeDate: c.pledgeDate || c.contractDate || c.startDate || todayStr,
+      pledgeScanName: c.pledgeScanName || "",
+      pledgeScanUrl: c.pledgeScanUrl || "",
       memo: c.memo || "",
       syncEmployeeMaster: true,
       registerNewEmployee: false,
@@ -260,11 +263,11 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     });
   };
 
-  // 신입 채용 기본 양식 초기화
+  // 신입 채용 기본 양식 초기화 (입사 시 근로계약서 + 정보보호서약서 1회 동시 작성 가능)
   const handleStartNewHire = () => {
     setSelectedContractId(null);
     setRightViewMode("DOCUMENT");
-    setStatusMsg("신입 직원 채용 근로계약서 작성 모드입니다.");
+    setStatusMsg("신입 직원 채용 근로계약서(및 입사 시 1회 보안서약서) 작성 모드입니다.");
     setForm({
       id: 0,
       contractNo: "",
@@ -275,6 +278,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       employeeName: "",
       employeePhone: "",
       employeeAddress: "",
+      residentRegNo: "",
       employerName: "주식회사 드래곤알피에이",
       employerPhone: "010-9224-4097",
       employerAddress: "서울 금천구 서부샛길 528, 547호",
@@ -299,12 +303,44 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       contractDate: todayStr,
       scanFileName: "",
       scanFileUrl: "",
-      memo: `${currentYearStr}년 신입 직원 채용 근로계약`,
+      pledgeDate: todayStr,
+      pledgeScanName: "",
+      pledgeScanUrl: "",
+      memo: `${currentYearStr}년 신입 직원 채용 근로계약 및 정보보호 서약`,
       syncEmployeeMaster: true,
       registerNewEmployee: true,
       newEmployeePosition: "사원",
       newEmployeeDepartment: "렌탈운영팀",
     });
+  };
+
+  // 입사 시 1회 정보보호(보안)서약서 전용 작성 모드
+  const handleStartSecurityPledge = () => {
+    const targetEmp =
+      employees.find((e) => e.id === Number(form.employeeId)) ||
+      employees.find((e) => e.status === "ACTIVE" && e.id !== 1) ||
+      employees[0];
+
+    const joinDt = targetEmp?.joinDate || todayStr;
+    setSelectedContractId(null);
+    setRightViewMode("PLEDGE_DOC");
+    setStatusMsg("입사 시 1회 작성하는 정보보호(보안) 서약서 작성 및 보관 모드입니다.");
+    setForm((prev) => ({
+      ...prev,
+      id: 0,
+      contractNo: "",
+      contractYear: joinDt.slice(0, 4) || currentYearStr,
+      contractType: "SECURITY_PLEDGE",
+      status: "SIGNED",
+      employeeId: targetEmp ? targetEmp.id : "",
+      employeeName: targetEmp ? targetEmp.name.replace(" 대표이사", "") : prev.employeeName,
+      employeePhone: targetEmp?.phone || prev.employeePhone,
+      employeeAddress: targetEmp?.address || prev.employeeAddress,
+      startDate: joinDt,
+      contractDate: joinDt,
+      pledgeDate: joinDt,
+      memo: "입사 시 정보보호(보안) 서약서 1회 작성 보관",
+    }));
   };
 
   // 연봉협상 재계약 기본 양식 초기화
@@ -320,7 +356,8 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     setStatusMsg("연봉협상 후 재계약 체결 작성 모드입니다. 변경된 기본급/식대를 입력하세요.");
 
     const janFirst = `${currentYearStr}-01-01`;
-    setForm({
+    setForm((prev) => ({
+      ...prev,
       id: 0,
       contractNo: "",
       contractYear: currentYearStr,
@@ -330,39 +367,23 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       employeeName: targetEmp ? targetEmp.name.replace(" 대표이사", "") : "",
       employeePhone: targetEmp?.phone || "",
       employeeAddress: targetEmp?.address || "",
-      employerName: "주식회사 드래곤알피에이",
-      employerPhone: "010-9224-4097",
-      employerAddress: "서울 금천구 서부샛길 528, 547호",
-      employerRep: "이정용",
       startDate: janFirst,
       endDate: `${currentYearStr}-12-31`,
       workplace: "서울시 금천구 벚꽃로278, SJ테크노빌 B155호",
       jobDescription: "주식회사 현대렌탈서비스의 렌탈자산 입/출고/배송 설치 등",
-      workStartTime: "09:00",
-      workEndTime: "18:00",
-      breakMinutes: 60,
-      workDays: "매주 월~금요일 근무",
-      weeklyHoliday: "주휴일 매주 토~일요일",
       baseSalary: targetEmp ? Number(targetEmp.baseSalary || 2800000) : 2800000,
-      hourlyWageNote: "시급은 통상시급",
       mealAllowance: targetEmp ? Number(targetEmp.mealAllowance || 200000) : 200000,
       vehicleAllowance: targetEmp ? Number(targetEmp.vehicleAllowance || 0) : 0,
-      otherAllowance: 0,
-      otherAllowanceLabel: "",
-      payDay: 10,
-      payMethod: "근로자 명의 예금통장에 입금",
       contractDate: janFirst,
       scanFileName: "",
       scanFileUrl: "",
       memo: `${currentYearStr}년 연봉협상 재계약 체결`,
       syncEmployeeMaster: true,
       registerNewEmployee: false,
-      newEmployeePosition: targetEmp?.position || "사원",
-      newEmployeeDepartment: targetEmp?.department || "렌탈운영팀",
-    });
+    }));
   };
 
-  // 사원 드롭다운 선택 시 사원 기본 정보 자동 로드
+  // 사원 드롭다운 선택 시 사원 기본 정보 및 기존 보안서약서 정보 자동 로드
   const handleSelectEmployee = (empIdStr: string) => {
     if (!empIdStr) {
       setForm((prev) => ({ ...prev, employeeId: "" }));
@@ -371,12 +392,21 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     const emp = employees.find((e) => String(e.id) === empIdStr);
     if (!emp) return;
 
+    // 해당 사원의 기존 계약 중 보안서약서나 주민번호가 있는 레코드 참조
+    const existingWithPledge = contracts.find(
+      (c) => c.employeeId === emp.id && (c.pledgeScanUrl || c.residentRegNo)
+    );
+
     setForm((prev) => ({
       ...prev,
       employeeId: emp.id,
       employeeName: emp.name.replace(" 대표이사", ""),
       employeePhone: emp.phone || prev.employeePhone,
       employeeAddress: emp.address || prev.employeeAddress,
+      residentRegNo: existingWithPledge?.residentRegNo || prev.residentRegNo,
+      pledgeDate: existingWithPledge?.pledgeDate || emp.joinDate || prev.pledgeDate,
+      pledgeScanName: existingWithPledge?.pledgeScanName || prev.pledgeScanName,
+      pledgeScanUrl: existingWithPledge?.pledgeScanUrl || prev.pledgeScanUrl,
       baseSalary: Number(emp.baseSalary || prev.baseSalary),
       mealAllowance: Number(emp.mealAllowance || prev.mealAllowance),
       vehicleAllowance: Number(emp.vehicleAllowance || prev.vehicleAllowance),
@@ -384,13 +414,113 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     }));
   };
 
-  // 스캔 파일 업로드 및 AI OCR 자동 판독
+  // 근로계약서 스캔 파일 업로드 및 AI OCR 자동 판독
   const handleScanFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setOcrLoading(true);
-    setStatusMsg("스캔된 근로계약서 파일을 분석하고 있습니다...");
+    setStatusMsg("스캔된 문서를 분석하고 있습니다...");
+
+    try {
+      const reader = new FileReader();
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const res = await fetch("/api/erp/employment-contracts/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileData: dataUrl,
+          imageBase64: dataUrl.startsWith("data:image/") ? dataUrl : undefined,
+          fileName: file.name,
+        }),
+      });
+      const data = await res.json();
+
+      if (data.success && data.parsed) {
+        const p = data.parsed;
+        const isPledge = p.docKind === "PLEDGE" || /보안|서약|정보보호/.test(file.name);
+        const matchedEmp = employees.find(
+          (emp) => p.employeeName && emp.name.includes(p.employeeName)
+        );
+
+        if (isPledge) {
+          setForm((prev) => ({
+            ...prev,
+            employeeId: matchedEmp ? matchedEmp.id : prev.employeeId,
+            employeeName: p.employeeName || prev.employeeName,
+            residentRegNo: p.residentRegNo || prev.residentRegNo,
+            pledgeDate: p.contractDate || p.startDate || prev.pledgeDate,
+            pledgeScanName: file.name,
+            pledgeScanUrl: dataUrl,
+          }));
+          setRightViewMode("PLEDGE_SCAN");
+          setStatusMsg(
+            `${p.employeeName || ""} 보안서약서 스캔본이 첨부되었습니다. [저장]을 눌러 보관하세요.`
+          );
+        } else {
+          setForm((prev) => ({
+            ...prev,
+            employeeId: matchedEmp ? matchedEmp.id : prev.employeeId,
+            employeeName: p.employeeName || prev.employeeName,
+            employeePhone: p.employeePhone || matchedEmp?.phone || prev.employeePhone,
+            employeeAddress: p.employeeAddress || matchedEmp?.address || prev.employeeAddress,
+            residentRegNo: p.residentRegNo || prev.residentRegNo,
+            startDate: p.startDate || prev.startDate,
+            endDate: p.endDate || prev.endDate,
+            contractYear:
+              p.contractYear || (p.startDate ? p.startDate.slice(0, 4) : prev.contractYear),
+            workplace: p.workplace || prev.workplace,
+            jobDescription: p.jobDescription || prev.jobDescription,
+            workStartTime: p.workStartTime || prev.workStartTime,
+            workEndTime: p.workEndTime || prev.workEndTime,
+            breakMinutes: p.breakMinutes || prev.breakMinutes,
+            baseSalary: p.baseSalary > 0 ? p.baseSalary : prev.baseSalary,
+            hourlyWageNote: p.hourlyWageNote || prev.hourlyWageNote,
+            mealAllowance:
+              p.mealAllowance !== undefined ? p.mealAllowance : prev.mealAllowance,
+            vehicleAllowance:
+              p.vehicleAllowance !== undefined ? p.vehicleAllowance : prev.vehicleAllowance,
+            payDay: p.payDay || prev.payDay,
+            contractDate: p.contractDate || p.startDate || prev.contractDate,
+            scanFileName: file.name,
+            scanFileUrl: dataUrl,
+          }));
+          setRightViewMode("SCAN");
+          setStatusMsg(
+            data.message ||
+              "근로계약서 스캔본 첨부 및 항목 추출이 완료되었습니다. [저장]을 눌러 보관하세요."
+          );
+        }
+      } else {
+        setForm((prev) => ({
+          ...prev,
+          scanFileName: file.name,
+          scanFileUrl: dataUrl,
+        }));
+        setRightViewMode("SCAN");
+        setStatusMsg("스캔 파일이 첨부되었습니다.");
+      }
+    } catch (err: any) {
+      console.error("Scan upload error:", err);
+      setStatusMsg("스캔 파일 처리 중 오류: " + err.message);
+    } finally {
+      setOcrLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  // 보안서약서 전용 스캔 파일 업로드 핸들러
+  const handlePledgeScanUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setOcrLoading(true);
+    setStatusMsg("보안서약서 스캔 파일을 분석하고 있습니다...");
 
     try {
       const reader = new FileReader();
@@ -416,55 +546,35 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
         const matchedEmp = employees.find(
           (emp) => p.employeeName && emp.name.includes(p.employeeName)
         );
-
         setForm((prev) => ({
           ...prev,
           employeeId: matchedEmp ? matchedEmp.id : prev.employeeId,
           employeeName: p.employeeName || prev.employeeName,
-          employeePhone: p.employeePhone || matchedEmp?.phone || prev.employeePhone,
-          employeeAddress: p.employeeAddress || matchedEmp?.address || prev.employeeAddress,
-          startDate: p.startDate || prev.startDate,
-          endDate: p.endDate || prev.endDate,
-          contractYear: p.contractYear || (p.startDate ? p.startDate.slice(0, 4) : prev.contractYear),
-          workplace: p.workplace || prev.workplace,
-          jobDescription: p.jobDescription || prev.jobDescription,
-          workStartTime: p.workStartTime || prev.workStartTime,
-          workEndTime: p.workEndTime || prev.workEndTime,
-          breakMinutes: p.breakMinutes || prev.breakMinutes,
-          baseSalary: p.baseSalary > 0 ? p.baseSalary : prev.baseSalary,
-          hourlyWageNote: p.hourlyWageNote || prev.hourlyWageNote,
-          mealAllowance:
-            p.mealAllowance !== undefined ? p.mealAllowance : prev.mealAllowance,
-          vehicleAllowance:
-            p.vehicleAllowance !== undefined ? p.vehicleAllowance : prev.vehicleAllowance,
-          payDay: p.payDay || prev.payDay,
-          contractDate: p.contractDate || p.startDate || prev.contractDate,
-          scanFileName: file.name,
-          scanFileUrl: dataUrl,
+          residentRegNo: p.residentRegNo || prev.residentRegNo,
+          pledgeDate: p.contractDate || p.startDate || prev.pledgeDate,
+          pledgeScanName: file.name,
+          pledgeScanUrl: dataUrl,
         }));
-        setRightViewMode("SCAN");
-        setStatusMsg(
-          data.message || "근로계약서 스캔본 첨부 및 항목 추출이 완료되었습니다. [저장]을 눌러 보관하세요."
-        );
       } else {
         setForm((prev) => ({
           ...prev,
-          scanFileName: file.name,
-          scanFileUrl: dataUrl,
+          pledgeScanName: file.name,
+          pledgeScanUrl: dataUrl,
         }));
-        setRightViewMode("SCAN");
-        setStatusMsg("스캔 파일이 첨부되었습니다.");
       }
+      setRightViewMode("PLEDGE_SCAN");
+      setStatusMsg(
+        "보안서약서 스캔본이 등록되었습니다. [계약서·보안서약서 저장] 버튼을 눌러 DB에 보관하세요."
+      );
     } catch (err: any) {
-      console.error("Scan upload error:", err);
-      setStatusMsg("스캔 파일 처리 중 오류: " + err.message);
+      setStatusMsg("보안서약서 업로드 오류: " + err.message);
     } finally {
       setOcrLoading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (pledgeFileInputRef.current) pledgeFileInputRef.current.value = "";
     }
   };
 
-  // 근로계약서 DB 저장 (신규 등록 또는 수정)
+  // 근로계약서 & 보안서약서 DB 저장
   const handleSaveContract = async () => {
     if (!form.employeeName.trim()) {
       alert("근로자 성명을 입력해 주십시오.");
@@ -487,7 +597,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       });
       const data = await res.json();
       if (data.success) {
-        setStatusMsg(data.message || "근로계약서가 저장되었습니다.");
+        setStatusMsg(data.message || "저장되었습니다.");
         await fetchAllData();
         if (!isUpdate && data.contract?.id) {
           setSelectedContractId(data.contract.id);
@@ -503,7 +613,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
   };
 
   const handleDeleteContract = async (id: number, name: string) => {
-    if (!confirm(`${name} 근로계약서를 삭제하시겠습니까?`)) return;
+    if (!confirm(`${name} 문서를 삭제하시겠습니까?`)) return;
     try {
       const res = await fetch(`/api/erp/employment-contracts?id=${id}`, {
         method: "DELETE",
@@ -520,9 +630,16 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     }
   };
 
-  // 근로계약서 인쇄 (A4 표준 양식)
-  const handlePrintContract = () => {
-    window.print();
+  const handlePrintDocument = () => {
+    if (rightViewMode === "SCAN") {
+      setRightViewMode("DOCUMENT");
+      setTimeout(() => window.print(), 100);
+    } else if (rightViewMode === "PLEDGE_SCAN") {
+      setRightViewMode("PLEDGE_DOC");
+      setTimeout(() => window.print(), 100);
+    } else {
+      window.print();
+    }
   };
 
   const filteredContracts = useMemo(() => {
@@ -540,7 +657,6 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     });
   }, [contracts, searchQuery]);
 
-  // 날짜 포맷 헬퍼 (YYYY-MM-DD -> 2026 년 04 월 20 일)
   const formatKoreanDateParts = (dateStr: string) => {
     if (!dateStr || !dateStr.includes("-")) {
       return { y: "2026", m: "01", d: "01" };
@@ -551,6 +667,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
 
   const startParts = formatKoreanDateParts(form.startDate);
   const contractParts = formatKoreanDateParts(form.contractDate);
+  const pledgeParts = formatKoreanDateParts(form.pledgeDate || form.contractDate);
   const totalMonthly =
     Number(form.baseSalary || 0) +
     Number(form.mealAllowance || 0) +
@@ -560,17 +677,17 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
 
   return (
     <div className="flex flex-col min-h-full md:h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 md:overflow-hidden font-sans">
-      {/* 인쇄 시에만 보이는 A4 근로계약서 전용 스타일 */}
+      {/* 인쇄 시 현재 선택된 A4 양식(근로계약서 또는 정보보호서약서)만 출력 */}
       <style jsx global>{`
         @media print {
           body * {
             visibility: hidden !important;
           }
-          #printable-employment-contract,
-          #printable-employment-contract * {
+          #printable-active-document,
+          #printable-active-document * {
             visibility: visible !important;
           }
-          #printable-employment-contract {
+          #printable-active-document {
             position: fixed !important;
             left: 0 !important;
             top: 0 !important;
@@ -593,7 +710,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
           {/* 연도별 조회 */}
           <div className="flex flex-col gap-1">
             <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-              계약 연도별 조회
+              연도별 조회
             </label>
             <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
               {[
@@ -619,26 +736,27 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
             </div>
           </div>
 
-          {/* 계약 구분 필터 */}
-          <div className="flex flex-col gap-1 min-w-[130px]">
+          {/* 계약/서약 유형 필터 */}
+          <div className="flex flex-col gap-1 min-w-[140px]">
             <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-              계약 유형
+              문서 유형
             </label>
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
               className="bg-[#f4efe4] border border-[#b5a894] text-xs px-2 py-1.5 rounded font-semibold focus:outline-none focus:border-[#1d4ed8] whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             >
-              <option value="ALL">전체 (신입+재계약)</option>
-              <option value="NEW_HIRE">신입 직원 채용</option>
+              <option value="ALL">전체 (계약서+보안서약서)</option>
+              <option value="NEW_HIRE">신입 직원 채용 계약</option>
               <option value="RENEWAL">연봉협상 재계약</option>
+              <option value="SECURITY_PLEDGE">보안서약서 (입사 1회)</option>
             </select>
           </div>
 
           {/* 검색어 */}
-          <div className="flex flex-col gap-1 flex-1 sm:flex-none min-w-[170px]">
+          <div className="flex flex-col gap-1 flex-1 sm:flex-none min-w-[160px]">
             <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-              사원명·계약번호 검색
+              사원명 검색
             </label>
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-[#475569]" />
@@ -646,14 +764,14 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="성명, 업무내용 검색"
+                placeholder="성명, 메모 검색"
                 className="bg-[#f4efe4] border border-[#b5a894] text-xs pl-8 pr-2.5 py-1.5 rounded w-full focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-800 dark:border-slate-700"
               />
             </div>
           </div>
         </div>
 
-        {/* 우측 상단 액션 버튼군: 신입채용 작성 / 연봉협상 재계약 / 과거 계약서 스캔 등록 / 인쇄 */}
+        {/* 우측 상단 액션 버튼군 */}
         <div className="flex flex-wrap items-center gap-1.5 shrink-0">
           <button
             type="button"
@@ -667,19 +785,28 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
           <button
             type="button"
             onClick={handleStartNewHire}
-            className="px-2.5 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow-xs whitespace-nowrap transition"
+            className="px-2.5 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs whitespace-nowrap transition"
           >
             <UserPlus className="w-3.5 h-3.5" />
-            <span>+ 신입 채용 계약서 작성</span>
+            <span>+ 신입 채용 작성</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleStartRenewal()}
-            className="px-2.5 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow-xs whitespace-nowrap transition"
+            className="px-2.5 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs whitespace-nowrap transition"
           >
             <TrendingUp className="w-3.5 h-3.5" />
-            <span>+ 연봉협상 재계약 작성</span>
+            <span>+ 연봉 재계약 작성</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleStartSecurityPledge}
+            className="px-2.5 py-1.5 bg-[#5b21b6] hover:bg-[#4c1d95] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs whitespace-nowrap transition"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>+ 보안서약서 작성</span>
           </button>
 
           <input
@@ -693,19 +820,19 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={ocrLoading}
-            className="px-2.5 py-1.5 bg-[#6d28d9] hover:bg-[#5b21b6] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow-xs whitespace-nowrap transition disabled:opacity-50"
+            className="px-2.5 py-1.5 bg-[#b45309] hover:bg-[#92400e] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs whitespace-nowrap transition disabled:opacity-50"
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>{ocrLoading ? "스캔 분석 중..." : "과거 계약서 스캔 등록"}</span>
+            <span>{ocrLoading ? "스캔 분석 중..." : "계약서·서약서 스캔 등록"}</span>
           </button>
 
           <button
             type="button"
-            onClick={handlePrintContract}
-            className="px-2.5 py-1.5 bg-[#334155] hover:bg-[#1e293b] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow-xs whitespace-nowrap transition"
+            onClick={handlePrintDocument}
+            className="px-2.5 py-1.5 bg-[#334155] hover:bg-[#1e293b] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs whitespace-nowrap transition"
           >
             <Printer className="w-3.5 h-3.5" />
-            <span>계약서 인쇄</span>
+            <span>인쇄</span>
           </button>
         </div>
       </div>
@@ -727,43 +854,43 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
         </div>
       )}
 
-      {/* 2. 본문 마스터-디테일 스튜디오 (좌측: 연도별 이력 & 입력 폼 / 우측: 표준 근로계약서 양식 & 스캔본 뷰어) */}
+      {/* 2. 본문 마스터-디테일 스튜디오 */}
       <div className="flex-1 md:overflow-hidden grid grid-cols-1 lg:grid-cols-12 gap-3 p-2.5 md:p-3">
-        {/* 좌측 (5열): 연도별 근로계약서 보관 대장 + 근로조건 편집 폼 */}
+        {/* 좌측 (5열): 연도별 근로계약서·보안서약서 보관 대장 + 편집 폼 */}
         <div className="lg:col-span-5 flex flex-col gap-3 md:overflow-y-auto pr-0.5">
-          {/* 2-1. 연도별 근로계약서 보관 목록 */}
+          {/* 2-1. 연도별 근로계약서 & 보안서약서 보관 목록 */}
           <div className="bg-[#f4efe4] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800 shrink-0">
             <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 flex items-center justify-between">
               <div className="flex items-center gap-1.5 text-xs font-bold">
                 <FileSignature className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
                 <span className="whitespace-nowrap">
-                  연도별 근로계약서 보관 대장 ({filteredContracts.length}건)
+                  연도별 근로계약서 · 보안서약서 보관 대장 ({filteredContracts.length}건)
                 </span>
               </div>
               <span className="text-[11px] text-[#475569] dark:text-slate-400 whitespace-nowrap">
-                행 클릭 시 양식/스캔본 조회
+                행 클릭 시 조회
               </span>
             </div>
 
-            <div className="max-h-[230px] overflow-auto">
+            <div className="max-h-[235px] overflow-auto">
               <table className="w-full text-xs text-left border-collapse">
                 <thead className="bg-[#dcd4c4] text-[#0f172a] font-bold border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700">
                   <tr>
-                    <th className="py-1.5 px-2.5 whitespace-nowrap">연도</th>
-                    <th className="py-1.5 px-2.5 whitespace-nowrap">구분</th>
-                    <th className="py-1.5 px-2.5 whitespace-nowrap">성명</th>
-                    <th className="py-1.5 px-2.5 text-right whitespace-nowrap">기본급(월)</th>
-                    <th className="py-1.5 px-2.5 text-right whitespace-nowrap">식대/수당</th>
-                    <th className="py-1.5 px-2.5 whitespace-nowrap">계약개시일</th>
-                    <th className="py-1.5 px-2.5 text-center whitespace-nowrap">스캔본</th>
-                    <th className="py-1.5 px-2 text-center whitespace-nowrap">관리</th>
+                    <th className="py-1.5 px-2 whitespace-nowrap">연도</th>
+                    <th className="py-1.5 px-2 whitespace-nowrap">구분</th>
+                    <th className="py-1.5 px-2 whitespace-nowrap">성명</th>
+                    <th className="py-1.5 px-2 text-right whitespace-nowrap">기본급(월)</th>
+                    <th className="py-1.5 px-2 whitespace-nowrap">개시/서약일</th>
+                    <th className="py-1.5 px-2 text-center whitespace-nowrap">계약스캔</th>
+                    <th className="py-1.5 px-2 text-center whitespace-nowrap">보안서약(입사1회)</th>
+                    <th className="py-1.5 px-1.5 text-center whitespace-nowrap">관리</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#d5cbb8] dark:divide-slate-800">
                   {filteredContracts.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="py-6 text-center text-[#64748b] whitespace-nowrap">
-                        조회된 근로계약서가 없습니다.
+                        조회된 문서가 없습니다.
                       </td>
                     </tr>
                   ) : (
@@ -771,10 +898,6 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                       const isSelected = selectedContractId === c.id;
                       const tMeta =
                         CONTRACT_TYPE_LABELS[c.contractType] || CONTRACT_TYPE_LABELS.NEW_HIRE;
-                      const allowanceSum =
-                        Number(c.mealAllowance || 0) +
-                        Number(c.vehicleAllowance || 0) +
-                        Number(c.otherAllowance || 0);
 
                       return (
                         <tr
@@ -786,30 +909,29 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                               : "hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50"
                           }`}
                         >
-                          <td className="py-1.5 px-2.5 font-mono font-bold whitespace-nowrap">
+                          <td className="py-1.5 px-2 font-mono font-bold whitespace-nowrap">
                             {c.contractYear}년
                           </td>
-                          <td className="py-1.5 px-2.5 whitespace-nowrap">
+                          <td className="py-1.5 px-2 whitespace-nowrap">
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${tMeta.badgeClass}`}
                             >
                               {tMeta.label}
                             </span>
                           </td>
-                          <td className="py-1.5 px-2.5 font-bold whitespace-nowrap">
+                          <td className="py-1.5 px-2 font-bold whitespace-nowrap">
                             {c.employeeName}
                           </td>
-                          <td className="py-1.5 px-2.5 text-right font-mono whitespace-nowrap">
-                            {formatErpCurrency(c.baseSalary)}
+                          <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
+                            {c.contractType === "SECURITY_PLEDGE"
+                              ? "-"
+                              : formatErpCurrency(c.baseSalary)}
                           </td>
-                          <td className="py-1.5 px-2.5 text-right font-mono whitespace-nowrap">
-                            {formatErpCurrency(allowanceSum)}
-                          </td>
-                          <td className="py-1.5 px-2.5 font-mono whitespace-nowrap">
+                          <td className="py-1.5 px-2 font-mono whitespace-nowrap">
                             {c.startDate}
                           </td>
-                          <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
-                            {c.scanFileUrl ? (
+                          <td className="py-1.5 px-2 text-center whitespace-nowrap">
+                            {c.scanFileUrl && c.contractType !== "SECURITY_PLEDGE" ? (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -817,15 +939,42 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                                   loadContractIntoForm(c);
                                   setRightViewMode("SCAN");
                                 }}
-                                className="px-1.5 py-0.5 rounded bg-[#ede9fe] text-[#5b21b6] border border-[#c4b5fd] text-[10px] font-bold hover:bg-[#ddd6fe]"
+                                className="px-1.5 py-0.5 rounded bg-[#dbeafe] text-[#1e40af] border border-[#93c5fd] text-[10px] font-bold hover:bg-[#bfdbfe]"
                               >
-                                스캔보기
+                                계약스캔
                               </button>
                             ) : (
                               <span className="text-[10px] text-[#94a3b8]">-</span>
                             )}
                           </td>
                           <td className="py-1.5 px-2 text-center whitespace-nowrap">
+                            {c.pledgeScanUrl ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  loadContractIntoForm(c);
+                                  setRightViewMode("PLEDGE_SCAN");
+                                }}
+                                className="px-1.5 py-0.5 rounded bg-[#ede9fe] text-[#5b21b6] border border-[#c4b5fd] text-[10px] font-bold hover:bg-[#ddd6fe]"
+                              >
+                                서약스캔
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  loadContractIntoForm(c);
+                                  setRightViewMode("PLEDGE_DOC");
+                                }}
+                                className="px-1.5 py-0.5 rounded bg-[#f1f5f9] text-[#475569] border border-[#cbd5e1] text-[10px] font-semibold hover:bg-[#e2e8f0]"
+                              >
+                                서약양식
+                              </button>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-1.5 text-center whitespace-nowrap">
                             <button
                               type="button"
                               onClick={(e) => {
@@ -847,15 +996,17 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
             </div>
           </div>
 
-          {/* 2-2. 근로계약 상세 입력·편집 패널 (헌장 3.4 상하 스택 레이아웃 준수) */}
+          {/* 2-2. 근로계약 및 입사 보안서약서 상세 입력·편집 패널 */}
           <div className="bg-[#f4efe4] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800 flex flex-col">
             <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold">
                 <span>
                   {selectedContractId
-                    ? `근로계약 조건 편집 (${form.employeeName} · ${form.contractYear}년)`
+                    ? `근로계약 · 보안서약 편집 (${form.employeeName} · ${form.contractYear}년)`
+                    : form.contractType === "SECURITY_PLEDGE"
+                    ? "입사 시 1회 정보보호(보안) 서약서 작성"
                     : form.contractType === "NEW_HIRE"
-                    ? "신입 직원 채용 근로계약 조건 입력"
+                    ? "신입 직원 채용 근로계약 · 보안서약 입력"
                     : "연봉협상 재계약 근로조건 입력"}
                 </span>
               </div>
@@ -866,35 +1017,51 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                 className="px-3 py-1 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs whitespace-nowrap transition disabled:opacity-50"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>{saving ? "저장 중..." : selectedContractId ? "계약서 수정 저장" : "신규 계약서 저장"}</span>
+                <span>
+                  {saving
+                    ? "저장 중..."
+                    : selectedContractId
+                    ? "계약서·보안서약 수정 저장"
+                    : "신규 저장"}
+                </span>
               </button>
             </div>
 
             <div className="p-3 space-y-2.5 text-xs">
-              {/* 1행: 계약유형 / 귀속연도 / 기존사원 불러오기 */}
+              {/* 1행: 문서 구분 / 귀속연도 / 기존사원 불러오기 */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-                    계약 구분
+                    문서 구분
                   </label>
                   <select
                     value={form.contractType}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const nextType = e.target.value as
+                        | "NEW_HIRE"
+                        | "RENEWAL"
+                        | "SECURITY_PLEDGE";
                       setForm((prev) => ({
                         ...prev,
-                        contractType: e.target.value as "NEW_HIRE" | "RENEWAL",
-                      }))
-                    }
+                        contractType: nextType,
+                      }));
+                      if (nextType === "SECURITY_PLEDGE") {
+                        setRightViewMode("PLEDGE_DOC");
+                      } else if (rightViewMode.startsWith("PLEDGE")) {
+                        setRightViewMode("DOCUMENT");
+                      }
+                    }}
                     className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1.5 font-bold text-xs"
                   >
                     <option value="NEW_HIRE">신입 직원 채용</option>
                     <option value="RENEWAL">연봉협상 재계약</option>
+                    <option value="SECURITY_PLEDGE">보안서약서 (입사 1회)</option>
                   </select>
                 </div>
 
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-                    계약 귀속연도
+                    귀속연도
                   </label>
                   <input
                     type="text"
@@ -923,18 +1090,33 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                 </div>
               </div>
 
-              {/* 2행: 근로자 성명 / 연락처 / 계약체결일 */}
+              {/* 2행: 근로자 성명 / 주민등록번호(보안서약서용) / 연락처 */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-                    근로자 성명
+                    근로자(서약자) 성명
                   </label>
                   <input
                     type="text"
                     value={form.employeeName}
                     onChange={(e) => setForm((prev) => ({ ...prev, employeeName: e.target.value }))}
-                    placeholder="예: 박종환"
+                    placeholder="예: 장종순"
                     className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1.5 font-bold text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-bold text-[#5b21b6] dark:text-violet-300 whitespace-nowrap">
+                    주민등록번호 (보안서약서 표기)
+                  </label>
+                  <input
+                    type="text"
+                    value={form.residentRegNo}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, residentRegNo: e.target.value }))
+                    }
+                    placeholder="예: 780217-1241810"
+                    className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1.5 font-mono text-xs"
                   />
                 </div>
 
@@ -952,23 +1134,81 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                     className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1.5 font-mono text-xs"
                   />
                 </div>
+              </div>
 
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-                    계약 체결일
-                  </label>
-                  <input
-                    type="date"
-                    value={form.contractDate}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, contractDate: e.target.value }))
-                    }
-                    className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1.5 font-mono text-xs"
-                  />
+              {/* 3행: 입사 시 1회 보안서약서 전용 보관 박s */}
+              <div className="p-2.5 rounded bg-[#f5f3ff] dark:bg-violet-950/30 border border-[#c4b5fd] dark:border-violet-800 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 font-bold text-[#5b21b6] dark:text-violet-300">
+                    <ShieldCheck className="w-4 h-4 shrink-0" />
+                    <span className="whitespace-nowrap">
+                      입사 시 1회 정보보호(보안) 서약서 관리
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setRightViewMode("PLEDGE_DOC")}
+                      className="px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-[#c4b5fd] text-[#5b21b6] dark:text-violet-300 text-[11px] font-bold hover:bg-[#ede9fe]"
+                    >
+                      서약서 양식 보기
+                    </button>
+                    {form.pledgeScanUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setRightViewMode("PLEDGE_SCAN")}
+                        className="px-2 py-0.5 rounded bg-[#5b21b6] text-white text-[11px] font-bold hover:bg-[#4c1d95]"
+                      >
+                        서약서 스캔본 열람
+                      </button>
+                    )}
+                    <input
+                      ref={pledgeFileInputRef}
+                      type="file"
+                      accept=".pdf,image/*"
+                      onChange={handlePledgeScanUpload}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => pledgeFileInputRef.current?.click()}
+                      className="px-2 py-0.5 rounded bg-[#6d28d9] hover:bg-[#5b21b6] text-white text-[11px] font-bold flex items-center gap-1"
+                    >
+                      <Upload className="w-3 h-3" />
+                      <span>보안서약서 스캔 첨부</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-bold text-[#475569] dark:text-slate-400 whitespace-nowrap">
+                      보안서약서 작성일 (입사 시 1회)
+                    </label>
+                    <input
+                      type="date"
+                      value={form.pledgeDate}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, pledgeDate: e.target.value }))
+                      }
+                      className="bg-white dark:bg-slate-900 border border-[#c4b5fd] dark:border-slate-700 rounded px-2 py-1 font-mono text-xs"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-bold text-[#475569] dark:text-slate-400 whitespace-nowrap">
+                      보관된 보안서약서 스캔 파일명
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={form.pledgeScanName || "미첨부 (우측 상단 버튼으로 스캔본 첨부 가능)"}
+                      className="bg-white/70 dark:bg-slate-900 border border-[#c4b5fd] dark:border-slate-700 rounded px-2 py-1 text-[11px] text-[#475569]"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* 3행: 근로자 주소 */}
+              {/* 4행: 근로자 주소 */}
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
                   근로자 주소
@@ -984,8 +1224,8 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                 />
               </div>
 
-              {/* 4행: 근로계약기간 (개시일 / 종료일) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {/* 5행: 근로계약기간 (개시일 / 종료일 / 체결일) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
                     1. 근로계약 개시일
@@ -1007,7 +1247,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
 
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-                    근로계약 종료일 (정함이 없으면 비움)
+                    종료일 (무기계약 시 비움)
                   </label>
                   <input
                     type="date"
@@ -1016,9 +1256,23 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                     className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1.5 font-mono text-xs"
                   />
                 </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
+                    계약 체결일
+                  </label>
+                  <input
+                    type="date"
+                    value={form.contractDate}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, contractDate: e.target.value }))
+                    }
+                    className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1.5 font-mono text-xs"
+                  />
+                </div>
               </div>
 
-              {/* 5행: 근무장소 & 업무의 내용 */}
+              {/* 6행: 근무장소 & 업무의 내용 */}
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
                   2. 근무장소
@@ -1045,7 +1299,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                 />
               </div>
 
-              {/* 6행: 임금 (기본급, 식대, 차량보조금, 시급표기) */}
+              {/* 7행: 임금 (기본급, 식대, 차량보조금, 시급표기) */}
               <div className="p-2.5 rounded bg-[#ebe5d8] dark:bg-slate-950 border border-[#c4b6a0] dark:border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-[#1e3a8a] dark:text-blue-300">
@@ -1127,59 +1381,16 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                 </div>
               </div>
 
-              {/* 7행: 근로시간 및 임금지급일 */}
-              <div className="grid grid-cols-3 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-                    시업 시각
-                  </label>
-                  <input
-                    type="text"
-                    value={form.workStartTime}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, workStartTime: e.target.value }))
-                    }
-                    className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1 font-mono text-xs"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-                    종업 시각
-                  </label>
-                  <input
-                    type="text"
-                    value={form.workEndTime}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, workEndTime: e.target.value }))
-                    }
-                    className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1 font-mono text-xs"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-                    임금지급일 (매월)
-                  </label>
-                  <input
-                    type="number"
-                    value={form.payDay}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, payDay: Number(e.target.value || 10) }))
-                    }
-                    className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1 font-mono text-xs"
-                  />
-                </div>
-              </div>
-
               {/* 8행: 비고 메모 및 사원대장 동기화 옵션 */}
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-                  계약 이력 메모 (특이사항)
+                  계약 · 보안서약 이력 메모
                 </label>
                 <input
                   type="text"
                   value={form.memo}
                   onChange={(e) => setForm((prev) => ({ ...prev, memo: e.target.value }))}
-                  placeholder="예: 2026년 연봉협상 인상 재계약 체결"
+                  placeholder="예: 2025년 11월 입사 근로계약서 및 정보보호서약서 스캔 보관"
                   className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1.5 text-xs"
                 />
               </div>
@@ -1194,7 +1405,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                     }
                     className="rounded"
                   />
-                  <span>저장 시 인사/급여 사원대장의 기본급·식대·주소 자동 업데이트</span>
+                  <span>저장 시 사원대장(급여·주소·주민번호·보안서약서) 자동 동기화</span>
                 </label>
 
                 {!form.employeeId && (
@@ -1218,54 +1429,90 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
           </div>
         </div>
 
-        {/* 우측 (7열): 표준 근로계약서 양식 실시간 프리뷰 / 스캔 원본 뷰어 */}
+        {/* 우측 (7열): 근로계약서 양식 / 근로계약서 스캔본 / 정보보호서약서 양식 / 보안서약서 스캔본 4탭 뷰어 */}
         <div className="lg:col-span-7 flex flex-col bg-[#f4efe4] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800">
-          {/* 우측 상단 뷰 전환 탭 */}
-          <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-1.5">
+          {/* 우측 상단 4종 뷰 전환 탭 */}
+          <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-1">
               <button
                 type="button"
                 onClick={() => setRightViewMode("DOCUMENT")}
-                className={`px-3 py-1 rounded text-xs font-bold border transition ${
+                className={`px-2.5 py-1 rounded text-xs font-bold border whitespace-nowrap transition ${
                   rightViewMode === "DOCUMENT"
                     ? "bg-[#1d4ed8] text-white border-[#1e40af]"
                     : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894] dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700"
                 }`}
               >
-                표준 근로계약서 양식 (인쇄용)
+                ① 근로계약서 양식
               </button>
+
               <button
                 type="button"
                 onClick={() => setRightViewMode("SCAN")}
-                className={`px-3 py-1 rounded text-xs font-bold border transition flex items-center gap-1 ${
+                className={`px-2.5 py-1 rounded text-xs font-bold border whitespace-nowrap transition flex items-center gap-1 ${
                   rightViewMode === "SCAN"
-                    ? "bg-[#6d28d9] text-white border-[#5b21b6]"
+                    ? "bg-[#1d4ed8] text-white border-[#1e40af]"
                     : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894] dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700"
                 }`}
               >
                 <Eye className="w-3.5 h-3.5" />
-                <span>
-                  스캔 원본 조회 {form.scanFileUrl ? `(보유: ${form.scanFileName || "파일"})` : "(미첨부)"}
-                </span>
+                <span>② 근로계약서 스캔본 {form.scanFileUrl ? "(보유)" : "(미첨부)"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRightViewMode("PLEDGE_DOC")}
+                className={`px-2.5 py-1 rounded text-xs font-bold border whitespace-nowrap transition flex items-center gap-1 ${
+                  rightViewMode === "PLEDGE_DOC"
+                    ? "bg-[#5b21b6] text-white border-[#4c1d95]"
+                    : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894] dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700"
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>③ 정보보호서약서 양식 (입사 1회)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRightViewMode("PLEDGE_SCAN")}
+                className={`px-2.5 py-1 rounded text-xs font-bold border whitespace-nowrap transition flex items-center gap-1 ${
+                  rightViewMode === "PLEDGE_SCAN"
+                    ? "bg-[#5b21b6] text-white border-[#4c1d95]"
+                    : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894] dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700"
+                }`}
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>④ 보안서약서 스캔본 {form.pledgeScanUrl ? "(보유)" : "(미첨부)"}</span>
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {rightViewMode === "SCAN" && form.scanFileUrl && (
                 <a
                   href={form.scanFileUrl}
                   download={form.scanFileName || `근로계약서_${form.employeeName}.pdf`}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-2.5 py-1 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded"
+                  className="px-2.5 py-1 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded whitespace-nowrap"
                 >
-                  스캔본 다운로드
+                  계약스캔 다운로드
+                </a>
+              )}
+              {rightViewMode === "PLEDGE_SCAN" && form.pledgeScanUrl && (
+                <a
+                  href={form.pledgeScanUrl}
+                  download={form.pledgeScanName || `보안서약서_${form.employeeName}.pdf`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2.5 py-1 bg-[#5b21b6] hover:bg-[#4c1d95] text-white text-xs font-bold rounded whitespace-nowrap"
+                >
+                  서약스캔 다운로드
                 </a>
               )}
               <button
                 type="button"
-                onClick={handlePrintContract}
-                className="px-2.5 py-1 bg-[#334155] hover:bg-[#1e293b] text-white text-xs font-bold rounded flex items-center gap-1"
+                onClick={handlePrintDocument}
+                className="px-2.5 py-1 bg-[#334155] hover:bg-[#1e293b] text-white text-xs font-bold rounded flex items-center gap-1 whitespace-nowrap"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>A4 출력</span>
@@ -1297,7 +1544,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                 <div className="w-full max-w-lg my-auto p-8 bg-[#f4efe4] dark:bg-slate-900 rounded border border-[#b5a894] dark:border-slate-800 text-center space-y-3">
                   <FileText className="w-10 h-10 mx-auto text-[#64748b]" />
                   <div className="text-sm font-bold">
-                    등록된 스캔본 파일이 없습니다 ({form.employeeName} · {form.contractYear}년)
+                    등록된 근로계약서 스캔본이 없습니다 ({form.employeeName} · {form.contractYear}년)
                   </div>
                   <p className="text-xs text-[#475569] dark:text-slate-400">
                     서명 완료된 근로계약서 스캔본(PDF 또는 이미지)을 업로드하면 연도별로 영구 보관하고 언제든 조회할 수 있습니다.
@@ -1305,17 +1552,161 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="px-4 py-2 bg-[#6d28d9] hover:bg-[#5b21b6] text-white text-xs font-bold rounded inline-flex items-center gap-1.5"
+                    className="px-4 py-2 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded inline-flex items-center gap-1.5"
                   >
                     <Upload className="w-4 h-4" />
-                    <span>이 계약서의 스캔본 파일 업로드</span>
+                    <span>근로계약서 스캔본 파일 업로드</span>
                   </button>
                 </div>
               )
-            ) : (
-              /* 표준 근로계약서 A4 문서 양식 (제공된 박종환/장종순/김승지 계약서 양식 100% 재현) */
+            ) : rightViewMode === "PLEDGE_SCAN" ? (
+              form.pledgeScanUrl ? (
+                <div className="w-full h-full min-h-[650px] bg-white rounded border border-[#b5a894] overflow-hidden flex flex-col">
+                  {form.pledgeScanUrl.startsWith("data:image/") ||
+                  /\.(png|jpg|jpeg|webp)$/i.test(form.pledgeScanUrl) ? (
+                    <img
+                      src={form.pledgeScanUrl}
+                      alt="보안서약서 스캔본"
+                      className="max-w-full h-auto mx-auto p-4"
+                    />
+                  ) : (
+                    <iframe
+                      src={form.pledgeScanUrl}
+                      title="보안서약서 스캔 PDF"
+                      className="w-full flex-1 min-h-[680px]"
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="w-full max-w-lg my-auto p-8 bg-[#f4efe4] dark:bg-slate-900 rounded border border-[#b5a894] dark:border-slate-800 text-center space-y-3">
+                  <ShieldCheck className="w-10 h-10 mx-auto text-[#5b21b6]" />
+                  <div className="text-sm font-bold">
+                    등록된 보안서약서 스캔본이 없습니다 ({form.employeeName})
+                  </div>
+                  <p className="text-xs text-[#475569] dark:text-slate-400">
+                    입사 시 1회 작성한 정보보호(보안) 서약서 스캔본을 업로드하면 해당 사원의 인사/계약 기록에 영구 보관됩니다.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => pledgeFileInputRef.current?.click()}
+                    className="px-4 py-2 bg-[#5b21b6] hover:bg-[#4c1d95] text-white text-xs font-bold rounded inline-flex items-center gap-1.5"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>보안서약서 스캔본 업로드</span>
+                  </button>
+                </div>
+              )
+            ) : rightViewMode === "PLEDGE_DOC" ? (
+              /* ③ 정보보호 서약서 A4 표준 양식 (제공된 장종순 정보보호 서약서 원본 100% 재현) */
               <div
-                id="printable-employment-contract"
+                id="printable-active-document"
+                className="w-full max-w-[760px] bg-white text-black p-8 md:p-12 rounded shadow-md border border-[#b5a894] font-serif leading-relaxed text-[14px]"
+              >
+                <div className="text-center mb-8 pt-2">
+                  <h1 className="text-2xl font-bold tracking-[0.25em] underline underline-offset-8">
+                    정보보호 서약서
+                  </h1>
+                </div>
+
+                <p className="mb-6 leading-7 text-[14.5px]">
+                  본인은 {form.employerName}(이하 &ldquo;회사&rdquo;)의 정보보호와 관련하여 다음의
+                  각 사항을 준수할 것을 서약합니다.
+                </p>
+
+                <div className="text-center font-bold my-6 tracking-widest">- 다 음 -</div>
+
+                <div className="space-y-4 text-[14px] leading-7">
+                  <div className="flex gap-2">
+                    <span className="font-semibold shrink-0">1.</span>
+                    <span>
+                      정보통신망 이용촉진 및 정보보호 등에 관한 법률에 따른 회사의 정보보호 지침을
+                      준수하겠습니다.
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <span className="font-semibold shrink-0">2.</span>
+                    <span>
+                      업무를 수행함에 있어서 취득한 정보에 대한 모든 권리가 회사 소유임을
+                      확약합니다.
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <span className="font-semibold shrink-0">3.</span>
+                    <span>
+                      업무 수행 중 알게 된 고객에 관한 일체의 정보 및 회사의 영업비밀(경영정보,
+                      재무정보, 고객정보 등)을 회사 및 고객의 승인 없이 제 3자에게 판매, 대여, 유통
+                      등을 하지 않겠습니다.
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <span className="font-semibold shrink-0">4.</span>
+                    <span>
+                      고객의 정보를 수집할 때에는 업무상 필요한 정보 이외의 것을 확인하지 않으며,
+                      본인에게 접근이 허용되지 않은 정보에 대한 접근통제 규칙을 준수하겠습니다.
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <span className="font-semibold shrink-0">5.</span>
+                    <span>
+                      업무 프로그램, 전산기기, 시설물 등을 훼손하거나 외부로 유출되지 않도록 하고,
+                      보안 구역에 대한 접근통제 규칙을 준수하겠습니다.
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <span className="font-semibold shrink-0">6.</span>
+                    <span>
+                      고객의 정보유출이나 정보보호 위반사례를 발견할 때에는 지체없이 회사에
+                      보고하겠습니다.
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <span className="font-semibold shrink-0">7.</span>
+                    <span>
+                      만약 서약사항을 위반하여 회사의 업무에 손해를 끼친 경우 민형사상의 책임과
+                      관계법령 및 회사의 규정에 의한 조치를 따르겠습니다.
+                    </span>
+                  </div>
+                </div>
+
+                {/* 서약일자 */}
+                <div className="text-right font-bold text-[15px] my-12 pr-12 tracking-widest">
+                  {pledgeParts.y} 년 {pledgeParts.m} 월 {pledgeParts.d} 일
+                </div>
+
+                {/* 주민등록번호 / 성명 / 귀중 */}
+                <div className="flex flex-col items-end space-y-4 text-[15px] pr-4">
+                  <div className="w-80 flex items-center justify-between">
+                    <span className="font-semibold">주민등록번호 :</span>
+                    <span className="font-mono font-bold tracking-wider">
+                      {form.residentRegNo || "______ - _______"}
+                    </span>
+                  </div>
+
+                  <div className="w-80 flex items-center justify-between">
+                    <span className="font-semibold">
+                      성 명 :{" "}
+                      <span className="font-bold text-lg ml-2">
+                        {form.employeeName || "          "}
+                      </span>
+                    </span>
+                    <span className="text-neutral-700">(서명/날인)</span>
+                  </div>
+
+                  <div className="w-80 pt-4 text-left font-bold text-base tracking-wide">
+                    {form.employerName} 귀중
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* ① 표준 근로계약서 A4 문서 양식 */
+              <div
+                id="printable-active-document"
                 className="w-full max-w-[760px] bg-white text-black p-6 md:p-10 rounded shadow-md border border-[#b5a894] font-serif leading-relaxed text-[13.5px]"
               >
                 {/* 타이틀 박스 */}

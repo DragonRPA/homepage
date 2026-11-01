@@ -80,9 +80,9 @@ export const RetirementPensionGuideTab: React.FC<{ currentUser?: any }> = () => 
           </div>
           <div className="p-3.5 rounded border bg-black/[0.02] dark:bg-white/[0.02] space-y-1">
             <div className="text-[11px] font-bold text-blue-700 dark:text-blue-400">03. 연말정산 세액공제 및 정부지원</div>
-            <div className="text-sm font-extrabold">연 최대 148.5만 원 환급</div>
+            <div className="text-sm font-extrabold">연 최대 148.5만 원 환급 + 10% 지원</div>
             <p className="text-xs opacity-80 leading-relaxed">
-              근로자가 희망 시 본인 부담금을 추가 납입하면 연 최대 900만 원 한도 내에서 13.2%~16.5% 세액공제를 받으며, 푸른씨앗 선택 시 조건 충족 근로자는 정부지원금 10%가 추가 적립됩니다.
+              근로자가 희망 시 본인 부담금을 추가 납입하면 연 최대 900만 원 한도 내에서 13.2%~16.5%(총급여 5,500만 원 이하 16.5%, 초과 13.2%) 세액공제를 받으며, 푸른씨앗 선택 시 <strong>월 평균보수 268만 원 미만 근로자(최저임금의 130% 미만)</strong>에게는 회사 부담금의 10%가 근로자 연금계좌에 3년간 추가 적립됩니다.
             </p>
           </div>
         </div>

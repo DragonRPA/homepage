@@ -4,7 +4,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   CreditCard, DollarSign, Calendar, RefreshCw, 
   Download, Check, AlertCircle, Edit3, Lock, Upload,
-  ArrowUpDown, ArrowUp, ArrowDown, FileText, X, Save
+  ArrowUpDown, ArrowUp, ArrowDown, FileText, X, Save,
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 import { 
   formatErpNumber, 
@@ -74,6 +75,15 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
   const currentMonth = new Date().toISOString().substring(0, 7);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+
+  const shiftMonth = (delta: number) => {
+    const [y, m] = selectedMonth.split("-").map(Number);
+    if (!y || !m) return;
+    const d = new Date(y, m - 1 + delta, 1);
+    const nextY = d.getFullYear();
+    const nextM = String(d.getMonth() + 1).padStart(2, "0");
+    setSelectedMonth(`${nextY}-${nextM}`);
+  };
   const [records, setRecords] = useState<PayrollRecord[]>([]);
   const [summary, setSummary] = useState({
     count: 0,
@@ -450,13 +460,29 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => shiftMonth(-1)}
+              className="p-1.5 bg-[#f4efe4] hover:bg-[#ebe5d8] text-[#334155] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700"
+              title="이전 달"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
             <input
               type="month"
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1 rounded focus:outline-none focus:border-[#1d4ed8] font-mono dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             />
+            <button
+              type="button"
+              onClick={() => shiftMonth(1)}
+              className="p-1.5 bg-[#f4efe4] hover:bg-[#ebe5d8] text-[#334155] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700"
+              title="다음 달"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
 

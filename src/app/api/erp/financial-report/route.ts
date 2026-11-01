@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { resolveExplicitAccountSubject } from "@/lib/erpAccountSubjects";
+import { BUSINESS_ENTITIES } from "@/lib/businessEntities";
 
 interface FinancialDetailItem {
   id: string;
@@ -116,6 +117,17 @@ function classifyBankTxAccount(row: any): {
   }
 
   // 4. 가수금 / 대표자 자금 이동 / 법인전환 준비금 (자본·차입 이동 -> NON_OP)
+  if (
+    String(row.trans_date) === "2024-07-08" &&
+    dAmt === BUSINESS_ENTITIES.CORP.capitalStock &&
+    txChannel === "대체"
+  ) {
+    return {
+      majorAccount: "NON_OP",
+      subAccount: "자본금납입",
+      sign: 1,
+    };
+  }
   if (/가수금|가수근|운영자금|법인준비/.test(combined)) {
     return {
       majorAccount: "NON_OP",
@@ -123,12 +135,21 @@ function classifyBankTxAccount(row: any): {
       sign: 1,
     };
   }
-  if (entityType === "INDIVIDUAL" && (sr === "이정용" || holder === "이정용")) {
-    return {
-      majorAccount: "NON_OP",
-      subAccount: dAmt > 0 ? "대표자입금(개인계좌)" : "대표자인출(개인계좌)",
-      sign: 1,
-    };
+  if (sr === "이정용" || holder === "이정용") {
+    if (entityType === "INDIVIDUAL") {
+      return {
+        majorAccount: "NON_OP",
+        subAccount: dAmt > 0 ? "대표자입금(개인계좌)" : "대표자인출(개인계좌)",
+        sign: 1,
+      };
+    }
+    if (dAmt > 0) {
+      return {
+        majorAccount: "NON_OP",
+        subAccount: "가수금입금",
+        sign: 1,
+      };
+    }
   }
 
   // 5. 예금이자 / 카드취소·정정 환급 등 입금
@@ -136,8 +157,11 @@ function classifyBankTxAccount(row: any): {
     if (txChannel === "이자" || /결산이자|이자/.test(combined)) {
       return { majorAccount: "NON_OP", subAccount: "이자수익", sign: 1 };
     }
-    if (txChannel === "취소" || txChannel === "정정") {
+    if (txChannel === "취소" || txChannel === "정정" || /취소/.test(combined)) {
       return { majorAccount: "OPEX", subAccount: "체크·법인카드결제(취소환급)", sign: -1 };
+    }
+    if (/과오납|환급/.test(combined)) {
+      return { majorAccount: "NON_OP", subAccount: "세금환급·과오납환입", sign: 1 };
     }
     return { majorAccount: "NON_OP", subAccount: "기타미매칭입금", sign: 1 };
   }
@@ -334,24 +358,20 @@ export async function GET(request: Request) {
       cashBeginning += Number(r.balance_after || 0);
     }
 
-    // 2-3. 유형자산(렌탈자산 + 일반비품) 조회 (BS 비유동자산용)
-    const assetRes = await pool
-      .query(`
-        SELECT COALESCE(SUM(purchase_price), 0)::numeric AS fixed_assets
-        FROM erp_assets
-      `)
-      .catch(() => ({ rows: [{ fixed_assets: 0 }] }));
+    // 2-3. 유형자산(렌탈자산) 조회 (BS 비유동자산용, 기준일 이전 취득분)
     const rentalAssetRes = await pool
-      .query(`
+      .query(
+        `
         SELECT COALESCE(SUM(acquisition_cost), 0)::numeric AS rental_assets,
                COALESCE(SUM(accumulated_depreciation), 0)::numeric AS accum_dep
         FROM erp_rental_assets
-      `)
+        WHERE acquisition_date <= $1::date
+      `,
+        [endCutoff]
+      )
       .catch(() => ({ rows: [{ rental_assets: 0, accum_dep: 0 }] }));
 
-    const tangibleAssets =
-      Number(assetRes.rows[0]?.fixed_assets || 0) +
-      Number(rentalAssetRes.rows[0]?.rental_assets || 0);
+    const tangibleAssets = Number(rentalAssetRes.rows[0]?.rental_assets || 0);
     const accumDepreciation = Number(rentalAssetRes.rows[0]?.accum_dep || 0);
 
     const details: FinancialDetailItem[] = [];
@@ -442,29 +462,29 @@ export async function GET(request: Request) {
       const combined = `${sr} ${holder} ${memo}`;
 
       // CF (현금흐름표) 실제 통장 입출금 기준 집계
+      const cls = classifyBankTxAccount(row);
       if (isMatched && matchedType === "SALE_INVOICE") {
         cfSaleInflow += dAmt;
       } else if (isMatched && matchedType === "PURCHASE_INVOICE") {
         cfPurchaseOutflow += wAmt;
-      } else if (/가수금|가수근|운영자금|법인준비/.test(combined) || (row.entity_type === "INDIVIDUAL" && (sr === "이정용" || holder === "이정용"))) {
+      } else if (
+        cls &&
+        /자본금|가수금|대표자/.test(cls.subAccount)
+      ) {
         cfFinancingInflow += dAmt;
         cfFinancingOutflow += wAmt;
-      } else {
-        const cls = classifyBankTxAccount(row);
-        if (cls) {
-          if (cls.majorAccount === "PAYROLL") {
-            cfPayrollOutflow += wAmt - dAmt;
-          } else if (cls.majorAccount === "COGS") {
-            cfPurchaseOutflow += wAmt - dAmt;
-          } else if (cls.majorAccount === "OPEX") {
-            cfOpexOutflow += wAmt - dAmt;
-          } else if (cls.majorAccount === "NON_OP") {
-            cfOtherOperatingInflow += dAmt;
-          }
+      } else if (cls) {
+        if (cls.majorAccount === "PAYROLL") {
+          cfPayrollOutflow += wAmt - dAmt;
+        } else if (cls.majorAccount === "COGS") {
+          cfPurchaseOutflow += wAmt - dAmt;
+        } else if (cls.majorAccount === "OPEX") {
+          cfOpexOutflow += wAmt - dAmt;
+        } else if (cls.majorAccount === "NON_OP") {
+          cfOtherOperatingInflow += dAmt;
         }
       }
 
-      const cls = classifyBankTxAccount(row);
       if (!cls) continue;
 
       const ym = String(row.trans_date).slice(0, 7);
@@ -683,7 +703,11 @@ export async function GET(request: Request) {
     const nonCurrentLiabilities = 0; // 가수금 1회 반환 완료로 0원
     const totalLiabilities = currentLiabilities + nonCurrentLiabilities;
 
-    const capitalStock = entityType === "INDIVIDUAL" ? 0 : 5000000; // (주)드래곤알피에이 납입자본금 500만원 (1,000주 × 5,000원)
+    const isBeforeCorpEstablishment = endCutoff < BUSINESS_ENTITIES.CORP.openDate;
+    const capitalStock =
+      entityType === "INDIVIDUAL" || isBeforeCorpEstablishment
+        ? BUSINESS_ENTITIES.INDIVIDUAL.capitalStock
+        : BUSINESS_ENTITIES.CORP.capitalStock;
     const currentTermNetIncome = grandNetIncome;
     const retainedEarningsBefore = totalAssets - totalLiabilities - capitalStock - currentTermNetIncome;
     const totalEquity = totalAssets - totalLiabilities;

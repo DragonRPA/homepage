@@ -27,6 +27,9 @@ export interface BusinessEntity {
   bankCode: string; // 003: IBK기업은행
   bankAccountNo: string;
   bankHolder: string;
+  capitalStock: number; // 납입자본금 (원)
+  parValue?: number; // 1주의 금액 (원)
+  totalShares?: number; // 발행주식총수 (주)
 }
 
 export const BUSINESS_ENTITIES: Record<EntityType, BusinessEntity> = {
@@ -48,6 +51,9 @@ export const BUSINESS_ENTITIES: Record<EntityType, BusinessEntity> = {
     bankCode: "003",
     bankAccountNo: "478-081383-04-018",
     bankHolder: "주식회사 드래곤알피에이",
+    capitalStock: 5000000,
+    parValue: 500,
+    totalShares: 10000,
   },
   INDIVIDUAL: {
     key: "INDIVIDUAL",
@@ -67,6 +73,7 @@ export const BUSINESS_ENTITIES: Record<EntityType, BusinessEntity> = {
     bankCode: "003",
     bankAccountNo: "140-129404-04-018",
     bankHolder: "이정용 드래곤알피에이",
+    capitalStock: 0,
   },
 };
 

@@ -90,16 +90,19 @@ export async function GET(request: Request) {
 
 async function syncAssignedEmployeeContractRates(pool: any) {
   const ctRes = await pool.query(
-    `SELECT customer_name, project_name, assigned_employees
+    `SELECT customer_name, project_name, start_date, end_date, status, assigned_employees
      FROM erp_service_contracts
-     WHERE COALESCE(status, 'ACTIVE') = 'ACTIVE'
+     WHERE COALESCE(status, 'ACTIVE') <> 'CANCELLED'
        AND assigned_employees IS NOT NULL`
   );
+
+  // 1) 현재 시점(ACTIVE) 기준 임직원별 합산 단가를 erp_employees.service_contract_amount에 동기화
   const rateByEmpId = new Map<number, number>();
   const rateByEmpNo = new Map<string, number>();
   const rateByName = new Map<string, number>();
 
   for (const row of ctRes.rows) {
+    if (String(row.status || "ACTIVE") !== "ACTIVE") continue;
     const list = Array.isArray(row.assigned_employees) ? row.assigned_employees : [];
     for (const item of list) {
       const rate = Math.round(Number(item?.contractRate || 0));
@@ -123,16 +126,64 @@ async function syncAssignedEmployeeContractRates(pool: any) {
       (eno ? rateByEmpNo.get(eno) : undefined) ??
       (ename ? rateByName.get(ename) : undefined);
 
-    if (matchedRate !== undefined && matchedRate > 0) {
+    if (matchedRate !== undefined) {
       await pool.query(
         `UPDATE erp_employees SET service_contract_amount = $1, updated_at = NOW() WHERE id = $2`,
         [matchedRate, eid]
       );
-      await pool.query(
-        `UPDATE erp_payroll_records SET service_contract_amount = $1, updated_at = NOW()
-         WHERE employee_id = $2 AND COALESCE(service_contract_amount, 0) = 0`,
-        [matchedRate, eid]
-      );
+    }
+  }
+
+  // 2) erp_payroll_records의 각 귀속연월(year_month)별로 해당 기간에 유효한 모든 용역계약 단가를 합산하여 자동 반영
+  const ymRes = await pool.query(`SELECT DISTINCT year_month FROM erp_payroll_records`);
+  for (const ymRow of ymRes.rows) {
+    const ym = String(ymRow.year_month || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(ym)) continue;
+    const [ymYear, ymMon] = ym.split("-").map(Number);
+    const monthStart = new Date(ymYear, ymMon - 1, 1);
+    const monthEnd = new Date(ymYear, ymMon, 0);
+
+    const monthRateByEmpId = new Map<number, number>();
+    const monthRateByEmpNo = new Map<string, number>();
+    const monthRateByName = new Map<string, number>();
+
+    for (const ct of ctRes.rows) {
+      const sDate = ct.start_date ? new Date(ct.start_date) : null;
+      const eDate = ct.end_date ? new Date(ct.end_date) : null;
+      if (sDate && sDate > monthEnd) continue;
+      if (eDate && eDate < monthStart) continue;
+
+      const list = Array.isArray(ct.assigned_employees) ? ct.assigned_employees : [];
+      for (const item of list) {
+        const rate = Math.round(Number(item?.contractRate || 0));
+        if (rate <= 0) continue;
+        const eid = Number(item?.employeeId || 0);
+        const eno = String(item?.employeeNo || "").trim();
+        const ename = String(item?.name || "").trim();
+        if (eid > 0) monthRateByEmpId.set(eid, (monthRateByEmpId.get(eid) || 0) + rate);
+        if (eno) monthRateByEmpNo.set(eno, (monthRateByEmpNo.get(eno) || 0) + rate);
+        if (ename) monthRateByName.set(ename, (monthRateByName.get(ename) || 0) + rate);
+      }
+    }
+
+    for (const emp of empRes.rows) {
+      const eid = Number(emp.id);
+      const eno = String(emp.employee_no || "").trim();
+      const ename = String(emp.name || "").trim();
+      const ymRate =
+        monthRateByEmpId.get(eid) ??
+        (eno ? monthRateByEmpNo.get(eno) : undefined) ??
+        (ename ? monthRateByName.get(ename) : undefined) ??
+        0;
+
+      if (ymRate > 0) {
+        await pool.query(
+          `UPDATE erp_payroll_records
+           SET service_contract_amount = $1, updated_at = NOW()
+           WHERE year_month = $2 AND employee_id = $3`,
+          [ymRate, ym, eid]
+        );
+      }
     }
   }
 }

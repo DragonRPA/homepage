@@ -103,12 +103,20 @@ export async function GET(request: Request) {
 
     const result = await pool.query(query, [yearMonth]);
 
-    // 활성 용역계약(erp_service_contracts)의 투입 임직원(assigned_employees) 단가 및 고객사명 매핑 조회
+    // 해당 귀속연월(yearMonth) 기간에 유효한 용역계약(erp_service_contracts)의 투입 임직원(assigned_employees) 단가 및 고객사명 합산 조회
+    const [ymYear, ymMon] = yearMonth.split("-").map(Number);
+    const monthStart = `${yearMonth}-01`;
+    const lastDayNum = new Date(ymYear, ymMon, 0).getDate();
+    const monthEnd = `${yearMonth}-${String(lastDayNum).padStart(2, "0")}`;
+
     const ctRes = await pool.query(
-      `SELECT customer_name, project_name, assigned_employees
+      `SELECT customer_name, project_name, start_date, end_date, status, assigned_employees
        FROM erp_service_contracts
-       WHERE COALESCE(status, 'ACTIVE') = 'ACTIVE'
-         AND assigned_employees IS NOT NULL`
+       WHERE COALESCE(status, 'ACTIVE') <> 'CANCELLED'
+         AND assigned_employees IS NOT NULL
+         AND (start_date IS NULL OR start_date::date <= $2::date)
+         AND (end_date IS NULL OR end_date::date >= $1::date)`,
+      [monthStart, monthEnd]
     );
     const contractMapByEmpId = new Map<number, { rate: number; labels: string[] }>();
     const contractMapByEmpNo = new Map<string, { rate: number; labels: string[] }>();
@@ -165,11 +173,12 @@ export async function GET(request: Request) {
         (r.employeeNo ? contractMapByEmpNo.get(String(r.employeeNo).trim()) : undefined) ||
         (r.employeeName ? contractMapByName.get(String(r.employeeName).trim()) : undefined);
 
+      // 해당 귀속연월 기간에 유효한 용역계약이 있으면 그 합산액(matchedContract.rate)을 우선 적용하고, 없을 때만 수동 저장값 반영
       const resolvedServiceAmt =
-        Number(r.serviceContractAmount) > 0
-          ? Number(r.serviceContractAmount)
-          : matchedContract?.rate || 0;
-      const serviceContractLabel = matchedContract?.labels?.join(", ") || "";
+        matchedContract && matchedContract.rate > 0
+          ? matchedContract.rate
+          : Number(r.serviceContractAmount || 0);
+      const serviceContractLabel = matchedContract?.labels?.join(" + ") || "";
 
       totalGrossSum += adjustedGross;
       totalDeductionSum += Number(r.totalDeduction);
@@ -406,11 +415,19 @@ export async function POST(request: Request) {
       expMap[row.employee_id] = Number(row.total_expense || 0);
     }
 
+    const [ymYear, ymMon] = yearMonth.split("-").map(Number);
+    const monthStart = `${yearMonth}-01`;
+    const lastDayNum = new Date(ymYear, ymMon, 0).getDate();
+    const monthEnd = `${yearMonth}-${String(lastDayNum).padStart(2, "0")}`;
+
     const ctRes = await pool.query(
       `SELECT assigned_employees
        FROM erp_service_contracts
-       WHERE COALESCE(status, 'ACTIVE') = 'ACTIVE'
-         AND assigned_employees IS NOT NULL`
+       WHERE COALESCE(status, 'ACTIVE') <> 'CANCELLED'
+         AND assigned_employees IS NOT NULL
+         AND (start_date IS NULL OR start_date::date <= $2::date)
+         AND (end_date IS NULL OR end_date::date >= $1::date)`,
+      [monthStart, monthEnd]
     );
     const activeContractRateMap: Record<number, number> = {};
     for (const ct of ctRes.rows) {

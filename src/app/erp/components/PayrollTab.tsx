@@ -16,6 +16,7 @@ import {
   sortErpItems, 
   SortDirection 
 } from "@/lib/erpFormat";
+import * as XLSX from "xlsx";
 
 export interface PayrollRecord {
   id: number;
@@ -443,6 +444,34 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     document.body.removeChild(link);
   };
 
+  // 은행 자동이체 등록용 엑셀(.xlsx) 생성 (A:입금은행, B:입금계좌번호, C:이체금액, D:받는사람)
+  const handleExportBankTransferExcel = () => {
+    if (sortedRecords.length === 0) {
+      showToast("다운로드할 급여 내역이 없습니다.", "error");
+      return;
+    }
+
+    const sheetData: (string | number)[][] = [
+      ["입금은행", "입금계좌번호", "이체금액", "받는사람"],
+      ...sortedRecords
+        .filter((r) => Number(r.netSalary || 0) > 0)
+        .map((r) => [
+          String(r.salaryBankName || "").trim(),
+          String(r.salaryAccountNo || "").trim(),
+          Math.round(Number(r.netSalary || 0)),
+          String(r.salaryAccountHolder || r.employeeName || "")
+            .replace(/\s+대표이사$/, "")
+            .trim(),
+        ]),
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+    ws["!cols"] = [{ wch: 14 }, { wch: 22 }, { wch: 16 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+    XLSX.writeFile(wb, `급여자동이체_${selectedMonth}.xlsx`);
+  };
+
   return (
     <div className="flex flex-col min-h-full md:h-full bg-[#ebe5d8] text-[#0f172a] md:overflow-hidden font-sans dark:bg-slate-950 dark:text-slate-100">
       {/* Toast Notification */}
@@ -522,6 +551,14 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
           >
             <Download className="w-3.5 h-3.5" />
             <span>엑셀</span>
+          </button>
+
+          <button
+            onClick={handleExportBankTransferExcel}
+            className="px-2.5 py-1.5 bg-[#f4efe4] hover:bg-[#ebe5d8] text-[#047857] text-xs font-bold rounded flex items-center gap-1 border border-[#059669] shadow transition dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-emerald-400 dark:border-emerald-600 whitespace-nowrap"
+          >
+            <CreditCard className="w-3.5 h-3.5" />
+            <span>자동이체 엑셀</span>
           </button>
 
           {isAdmin && (

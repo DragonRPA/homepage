@@ -185,14 +185,23 @@ function parseHometaxRows(rows) {
   if (headerIdx === -1) return [];
 
   const headers = rows[headerIdx].map((h) => String(h || "").replace(/\s+/g, ""));
-  const findCol = (keywords, startAfter = -1) => {
+  const findCol = (keywords, startAfter = -1, excludeKeywords = []) => {
+    // 1st pass: exact match priority
+    for (const kw of keywords) {
+      for (let c = startAfter + 1; c < headers.length; c++) {
+        if (headers[c] === kw) return c;
+      }
+    }
+    // 2nd pass: substring match with exclusion guard
     for (let c = startAfter + 1; c < headers.length; c++) {
-      if (keywords.some((kw) => headers[c].includes(kw))) return c;
+      const h = headers[c];
+      if (excludeKeywords.some((ex) => h.includes(ex))) continue;
+      if (keywords.some((kw) => h.includes(kw))) return c;
     }
     return -1;
   };
 
-  const colWriteDate = findCol(["작성일자", "발행일자", "일자"]);
+  const colWriteDate = findCol(["작성일자", "발행일자", "일자"], -1, ["품목일자", "발급일자", "전송일자"]);
   const colIssueDate = findCol(["발급일자", "발행일자"]);
   const colNtsNo = findCol(["승인번호", "국세청승인번호"]);
   const colSupplierBizNo = findCol(["공급자사업자등록번호", "공급자등록번호", "등록번호"]);
@@ -207,15 +216,19 @@ function parseHometaxRows(rows) {
   const colBuyerCeo = findCol(["공급받는자성명", "대표자명", "성명"], colBuyerName >= 0 ? colBuyerName : colSupplierCeo);
   const colBuyerAddr = findCol(["공급받는자주소", "주소"], colBuyerCeo >= 0 ? colBuyerCeo : -1);
   const colTotal = findCol(["합계금액", "총금액", "합계"]);
-  const colSupply = findCol(["공급가액"]);
-  const colVat = findCol(["세액", "부가세"]);
-  const colRemark = findCol(["비고"]);
+  const colSupply = findCol(["공급가액"], -1, ["품목공급가액"]);
+  const colVat = findCol(["세액", "부가세"], -1, ["품목세액"]);
+  const colRemark = findCol(["비고"], -1, ["품목비고"]);
   const colPurpose = findCol(["영수/청구", "영수청구", "구분"]);
   const colSupplierEmail = findCol(["공급자이메일"]);
   const colBuyerEmail1 = findCol(["공급받는자이메일1", "이메일1"]);
   const colBuyerEmail2 = findCol(["공급받는자이메일2", "이메일2"]);
   const colItemDate = findCol(["품목일자"]);
-  const colItem = findCol(["품목명", "품목", "적요"]);
+  const colItem = findCol(
+    ["품목명", "품목", "적요"],
+    -1,
+    ["품목일자", "품목규격", "품목수량", "품목단가", "품목공급가액", "품목세액", "품목비고"]
+  );
   const colItemSpec = findCol(["품목규격", "규격"]);
   const colItemQty = findCol(["품목수량", "수량"]);
   const colItemUnitCost = findCol(["품목단가", "단가"]);
@@ -250,10 +263,13 @@ function parseHometaxRows(rows) {
 
     const ioType = supBizNo === OUR_BIZ_NO_RAW ? "SALE" : "PURCHASE";
     const ntsNo = colNtsNo >= 0 ? String(row[colNtsNo] || "").trim() : `HTX-${writeDate.replace(/-/g, "")}-${r}`;
+    const rawItemCandidate = colItem >= 0 ? String(row[colItem] || "").trim() : "";
+    const validItemCandidate = /^\d{4}-\d{2}-\d{2}$/.test(rawItemCandidate) ? "" : rawItemCandidate;
     const itemName =
-      (colItem >= 0 ? String(row[colItem] || "").trim() : "") ||
+      validItemCandidate ||
       (colRemark >= 0 ? String(row[colRemark] || "").trim() : "") ||
-      (ioType === "PURCHASE" ? "매입 세금계산서" : "매출 세금계산서");
+      (colItemRemark >= 0 ? String(row[colItemRemark] || "").trim() : "") ||
+      (ioType === "PURCHASE" ? "매입 품목" : "매출 품목");
 
     const itemDateStr = colItemDate >= 0 && String(row[colItemDate]).trim() ? String(row[colItemDate]).trim() : writeDate;
     const [, mm = writeDate.slice(5, 7), dd = writeDate.slice(8, 10)] = itemDateStr.split("-");

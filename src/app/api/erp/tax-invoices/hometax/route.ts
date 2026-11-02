@@ -78,15 +78,23 @@ function parseHometaxExcelBuffer(
     if (headerIdx === -1) headerIdx = 0;
 
     const headers = rows[headerIdx].map((h) => String(h || "").replace(/\s+/g, ""));
-    const findCol = (keywords: string[], startAfter = -1): number => {
+    const findCol = (keywords: string[], startAfter = -1, excludeKeywords: string[] = []): number => {
+      // 1st pass: exact match priority
+      for (const kw of keywords) {
+        for (let c = startAfter + 1; c < headers.length; c++) {
+          if (headers[c] === kw) return c;
+        }
+      }
+      // 2nd pass: substring match with exclusion guard
       for (let c = startAfter + 1; c < headers.length; c++) {
         const h = headers[c];
+        if (excludeKeywords.some((ex) => h.includes(ex))) continue;
         if (keywords.some((kw) => h.includes(kw))) return c;
       }
       return -1;
     };
 
-    const colWriteDate = findCol(["작성일자", "발행일자", "일자"]);
+    const colWriteDate = findCol(["작성일자", "발행일자", "일자"], -1, ["품목일자", "발급일자", "전송일자"]);
     const colIssueDate = findCol(["발급일자", "발행일자"]);
     const colNtsNo = findCol(["승인번호", "국세청승인번호"]);
     const colSupplierBizNo = findCol(["공급자사업자등록번호", "공급자등록번호", "등록번호"]);
@@ -99,11 +107,16 @@ function parseHometaxExcelBuffer(
     const colBuyerName = findCol(["공급받는자상호", "거래처명", "상호"], colBuyerBizNo >= 0 ? colBuyerBizNo : colSupplierName);
     const colBuyerCeo = findCol(["공급받는자성명", "대표자명", "성명"], colBuyerName >= 0 ? colBuyerName : colSupplierCeo);
     const colTotal = findCol(["합계금액", "총금액", "합계"]);
-    const colSupply = findCol(["공급가액"]);
-    const colVat = findCol(["세액", "부가세"]);
-    const colItem = findCol(["품목명", "품목", "적요"]);
+    const colSupply = findCol(["공급가액"], -1, ["품목공급가액"]);
+    const colVat = findCol(["세액", "부가세"], -1, ["품목세액"]);
+    const colItem = findCol(
+      ["품목명", "품목", "적요"],
+      -1,
+      ["품목일자", "품목규격", "품목수량", "품목단가", "품목공급가액", "품목세액", "품목비고"]
+    );
     const colPurpose = findCol(["영수/청구", "영수청구", "구분"]);
-    const colRemark = findCol(["비고"]);
+    const colRemark = findCol(["비고"], -1, ["품목비고"]);
+    const colItemRemark = findCol(["품목비고"]);
 
     for (let r = headerIdx + 1; r < rows.length; r++) {
       const row = rows[r];
@@ -137,6 +150,16 @@ function parseHometaxExcelBuffer(
         rowIoType = "PURCHASE";
       }
 
+      const rawItemCandidate = colItem >= 0 ? String(row[colItem] || "").trim() : "";
+      const validItemCandidate = /^\d{4}-\d{2}-\d{2}$/.test(rawItemCandidate) ? "" : rawItemCandidate;
+      const remarkStr = colRemark >= 0 ? String(row[colRemark] || "").trim() : "";
+      const itemRemarkStr = colItemRemark >= 0 ? String(row[colItemRemark] || "").trim() : "";
+      const resolvedItemName =
+        validItemCandidate ||
+        remarkStr ||
+        itemRemarkStr ||
+        (rowIoType === "PURCHASE" ? "매입 품목" : "매출 품목");
+
       results.push({
         ioType: rowIoType,
         ntsConfirmNo: ntsNo || `HTX-${writeDate.replace(/-/g, "")}-${r}`,
@@ -152,8 +175,8 @@ function parseHometaxExcelBuffer(
         taxTotal: finalVat,
         totalAmount: finalTotal,
         purposeType: colPurpose >= 0 && String(row[colPurpose]).includes("영수") ? "영수" : "청구",
-        itemName: (colItem >= 0 ? String(row[colItem] || "").trim() : "") || (rowIoType === "PURCHASE" ? "매입 품목" : "매출 품목"),
-        remark1: colRemark >= 0 ? String(row[colRemark] || "").trim() : "",
+        itemName: resolvedItemName,
+        remark1: remarkStr,
         sourceChannel: "EXCEL_UPLOAD",
       });
     }

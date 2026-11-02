@@ -10,12 +10,21 @@ import crypto from "crypto";
 const ENC_PREFIX = "enc:v1:";
 const PWD_PREFIX = "scrypt$";
 
+const DEFAULT_VAULT_KEY = "dragonrpa_pipa_aes256_master_key_2026_v1_secure_vault";
+
 function getMasterKey(): Buffer {
-  const secret =
-    process.env.ERP_PII_ENCRYPTION_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "dragonrpa_pipa_aes256_master_key_2026_v1_secure_vault";
+  const secret = process.env.ERP_PII_ENCRYPTION_KEY || DEFAULT_VAULT_KEY;
   return crypto.createHash("sha256").update(secret, "utf8").digest(); // 32 bytes (256 bits)
+}
+
+function getCandidateKeys(): Buffer[] {
+  const secrets = [
+    process.env.ERP_PII_ENCRYPTION_KEY,
+    DEFAULT_VAULT_KEY,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+  ].filter((s): s is string => Boolean(s && s.trim()));
+  const unique = Array.from(new Set(secrets));
+  return unique.map((s) => crypto.createHash("sha256").update(s, "utf8").digest());
 }
 
 /**
@@ -47,24 +56,27 @@ export function decryptPii(ciphertext: string | null | undefined): string {
   if (!trimmed) return "";
   if (!trimmed.startsWith(ENC_PREFIX)) return trimmed;
 
-  try {
-    const payload = trimmed.slice(ENC_PREFIX.length);
-    const [ivHex, tagHex, dataHex] = payload.split(":");
-    if (!ivHex || !tagHex || !dataHex) return "";
+  const payload = trimmed.slice(ENC_PREFIX.length);
+  const [ivHex, tagHex, dataHex] = payload.split(":");
+  if (!ivHex || !tagHex || !dataHex) return "";
 
-    const key = getMasterKey();
-    const iv = Buffer.from(ivHex, "hex");
-    const authTag = Buffer.from(tagHex, "hex");
-    const encryptedData = Buffer.from(dataHex, "hex");
+  const iv = Buffer.from(ivHex, "hex");
+  const authTag = Buffer.from(tagHex, "hex");
+  const encryptedData = Buffer.from(dataHex, "hex");
 
-    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-    decipher.setAuthTag(authTag);
-    const decrypted = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
-    return decrypted.toString("utf8");
-  } catch (err) {
-    console.error("[piiCrypto] Decryption failed:", err);
-    return "";
+  for (const key of getCandidateKeys()) {
+    try {
+      const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+      decipher.setAuthTag(authTag);
+      const decrypted = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+      return decrypted.toString("utf8");
+    } catch {
+      // 다음 후보 키로 재시도
+    }
   }
+
+  console.error("[piiCrypto] Decryption failed for all candidate keys");
+  return "";
 }
 
 /**

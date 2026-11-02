@@ -719,6 +719,9 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                   {renderSortTh("상여금", "bonus", "right")}
                   {renderSortTh("개인경비 정산", "personalExpenseAmount", "right", "text-[#047857] font-bold bg-[#ecfdf5]/70 dark:text-emerald-300")}
                   {renderSortTh("지급합계", "totalGross", "right", "text-[#1d4ed8] font-bold bg-[#e2dbcd]/70 dark:text-blue-300 dark:bg-slate-800/90")}
+                  <th className="py-2 px-2.5 text-right whitespace-nowrap bg-[#ecfdf5] text-[#065f46] font-bold border-l border-r border-[#10b981] dark:bg-emerald-950/40 dark:text-emerald-300">
+                    순 용역 수익
+                  </th>
 
                   {/* 공제 및 정산 항목 */}
                   {renderSortTh("국민연금", "nationalPension", "right")}
@@ -738,7 +741,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
               <tbody className="divide-y divide-[#c4b6a0] font-mono text-[11px] dark:divide-slate-800">
                 {sortedRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={22} className="py-16 text-center text-[#475569] font-sans text-xs dark:text-slate-500">
+                    <td colSpan={23} className="py-16 text-center text-[#475569] font-sans text-xs dark:text-slate-500">
                       {selectedMonth} 급여 대장이 생성되지 않았습니다. 상단 &apos;급여대장 PDF OCR 등록&apos; 또는 &apos;급여 자동 계산&apos; 버튼을 클릭하세요.
                     </td>
                   </tr>
@@ -864,6 +867,22 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                         <td className="py-1.5 px-2.5 text-right font-bold text-[#1d4ed8] bg-[#dbeafe]/40 dark:text-blue-300 dark:bg-blue-950/20 whitespace-nowrap">
                           {formatErpCurrency(r.totalGross)}
                         </td>
+                        {(() => {
+                          const netMargin = Number(r.serviceContractAmount || 0) - Number(r.totalGross || 0);
+                          return (
+                            <td
+                              className={`py-1.5 px-2.5 text-right font-bold whitespace-nowrap border-l border-r border-[#10b981]/50 ${
+                                netMargin > 0
+                                  ? "text-[#047857] bg-[#ecfdf5]/60 dark:text-emerald-400 dark:bg-emerald-950/20"
+                                  : netMargin < 0
+                                  ? "text-[#dc2626] bg-[#fef2f2]/60 dark:text-rose-400 dark:bg-rose-950/20"
+                                  : "text-[#64748b] bg-[#f8fafc] dark:text-slate-400"
+                              }`}
+                            >
+                              {netMargin > 0 ? `+${formatErpCurrency(netMargin)}` : formatErpCurrency(netMargin)}
+                            </td>
+                          );
+                        })()}
 
                         {/* 공제 및 정산 항목 */}
                         <td className="py-1.5 px-2.5 text-right text-[#475569] dark:text-slate-400 whitespace-nowrap">
@@ -926,35 +945,58 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
       {/* 3. Gutenberg Z-Pattern Step 4 (Terminal Action & 종단 대차대조식 무결성 검증 - 헌장 3.5, 5.5조) */}
       <div className="p-3 bg-[#e2dbcd] border-t border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-4 text-xs font-mono">
-          <div className="flex items-center gap-1.5 bg-[#fef3c7] px-2.5 py-1 rounded border border-[#f59e0b] dark:bg-amber-950/40">
-            <span className="text-[#92400e] dark:text-amber-400 font-bold">💼 용역계약총액: </span>
-            <span className="font-bold text-[#b45309] dark:text-amber-300">{formatErpCurrency(summary.totalServiceContractSum)}</span>
-          </div>
+        <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
+          {/* 용역 수지 차액 (Income - Outcome = Net Margin) */}
+          {(() => {
+            const netServiceMargin = Number(summary.totalServiceContractSum || 0) - Number(summary.totalGrossSum || 0);
+            return (
+              <div className="flex items-center gap-2 bg-[#fffbeb] px-2.5 py-1 rounded border border-[#f59e0b] dark:bg-amber-950/40 whitespace-nowrap">
+                <span>
+                  <span className="text-[#92400e] dark:text-amber-400 font-bold">💼 용역계약총액: </span>
+                  <span className="font-bold text-[#b45309] dark:text-amber-300">{formatErpCurrency(summary.totalServiceContractSum)}</span>
+                </span>
+                <span className="text-[#92400e] font-bold">-</span>
+                <span>
+                  <span className="text-[#475569] dark:text-slate-400 font-bold">총지급액: </span>
+                  <span className="font-bold text-[#1d4ed8] dark:text-blue-400">{formatErpCurrency(summary.totalGrossSum)}</span>
+                </span>
+                <span className="text-[#92400e] font-bold">=</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded font-bold border ${
+                    netServiceMargin >= 0
+                      ? "bg-[#ecfdf5] text-[#047857] border-[#10b981] dark:bg-emerald-950/60 dark:text-emerald-300"
+                      : "bg-[#fef2f2] text-[#dc2626] border-[#ef4444] dark:bg-rose-950/60 dark:text-rose-300"
+                  }`}
+                >
+                  순 용역 수익: {netServiceMargin > 0 ? `+${formatErpCurrency(netServiceMargin)}` : formatErpCurrency(netServiceMargin)}
+                </span>
+              </div>
+            );
+          })()}
 
-          <div className="flex items-center gap-1.5 bg-[#ecfdf5] px-2.5 py-1 rounded border border-[#10b981] dark:bg-emerald-950/40">
+          <div className="flex items-center gap-1.5 bg-[#ecfdf5] px-2.5 py-1 rounded border border-[#10b981] dark:bg-emerald-950/40 whitespace-nowrap">
             <span className="text-[#047857] dark:text-emerald-400 font-bold">🧾 개인경비총액: </span>
             <span className="font-bold text-[#047857] dark:text-emerald-300">{formatErpCurrency(summary.totalPersonalExpenseSum || 0)}</span>
           </div>
 
           <span className="text-[#94a3b8] dark:text-slate-600">|</span>
 
-          <div>
+          <div className="whitespace-nowrap">
             <span className="text-[#475569] dark:text-slate-400">📄 총지급액: </span>
             <span className="font-bold text-[#1d4ed8] dark:text-blue-400">{formatErpCurrency(summary.totalGrossSum)}</span>
           </div>
           <span className="text-[#94a3b8] dark:text-slate-600">=</span>
-          <div>
+          <div className="whitespace-nowrap">
             <span className="text-[#475569] dark:text-slate-400">🛡️ 총공제액: </span>
             <span className="font-bold text-[#dc2626] dark:text-rose-400">{formatErpCurrency(summary.totalDeductionSum)}</span>
           </div>
           <span className="text-[#94a3b8] dark:text-slate-600">+</span>
-          <div>
+          <div className="whitespace-nowrap">
             <span className="text-[#475569] dark:text-slate-400">💳 실지급총액: </span>
             <span className="font-bold text-[#047857] dark:text-emerald-400">{formatErpCurrency(summary.netSalarySum)}</span>
           </div>
           <span className="text-[#94a3b8] dark:text-slate-600">|</span>
-          <div className="flex items-center gap-1 font-bold text-[#0f172a] dark:text-slate-300">
+          <div className="flex items-center gap-1 font-bold text-[#0f172a] dark:text-slate-300 whitespace-nowrap">
             <span>⚖️ 수지 차액:</span>
             <span className="text-[#047857] dark:text-emerald-400">
               {formatErpCurrency(Math.abs(summary.totalGrossSum - (summary.totalDeductionSum + summary.netSalarySum)))} (1원도 틀림없이 보존)

@@ -103,6 +103,48 @@ export async function GET(request: Request) {
 
     const result = await pool.query(query, [yearMonth]);
 
+    // 활성 용역계약(erp_service_contracts)의 투입 임직원(assigned_employees) 단가 및 고객사명 매핑 조회
+    const ctRes = await pool.query(
+      `SELECT customer_name, project_name, assigned_employees
+       FROM erp_service_contracts
+       WHERE COALESCE(status, 'ACTIVE') = 'ACTIVE'
+         AND assigned_employees IS NOT NULL`
+    );
+    const contractMapByEmpId = new Map<number, { rate: number; labels: string[] }>();
+    const contractMapByEmpNo = new Map<string, { rate: number; labels: string[] }>();
+    const contractMapByName = new Map<string, { rate: number; labels: string[] }>();
+
+    for (const ct of ctRes.rows) {
+      const list = Array.isArray(ct.assigned_employees) ? ct.assigned_employees : [];
+      const custLabel = String(ct.customer_name || "").replace(/주식회사|\(주\)|㈜/g, "").trim();
+      for (const item of list) {
+        const rate = Math.round(Number(item?.contractRate || 0));
+        if (rate <= 0) continue;
+        const eid = Number(item?.employeeId || 0);
+        const eno = String(item?.employeeNo || "").trim();
+        const ename = String(item?.name || "").trim();
+
+        if (eid > 0) {
+          const prev = contractMapByEmpId.get(eid) || { rate: 0, labels: [] };
+          prev.rate += rate;
+          if (custLabel && !prev.labels.includes(custLabel)) prev.labels.push(custLabel);
+          contractMapByEmpId.set(eid, prev);
+        }
+        if (eno) {
+          const prev = contractMapByEmpNo.get(eno) || { rate: 0, labels: [] };
+          prev.rate += rate;
+          if (custLabel && !prev.labels.includes(custLabel)) prev.labels.push(custLabel);
+          contractMapByEmpNo.set(eno, prev);
+        }
+        if (ename) {
+          const prev = contractMapByName.get(ename) || { rate: 0, labels: [] };
+          prev.rate += rate;
+          if (custLabel && !prev.labels.includes(custLabel)) prev.labels.push(custLabel);
+          contractMapByName.set(ename, prev);
+        }
+      }
+    }
+
     // Summary calculation & dynamic sync if approved receipts changed
     let totalGrossSum = 0;
     let totalDeductionSum = 0;
@@ -118,14 +160,27 @@ export async function GET(request: Request) {
       const adjustedGross = Number(r.totalGross) + diffExp;
       const adjustedNet = Number(r.netSalary) + diffExp;
 
+      const matchedContract =
+        contractMapByEmpId.get(Number(r.employeeId)) ||
+        (r.employeeNo ? contractMapByEmpNo.get(String(r.employeeNo).trim()) : undefined) ||
+        (r.employeeName ? contractMapByName.get(String(r.employeeName).trim()) : undefined);
+
+      const resolvedServiceAmt =
+        Number(r.serviceContractAmount) > 0
+          ? Number(r.serviceContractAmount)
+          : matchedContract?.rate || 0;
+      const serviceContractLabel = matchedContract?.labels?.join(", ") || "";
+
       totalGrossSum += adjustedGross;
       totalDeductionSum += Number(r.totalDeduction);
       netSalarySum += adjustedNet;
-      totalServiceContractSum += Number(r.serviceContractAmount);
+      totalServiceContractSum += resolvedServiceAmt;
       totalPersonalExpenseSum += personalExp;
 
       decryptedRows.push({
         ...r,
+        serviceContractAmount: resolvedServiceAmt,
+        serviceContractLabel,
         personalExpenseAmount: personalExp,
         totalGross: adjustedGross,
         netSalary: adjustedNet,
@@ -351,10 +406,29 @@ export async function POST(request: Request) {
       expMap[row.employee_id] = Number(row.total_expense || 0);
     }
 
+    const ctRes = await pool.query(
+      `SELECT assigned_employees
+       FROM erp_service_contracts
+       WHERE COALESCE(status, 'ACTIVE') = 'ACTIVE'
+         AND assigned_employees IS NOT NULL`
+    );
+    const activeContractRateMap: Record<number, number> = {};
+    for (const ct of ctRes.rows) {
+      const list = Array.isArray(ct.assigned_employees) ? ct.assigned_employees : [];
+      for (const item of list) {
+        const eid = Number(item?.employeeId || 0);
+        const rate = Math.round(Number(item?.contractRate || 0));
+        if (eid > 0 && rate > 0) {
+          activeContractRateMap[eid] = (activeContractRateMap[eid] || 0) + rate;
+        }
+      }
+    }
+
     const insertedRecords = [];
     for (const emp of empRes.rows) {
       const baseSalary = Number(emp.base_salary || 3500000);
-      const serviceContractAmount = Number(emp.service_contract_amount || 0);
+      const serviceContractAmount =
+        activeContractRateMap[Number(emp.id)] || Number(emp.service_contract_amount || 0);
       const empOt = otMap[emp.id] || { hours: 0, otPay: 0 };
       const otHours = empOt.hours;
 
@@ -400,7 +474,10 @@ export async function POST(request: Request) {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'DRAFT', NOW())
         ON CONFLICT (year_month, employee_id)
         DO UPDATE SET
-          service_contract_amount = COALESCE(EXCLUDED.service_contract_amount, erp_payroll_records.service_contract_amount),
+          service_contract_amount = CASE
+            WHEN EXCLUDED.service_contract_amount > 0 THEN EXCLUDED.service_contract_amount
+            ELSE erp_payroll_records.service_contract_amount
+          END,
           base_salary = EXCLUDED.base_salary,
           ot_pay = EXCLUDED.ot_pay,
           meal_allowance = EXCLUDED.meal_allowance,

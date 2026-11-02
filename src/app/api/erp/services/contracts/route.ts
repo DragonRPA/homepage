@@ -88,6 +88,55 @@ export async function GET(request: Request) {
   }
 }
 
+async function syncAssignedEmployeeContractRates(pool: any) {
+  const ctRes = await pool.query(
+    `SELECT customer_name, project_name, assigned_employees
+     FROM erp_service_contracts
+     WHERE COALESCE(status, 'ACTIVE') = 'ACTIVE'
+       AND assigned_employees IS NOT NULL`
+  );
+  const rateByEmpId = new Map<number, number>();
+  const rateByEmpNo = new Map<string, number>();
+  const rateByName = new Map<string, number>();
+
+  for (const row of ctRes.rows) {
+    const list = Array.isArray(row.assigned_employees) ? row.assigned_employees : [];
+    for (const item of list) {
+      const rate = Math.round(Number(item?.contractRate || 0));
+      if (rate <= 0) continue;
+      const eid = Number(item?.employeeId || 0);
+      const eno = String(item?.employeeNo || "").trim();
+      const ename = String(item?.name || "").trim();
+      if (eid > 0) rateByEmpId.set(eid, (rateByEmpId.get(eid) || 0) + rate);
+      if (eno) rateByEmpNo.set(eno, (rateByEmpNo.get(eno) || 0) + rate);
+      if (ename) rateByName.set(ename, (rateByName.get(ename) || 0) + rate);
+    }
+  }
+
+  const empRes = await pool.query(`SELECT id, employee_no, name FROM erp_employees`);
+  for (const emp of empRes.rows) {
+    const eid = Number(emp.id);
+    const eno = String(emp.employee_no || "").trim();
+    const ename = String(emp.name || "").trim();
+    const matchedRate =
+      rateByEmpId.get(eid) ??
+      (eno ? rateByEmpNo.get(eno) : undefined) ??
+      (ename ? rateByName.get(ename) : undefined);
+
+    if (matchedRate !== undefined && matchedRate > 0) {
+      await pool.query(
+        `UPDATE erp_employees SET service_contract_amount = $1, updated_at = NOW() WHERE id = $2`,
+        [matchedRate, eid]
+      );
+      await pool.query(
+        `UPDATE erp_payroll_records SET service_contract_amount = $1, updated_at = NOW()
+         WHERE employee_id = $2 AND COALESCE(service_contract_amount, 0) = 0`,
+        [matchedRate, eid]
+      );
+    }
+  }
+}
+
 // POST: Create service contract
 export async function POST(request: Request) {
   try {
@@ -206,6 +255,9 @@ export async function POST(request: Request) {
         Boolean(includeOtInBilling),
       ]
     );
+
+    // Sync assigned employee contract rates to erp_employees & erp_payroll_records
+    await syncAssignedEmployeeContractRates(pool);
 
     // Audit log
     await pool.query(
@@ -359,6 +411,9 @@ export async function PUT(request: Request) {
     }
 
     const updated = updateRes.rows[0];
+
+    // Sync assigned employee contract rates to erp_employees & erp_payroll_records
+    await syncAssignedEmployeeContractRates(pool);
 
     // Audit log
     await pool.query(

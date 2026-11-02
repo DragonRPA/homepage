@@ -35,6 +35,7 @@ export interface PayrollRecord {
 
   // 사용자 요청 항목: 임직원 용역 계약금액
   serviceContractAmount: number;
+  serviceContractLabel?: string;
 
   // 기본급여 및 제수당
   baseSalary: number;
@@ -795,6 +796,14 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                         {/* 사용자 요청 추가 항목: 임직원 용역 계약금액 인라인 입력창 */}
                         <td className="py-1 px-2 text-right whitespace-nowrap bg-[#fffbeb] border-l-2 border-r-2 border-[#f59e0b] dark:bg-amber-950/20">
                           <div className="flex items-center justify-end gap-1">
+                            {r.serviceContractLabel && (
+                              <span
+                                className="px-1.5 py-0.5 rounded bg-[#fef3c7] border border-[#f59e0b] text-[#92400e] text-[10px] font-sans font-bold"
+                                title={`연결 용역계약: ${r.serviceContractLabel}`}
+                              >
+                                {r.serviceContractLabel}
+                              </span>
+                            )}
                             <span className="text-[#92400e] text-[10px] font-bold">₩</span>
                             <input
                               type="text"

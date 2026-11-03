@@ -127,6 +127,35 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const [rpaDeptUserPw, setRpaDeptUserPw] = useState("");
   const [rpaSaving, setRpaSaving] = useState(false);
 
+  // Popbill Live Production Status (파트너 잔여포인트, 공동인증서 등록여부)
+  const [popbillLive, setPopbillLive] = useState<{
+    isLiveProduction: boolean;
+    partnerBalance: number;
+    certRegistered: boolean;
+    certMessage?: string;
+  } | null>(null);
+
+  const fetchPopbillLiveStatus = async () => {
+    try {
+      const res = await fetch("/api/erp/tax-invoices/popbill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "LIVE_STATUS" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPopbillLive({
+          isLiveProduction: Boolean(data.isLiveProduction),
+          partnerBalance: Number(data.partnerBalance || 0),
+          certRegistered: Boolean(data.certRegistered),
+          certMessage: data.certMessage || "",
+        });
+      }
+    } catch (e) {
+      console.error("Failed to fetch Popbill live status:", e);
+    }
+  };
+
   // Toast
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const showToast = (text: string, type: "success" | "error" = "success") => {
@@ -215,6 +244,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     fetchUnissuedBillings();
     fetchPartners();
     fetchRpaSettings();
+    fetchPopbillLiveStatus();
   }, [entityFilter]);
 
   // Separate SALE and PURCHASE invoices
@@ -855,7 +885,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     }
   };
 
-  const handleOpenPopbillPortal = async (actionType: "PORTAL_URL" | "CERT_URL") => {
+  const handleOpenPopbillPortal = async (actionType: "PORTAL_URL" | "CERT_URL" | "CHARGE_URL") => {
     try {
       const res = await fetch("/api/erp/tax-invoices/popbill", {
         method: "POST",
@@ -1145,11 +1175,42 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
           </button>
 
           <button
+            onClick={() => handleOpenPopbillPortal("CHARGE_URL")}
+            className="hidden sm:flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-400 shadow-sm whitespace-nowrap shrink-0 cursor-pointer"
+            title="팝빌 파트너 포인트 충전 및 잔액 확인"
+          >
+            <span>포인트 충전</span>
+            {popbillLive && (
+              <span className="font-mono text-[10px] px-1 py-0.2 rounded bg-emerald-700 text-white">
+                {popbillLive.partnerBalance.toLocaleString()}P
+              </span>
+            )}
+          </button>
+
+          <button
             onClick={() => handleOpenPopbillPortal("CERT_URL")}
-            className="hidden sm:flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-slate-800 bg-slate-200 hover:bg-slate-300 border border-slate-400 shadow-sm whitespace-nowrap shrink-0 cursor-pointer"
+            className={`hidden sm:flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold border shadow-sm whitespace-nowrap shrink-0 cursor-pointer ${
+              popbillLive && !popbillLive.certRegistered
+                ? "text-rose-900 bg-rose-100 hover:bg-rose-200 border-rose-500"
+                : "text-slate-800 bg-slate-200 hover:bg-slate-300 border-slate-400"
+            }`}
+            title={
+              popbillLive && !popbillLive.certRegistered
+                ? "팝빌 공동인증서 미등록 상태 (클릭하여 인증서 등록)"
+                : "팝빌 공동인증서 등록 및 갱신"
+            }
           >
             <ShieldCheck className="w-3.5 h-3.5" />
             <span>공동인증서 관리</span>
+            {popbillLive && (
+              <span
+                className={`text-[10px] px-1 py-0.2 rounded font-bold ${
+                  popbillLive.certRegistered ? "bg-emerald-700 text-white" : "bg-rose-700 text-white"
+                }`}
+              >
+                {popbillLive.certRegistered ? "등록됨" : "미등록"}
+              </span>
+            )}
           </button>
 
           <button

@@ -7,6 +7,7 @@ import {
   getPopbillInfo,
   getPopbillPortalURL,
   getPopbillCertInfo,
+  getPopbillLiveStatus,
   sendToNTSPopbill
 } from "@/lib/popbillService";
 
@@ -17,16 +18,24 @@ export async function POST(request: Request) {
 
     const pool = getErpPool();
 
+    // 0-B. Get Popbill Live Production Status (Environment, Partner Balance, Cert Status)
+    if (action === "LIVE_STATUS") {
+      const liveStatus = await getPopbillLiveStatus(corpNum);
+      return NextResponse.json({ success: true, ...liveStatus });
+    }
+
     // 0-A. Get Popbill Registered Certificate Info
     if (action === "CERT_INFO") {
       const cert = await getPopbillCertInfo(corpNum);
       return NextResponse.json({ success: true, ...cert });
     }
 
-    // 0. Get Popbill Testbed Portal / Certificate Management URL
-    if (action === "PORTAL_URL" || action === "CERT_URL") {
+    // 0. Get Popbill Portal / Certificate Management / Partner Point Charge URL
+    if (action === "PORTAL_URL" || action === "CERT_URL" || action === "CHARGE_URL") {
       try {
-        const url = await getPopbillPortalURL(action === "CERT_URL" ? "CERT" : "LOGIN", corpNum);
+        const toGo =
+          action === "CERT_URL" ? "CERT" : action === "CHARGE_URL" ? "CHRG" : "LOGIN";
+        const url = await getPopbillPortalURL(toGo, corpNum);
         return NextResponse.json({ success: true, url });
       } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 400 });

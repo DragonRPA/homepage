@@ -368,10 +368,10 @@ export async function getPopbillPrintURL(mgtKey: string, corpNum?: string): Prom
 }
 
 /**
- * 팝빌 자동 로그인 / 임시문서함 / 공동인증서 등록 팝업 URL 조회
+ * 팝빌 자동 로그인 / 임시문서함 / 공동인증서 등록 / 파트너 포인트 충전 팝업 URL 조회
  */
 export async function getPopbillPortalURL(
-  toGo: "LOGIN" | "CERT" | "TEMP" = "LOGIN",
+  toGo: "LOGIN" | "CERT" | "TEMP" | "CHRG" = "LOGIN",
   corpNum?: string
 ): Promise<string> {
   const cNum = (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
@@ -384,6 +384,15 @@ export async function getPopbillPortalURL(
       );
       return;
     }
+    if (toGo === "CHRG") {
+      popbillTaxService.getPartnerURL(
+        cNum,
+        "CHRG",
+        (url: string) => resolve(url),
+        (err: any) => reject(new Error(`[팝빌 포인트 충전 URL 오류 ${err.code}] ${err.message}`))
+      );
+      return;
+    }
     popbillTaxService.getPopbillURL(
       cNum,
       "LOGIN",
@@ -391,6 +400,39 @@ export async function getPopbillPortalURL(
       (err: any) => reject(new Error(`[팝빌 포털 URL 오류 ${err.code}] ${err.message}`))
     );
   });
+}
+
+/**
+ * 팝빌 운영 환경 연동 상태 (회원 가입여부, 파트너 잔여 포인트, 공동인증서 등록 및 만료일) 통합 조회
+ */
+export async function getPopbillLiveStatus(corpNum?: string): Promise<any> {
+  const cNum = (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
+  const partnerBalance = await new Promise<number>((resolve) => {
+    popbillTaxService.getPartnerBalance(
+      cNum,
+      (bal: any) => resolve(Number(bal || 0)),
+      () => resolve(0)
+    );
+  });
+  const memberBalance = await new Promise<number>((resolve) => {
+    popbillTaxService.getBalance(
+      cNum,
+      (bal: any) => resolve(Number(bal || 0)),
+      () => resolve(0)
+    );
+  });
+  const cert = await getPopbillCertInfo(cNum);
+  return {
+    isLiveProduction: !isTestMode,
+    serviceId: isTestMode ? "POPBILL_TEST" : "POPBILL",
+    baseUrl: isTestMode ? "https://popbill-test.linkhub.co.kr" : "https://popbill.linkhub.co.kr",
+    corpNum: cNum,
+    partnerBalance,
+    memberBalance,
+    certRegistered: Boolean(cert.registered),
+    certInfo: cert.certInfo || null,
+    certMessage: cert.validMessage || cert.error || "",
+  };
 }
 
 /**

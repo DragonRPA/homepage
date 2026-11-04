@@ -717,3 +717,318 @@
 .pulse-animation {
   animation: pulseBtn 1.5s infinite ease-in-out;
 }
+
+/* ==========================================================================
+   🤍 [화이트 모드 (Pure White Mode) - 전 영역 배경 100% 순백색(#ffffff) 강제]
+   ========================================================================== */
+[data-theme='white'] {
+  color-scheme: light;
+  --paper-texture: none;
+  --bg-app: #ffffff;
+  --bg-sidebar: #ffffff;
+  --bg-card: #ffffff;
+  --bg-header: #ffffff;
+  --bg-secondary: #ffffff;
+  --border-color: #cbd5e1;
+  --table-border-color: #94a3b8;
+  --table-row-border: #e2e8f0;
+
+  --scrollbar-track: #ffffff;
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+  --scrollbar-thumb-border: #ffffff;
+
+  --primary: #1d4ed8;
+  --primary-hover: #1e40af;
+  --primary-light: #ffffff;
+  --primary-border: rgba(29, 78, 216, 0.35);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --success: #047857;
+  --success-hover: #065f46;
+  --success-light: #ffffff;
+
+  --warning: #b45309;
+  --warning-hover: #92400e;
+  --warning-light: #ffffff;
+
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-light: #ffffff;
+
+  --text-main: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #475569;
+  --text-on-primary: #ffffff;
+}
+
+[data-theme='white'] *,
+[data-theme='white'] *::before,
+[data-theme='white'] *::after {
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+[data-theme='white'].erp-app-container,
+[data-theme='white'] .erp-app-container,
+[data-theme='white'] .erp-header,
+[data-theme='white'] .erp-sidebar,
+[data-theme='white'] .erp-sidebar-header,
+[data-theme='white'] .erp-sidebar-footer,
+[data-theme='white'] .erp-main-content,
+[data-theme='white'] .erp-breadcrumb-bar,
+[data-theme='white'] .erp-login-card,
+[data-theme='white'] .erp-theme-toggle-btn,
+[data-theme='white'] .erp-db-badge,
+[data-theme='white'] .erp-user-chip,
+[data-theme='white'] .erp-action-btn,
+[data-theme='white'] .erp-sidebar-badge,
+[data-theme='white'] .erp-menu-group-btn,
+[data-theme='white'] .erp-menu-group-btn.group-active,
+[data-theme='white'] .erp-menu-item-btn:not(.item-active),
+[data-theme='white'] .card,
+[data-theme='white'] .panel,
+[data-theme='white'] .modal-content,
+[data-theme='white'] .modal-container,
+[data-theme='white'] div[role="dialog"],
+[data-theme='white'] table,
+[data-theme='white'] thead,
+[data-theme='white'] thead tr,
+[data-theme='white'] thead th,
+[data-theme='white'] tbody,
+[data-theme='white'] tbody tr,
+[data-theme='white'] tbody td,
+[data-theme='white'] tfoot,
+[data-theme='white'] tfoot tr,
+[data-theme='white'] tfoot td,
+[data-theme='white'] tfoot th {
+  background-color: #ffffff !important;
+  background-image: none !important;
+}
+
+/* 모든 웜페이퍼/파스텔/슬레이트 배경 클래스를 순백색(#ffffff)으로 통합 */
+[data-theme='white'] [class*="bg-[#ebe5d8"],
+[data-theme='white'] [class*="bg-[#e2dbcd"],
+[data-theme='white'] [class*="bg-[#f4efe4"],
+[data-theme='white'] [class*="bg-[#dfd7c7"],
+[data-theme='white'] [class*="bg-[#ded6c5"],
+[data-theme='white'] [class*="bg-[#dcd4c4"],
+[data-theme='white'] [class*="bg-[#d8d0c2"],
+[data-theme='white'] [class*="bg-[#d5cbb8"],
+[data-theme='white'] [class*="bg-[#d0c6b4"],
+[data-theme='white'] [class*="bg-[#b5a894"],
+[data-theme='white'] [class*="bg-[#fdfbf7"],
+[data-theme='white'] [class*="bg-[#f8fafc"],
+[data-theme='white'] [class*="bg-[#f1f5f9"],
+[data-theme='white'] [class*="bg-[#f3f4f6"],
+[data-theme='white'] [class*="bg-[#e2e8f0"],
+[data-theme='white'] [class*="bg-[#e5e7eb"],
+[data-theme='white'] [class*="bg-[#eff6ff"],
+[data-theme='white'] [class*="bg-[#eef4ff"],
+[data-theme='white'] [class*="bg-[#eef2ff"],
+[data-theme='white'] [class*="bg-[#dbeafe"],
+[data-theme='white'] [class*="bg-[#cfe2ff"],
+[data-theme='white'] [class*="bg-[#f0fdf4"],
+[data-theme='white'] [class*="bg-[#ecfdf5"],
+[data-theme='white'] [class*="bg-[#dcfce7"],
+[data-theme='white'] [class*="bg-[#d1fae5"],
+[data-theme='white'] [class*="bg-[#ebf7f6"],
+[data-theme='white'] [class*="bg-[#dcebe8"],
+[data-theme='white'] [class*="bg-[#fef2f2"],
+[data-theme='white'] [class*="bg-[#fee2e2"],
+[data-theme='white'] [class*="bg-[#fff0f1"],
+[data-theme='white'] [class*="bg-[#f8d7da"],
+[data-theme='white'] [class*="bg-[#fffbeb"],
+[data-theme='white'] [class*="bg-[#fef3c7"],
+[data-theme='white'] [class*="bg-[#f5f3ff"],
+[data-theme='white'] [class*="bg-[#f3e8ff"],
+[data-theme='white'] [class*="bg-[#ede9fe"],
+[data-theme='white'] [class*="bg-slate-950"],
+[data-theme='white'] [class*="bg-slate-900"],
+[data-theme='white'] [class*="bg-slate-800"],
+[data-theme='white'] [class*="bg-slate-700"],
+[data-theme='white'] [class*="bg-slate-500/"],
+[data-theme='white'] .bg-slate-50,
+[data-theme='white'] .bg-slate-100,
+[data-theme='white'] .bg-slate-200,
+[data-theme='white'] .bg-gray-50,
+[data-theme='white'] .bg-gray-100,
+[data-theme='white'] .bg-white,
+[data-theme='white'] .bg-card,
+[data-theme='white'] .bg-app,
+[data-theme='white'] .bg-secondary,
+[data-theme='white'] [class*="bg-blue-50"],
+[data-theme='white'] .bg-blue-100,
+[data-theme='white'] [class*="bg-blue-500/"],
+[data-theme='white'] [class*="bg-blue-600/"],
+[data-theme='white'] [class*="bg-emerald-50"],
+[data-theme='white'] .bg-emerald-100,
+[data-theme='white'] [class*="bg-emerald-600/"],
+[data-theme='white'] [class*="bg-amber-50"],
+[data-theme='white'] .bg-amber-100,
+[data-theme='white'] .bg-amber-200,
+[data-theme='white'] [class*="bg-amber-500/"],
+[data-theme='white'] [class*="bg-rose-50"],
+[data-theme='white'] .bg-rose-100,
+[data-theme='white'] [class*="bg-rose-500/"],
+[data-theme='white'] [class*="bg-rose-600/"],
+[data-theme='white'] [class*="bg-purple-50"],
+[data-theme='white'] .bg-purple-100,
+[data-theme='white'] [class*="bg-indigo-50"],
+[data-theme='white'] .bg-indigo-100,
+[data-theme='white'] [class*="bg-indigo-500/"],
+[data-theme='white'] [class*="bg-indigo-600/"],
+[data-theme='white'] [class*="bg-teal-50"],
+[data-theme='white'] .bg-teal-100 {
+  background-color: #ffffff !important;
+  background-image: none !important;
+}
+
+/* 화이트 모드 입력 폼, 셀렉트, 텍스트에어리어 순백색 배경 */
+[data-theme='white'] input:not([type='submit']):not([type='button']):not([type='checkbox']):not([type='radio']),
+[data-theme='white'] select,
+[data-theme='white'] textarea,
+[data-theme='white'] select option {
+  background-color: #ffffff !important;
+  background-image: none !important;
+  color: #0f172a !important;
+  border-color: var(--border-color) !important;
+}
+
+[data-theme='white'] input:focus,
+[data-theme='white'] select:focus,
+[data-theme='white'] textarea:focus {
+  border-color: var(--primary) !important;
+  outline: none !important;
+}
+
+/* 화이트 모드 경계선(테두리) 깔끔한 슬레이트 라인 통일 */
+[data-theme='white'] [class*="border-[#b5a894]"],
+[data-theme='white'] [class*="border-[#a89a84]"],
+[data-theme='white'] [class*="border-[#c4b6a0]"],
+[data-theme='white'] [class*="border-[#d0c6b4]"],
+[data-theme='white'] [class*="border-[#d5cbb8]"],
+[data-theme='white'] [class*="border-[#ded6c5]"],
+[data-theme='white'] [class*="border-slate-800"],
+[data-theme='white'] [class*="border-slate-700"],
+[data-theme='white'] [class*="border-slate-900"] {
+  border-color: var(--border-color) !important;
+}
+
+[data-theme='white'] [class*="divide-[#d0c6b4]"] > :not([hidden]) ~ :not([hidden]),
+[data-theme='white'] .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+[data-theme='white'] .divide-slate-700 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--table-row-border) !important;
+}
+
+[data-theme='white'] thead th {
+  color: #0f172a !important;
+  border-bottom: 2px solid var(--table-border-color) !important;
+}
+
+[data-theme='white'] tbody td,
+[data-theme='white'] tbody tr {
+  border-bottom: 1px solid var(--table-row-border) !important;
+  color: #0f172a !important;
+}
+
+/* 화이트 모드 텍스트 가독성 보장 */
+[data-theme='white'] .text-slate-100,
+[data-theme='white'] .text-slate-200,
+[data-theme='white'] .text-slate-300 {
+  color: #0f172a !important;
+}
+
+[data-theme='white'] .text-slate-400 {
+  color: #334155 !important;
+}
+
+[data-theme='white'] .text-slate-500,
+[data-theme='white'] .text-gray-400,
+[data-theme='white'] .text-gray-500 {
+  color: #475569 !important;
+}
+
+/* 화이트 모드 다크 뱃지 -> 순백색 배경 + 컬러 테두리/텍스트 */
+[data-theme='white'] .bg-blue-900,
+[data-theme='white'] .bg-blue-950,
+[data-theme='white'] [class*="bg-blue-950/"] {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(29, 78, 216, 0.4) !important;
+  color: #1d4ed8 !important;
+}
+
+[data-theme='white'] .bg-emerald-950,
+[data-theme='white'] [class*="bg-emerald-900/"] {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(4, 120, 87, 0.4) !important;
+  color: #047857 !important;
+}
+
+[data-theme='white'] .bg-amber-950,
+[data-theme='white'] [class*="bg-amber-950/"] {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(180, 83, 9, 0.4) !important;
+  color: #b45309 !important;
+}
+
+[data-theme='white'] .bg-rose-950,
+[data-theme='white'] [class*="bg-rose-900/"] {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(220, 38, 38, 0.4) !important;
+  color: #dc2626 !important;
+}
+
+/* 화이트 모드 컬러 액션 버튼 텍스트 흰색 유지 */
+[data-theme='white'] button.bg-blue-600,
+[data-theme='white'] button.bg-blue-700,
+[data-theme='white'] button.bg-blue-500,
+[data-theme='white'] button.bg-emerald-600,
+[data-theme='white'] button.bg-emerald-700,
+[data-theme='white'] button.bg-emerald-500,
+[data-theme='white'] button.bg-rose-600,
+[data-theme='white'] button.bg-rose-700,
+[data-theme='white'] button.bg-red-600,
+[data-theme='white'] button.bg-purple-600,
+[data-theme='white'] .btn-primary,
+[data-theme='white'] .btn-save,
+[data-theme='white'] .btn-submit,
+[data-theme='white'] .btn-register,
+[data-theme='white'] .btn-query,
+[data-theme='white'] .btn-search,
+[data-theme='white'] .btn-danger {
+  color: #ffffff !important;
+}
+
+[data-theme='white'] button.bg-blue-600 *,
+[data-theme='white'] button.bg-blue-700 *,
+[data-theme='white'] button.bg-blue-500 *,
+[data-theme='white'] button.bg-emerald-600 *,
+[data-theme='white'] button.bg-emerald-700 *,
+[data-theme='white'] button.bg-emerald-500 *,
+[data-theme='white'] button.bg-rose-600 *,
+[data-theme='white'] button.bg-rose-700 *,
+[data-theme='white'] button.bg-red-600 *,
+[data-theme='white'] button.bg-purple-600 *,
+[data-theme='white'] .btn-primary *,
+[data-theme='white'] .btn-save *,
+[data-theme='white'] .btn-submit *,
+[data-theme='white'] .btn-register *,
+[data-theme='white'] .btn-query *,
+[data-theme='white'] .btn-search *,
+[data-theme='white'] .btn-danger * {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+[data-theme='white'] button.bg-slate-800,
+[data-theme='white'] button.bg-slate-900,
+[data-theme='white'] button.bg-slate-700 {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid var(--border-color) !important;
+}

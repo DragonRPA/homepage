@@ -268,8 +268,8 @@ export default function ErpMainPage() {
       if (stored) {
         setCurrentUser(JSON.parse(stored));
       }
-      const savedTheme = localStorage.getItem("dragonrpa_erp_theme") as "light" | "dark";
-      if (savedTheme === "light" || savedTheme === "dark") {
+      const savedTheme = localStorage.getItem("dragonrpa_erp_theme") as ErpThemeMode;
+      if (savedTheme === "light" || savedTheme === "white" || savedTheme === "dark") {
         setTheme(savedTheme);
       } else {
         setTheme("light"); // e-Bro ERP 전사 표준: 밝은화면모드 기본
@@ -446,7 +446,8 @@ export default function ErpMainPage() {
   }, [currentUser, effectiveRoleCode, activeMenuCanSave, activeMenuCanBill]);
 
   const toggleTheme = () => {
-    const next = theme === "light" ? "dark" : "light";
+    const next: ErpThemeMode =
+      theme === "light" ? "white" : theme === "white" ? "dark" : "light";
     setTheme(next);
     try {
       localStorage.setItem("dragonrpa_erp_theme", next);
@@ -468,7 +469,7 @@ export default function ErpMainPage() {
 
   if (!isInitialized || (currentUser && !permsLoaded && effectiveRoleCode !== "ADMIN")) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-xs font-mono erp-app-container">
+      <div data-theme={theme} className="min-h-screen flex items-center justify-center text-xs font-mono erp-app-container">
         시스템 세션 및 권한을 초기화하는 중입니다...
       </div>
     );
@@ -476,7 +477,7 @@ export default function ErpMainPage() {
 
   // Not logged in -> Show Corporate Login
   if (!currentUser) {
-    return <ErpLogin onLoginSuccess={(user) => setCurrentUser(user)} />;
+    return <ErpLogin theme={theme} onLoginSuccess={(user) => setCurrentUser(user)} />;
   }
 
   const currentCategoryConfig =

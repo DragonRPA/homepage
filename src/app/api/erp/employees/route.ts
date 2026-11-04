@@ -73,6 +73,23 @@ export async function GET() {
     `;
 
     const result = await pool.query(query);
+    const targetYear = new Date().getFullYear();
+
+    for (const row of result.rows) {
+      const ent = calculateAnnualLeaveEntitlement(row.joinDate, targetYear);
+      const currentGrant = Number(row.grantDays ?? 15);
+      // 0년차(당해 입사자)의 부여 연차가 기본값(15일 또는 11일) 그대로 남아있는 경우 비례 산출값으로 자동 보정 및 DB 동기화
+      if (ent.tenureYears === 0 && (currentGrant === 15 || currentGrant === 11)) {
+        const used = Number(row.usedDays || 0);
+        row.grantDays = ent.grantDays;
+        row.remainDays = ent.grantDays - used;
+        await pool.query(
+          "UPDATE erp_employees SET annual_leave_grant = $1, updated_at = NOW() WHERE id = $2",
+          [ent.grantDays, row.id]
+        );
+      }
+    }
+
     const employees = result.rows.map((row: any) => ({
       ...row,
       salaryAccountNo: decryptPii(row.salaryAccountNo),
@@ -346,7 +363,13 @@ export async function PUT(request: Request) {
     if (email !== undefined) updatePayload.email = email || null;
     if (phone !== undefined) updatePayload.phone = phone || null;
     if (birthDate !== undefined) updatePayload.birth_date = birthDate || null;
-    if (joinDate !== undefined) updatePayload.join_date = joinDate || new Date().toISOString().split("T")[0];
+    if (joinDate !== undefined) {
+      const cleanJoinDate = joinDate || new Date().toISOString().split("T")[0];
+      updatePayload.join_date = cleanJoinDate;
+      if (grantDays === undefined) {
+        updatePayload.annual_leave_grant = calculateAnnualLeaveEntitlement(cleanJoinDate).grantDays;
+      }
+    }
     if (address !== undefined) updatePayload.address = address || null;
     if (baseSalary !== undefined) updatePayload.base_salary = parseFloat(baseSalary) || 0;
     if (hourlyWage !== undefined) updatePayload.hourly_wage = parseFloat(hourlyWage) || 0;

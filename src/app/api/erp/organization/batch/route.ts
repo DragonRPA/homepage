@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { encryptPii, decryptPii, hashPassword } from "@/lib/piiCrypto";
+import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
 
 function normalizeStatusToDb(rawStatus: string | null | undefined): "ACTIVE" | "LEAVE" | "RETIRED" {
   const s = (rawStatus || "ACTIVE").toUpperCase();
@@ -101,8 +102,9 @@ export async function POST(request: Request) {
     }
 
     // 2. Sync Employees (erp_employees)
-    const existingUsersRes = await client.query("SELECT id, login_id, employee_no FROM erp_employees");
+    const existingUsersRes = await client.query("SELECT id, login_id, employee_no, join_date::text as \"joinDate\", annual_leave_grant FROM erp_employees");
     const existingUserIds = new Set<string>(existingUsersRes.rows.map((r: any) => String(r.id)));
+    const existingUserMap = new Map<string, any>(existingUsersRes.rows.map((r: any) => [String(r.id), r]));
 
     for (let idx = 0; idx < incomingUsers.length; idx++) {
       const u = incomingUsers[idx];
@@ -139,8 +141,17 @@ export async function POST(request: Request) {
       const leaveDate = u.leaveDate && String(u.leaveDate).trim() ? String(u.leaveDate).substring(0, 10) : null;
       const address = u.address ? String(u.address).trim() : null;
       const profileImageUrl = u.profileImageUrl || null;
+      const autoEntitlement = calculateAnnualLeaveEntitlement(joinDate);
 
       if (existingUserIds.has(rawUserId)) {
+        const prevUser = existingUserMap.get(rawUserId);
+        const prevJoinDate = prevUser?.joinDate ? String(prevUser.joinDate).substring(0, 10) : "";
+        const prevGrant = Number(prevUser?.annual_leave_grant ?? 15);
+        const resolvedGrant =
+          prevJoinDate !== joinDate || (autoEntitlement.tenureYears === 0 && (prevGrant === 15 || prevGrant === 11))
+            ? autoEntitlement.grantDays
+            : prevGrant;
+
         const loginIdToSave = u.loginId && String(u.loginId).trim() ? String(u.loginId).trim().toLowerCase() : undefined;
         const pwdToSave =
           u.passwordHash && String(u.passwordHash).trim() && !String(u.passwordHash).startsWith("__HASHED__")
@@ -178,8 +189,9 @@ export async function POST(request: Request) {
                profile_image_url = $27,
                login_id = COALESCE($28, login_id),
                password_hash = COALESCE($29, password_hash),
+               annual_leave_grant = $30,
                updated_at = NOW()
-           WHERE id = $30`,
+           WHERE id = $31`,
           [
             empName,
             position,
@@ -210,6 +222,7 @@ export async function POST(request: Request) {
             profileImageUrl,
             loginIdToSave || null,
             pwdToSave,
+            resolvedGrant,
             Number(rawUserId),
           ]
         );
@@ -239,7 +252,7 @@ export async function POST(request: Request) {
             $17, $18, $19, $20,
             $21, $22, $23,
             $24, $25, $26, $27, $28, $29, $30,
-            15.0, true, NOW(), NOW()
+            $31, true, NOW(), NOW()
           )`,
           [
             empNo,
@@ -272,6 +285,7 @@ export async function POST(request: Request) {
             leaveDate,
             address,
             profileImageUrl,
+            autoEntitlement.grantDays,
           ]
         );
       }

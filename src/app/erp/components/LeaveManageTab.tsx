@@ -389,18 +389,28 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
       "잔여연차",
       "공가(미차감)건수",
     ];
-    const rows = filteredEmployees.map((e) => [
-      e.employeeNo,
-      e.name,
-      e.department,
-      e.position,
-      e.joinDate ? e.joinDate.substring(0, 10) : "-",
-      `${getTenureYears(e.joinDate)}년`,
-      e.grantDays,
-      e.usedDays,
-      e.remainDays,
-      e.nonDeductedCount || 0,
-    ]);
+    const rows = filteredEmployees.map((e) => {
+      const ent = calculateAnnualLeaveEntitlement(e.joinDate);
+      const rawGrant = Number(e.grantDays || 15);
+      const effGrant =
+        ent.tenureYears === 0 && (rawGrant === 15 || rawGrant === 11)
+          ? ent.grantDays
+          : rawGrant;
+      const used = Number(e.usedDays || 0);
+      const remain = effGrant - used;
+      return [
+        e.employeeNo,
+        e.name,
+        e.department,
+        e.position,
+        e.joinDate ? e.joinDate.substring(0, 10) : "-",
+        `${ent.tenureYears}년차${ent.tenureYears === 0 ? "(비례)" : ""}`,
+        effGrant,
+        used,
+        remain,
+        e.nonDeductedCount || 0,
+      ];
+    });
 
     const csvContent =
       "data:text/csv;charset=utf-8,\uFEFF" +
@@ -412,6 +422,63 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     link.setAttribute(
       "download",
       `연차관리대장_${new Date().toISOString().substring(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Export Detailed Leave History to CSV
+  const handleExportHistoryCsv = () => {
+    const headers = [
+      "순번",
+      "사용일자",
+      "사번",
+      "성명",
+      "부서",
+      "직급",
+      "휴가구분",
+      "연차차감일수",
+      "사유",
+      "결재상태",
+    ];
+    const rows = filteredLeaveHistory.map((item, idx) => {
+      const nonDed =
+        Number(item.deductedDays) === 0 || isNonDeductingLeaveType(item.leaveType);
+      const dateRange =
+        item.endDate && item.endDate !== item.startDate
+          ? `${item.startDate} ~ ${item.endDate}`
+          : item.startDate;
+      const safeReason = `"${String(item.reason || "").replace(/"/g, '""')}"`;
+      return [
+        idx + 1,
+        dateRange,
+        item.employeeNo || "",
+        item.employeeName || "",
+        item.department || "",
+        item.position || "",
+        getLeaveTypeLabel(item.leaveType),
+        nonDed ? "0" : formatErpLeaveDays(item.deductedDays),
+        safeReason,
+        item.status === "APPROVED" ? "승인완료" : item.status || "승인완료",
+      ];
+    });
+
+    const csvContent =
+      "data:text/csv;charset=utf-8,\uFEFF" +
+      [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+
+    const targetEmp =
+      selectedHistoryEmpId === "ALL"
+        ? "전체"
+        : eligibleEmployees.find((e) => String(e.id) === selectedHistoryEmpId)?.name || "선택";
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute(
+      "download",
+      `연차사용상세내역_${targetEmp}_${new Date().toISOString().substring(0, 10)}.csv`
     );
     document.body.appendChild(link);
     link.click();
@@ -545,13 +612,17 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
             </thead>
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
               {sortedEmployees.map((emp) => {
-                const grant = Number(emp.grantDays || 15);
-                const used = Number(emp.usedDays || 0);
-                const remain = Number(emp.remainDays ?? grant - used);
-                const nonDedCount = Number(emp.nonDeductedCount || 0);
-                const rate = grant > 0 ? Math.min(100, Math.round((used / grant) * 100)) : 0;
                 const entitlement = calculateAnnualLeaveEntitlement(emp.joinDate);
                 const tenure = entitlement.tenureYears;
+                const rawGrant = Number(emp.grantDays || 15);
+                const grant =
+                  tenure === 0 && (rawGrant === 15 || rawGrant === 11)
+                    ? entitlement.grantDays
+                    : rawGrant;
+                const used = Number(emp.usedDays || 0);
+                const remain = grant - used;
+                const nonDedCount = Number(emp.nonDeductedCount || 0);
+                const rate = grant > 0 ? Math.min(100, Math.round((used / grant) * 100)) : 0;
 
                 return (
                   <tr
@@ -647,7 +718,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                         <button
                           onClick={() => {
                             setSelectedEmp(emp);
-                            setNewGrantDays(emp.grantDays);
+                            setNewGrantDays(grant);
                             setAdjustModalOpen(true);
                           }}
                           className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
@@ -674,38 +745,49 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                 : `연차 및 공가 사용 상세 내역 (${filteredLeaveHistory.length}건)`}
             </span>
 
-            {viewScope !== "SELF" && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setSelectedHistoryEmpId("ALL")}
-                  className={`px-2.5 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap ${
-                    selectedHistoryEmpId === "ALL"
-                      ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
-                      : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
-                  }`}
-                >
-                  {viewScope === "DEPT" ? `${currentUserDept} 전체` : "전체"} ({scopedLeaves.length})
-                </button>
-                {eligibleEmployees.map((emp) => {
-                  const cnt = scopedLeaves.filter((l) => Number(l.employeeId) === Number(emp.id)).length;
-                  return (
-                    <button
-                      key={emp.id}
-                      type="button"
-                      onClick={() => setSelectedHistoryEmpId(String(emp.id))}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap ${
-                        selectedHistoryEmpId === String(emp.id)
-                          ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
-                          : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
-                      }`}
-                    >
-                      {emp.name} ({cnt})
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleExportHistoryCsv}
+                className="px-2.5 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] text-[11px] font-bold rounded flex items-center gap-1.5 border border-[#b5a894] shadow-xs transition dark:bg-slate-700 dark:text-slate-100 dark:border-slate-600 whitespace-nowrap"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>엑셀 내보내기</span>
+              </button>
+
+              {viewScope !== "SELF" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedHistoryEmpId("ALL")}
+                    className={`px-2.5 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap ${
+                      selectedHistoryEmpId === "ALL"
+                        ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
+                        : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
+                    }`}
+                  >
+                    {viewScope === "DEPT" ? `${currentUserDept} 전체` : "전체"} ({scopedLeaves.length})
+                  </button>
+                  {eligibleEmployees.map((emp) => {
+                    const cnt = scopedLeaves.filter((l) => Number(l.employeeId) === Number(emp.id)).length;
+                    return (
+                      <button
+                        key={emp.id}
+                        type="button"
+                        onClick={() => setSelectedHistoryEmpId(String(emp.id))}
+                        className={`px-2.5 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap ${
+                          selectedHistoryEmpId === String(emp.id)
+                            ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
+                            : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894]"
+                        }`}
+                      >
+                        {emp.name} ({cnt})
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+            </div>
           </div>
 
           <div className="flex-1 overflow-auto">

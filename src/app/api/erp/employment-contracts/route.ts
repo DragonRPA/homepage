@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { encryptPii, decryptPii, hashPassword } from "@/lib/piiCrypto";
 import { putErpPrivateObject } from "@/lib/r2ErpVault";
+import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
 
 async function uploadDataUrlToR2IfNeeded(
   rawUrl: string | null | undefined,
@@ -307,6 +308,7 @@ export async function POST(request: Request) {
       const mAll = Number(mealAllowance || 200000);
       const vAll = Number(vehicleAllowance || 0);
       const hWage = Math.round(bSal / 209);
+      const autoGrant = calculateAnnualLeaveEntitlement(effStartDate).grantDays;
 
       const insEmp = await pool.query(
         `INSERT INTO erp_employees (
@@ -318,7 +320,7 @@ export async function POST(request: Request) {
           $1, $2, $3, $4, $5, $6,
           'USER', 'EMPLOYEE', $7, $8, $9, $10,
           $11, $12, $13, $14, $15, $16,
-          $17, 'ACTIVE', 11.0
+          $17, 'ACTIVE', $18
         ) RETURNING id`,
         [
           empNo,
@@ -338,6 +340,7 @@ export async function POST(request: Request) {
           pledgeScanName || null,
           storedPledgeUrl || null,
           effStartDate,
+          autoGrant,
         ]
       );
       resolvedEmpId = Number(insEmp.rows[0].id);

@@ -80,7 +80,16 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
 
   useEffect(() => {
     setEntityFilter(selectedEntity);
+    if (selectedEntity === "INDIVIDUAL" || selectedEntity === "CORP") {
+      setModalSupplierEntity(selectedEntity);
+    }
   }, [selectedEntity]);
+
+  useEffect(() => {
+    if (entityFilter === "INDIVIDUAL" || entityFilter === "CORP") {
+      setModalSupplierEntity(entityFilter);
+    }
+  }, [entityFilter]);
 
   // Modal State for Manual Issuance (SALE or PURCHASE)
   const [showIssueModal, setShowIssueModal] = useState(false);
@@ -127,20 +136,27 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const [rpaDeptUserPw, setRpaDeptUserPw] = useState("");
   const [rpaSaving, setRpaSaving] = useState(false);
 
-  // Popbill Live Production Status (파트너 잔여포인트, 공동인증서 등록여부)
+  // Popbill Live Production Status (파트너 잔여포인트, 법인/개인 공동인증서 등록여부)
   const [popbillLive, setPopbillLive] = useState<{
     isLiveProduction: boolean;
     partnerBalance: number;
     certRegistered: boolean;
     certMessage?: string;
+    corpCertRegistered?: boolean;
+    individualCertRegistered?: boolean;
   } | null>(null);
 
   const fetchPopbillLiveStatus = async () => {
     try {
+      const targetEntity = entityFilter === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
       const res = await fetch("/api/erp/tax-invoices/popbill", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "LIVE_STATUS" }),
+        body: JSON.stringify({
+          action: "LIVE_STATUS",
+          entityType: targetEntity,
+          corpNum: getEntity(targetEntity).bizNumRaw,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -149,6 +165,12 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
           partnerBalance: Number(data.partnerBalance || 0),
           certRegistered: Boolean(data.certRegistered),
           certMessage: data.certMessage || "",
+          corpCertRegistered:
+            data.corpCertRegistered !== undefined ? Boolean(data.corpCertRegistered) : Boolean(data.certRegistered),
+          individualCertRegistered:
+            data.individualCertRegistered !== undefined
+              ? Boolean(data.individualCertRegistered)
+              : Boolean(data.certRegistered),
         });
       }
     } catch (e) {
@@ -854,7 +876,8 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         body: JSON.stringify({
           action: "VIEW_URL",
           mgtKey: inv.invoiceNo,
-          corpNum: inv.supplierCorpNum,
+          corpNum: inv.supplierCorpNum || getEntity(inv.supplierEntityType).bizNumRaw,
+          entityType: inv.supplierEntityType || "CORP",
         }),
       });
       const data = await res.json();
@@ -874,7 +897,8 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         body: JSON.stringify({
           action: "PRINT_URL",
           mgtKey: inv.invoiceNo,
-          corpNum: inv.supplierCorpNum,
+          corpNum: inv.supplierCorpNum || getEntity(inv.supplierEntityType).bizNumRaw,
+          entityType: inv.supplierEntityType || "CORP",
         }),
       });
       const data = await res.json();
@@ -885,12 +909,21 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     }
   };
 
-  const handleOpenPopbillPortal = async (actionType: "PORTAL_URL" | "CERT_URL" | "CHARGE_URL") => {
+  const handleOpenPopbillPortal = async (
+    actionType: "PORTAL_URL" | "CERT_URL" | "CHARGE_URL",
+    overrideEntity?: EntityType
+  ) => {
     try {
+      const targetEntity: EntityType =
+        overrideEntity || (entityFilter === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP");
       const res = await fetch("/api/erp/tax-invoices/popbill", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: actionType }),
+        body: JSON.stringify({
+          action: actionType,
+          entityType: targetEntity,
+          corpNum: getEntity(targetEntity).bizNumRaw,
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "팝빌 포털 URL 생성 실패");
@@ -931,7 +964,8 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         body: JSON.stringify({
           action: "SYNC_STATUS",
           mgtKey: inv.invoiceNo,
-          corpNum: inv.supplierCorpNum,
+          corpNum: inv.supplierCorpNum || getEntity(inv.supplierEntityType).bizNumRaw,
+          entityType: inv.supplierEntityType || "CORP",
         }),
       });
       const data = await res.json();
@@ -961,7 +995,8 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         body: JSON.stringify({
           action: "SEND_TO_NTS",
           mgtKey: inv.invoiceNo,
-          corpNum: inv.supplierCorpNum,
+          corpNum: inv.supplierCorpNum || getEntity(inv.supplierEntityType).bizNumRaw,
+          entityType: inv.supplierEntityType || "CORP",
         }),
       });
       const data = await res.json();
@@ -1194,31 +1229,46 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                 ? "text-rose-900 bg-rose-100 hover:bg-rose-200 border-rose-500"
                 : "text-slate-800 bg-slate-200 hover:bg-slate-300 border-slate-400"
             }`}
-            title={
-              popbillLive && !popbillLive.certRegistered
-                ? "팝빌 공동인증서 미등록 상태 (클릭하여 인증서 등록)"
-                : "팝빌 공동인증서 등록 및 갱신"
-            }
+            title="팝빌 공동인증서 관리 (법인 806-88-03266 / 개인 295-03-02683)"
           >
             <ShieldCheck className="w-3.5 h-3.5" />
             <span>공동인증서 관리</span>
             {popbillLive && (
-              <span
-                className={`text-[10px] px-1 py-0.2 rounded font-bold ${
-                  popbillLive.certRegistered ? "bg-emerald-700 text-white" : "bg-rose-700 text-white"
-                }`}
-              >
-                {popbillLive.certRegistered ? "등록됨" : "미등록"}
-              </span>
+              <>
+                <span
+                  className={`text-[10px] px-1 py-0.2 rounded font-bold ${
+                    popbillLive.corpCertRegistered ? "bg-emerald-700 text-white" : "bg-rose-700 text-white"
+                  }`}
+                >
+                  법인 {popbillLive.corpCertRegistered ? "등록" : "미등록"}
+                </span>
+                <span
+                  className={`text-[10px] px-1 py-0.2 rounded font-bold ${
+                    popbillLive.individualCertRegistered ? "bg-emerald-700 text-white" : "bg-rose-700 text-white"
+                  }`}
+                >
+                  개인 {popbillLive.individualCertRegistered ? "등록" : "미등록"}
+                </span>
+              </>
             )}
           </button>
 
           <button
-            onClick={() => handleOpenPopbillPortal("PORTAL_URL")}
-            className="hidden sm:flex items-center gap-1 h-7 px-2.5 rounded text-xs font-bold text-indigo-800 bg-indigo-100 hover:bg-indigo-200 border border-indigo-400 shadow-sm whitespace-nowrap shrink-0 cursor-pointer"
+            onClick={() => handleOpenPopbillPortal("PORTAL_URL", "CORP")}
+            className="hidden sm:flex items-center gap-1 h-7 px-2 rounded text-xs font-bold text-indigo-800 bg-indigo-100 hover:bg-indigo-200 border border-indigo-400 shadow-sm whitespace-nowrap shrink-0 cursor-pointer"
+            title="주식회사 드래곤알피에이 (806-88-03266) 팝빌 문서함 열기"
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            <span>팝빌 문서함</span>
+            <span>법인 문서함</span>
+          </button>
+
+          <button
+            onClick={() => handleOpenPopbillPortal("PORTAL_URL", "INDIVIDUAL")}
+            className="hidden sm:flex items-center gap-1 h-7 px-2 rounded text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-400 shadow-sm whitespace-nowrap shrink-0 cursor-pointer"
+            title="드래곤알피에이 개인사업자 (295-03-02683) 팝빌 문서함 열기"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            <span>개인 문서함</span>
           </button>
         </div>
       </div>
@@ -2043,7 +2093,18 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                           {/* 4. 거래처 */}
                           <td className="p-2 border-r border-[#b5a894] whitespace-nowrap">
                             <div className="flex flex-col">
-                              <span className="font-bold text-[#1c1917]">{inv.customerName}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[9.5px] font-bold shrink-0 ${
+                                    inv.supplierEntityType === "INDIVIDUAL"
+                                      ? "bg-amber-100 text-amber-900 border border-amber-300"
+                                      : "bg-indigo-100 text-indigo-900 border border-indigo-300"
+                                  }`}
+                                >
+                                  {inv.supplierEntityType === "INDIVIDUAL" ? "개인" : "법인"}
+                                </span>
+                                <span className="font-bold text-[#1c1917]">{inv.customerName}</span>
+                              </div>
                               <span className="text-[10px] text-[#78716c] font-mono">
                                 {inv.businessNo || "-"} {inv.ceoName ? `| ${inv.ceoName}` : ""}
                               </span>

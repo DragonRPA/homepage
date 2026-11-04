@@ -9,25 +9,27 @@ import {
   getPopbillCertInfo,
   getPopbillLiveStatus,
   sendToNTSPopbill,
-  sendPopbillEmail
+  sendPopbillEmail,
+  resolvePopbillCorpNum
 } from "@/lib/popbillService";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { action, invoiceId, mgtKey, corpNum } = body;
+    const { action, invoiceId, mgtKey, corpNum, entityType } = body;
+    const requestedCorpNum = resolvePopbillCorpNum(corpNum, entityType);
 
     const pool = getErpPool();
 
     // 0-B. Get Popbill Live Production Status (Environment, Partner Balance, Cert Status)
     if (action === "LIVE_STATUS") {
-      const liveStatus = await getPopbillLiveStatus(corpNum);
+      const liveStatus = await getPopbillLiveStatus(requestedCorpNum);
       return NextResponse.json({ success: true, ...liveStatus });
     }
 
     // 0-A. Get Popbill Registered Certificate Info
     if (action === "CERT_INFO") {
-      const cert = await getPopbillCertInfo(corpNum);
+      const cert = await getPopbillCertInfo(requestedCorpNum);
       return NextResponse.json({ success: true, ...cert });
     }
 
@@ -36,7 +38,7 @@ export async function POST(request: Request) {
       try {
         const toGo =
           action === "CERT_URL" ? "CERT" : action === "CHARGE_URL" ? "CHRG" : "LOGIN";
-        const url = await getPopbillPortalURL(toGo, corpNum);
+        const url = await getPopbillPortalURL(toGo, requestedCorpNum);
         return NextResponse.json({ success: true, url });
       } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 400 });
@@ -51,11 +53,18 @@ export async function POST(request: Request) {
       try {
         let activeCorpNum = corpNum;
         if (!activeCorpNum) {
-          const invRes = await pool.query("SELECT supplier_corp_num FROM erp_tax_invoices WHERE invoice_no = $1", [mgtKey]);
-          if (invRes.rows.length > 0 && invRes.rows[0].supplier_corp_num) {
-            activeCorpNum = invRes.rows[0].supplier_corp_num;
+          const invRes = await pool.query(
+            "SELECT supplier_corp_num, supplier_entity_type FROM erp_tax_invoices WHERE invoice_no = $1",
+            [mgtKey]
+          );
+          if (invRes.rows.length > 0) {
+            activeCorpNum = resolvePopbillCorpNum(
+              invRes.rows[0].supplier_corp_num,
+              invRes.rows[0].supplier_entity_type
+            );
           }
         }
+        activeCorpNum = resolvePopbillCorpNum(activeCorpNum, entityType);
         const url = action === "VIEW_URL" 
           ? await getPopbillPopUpURL(mgtKey, activeCorpNum)
           : await getPopbillPrintURL(mgtKey, activeCorpNum);
@@ -73,11 +82,18 @@ export async function POST(request: Request) {
       try {
         let activeCorpNum = corpNum;
         if (!activeCorpNum) {
-          const invRes = await pool.query("SELECT supplier_corp_num FROM erp_tax_invoices WHERE invoice_no = $1", [mgtKey]);
-          if (invRes.rows.length > 0 && invRes.rows[0].supplier_corp_num) {
-            activeCorpNum = invRes.rows[0].supplier_corp_num;
+          const invRes = await pool.query(
+            "SELECT supplier_corp_num, supplier_entity_type FROM erp_tax_invoices WHERE invoice_no = $1",
+            [mgtKey]
+          );
+          if (invRes.rows.length > 0) {
+            activeCorpNum = resolvePopbillCorpNum(
+              invRes.rows[0].supplier_corp_num,
+              invRes.rows[0].supplier_entity_type
+            );
           }
         }
+        activeCorpNum = resolvePopbillCorpNum(activeCorpNum, entityType);
         const info = await getPopbillInfo(mgtKey, activeCorpNum);
         const realConfirmNo = info.ntsconfirmNum || info.ntsConfirmNum;
         const nextStatus =
@@ -114,11 +130,18 @@ export async function POST(request: Request) {
         try {
           let activeCorpNum = corpNum;
           if (!activeCorpNum) {
-            const invRes = await pool.query("SELECT supplier_corp_num FROM erp_tax_invoices WHERE invoice_no = $1", [key]);
-            if (invRes.rows.length > 0 && invRes.rows[0].supplier_corp_num) {
-              activeCorpNum = invRes.rows[0].supplier_corp_num;
+            const invRes = await pool.query(
+              "SELECT supplier_corp_num, supplier_entity_type FROM erp_tax_invoices WHERE invoice_no = $1",
+              [key]
+            );
+            if (invRes.rows.length > 0) {
+              activeCorpNum = resolvePopbillCorpNum(
+                invRes.rows[0].supplier_corp_num,
+                invRes.rows[0].supplier_entity_type
+              );
             }
           }
+          activeCorpNum = resolvePopbillCorpNum(activeCorpNum, entityType);
           const ntsRes = await sendToNTSPopbill(key, activeCorpNum);
           await pool.query(
             "UPDATE erp_tax_invoices SET status = 'SENT_NTS', nts_confirm_no = COALESCE($1, nts_confirm_no) WHERE invoice_no = $2",
@@ -154,7 +177,10 @@ export async function POST(request: Request) {
       }
       const invRes = await pool.query("SELECT * FROM erp_tax_invoices WHERE invoice_no = $1 LIMIT 1", [mgtKey]);
       const inv = invRes.rows[0];
-      const activeCorpNum = corpNum || inv?.supplier_corp_num || "8068803266";
+      const activeCorpNum = resolvePopbillCorpNum(
+        corpNum || inv?.supplier_corp_num,
+        entityType || inv?.supplier_entity_type
+      );
       let targetEmail = (body.receiverEmail || inv?.customer_email || "").trim();
       if (!targetEmail && inv) {
         const pRes = await pool.query(
@@ -191,7 +217,10 @@ export async function POST(request: Request) {
       const inv = res.rows[0];
 
       try {
-        const activeCorpNum = corpNum || inv.supplier_corp_num || "8068803266";
+        const activeCorpNum = resolvePopbillCorpNum(
+          corpNum || inv.supplier_corp_num,
+          entityType || inv.supplier_entity_type
+        );
         const writeDateStr = inv.issue_date instanceof Date
           ? inv.issue_date.toISOString().split("T")[0]
           : String(inv.issue_date || "").slice(0, 10);

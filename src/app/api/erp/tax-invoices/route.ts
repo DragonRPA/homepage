@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { BUSINESS_ENTITIES, getEntity } from "@/lib/businessEntities";
-import { registIssuePopbill, deletePopbillInvoice } from "@/lib/popbillService";
+import { registIssuePopbill, deletePopbillInvoice, resolvePopbillCorpNum } from "@/lib/popbillService";
 import { resolveContractItemTemplate, resolveContractTaxItemsTemplate, selectPreferredBizItem } from "@/lib/erpFormat";
 
 function normalizeNameForAutoMatch(raw?: string): string {
@@ -954,7 +954,10 @@ export async function DELETE(request: Request) {
     // 3. 팝빌 임시문서함 문서인 경우 팝빌에서도 삭제 시도
     if (inv.invoice_no && inv.io_type !== "PURCHASE") {
       try {
-        await deletePopbillInvoice(inv.invoice_no, inv.supplier_corp_num);
+        await deletePopbillInvoice(
+          inv.invoice_no,
+          resolvePopbillCorpNum(inv.supplier_corp_num, inv.supplier_entity_type)
+        );
       } catch {
         // 팝빌에 없거나 이미 국세청 전송된 경우 무시하고 ERP DB 정리 진행
       }

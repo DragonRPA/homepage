@@ -1,6 +1,6 @@
 import "server-only";
 import popbill from "popbill";
-import { BUSINESS_ENTITIES } from "./businessEntities";
+import { BUSINESS_ENTITIES, getEntityByBizNum } from "./businessEntities";
 import { selectPreferredBizItem } from "./erpFormat";
 
 const linkId = process.env.POPBILL_LINK_ID;
@@ -24,8 +24,20 @@ popbill.config({
 
 export const popbillTaxService = popbill.TaxinvoiceService();
 
-// 팝빌에 등록된 대표 연동회원 사업자번호 (8068803266: 주식회사 드래곤알피에이)
-export const POPBILL_REGISTERED_CORP_NUM = "8068803266";
+// 팝빌에 등록된 연동회원 사업자번호 (법인 8068803266 / 개인 2950302683)
+export const POPBILL_REGISTERED_CORP_NUM = BUSINESS_ENTITIES.CORP.bizNumRaw;
+export const POPBILL_INDIVIDUAL_CORP_NUM = BUSINESS_ENTITIES.INDIVIDUAL.bizNumRaw;
+
+export function resolvePopbillCorpNum(corpNum?: string | null, entityType?: string | null): string {
+  const clean = (corpNum || "").replace(/[^0-9]/g, "");
+  if (clean === POPBILL_INDIVIDUAL_CORP_NUM || entityType === "INDIVIDUAL") {
+    return POPBILL_INDIVIDUAL_CORP_NUM;
+  }
+  if (clean === POPBILL_REGISTERED_CORP_NUM || entityType === "CORP") {
+    return POPBILL_REGISTERED_CORP_NUM;
+  }
+  return clean.length === 10 ? clean : POPBILL_REGISTERED_CORP_NUM;
+}
 
 // 유효한 10자리 사업자등록번호 검증 및 정규화 (실제 서비스에서는 임의 사업자번호 치환 금지)
 function sanitizePopbillBizNo(rawBizNo?: string): string {
@@ -81,7 +93,7 @@ function cutStr(val: string | undefined | null, maxLen: number): string {
 }
 
 function buildPopbillTaxinvoiceObj(params: PopbillIssueParams, activeCorpNum: string) {
-  const defaultEntity = BUSINESS_ENTITIES.CORP;
+  const defaultEntity = getEntityByBizNum(activeCorpNum);
   const cleanWriteDate = (params.writeDate || new Date().toISOString().slice(0, 10)).replace(/[^0-9]/g, "").slice(0, 8);
   const defaultY = cleanWriteDate.slice(0, 4);
   const defaultM = cleanWriteDate.slice(4, 6);
@@ -162,9 +174,7 @@ function buildPopbillTaxinvoiceObj(params: PopbillIssueParams, activeCorpNum: st
  *    가짜 승인번호를 생성하지 않으며 상태를 TEMP_SAVED(임시저장)로 반환합니다.
  */
 export async function registIssuePopbill(params: PopbillIssueParams): Promise<any> {
-  const defaultEntity = BUSINESS_ENTITIES.CORP;
-  const rawCorpNum = (params.corpNum || defaultEntity.bizNumRaw).replace(/[^0-9]/g, "");
-  const activeCorpNum = rawCorpNum || POPBILL_REGISTERED_CORP_NUM;
+  const activeCorpNum = resolvePopbillCorpNum(params.corpNum);
   const taxinvoiceObj = buildPopbillTaxinvoiceObj(params, activeCorpNum);
 
   return new Promise((resolve, reject) => {
@@ -173,15 +183,35 @@ export async function registIssuePopbill(params: PopbillIssueParams): Promise<an
       taxinvoiceObj,
       (res: any) => {
         const realConfirmNo = res?.ntsConfirmNum || res?.ntsconfirmNum || null;
-        resolve({
-          success: true,
-          isLivePopbill: true,
-          mode: "ISSUED",
-          corpNumUsed: activeCorpNum,
-          res,
-          ntsConfirmNo: realConfirmNo,
-          message: `[팝빌 정식 발행 완료] 국세청 승인번호: ${realConfirmNo || "발급 완료"}`,
-        });
+        // 연동회원 설정이 '익일전송(false)'으로 되어 있더라도 발행 직후 sendToNTS를 자동 호출하여 항상 국세청 '즉시전송' 보장
+        popbillTaxService.sendToNTS(
+          activeCorpNum,
+          popbill.MgtKeyType.SELL,
+          params.invoicerMgtKey,
+          () => {
+            resolve({
+              success: true,
+              isLivePopbill: true,
+              mode: "ISSUED",
+              corpNumUsed: activeCorpNum,
+              res,
+              ntsConfirmNo: realConfirmNo,
+              message: `[팝빌 정식 발행 및 국세청 즉시전송 완료] 국세청 승인번호: ${realConfirmNo || "발급 완료"}`,
+            });
+          },
+          () => {
+            // 이미 즉시전송 옵션이 켜져 있어 자동 전송 중이거나 완료된 경우 정상 처리
+            resolve({
+              success: true,
+              isLivePopbill: true,
+              mode: "ISSUED",
+              corpNumUsed: activeCorpNum,
+              res,
+              ntsConfirmNo: realConfirmNo,
+              message: `[팝빌 정식 발행 완료] 국세청 승인번호: ${realConfirmNo || "발급 완료"}`,
+            });
+          }
+        );
       },
       (err: any) => {
         // 공동인증서 미등록(-10002009)인 경우 팝빌 임시문서함에 실제 등록(register) 수행
@@ -403,10 +433,10 @@ export async function getPopbillPortalURL(
 }
 
 /**
- * 팝빌 운영 환경 연동 상태 (회원 가입여부, 파트너 잔여 포인트, 공동인증서 등록 및 만료일) 통합 조회
+ * 팝빌 운영 환경 연동 상태 (법인 + 개인 회원 가입여부, 파트너 잔여 포인트, 공동인증서 등록 및 만료일) 통합 조회
  */
 export async function getPopbillLiveStatus(corpNum?: string): Promise<any> {
-  const cNum = (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
+  const cNum = resolvePopbillCorpNum(corpNum);
   const partnerBalance = await new Promise<number>((resolve) => {
     popbillTaxService.getPartnerBalance(
       cNum,
@@ -421,7 +451,11 @@ export async function getPopbillLiveStatus(corpNum?: string): Promise<any> {
       () => resolve(0)
     );
   });
-  const cert = await getPopbillCertInfo(cNum);
+  const [corpCert, individualCert] = await Promise.all([
+    getPopbillCertInfo(POPBILL_REGISTERED_CORP_NUM),
+    getPopbillCertInfo(POPBILL_INDIVIDUAL_CORP_NUM),
+  ]);
+  const activeCert = cNum === POPBILL_INDIVIDUAL_CORP_NUM ? individualCert : corpCert;
   return {
     isLiveProduction: !isTestMode,
     serviceId: isTestMode ? "POPBILL_TEST" : "POPBILL",
@@ -429,9 +463,13 @@ export async function getPopbillLiveStatus(corpNum?: string): Promise<any> {
     corpNum: cNum,
     partnerBalance,
     memberBalance,
-    certRegistered: Boolean(cert.registered),
-    certInfo: cert.certInfo || null,
-    certMessage: cert.validMessage || cert.error || "",
+    certRegistered: Boolean(activeCert.registered),
+    certInfo: activeCert.certInfo || null,
+    certMessage: activeCert.validMessage || activeCert.error || "",
+    corpCertRegistered: Boolean(corpCert.registered),
+    corpCertInfo: corpCert.certInfo || null,
+    individualCertRegistered: Boolean(individualCert.registered),
+    individualCertInfo: individualCert.certInfo || null,
   };
 }
 

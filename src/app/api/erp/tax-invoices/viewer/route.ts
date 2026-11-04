@@ -127,7 +127,7 @@ export async function GET(request: Request) {
       <img src="/ci-dragonrpa.png" alt="주식회사 드래곤알피에이 CI" style="width: 34px; height: 34px; object-fit: contain;" />
       <div>
         <div class="modal-title">전자세금계산서 상세조회</div>
-        <div style="font-size: 10.5px; color: #64748b; font-weight: 600;">주식회사 드래곤알피에이 공식 발행 문서</div>
+        <div style="font-size: 10.5px; color: #64748b; font-weight: 600;">${inv.supplier_corp_name || supplier.corpName} 공식 발행 문서</div>
       </div>
     </div>
     <div class="nts-meta">승인번호: ${inv.nts_confirm_no || "-"} | 관리번호: ${inv.invoice_no}</div>

@@ -680,6 +680,10 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       {/* 인쇄 시 현재 선택된 A4 양식(근로계약서 또는 정보보호서약서)만 출력 */}
       <style jsx global>{`
         @media print {
+          @page {
+            size: A4 portrait;
+            margin: 10mm 14mm;
+          }
           body * {
             visibility: hidden !important;
           }
@@ -691,9 +695,10 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
             position: fixed !important;
             left: 0 !important;
             top: 0 !important;
-            width: 210mm !important;
-            min-height: 297mm !important;
-            padding: 18mm 20mm !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            min-height: auto !important;
+            padding: 4mm 6mm !important;
             margin: 0 !important;
             background: #ffffff !important;
             color: #000000 !important;
@@ -1762,15 +1767,15 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
               /* ① 표준 근로계약서 A4 문서 양식 (공식 CI 포함) */
               <div
                 id="printable-active-document"
-                className="w-full max-w-[760px] bg-white text-black p-6 md:p-10 rounded shadow-md border border-[#b5a894] font-serif leading-relaxed text-[13.5px]"
+                className="w-full max-w-[760px] bg-white text-black p-6 md:px-9 md:py-7 rounded shadow-md border border-[#b5a894] font-serif leading-snug text-[13.5px]"
               >
                 {/* 공식 발행 문서 상단 CI 헤더 */}
-                <div className="flex items-center justify-between border-b border-neutral-300 pb-2.5 mb-5">
+                <div className="flex items-center justify-between border-b border-neutral-300 pb-2 mb-3.5">
                   <div className="flex items-center gap-2.5">
                     <img
                       src="/ci-dragonrpa.png"
                       alt="주식회사 드래곤알피에이 CI"
-                      className="w-10 h-10 object-contain"
+                      className="w-9 h-9 object-contain"
                     />
                     <div className="font-sans leading-tight">
                       <div className="text-xs font-extrabold text-neutral-900">
@@ -1787,12 +1792,12 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                 </div>
 
                 {/* 타이틀 박스 */}
-                <div className="border border-black py-2.5 px-8 mx-auto w-64 text-center mb-6">
+                <div className="border border-black py-2 px-8 mx-auto w-64 text-center mb-4">
                   <h1 className="text-xl font-bold tracking-[0.25em]">근 로 계 약 서</h1>
                 </div>
 
                 {/* 전문 */}
-                <p className="mb-5 leading-7 text-[14px]">
+                <p className="mb-3.5 leading-6 text-[13.5px]">
                   <span className="inline-block border-b border-black px-2 font-bold">
                     {form.employerName}
                   </span>{" "}
@@ -1804,7 +1809,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                 </p>
 
                 {/* 조항 1 ~ 9 */}
-                <div className="space-y-3.5 text-[13.5px]">
+                <div className="space-y-2.5 text-[13.5px]">
                   <div>
                     <div className="font-semibold">
                       1. 근로계약기간 :{" "}
@@ -1859,8 +1864,8 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                   </div>
 
                   <div>
-                    <div className="font-semibold mb-1">6. 임 금</div>
-                    <div className="pl-4 space-y-1">
+                    <div className="font-semibold mb-0.5">6. 임 금</div>
+                    <div className="pl-4 space-y-0.5">
                       <div>
                         - 월(일, 시간)급 :{" "}
                         <span className="font-bold underline underline-offset-4">
@@ -1919,15 +1924,15 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                 </div>
 
                 {/* 계약 체결일 */}
-                <div className="text-center font-bold text-[15px] my-7 tracking-widest">
+                <div className="text-center font-bold text-[14.5px] my-4 tracking-widest">
                   {contractParts.y} 년 {contractParts.m} 월 {contractParts.d} 일
                 </div>
 
                 {/* 사업주 & 근로자 서명란 */}
-                <div className="space-y-4 text-[13.5px] pt-2 border-t border-neutral-300">
-                  <div className="grid grid-cols-12 gap-y-1">
+                <div className="space-y-2.5 text-[13.5px] pt-2 pb-2 border-t border-neutral-300">
+                  <div className="grid grid-cols-12 gap-y-0.5">
                     <div className="col-span-2 font-bold">(사업주)</div>
-                    <div className="col-span-10 space-y-1">
+                    <div className="col-span-10 space-y-0.5">
                       <div className="flex justify-between items-center">
                         <span className="inline-flex items-center gap-1.5 font-semibold">
                           <img
@@ -1940,19 +1945,19 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                         <span>(전화 : {form.employerPhone})</span>
                       </div>
                       <div>주 소 : {form.employerAddress}</div>
-                      <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center justify-between pt-0.5">
                         <span>대 표 자 : {form.employerRep}</span>
                         <span className="pr-8 font-semibold">(서명)</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-12 gap-y-1 pt-2">
+                  <div className="grid grid-cols-12 gap-y-0.5 pt-1.5">
                     <div className="col-span-2 font-bold">(근로자)</div>
-                    <div className="col-span-10 space-y-1">
+                    <div className="col-span-10 space-y-0.5">
                       <div>주 소 : {form.employeeAddress}</div>
                       <div>연 락 처 : {form.employeePhone}</div>
-                      <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center justify-between pt-0.5">
                         <span className="font-bold">성 명 : {form.employeeName}</span>
                         <span className="pr-8 font-semibold">(서명)</span>
                       </div>

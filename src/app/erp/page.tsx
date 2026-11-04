@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 import { ErpLogin } from "./components/ErpLogin";
-import { ErpHeader, EntityScope } from "./components/ErpHeader";
+import { ErpHeader, EntityScope, ErpThemeMode } from "./components/ErpHeader";
 import { PasswordChangeModal } from "./components/PasswordChangeModal";
 
 // ebro_it 모방 핵심 모듈군
@@ -196,7 +196,7 @@ export default function ErpMainPage() {
   const [activeMenu, setActiveMenu] = useState<ErpMenuKey>("FINANCIAL_REPORT");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<ErpThemeMode>("light");
   const [selectedEntity, setSelectedEntity] = useState<EntityScope>("ALL");
   const [rolePerms, setRolePerms] = useState<
     Array<{ roleCode: string; menuKey: string; canView: boolean; canSave: boolean; canBill?: boolean }>

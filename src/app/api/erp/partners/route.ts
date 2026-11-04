@@ -61,7 +61,13 @@ export async function GET(request: Request) {
         p.address,
         p.address_detail AS "addressDetail",
         p.main_phone AS "mainPhone",
-        p.main_email AS "mainEmail",
+        COALESCE(
+          NULLIF(p.main_email, ''),
+          (SELECT pc.email FROM erp_partner_contacts pc WHERE pc.partner_id = p.id AND pc.email IS NOT NULL AND pc.email <> '' ORDER BY pc.is_primary DESC, pc.id ASC LIMIT 1),
+          (SELECT sc.customer_email FROM erp_service_contracts sc WHERE (sc.partner_id = p.id OR sc.customer_name = p.name) AND sc.customer_email IS NOT NULL AND sc.customer_email <> '' ORDER BY sc.id DESC LIMIT 1),
+          (SELECT rc.customer_email FROM erp_rental_contracts rc WHERE (rc.partner_id = p.id OR rc.customer_name = p.name) AND rc.customer_email IS NOT NULL AND rc.customer_email <> '' ORDER BY rc.id DESC LIMIT 1)
+        ) AS "mainEmail",
+        p.sub_email AS "subEmail",
         p.fax_no AS "faxNo",
         p.manager_employee_id AS "managerEmployeeId",
         p.manager_name AS "managerName",
@@ -203,6 +209,7 @@ export async function POST(request: Request) {
       addressDetail,
       mainPhone,
       mainEmail,
+      subEmail,
       faxNo,
       managerEmployeeId,
       managerName,
@@ -301,7 +308,7 @@ export async function POST(request: Request) {
         `
         INSERT INTO erp_partners (
           partner_type, partner_code, name, business_no, corporate_no, ceo_name,
-          biz_type, biz_item, address, address_detail, main_phone, main_email,
+          biz_type, biz_item, address, address_detail, main_phone, main_email, sub_email,
           fax_no, manager_employee_id, manager_name, statement_closing_day,
           tax_invoice_closing_day, payment_due_day, status, memo,
           biz_cert_file_url, biz_cert_file_name,
@@ -310,7 +317,7 @@ export async function POST(request: Request) {
           created_at, updated_at
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-          $23, $24, $25, $26, $27, $28, $29,
+          $23, $24, $25, $26, $27, $28, $29, $30,
           NOW(), NOW()
         ) RETURNING *
         `,
@@ -327,6 +334,7 @@ export async function POST(request: Request) {
           addressDetail || null,
           mainPhone || null,
           mainEmail || null,
+          subEmail || null,
           faxNo || null,
           managerEmployeeId ? parseInt(managerEmployeeId) : null,
           managerName || null,
@@ -348,6 +356,55 @@ export async function POST(request: Request) {
       );
 
       const createdPartner = insRes.rows[0];
+
+      // 연결된 용역계약 및 임대계약에 거래처 이메일/사업자 제원 동기화
+      await client.query(
+        `UPDATE erp_rental_contracts
+         SET partner_id = COALESCE(partner_id, $1),
+             customer_email = COALESCE(NULLIF($2, ''), customer_email),
+             customer_email2 = COALESCE(NULLIF($3, ''), customer_email2),
+             customer_biz_no = COALESCE(NULLIF(customer_biz_no, ''), $4, ''),
+             customer_ceo_name = COALESCE(NULLIF(customer_ceo_name, ''), $5, ''),
+             customer_address = COALESCE(NULLIF(customer_address, ''), $6, ''),
+             customer_biz_type = COALESCE(NULLIF(customer_biz_type, ''), $7, ''),
+             customer_biz_class = COALESCE(NULLIF(customer_biz_class, ''), $8, '')
+         WHERE partner_id = $1 OR customer_name = $9`,
+        [
+          createdPartner.id,
+          createdPartner.main_email || "",
+          createdPartner.sub_email || "",
+          createdPartner.business_no || "",
+          createdPartner.ceo_name || "",
+          [createdPartner.address, createdPartner.address_detail].filter(Boolean).join(" "),
+          createdPartner.biz_type || "",
+          createdPartner.biz_item || "",
+          createdPartner.name,
+        ]
+      );
+
+      await client.query(
+        `UPDATE erp_service_contracts
+         SET partner_id = COALESCE(partner_id, $1),
+             customer_email = COALESCE(NULLIF($2, ''), customer_email),
+             customer_email2 = COALESCE(NULLIF($3, ''), customer_email2),
+             customer_biz_no = COALESCE(NULLIF(customer_biz_no, ''), $4, ''),
+             customer_ceo_name = COALESCE(NULLIF(customer_ceo_name, ''), $5, ''),
+             customer_address = COALESCE(NULLIF(customer_address, ''), $6, ''),
+             customer_biz_type = COALESCE(NULLIF(customer_biz_type, ''), $7, ''),
+             customer_biz_class = COALESCE(NULLIF(customer_biz_class, ''), $8, '')
+         WHERE partner_id = $1 OR customer_name = $9`,
+        [
+          createdPartner.id,
+          createdPartner.main_email || "",
+          createdPartner.sub_email || "",
+          createdPartner.business_no || "",
+          createdPartner.ceo_name || "",
+          [createdPartner.address, createdPartner.address_detail].filter(Boolean).join(" "),
+          createdPartner.biz_type || "",
+          createdPartner.biz_item || "",
+          createdPartner.name,
+        ]
+      );
 
       // Insert initial contacts if provided
       if (Array.isArray(contacts) && contacts.length > 0) {
@@ -428,6 +485,7 @@ export async function PUT(request: Request) {
       addressDetail,
       mainPhone,
       mainEmail,
+      subEmail,
       faxNo,
       managerEmployeeId,
       managerName,
@@ -488,25 +546,26 @@ export async function PUT(request: Request) {
         address_detail = $10,
         main_phone = $11,
         main_email = $12,
-        fax_no = $13,
-        manager_employee_id = $14,
-        manager_name = $15,
-        statement_closing_day = COALESCE($16, statement_closing_day),
-        tax_invoice_closing_day = COALESCE($17, tax_invoice_closing_day),
-        payment_due_day = COALESCE($18, payment_due_day),
-        status = COALESCE($19, status),
-        memo = $20,
-        biz_cert_file_url = CASE WHEN $21::text = '__DELETE__' THEN NULL ELSE COALESCE($21, biz_cert_file_url) END,
-        biz_cert_file_name = CASE WHEN $21::text = '__DELETE__' THEN NULL ELSE COALESCE($22, biz_cert_file_name) END,
-        bank_name = $23,
-        bank_account_no = $24,
-        bank_account_holder = $25,
-        bank_copy_file_url = CASE WHEN $26::text = '__DELETE__' THEN NULL ELSE COALESCE($26, bank_copy_file_url) END,
-        bank_copy_file_name = CASE WHEN $26::text = '__DELETE__' THEN NULL ELSE COALESCE($27, bank_copy_file_name) END,
-        contract_file_url = CASE WHEN $28::text = '__DELETE__' THEN NULL ELSE COALESCE($28, contract_file_url) END,
-        contract_file_name = CASE WHEN $28::text = '__DELETE__' THEN NULL ELSE COALESCE($29, contract_file_name) END,
+        sub_email = $13,
+        fax_no = $14,
+        manager_employee_id = $15,
+        manager_name = $16,
+        statement_closing_day = COALESCE($17, statement_closing_day),
+        tax_invoice_closing_day = COALESCE($18, tax_invoice_closing_day),
+        payment_due_day = COALESCE($19, payment_due_day),
+        status = COALESCE($20, status),
+        memo = $21,
+        biz_cert_file_url = CASE WHEN $22::text = '__DELETE__' THEN NULL ELSE COALESCE($22, biz_cert_file_url) END,
+        biz_cert_file_name = CASE WHEN $22::text = '__DELETE__' THEN NULL ELSE COALESCE($23, biz_cert_file_name) END,
+        bank_name = $24,
+        bank_account_no = $25,
+        bank_account_holder = $26,
+        bank_copy_file_url = CASE WHEN $27::text = '__DELETE__' THEN NULL ELSE COALESCE($27, bank_copy_file_url) END,
+        bank_copy_file_name = CASE WHEN $27::text = '__DELETE__' THEN NULL ELSE COALESCE($28, bank_copy_file_name) END,
+        contract_file_url = CASE WHEN $29::text = '__DELETE__' THEN NULL ELSE COALESCE($29, contract_file_url) END,
+        contract_file_name = CASE WHEN $29::text = '__DELETE__' THEN NULL ELSE COALESCE($30, contract_file_name) END,
         updated_at = NOW()
-      WHERE id = $30
+      WHERE id = $31
       RETURNING *
       `,
       [
@@ -522,6 +581,7 @@ export async function PUT(request: Request) {
         addressDetail || null,
         mainPhone || null,
         mainEmail || null,
+        subEmail || null,
         faxNo || null,
         managerEmployeeId ? parseInt(managerEmployeeId) : null,
         managerName || null,
@@ -550,10 +610,61 @@ export async function PUT(request: Request) {
       );
     }
 
+    const updatedPartner = updateRes.rows[0];
+
+    // 거래처 수정 시 연결된 임대계약 및 용역계약의 세금계산서 수신 이메일/사업자 제원 동기화
+    await pool.query(
+      `UPDATE erp_rental_contracts
+       SET partner_id = COALESCE(partner_id, $1),
+           customer_email = CASE WHEN $2::text IS NOT NULL AND $2::text <> '' THEN $2 ELSE customer_email END,
+           customer_email2 = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE customer_email2 END,
+           customer_biz_no = COALESCE(NULLIF($4, ''), customer_biz_no),
+           customer_ceo_name = COALESCE(NULLIF($5, ''), customer_ceo_name),
+           customer_address = COALESCE(NULLIF($6, ''), customer_address),
+           customer_biz_type = COALESCE(NULLIF($7, ''), customer_biz_type),
+           customer_biz_class = COALESCE(NULLIF($8, ''), customer_biz_class)
+       WHERE partner_id = $1 OR customer_name = $9 OR ($4 IS NOT NULL AND $4 <> '' AND customer_biz_no = $4)`,
+      [
+        updatedPartner.id,
+        updatedPartner.main_email || "",
+        updatedPartner.sub_email ?? "",
+        updatedPartner.business_no || "",
+        updatedPartner.ceo_name || "",
+        [updatedPartner.address, updatedPartner.address_detail].filter(Boolean).join(" "),
+        updatedPartner.biz_type || "",
+        updatedPartner.biz_item || "",
+        updatedPartner.name,
+      ]
+    );
+
+    await pool.query(
+      `UPDATE erp_service_contracts
+       SET partner_id = COALESCE(partner_id, $1),
+           customer_email = CASE WHEN $2::text IS NOT NULL AND $2::text <> '' THEN $2 ELSE customer_email END,
+           customer_email2 = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE customer_email2 END,
+           customer_biz_no = COALESCE(NULLIF($4, ''), customer_biz_no),
+           customer_ceo_name = COALESCE(NULLIF($5, ''), customer_ceo_name),
+           customer_address = COALESCE(NULLIF($6, ''), customer_address),
+           customer_biz_type = COALESCE(NULLIF($7, ''), customer_biz_type),
+           customer_biz_class = COALESCE(NULLIF($8, ''), customer_biz_class)
+       WHERE partner_id = $1 OR customer_name = $9 OR ($4 IS NOT NULL AND $4 <> '' AND customer_biz_no = $4)`,
+      [
+        updatedPartner.id,
+        updatedPartner.main_email || "",
+        updatedPartner.sub_email ?? "",
+        updatedPartner.business_no || "",
+        updatedPartner.ceo_name || "",
+        [updatedPartner.address, updatedPartner.address_detail].filter(Boolean).join(" "),
+        updatedPartner.biz_type || "",
+        updatedPartner.biz_item || "",
+        updatedPartner.name,
+      ]
+    );
+
     return NextResponse.json({
       success: true,
       message: "거래처 정보가 성공적으로 수정되었습니다.",
-      partner: updateRes.rows[0],
+      partner: updatedPartner,
     });
   } catch (error: any) {
     console.error("PUT /api/erp/partners error:", error);

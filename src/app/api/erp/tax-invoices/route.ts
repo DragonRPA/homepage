@@ -14,6 +14,50 @@ function normalizeNameForAutoMatch(raw?: string): string {
     .trim();
 }
 
+// 고객사 세금계산서 수신 이메일을 거래처(erp_partners), 담당자(erp_partner_contacts), 계약(erp_service_contracts, erp_rental_contracts)에서 조회
+async function resolveCustomerTaxEmails(
+  client: any,
+  customerName?: string,
+  businessNo?: string,
+  rawEmail1?: string,
+  rawEmail2?: string
+): Promise<{ email1: string; email2: string }> {
+  let email1 = (rawEmail1 || "").trim();
+  let email2 = (rawEmail2 || "").trim();
+  if (email1) return { email1, email2 };
+
+  const cleanName = (customerName || "").trim();
+  const cleanBiz = (businessNo || "").trim();
+
+  const pRes = await client.query(
+    `SELECT
+       COALESCE(
+         NULLIF(p.main_email, ''),
+         (SELECT pc.email FROM erp_partner_contacts pc WHERE pc.partner_id = p.id AND pc.email IS NOT NULL AND pc.email <> '' ORDER BY pc.is_primary DESC, pc.id ASC LIMIT 1),
+         (SELECT sc.customer_email FROM erp_service_contracts sc WHERE (sc.partner_id = p.id OR sc.customer_name = p.name) AND sc.customer_email IS NOT NULL AND sc.customer_email <> '' ORDER BY sc.id DESC LIMIT 1),
+         (SELECT rc.customer_email FROM erp_rental_contracts rc WHERE (rc.partner_id = p.id OR rc.customer_name = p.name) AND rc.customer_email IS NOT NULL AND rc.customer_email <> '' ORDER BY rc.id DESC LIMIT 1),
+         ''
+       ) AS main_email,
+       COALESCE(
+         NULLIF(p.sub_email, ''),
+         (SELECT sc.customer_email2 FROM erp_service_contracts sc WHERE (sc.partner_id = p.id OR sc.customer_name = p.name) AND sc.customer_email2 IS NOT NULL AND sc.customer_email2 <> '' ORDER BY sc.id DESC LIMIT 1),
+         (SELECT rc.customer_email2 FROM erp_rental_contracts rc WHERE (rc.partner_id = p.id OR rc.customer_name = p.name) AND rc.customer_email2 IS NOT NULL AND rc.customer_email2 <> '' ORDER BY rc.id DESC LIMIT 1),
+         ''
+       ) AS sub_email
+     FROM erp_partners p
+     WHERE ($1 <> '' AND p.business_no = $1) OR ($2 <> '' AND p.name = $2)
+     ORDER BY (CASE WHEN p.main_email IS NOT NULL AND p.main_email <> '' THEN 0 ELSE 1 END), p.id ASC
+     LIMIT 1`,
+    [cleanBiz, cleanName]
+  );
+
+  if (pRes.rows.length > 0) {
+    email1 = email1 || pRes.rows[0].main_email || "";
+    email2 = email2 || pRes.rows[0].sub_email || "";
+  }
+  return { email1, email2 };
+}
+
 // 신규 세금계산서 발행/등록 직후 미매칭 통장 입출금 내역(erp_bank_transactions)과 자동 대사 및 원천 청구 수납 연동
 async function tryAutoReconcileNewInvoice(client: any, invoice: any) {
   const ioType = invoice.io_type || "SALE";
@@ -142,7 +186,7 @@ export async function GET(request: Request) {
           COALESCE(NULLIF(c.customer_biz_type, ''), p.biz_type, '') as "customerBizType",
           COALESCE(NULLIF(c.customer_biz_class, ''), p.biz_item, '') as "customerBizClass",
           COALESCE(NULLIF(c.customer_email, ''), p.main_email, '') as "customerEmail",
-          COALESCE(c.customer_email2, '') as "customerEmail2",
+          COALESCE(NULLIF(c.customer_email2, ''), p.sub_email, '') as "customerEmail2",
           COALESCE(NULLIF(b.tax_purpose, ''), c.tax_purpose, '청구') as "purposeType",
           COALESCE(NULLIF(b.tax_memo, ''), c.tax_memo, CONCAT(c.customer_name, ' ', b.year_month, ' 임대료')) as "taxMemo",
           CASE 
@@ -188,7 +232,7 @@ export async function GET(request: Request) {
           COALESCE(NULLIF(c.customer_biz_type, ''), p.biz_type, '') as "customerBizType",
           COALESCE(NULLIF(c.customer_biz_class, ''), p.biz_item, '') as "customerBizClass",
           COALESCE(NULLIF(c.customer_email, ''), p.main_email, '') as "customerEmail",
-          COALESCE(c.customer_email2, '') as "customerEmail2",
+          COALESCE(NULLIF(c.customer_email2, ''), p.sub_email, '') as "customerEmail2",
           COALESCE(NULLIF(b.tax_purpose, ''), c.tax_purpose, '청구') as "purposeType",
           COALESCE(NULLIF(b.tax_memo, ''), c.tax_memo, b.memo, '') as "taxMemo",
           CASE 
@@ -233,7 +277,7 @@ export async function GET(request: Request) {
           COALESCE(NULLIF(s.customer_biz_type, ''), p.biz_type, '') as "customerBizType",
           COALESCE(NULLIF(s.customer_biz_class, ''), p.biz_item, '') as "customerBizClass",
           COALESCE(NULLIF(s.customer_email, ''), p.main_email, '') as "customerEmail",
-          COALESCE(s.customer_email2, '') as "customerEmail2",
+          COALESCE(NULLIF(s.customer_email2, ''), p.sub_email, '') as "customerEmail2",
           COALESCE(NULLIF(b.tax_purpose, ''), s.tax_purpose, '청구') as "purposeType",
           COALESCE(NULLIF(b.tax_memo, ''), s.tax_memo, b.memo, tp.name) as "taxMemo",
           CASE 
@@ -500,6 +544,13 @@ export async function POST(request: Request) {
           let ntsConfirmNo: string | null = null;
           let invoiceStatus = "ISSUED";
           const preferredBizClass = selectPreferredBizItem(item.customerBizClass || "");
+          const resolvedBatchEmails = await resolveCustomerTaxEmails(
+            client,
+            item.customerName,
+            item.businessNo,
+            item.customerEmail,
+            item.customerEmail2
+          );
           const popRes = await registIssuePopbill({
             corpNum: entity.bizNumRaw,
             supplierCorpName: entity.corpName,
@@ -517,8 +568,8 @@ export async function POST(request: Request) {
             customerAddr: item.customerAddress || "",
             customerBizType: item.customerBizType || "",
             customerBizClass: preferredBizClass,
-            customerEmail: item.customerEmail || entity.email,
-            customerEmail2: item.customerEmail2 || "",
+            customerEmail: resolvedBatchEmails.email1,
+            customerEmail2: resolvedBatchEmails.email2,
             itemName: resolvedItemName,
             supplyAmount: supply,
             vatAmount: vat,
@@ -558,8 +609,8 @@ export async function POST(request: Request) {
               item.customerAddress || "",
               item.customerBizType || "",
               preferredBizClass,
-              item.customerEmail || "",
-              item.customerEmail2 || "",
+              resolvedBatchEmails.email1,
+              resolvedBatchEmails.email2,
               item.purposeType || "청구",
               JSON.stringify(normalizedTaxItems),
               writeDateStr,
@@ -719,6 +770,13 @@ export async function POST(request: Request) {
       });
 
       const preferredSingleBizClass = selectPreferredBizItem(customerBizClass || "");
+      const resolvedSingleEmails = await resolveCustomerTaxEmails(
+        client,
+        customerName,
+        businessNo,
+        customerEmail,
+        customerEmail2
+      );
       let ntsConfirmNo: string | null = rawNtsConfirmNo || null;
       let singleInvoiceStatus = ioType === "PURCHASE" ? "SENT_NTS" : "ISSUED";
 
@@ -741,8 +799,8 @@ export async function POST(request: Request) {
           customerAddr: customerAddress || "",
           customerBizType: customerBizType || "",
           customerBizClass: preferredSingleBizClass,
-          customerEmail: customerEmail || entity.email,
-          customerEmail2: customerEmail2 || "",
+          customerEmail: resolvedSingleEmails.email1,
+          customerEmail2: resolvedSingleEmails.email2,
           itemName: resolvedItemName.trim(),
           supplyAmount: supply,
           vatAmount: vat,
@@ -785,8 +843,8 @@ export async function POST(request: Request) {
           customerAddress || "",
           customerBizType || "",
           preferredSingleBizClass,
-          customerEmail || "",
-          customerEmail2 || "",
+          resolvedSingleEmails.email1,
+          resolvedSingleEmails.email2,
           purposeType || "청구",
           JSON.stringify(normalizedTaxItems),
           writeDateStr,

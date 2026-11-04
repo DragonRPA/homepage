@@ -1,10 +1,11 @@
 "use client";
 
 import React from "react";
-import { Building2, KeyRound, LogOut, Shield, Sun, Moon, Menu, X } from "lucide-react";
+import { Building2, KeyRound, LogOut, Shield, Sun, Moon, Sparkles, Menu, X } from "lucide-react";
 import { BUSINESS_ENTITIES } from "@/lib/businessEntities";
 
 export type EntityScope = "ALL" | "CORP" | "INDIVIDUAL";
+export type ErpThemeMode = "light" | "white" | "dark";
 
 interface ErpHeaderProps {
   user: {
@@ -17,7 +18,7 @@ interface ErpHeaderProps {
     role: string;
     email?: string;
   };
-  theme: "light" | "dark";
+  theme: ErpThemeMode;
   selectedEntity: EntityScope;
   onSelectEntity: (entity: EntityScope) => void;
   onToggleTheme: () => void;
@@ -108,21 +109,32 @@ export const ErpHeader: React.FC<ErpHeaderProps> = ({
 
       {/* Status & User Actions */}
       <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
-        {/* e-Bro 스타일 화면 모드 전환 버튼 */}
+        {/* 3단 순환 화면 모드 전환 버튼 (밝은화면 -> 화이트모드 -> 다크모드) */}
         <button
           onClick={onToggleTheme}
           className="erp-theme-toggle-btn flex items-center gap-1.5 px-2 md:px-2.5 py-1 rounded-full text-xs font-bold border transition shrink-0"
-          title={theme === "light" ? "어두운화면모드로 전환" : "밝은화면모드로 전환"}
+          title={
+            theme === "light"
+              ? "화이트모드로 전환"
+              : theme === "white"
+              ? "다크모드로 전환"
+              : "밝은화면모드로 전환"
+          }
         >
           {theme === "light" ? (
             <>
               <Sun className="w-3.5 h-3.5 text-amber-600" />
               <span className="hidden sm:inline">밝은화면</span>
             </>
+          ) : theme === "white" ? (
+            <>
+              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+              <span className="hidden sm:inline">화이트모드</span>
+            </>
           ) : (
             <>
               <Moon className="w-3.5 h-3.5 text-sky-400" />
-              <span className="hidden sm:inline">어두운화면</span>
+              <span className="hidden sm:inline">다크모드</span>
             </>
           )}
         </button>

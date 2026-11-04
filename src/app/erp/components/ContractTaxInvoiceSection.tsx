@@ -70,9 +70,10 @@ export function extractPartnerTaxSpec(p: any, prev: BuyerTaxSpec): BuyerTaxSpec 
   const addr = [p?.address, p?.addressDetail].filter(Boolean).join(" ");
   const email1 = p?.mainEmail || p?.primaryContact?.email || prev.customerEmail || "";
   const email2 =
-    p?.primaryContact?.email && p?.mainEmail && p.primaryContact.email !== p.mainEmail
+    p?.subEmail ||
+    (p?.primaryContact?.email && p?.mainEmail && p.primaryContact.email !== p.mainEmail
       ? p.primaryContact.email
-      : prev.customerEmail2 || "";
+      : prev.customerEmail2 || "");
 
   return {
     ...prev,

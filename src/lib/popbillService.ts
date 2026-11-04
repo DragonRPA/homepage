@@ -141,7 +141,7 @@ function buildPopbillTaxinvoiceObj(params: PopbillIssueParams, activeCorpNum: st
     invoiceeBizType: cutStr(params.customerBizType || "", 100),
     invoiceeBizClass: cutStr(selectPreferredBizItem(params.customerBizClass || ""), 100),
     invoiceeContactName1: cutStr(params.customerCeoName || "담당자", 100),
-    invoiceeEmail1: cutStr(params.customerEmail || defaultEntity.email, 100),
+    invoiceeEmail1: cutStr(params.customerEmail || "", 100),
     invoiceeEmail2: cutStr(params.customerEmail2 || "", 100),
 
     supplyCostTotal: Math.round(params.supplyAmount).toString(),
@@ -521,6 +521,27 @@ export async function deletePopbillInvoice(mgtKey: string, corpNum?: string): Pr
       mgtKey,
       (res: any) => resolve({ success: true, res }),
       (err: any) => resolve({ success: false, code: err?.code, message: err?.message })
+    );
+  });
+}
+
+/**
+ * 팝빌 발행 세금계산서 안내 이메일 재전송 (sendEmail)
+ */
+export async function sendPopbillEmail(mgtKey: string, receiverEmail: string, corpNum?: string): Promise<any> {
+  const cNum = (corpNum || POPBILL_REGISTERED_CORP_NUM).replace(/[^0-9]/g, "");
+  const cleanEmail = (receiverEmail || "").trim();
+  if (!cleanEmail) {
+    throw new Error("수신할 이메일 주소가 비어 있습니다.");
+  }
+  return new Promise((resolve, reject) => {
+    popbillTaxService.sendEmail(
+      cNum,
+      popbill.MgtKeyType.SELL,
+      mgtKey,
+      cleanEmail,
+      (res: any) => resolve({ success: true, code: res?.code, message: res?.message || `[${cleanEmail}]로 세금계산서 이메일 발송 완료` }),
+      (err: any) => reject(new Error(`[팝빌 이메일 재전송 오류 ${err?.code}] ${err?.message}`))
     );
   });
 }

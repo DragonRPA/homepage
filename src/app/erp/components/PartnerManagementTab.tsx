@@ -93,6 +93,7 @@ export interface Partner {
   addressDetail?: string | null;
   mainPhone?: string | null;
   mainEmail?: string | null;
+  subEmail?: string | null;
   faxNo?: string | null;
   managerEmployeeId?: number | null;
   managerName?: string | null;
@@ -238,6 +239,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     addressDetail: "",
     mainPhone: "",
     mainEmail: "",
+    subEmail: "",
     faxNo: "",
     managerEmployeeId: "",
     managerName: "",
@@ -256,6 +258,12 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     contractFileUrl: "",
     contractFileName: "",
   });
+
+  // Dossier Inline Email Edit State
+  const [editingDossierEmail, setEditingDossierEmail] = useState<boolean>(false);
+  const [dossierMainEmail, setDossierMainEmail] = useState<string>("");
+  const [dossierSubEmail, setDossierSubEmail] = useState<string>("");
+  const [savingDossierEmail, setSavingDossierEmail] = useState<boolean>(false);
 
   // Contact Form State
   const [contactForm, setContactForm] = useState<any>({
@@ -435,10 +443,62 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   useEffect(() => {
     if (selectedPartner?.id) {
       fetchContacts(selectedPartner.id);
+      setEditingDossierEmail(false);
+      setDossierMainEmail(selectedPartner.mainEmail || "");
+      setDossierSubEmail(selectedPartner.subEmail || "");
     } else {
       setPartnerContacts([]);
+      setEditingDossierEmail(false);
     }
-  }, [selectedPartner?.id]);
+  }, [selectedPartner?.id, selectedPartner?.mainEmail, selectedPartner?.subEmail]);
+
+  const handleSaveDossierEmail = async () => {
+    if (!selectedPartner) return;
+    setSavingDossierEmail(true);
+    try {
+      const res = await fetch("/api/erp/partners", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: selectedPartner.id,
+          partnerType: selectedPartner.partnerType,
+          partnerCode: selectedPartner.partnerCode,
+          name: selectedPartner.name,
+          businessNo: selectedPartner.businessNo,
+          corporateNo: selectedPartner.corporateNo,
+          ceoName: selectedPartner.ceoName,
+          bizType: selectedPartner.bizType,
+          bizItem: selectedPartner.bizItem,
+          address: selectedPartner.address,
+          addressDetail: selectedPartner.addressDetail,
+          mainPhone: selectedPartner.mainPhone,
+          mainEmail: dossierMainEmail.trim() || null,
+          subEmail: dossierSubEmail.trim() || null,
+          faxNo: selectedPartner.faxNo,
+          managerEmployeeId: selectedPartner.managerEmployeeId,
+          managerName: selectedPartner.managerName,
+          statementClosingDay: selectedPartner.statementClosingDay,
+          taxInvoiceClosingDay: selectedPartner.taxInvoiceClosingDay,
+          paymentDueDay: selectedPartner.paymentDueDay,
+          status: selectedPartner.status,
+          memo: selectedPartner.memo,
+          bankName: selectedPartner.bankName,
+          bankAccountNo: selectedPartner.bankAccountNo,
+          bankAccountHolder: selectedPartner.bankAccountHolder,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "이메일 저장 실패");
+
+      showToast("세금계산서 수신 이메일이 저장 및 계약에 동기화되었습니다.");
+      setEditingDossierEmail(false);
+      await fetchPartners();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setSavingDossierEmail(false);
+    }
+  };
 
   // Handle Sort
   const handleSort = (key: string) => {
@@ -539,6 +599,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       addressDetail: "",
       mainPhone: "",
       mainEmail: "",
+      subEmail: "",
       faxNo: "",
       managerEmployeeId: currentUser?.id ? String(currentUser.id) : "",
       managerName: currentUser?.name || "",
@@ -580,6 +641,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       addressDetail: p.addressDetail || "",
       mainPhone: p.mainPhone || "",
       mainEmail: p.mainEmail || "",
+      subEmail: p.subEmail || "",
       faxNo: p.faxNo || "",
       managerEmployeeId: p.managerEmployeeId ? String(p.managerEmployeeId) : "",
       managerName: p.managerName || "",
@@ -1163,6 +1225,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       addressDetail: "",
       mainPhone: "",
       mainEmail: "",
+      subEmail: "",
       faxNo: "",
       managerEmployeeId: currentUser?.id ? String(currentUser.id) : "",
       managerName: currentUser?.name || "",
@@ -2038,9 +2101,85 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                     </span>
                   </div>
 
-                  <div className="flex justify-between py-1 border-b border-[#c4b6a0] dark:border-slate-800">
-                    <span className="text-[#475569] dark:text-slate-500">계산서 수신 이메일</span>
-                    <span className="font-mono text-[#1d4ed8] dark:text-blue-300 text-right truncate max-w-xs">{selectedPartner.mainEmail || "-"}</span>
+                  <div className="py-1.5 border-b border-[#c4b6a0] dark:border-slate-800 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[#475569] dark:text-slate-500 flex items-center gap-1 whitespace-nowrap">
+                        <Mail className="w-3 h-3 text-[#1d4ed8]" />
+                        <span>세금계산서 수신 이메일</span>
+                      </span>
+                      {!editingDossierEmail && (
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <div className="text-right truncate max-w-[200px]">
+                            <span className="font-mono font-bold text-[#1d4ed8] dark:text-blue-300 block truncate">
+                              {selectedPartner.mainEmail || "미등록"}
+                            </span>
+                            {selectedPartner.subEmail && (
+                              <span className="font-mono text-[10px] text-[#475569] dark:text-slate-400 block truncate">
+                                부: {selectedPartner.subEmail}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDossierMainEmail(selectedPartner.mainEmail || "");
+                              setDossierSubEmail(selectedPartner.subEmail || "");
+                              setEditingDossierEmail(true);
+                            }}
+                            className="px-1.5 py-0.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[10px] font-bold shrink-0 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
+                          >
+                            {selectedPartner.mainEmail ? "변경" : "이메일 등록"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {editingDossierEmail && (
+                      <div className="p-2 bg-[#ebe5d8] rounded border border-[#b5a894] space-y-1.5 dark:bg-slate-950 dark:border-slate-700">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-[#334155] dark:text-slate-400">
+                            이메일 1 (주 수신 - 세금계산서 발송 기본)
+                          </label>
+                          <input
+                            type="email"
+                            value={dossierMainEmail}
+                            onChange={(e) => setDossierMainEmail(e.target.value)}
+                            placeholder="tax@company.co.kr"
+                            className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#0f172a] font-mono text-xs focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-[#334155] dark:text-slate-400">
+                            이메일 2 (부 수신 - 선택)
+                          </label>
+                          <input
+                            type="email"
+                            value={dossierSubEmail}
+                            onChange={(e) => setDossierSubEmail(e.target.value)}
+                            placeholder="sub@company.co.kr"
+                            className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#0f172a] font-mono text-xs focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                          />
+                        </div>
+                        <div className="flex items-center justify-end gap-1.5 pt-1">
+                          <button
+                            type="button"
+                            disabled={savingDossierEmail}
+                            onClick={() => setEditingDossierEmail(false)}
+                            className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] font-bold"
+                          >
+                            취소
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savingDossierEmail}
+                            onClick={handleSaveDossierEmail}
+                            className="px-2.5 py-1 bg-[#1d4ed8] hover:bg-[#1e40af] text-white rounded text-[11px] font-bold"
+                          >
+                            {savingDossierEmail ? "저장 중..." : "저장 (계약 동기화)"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex justify-between py-1">
@@ -2635,10 +2774,10 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                 </div>
               </div>
 
-              {/* 대표 연락처 & 세금계산서 수신 이메일 */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* 대표 연락처 & 세금계산서 수신 이메일 (주/부) */}
+              <div className="grid grid-cols-3 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">본사 대표 전화번호</label>
+                  <label className="text-[#334155] dark:text-slate-300 font-semibold whitespace-nowrap">본사 대표 전화번호</label>
                   <input
                     type="text"
                     placeholder="02-0000-0000"
@@ -2649,12 +2788,23 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">세금계산서 수신 전용 이메일</label>
+                  <label className="text-[#334155] dark:text-slate-300 font-semibold whitespace-nowrap">세금계산서 이메일 1 (주 수신)</label>
                   <input
                     type="email"
                     placeholder="tax@company.co.kr"
                     value={partnerForm.mainEmail}
                     onChange={(e) => setPartnerForm({ ...partnerForm, mainEmail: e.target.value })}
+                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[#334155] dark:text-slate-300 font-semibold whitespace-nowrap">세금계산서 이메일 2 (부 수신)</label>
+                  <input
+                    type="email"
+                    placeholder="sub@company.co.kr (선택)"
+                    value={partnerForm.subEmail || ""}
+                    onChange={(e) => setPartnerForm({ ...partnerForm, subEmail: e.target.value })}
                     className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
                   />
                 </div>

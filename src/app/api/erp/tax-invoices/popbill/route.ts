@@ -8,7 +8,8 @@ import {
   getPopbillPortalURL,
   getPopbillCertInfo,
   getPopbillLiveStatus,
-  sendToNTSPopbill
+  sendToNTSPopbill,
+  sendPopbillEmail
 } from "@/lib/popbillService";
 
 export async function POST(request: Request) {
@@ -146,6 +147,36 @@ export async function POST(request: Request) {
       });
     }
 
+    // 2-C. Resend Popbill Tax Invoice Notification Email (SEND_EMAIL)
+    if (action === "SEND_EMAIL") {
+      if (!mgtKey) {
+        return NextResponse.json({ error: "세금계산서 관리번호가 필요합니다." }, { status: 400 });
+      }
+      const invRes = await pool.query("SELECT * FROM erp_tax_invoices WHERE invoice_no = $1 LIMIT 1", [mgtKey]);
+      const inv = invRes.rows[0];
+      const activeCorpNum = corpNum || inv?.supplier_corp_num || "8068803266";
+      let targetEmail = (body.receiverEmail || inv?.customer_email || "").trim();
+      if (!targetEmail && inv) {
+        const pRes = await pool.query(
+          `SELECT main_email FROM erp_partners WHERE business_no = $1 OR name = $2 ORDER BY (CASE WHEN main_email IS NOT NULL AND main_email <> '' THEN 0 ELSE 1 END) LIMIT 1`,
+          [inv.business_no || "", inv.customer_name || ""]
+        );
+        targetEmail = pRes.rows[0]?.main_email || "";
+      }
+      if (!targetEmail) {
+        return NextResponse.json({ error: "해당 고객사에 등록된 세금계산서 수신 이메일이 없습니다. 고객 상세에서 이메일을 먼저 등록해 주세요." }, { status: 400 });
+      }
+      const emailRes = await sendPopbillEmail(mgtKey, targetEmail, activeCorpNum);
+      if (inv && inv.customer_email !== targetEmail) {
+        await pool.query("UPDATE erp_tax_invoices SET customer_email = $1 WHERE id = $2", [targetEmail, inv.id]);
+      }
+      return NextResponse.json({
+        success: true,
+        receiverEmail: targetEmail,
+        message: emailRes.message,
+      });
+    }
+
     // 3. Issue / Register via Popbill
     if (action === "ISSUE_POPBILL") {
       if (!invoiceId) {
@@ -165,6 +196,22 @@ export async function POST(request: Request) {
           ? inv.issue_date.toISOString().split("T")[0]
           : String(inv.issue_date || "").slice(0, 10);
 
+        let resolvedEmail1 = (inv.customer_email || "").trim();
+        let resolvedEmail2 = (inv.customer_email2 || "").trim();
+        if (!resolvedEmail1) {
+          const pRes = await pool.query(
+            `SELECT main_email, sub_email FROM erp_partners
+             WHERE business_no = $1 OR name = $2
+             ORDER BY (CASE WHEN main_email IS NOT NULL AND main_email <> '' THEN 0 ELSE 1 END)
+             LIMIT 1`,
+            [inv.business_no || "", inv.customer_name || ""]
+          );
+          if (pRes.rows.length > 0) {
+            resolvedEmail1 = pRes.rows[0].main_email || "";
+            resolvedEmail2 = resolvedEmail2 || pRes.rows[0].sub_email || "";
+          }
+        }
+
         const popResult = await registIssuePopbill({
           corpNum: activeCorpNum,
           supplierCorpName: inv.supplier_corp_name,
@@ -182,8 +229,8 @@ export async function POST(request: Request) {
           customerAddr: inv.customer_address || "",
           customerBizType: inv.customer_biz_type || "",
           customerBizClass: inv.customer_biz_class || "",
-          customerEmail: inv.customer_email || inv.supplier_email || "",
-          customerEmail2: inv.customer_email2 || "",
+          customerEmail: resolvedEmail1,
+          customerEmail2: resolvedEmail2,
           itemName: inv.item_name,
           supplyAmount: parseFloat(inv.supply_amount),
           vatAmount: parseFloat(inv.vat_amount),
@@ -196,8 +243,8 @@ export async function POST(request: Request) {
         const ntsConfirm = popResult.ntsConfirmNo || null;
         const nextStatus = popResult.mode === "REGISTERED_IN_POPBILL" ? "TEMP_SAVED" : "ISSUED";
         await pool.query(
-          "UPDATE erp_tax_invoices SET status = $1, nts_confirm_no = COALESCE($2, nts_confirm_no) WHERE id = $3",
-          [nextStatus, ntsConfirm, invoiceId]
+          "UPDATE erp_tax_invoices SET status = $1, nts_confirm_no = COALESCE($2, nts_confirm_no), customer_email = COALESCE(NULLIF(customer_email, ''), $3), customer_email2 = COALESCE(NULLIF(customer_email2, ''), $4) WHERE id = $5",
+          [nextStatus, ntsConfirm, resolvedEmail1, resolvedEmail2, invoiceId]
         );
 
         let popupUrl = "";

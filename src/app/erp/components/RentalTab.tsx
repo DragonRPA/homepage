@@ -678,14 +678,20 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
     const defaultItemLabel = "{1번째 아이템} 외";
     const defSpec = createDefaultTaxSpec(defaultItemLabel, baseSupply);
+    const matchedPartner = partners.find(
+      (p) => (c.partnerId && p.id === c.partnerId) || p.name === c.customerName || (c.customerBizNo && p.businessNo === c.customerBizNo)
+    );
+    const partnerAddr = matchedPartner
+      ? [matchedPartner.address, matchedPartner.addressDetail].filter(Boolean).join(" ")
+      : "";
     setEditCtTaxSpec({
-      customerBizNo: c.customerBizNo || "",
-      customerCeoName: c.customerCeoName || "",
-      customerAddress: c.customerAddress || "",
-      customerBizType: c.customerBizType || "",
-      customerBizClass: c.customerBizClass || "",
-      customerEmail: c.customerEmail || "",
-      customerEmail2: c.customerEmail2 || "",
+      customerBizNo: c.customerBizNo || matchedPartner?.businessNo || "",
+      customerCeoName: c.customerCeoName || matchedPartner?.ceoName || "",
+      customerAddress: c.customerAddress || partnerAddr || "",
+      customerBizType: c.customerBizType || matchedPartner?.bizType || "",
+      customerBizClass: c.customerBizClass || matchedPartner?.bizItem || "",
+      customerEmail: c.customerEmail || matchedPartner?.mainEmail || matchedPartner?.primaryContact?.email || "",
+      customerEmail2: c.customerEmail2 || matchedPartner?.subEmail || "",
       taxPurpose: c.taxPurpose === "영수" ? "영수" : "청구",
       taxMemo: c.taxMemo ?? defaultItemLabel,
       taxItems:
@@ -2031,6 +2037,122 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 </div>
               </div>
 
+              {/* 4. 공급받는자 전자세금계산서 수신 이메일 및 사업자 제원 */}
+              <div
+                className="flex flex-col gap-2 p-3 rounded border border-[#b5a894] bg-[#ebe5d8]/90"
+                onClick={() => setShowCustomerDropdown(false)}
+              >
+                <div className="flex items-center justify-between border-b border-[#b5a894] pb-1.5">
+                  <div className="flex items-center gap-1.5 font-bold text-[#1e3a8a]">
+                    <FileText className="w-4 h-4 text-blue-700" />
+                    <span>공급받는자 세금계산서 수신 설정 및 사업자 제원 (팝빌 발송 연동)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-[#57534e]">영수/청구 구분</span>
+                    <div className="inline-flex rounded border border-[#b5a894] overflow-hidden bg-[#f4efe4]">
+                      <button
+                        type="button"
+                        onClick={() => setCtTaxSpec({ ...ctTaxSpec, taxPurpose: "청구" })}
+                        className={`px-2.5 py-0.5 text-[11px] font-bold transition ${
+                          ctTaxSpec.taxPurpose === "청구"
+                            ? "bg-blue-700 text-white"
+                            : "text-[#57534e] hover:bg-[#e2dbcd]"
+                        }`}
+                      >
+                        청구
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCtTaxSpec({ ...ctTaxSpec, taxPurpose: "영수" })}
+                        className={`px-2.5 py-0.5 text-[11px] font-bold transition ${
+                          ctTaxSpec.taxPurpose === "영수"
+                            ? "bg-blue-700 text-white"
+                            : "text-[#57534e] hover:bg-[#e2dbcd]"
+                        }`}
+                      >
+                        영수
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">등록번호 (사업자번호)</label>
+                    <input
+                      type="text"
+                      value={ctTaxSpec.customerBizNo}
+                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerBizNo: e.target.value })}
+                      placeholder="000-00-00000"
+                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] font-mono text-xs"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">성명 (대표자)</label>
+                    <input
+                      type="text"
+                      value={ctTaxSpec.customerCeoName}
+                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerCeoName: e.target.value })}
+                      placeholder="대표자 성명"
+                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">업태</label>
+                    <input
+                      type="text"
+                      value={ctTaxSpec.customerBizType}
+                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerBizType: e.target.value })}
+                      placeholder="예: 도매업, 서비스"
+                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">종목</label>
+                    <input
+                      type="text"
+                      value={ctTaxSpec.customerBizClass}
+                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerBizClass: e.target.value })}
+                      placeholder="예: 소프트웨어 개발, 전자제품"
+                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-12 gap-2">
+                  <div className="col-span-6 flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">사업장 주소</label>
+                    <input
+                      type="text"
+                      value={ctTaxSpec.customerAddress}
+                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerAddress: e.target.value })}
+                      placeholder="사업장 소재지 주소"
+                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs"
+                    />
+                  </div>
+                  <div className="col-span-3 flex flex-col gap-1">
+                    <label className="text-[11px] font-bold text-[#1e3a8a] whitespace-nowrap">이메일 1 (주 수신)</label>
+                    <input
+                      type="email"
+                      value={ctTaxSpec.customerEmail}
+                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerEmail: e.target.value })}
+                      placeholder="tax@company.co.kr"
+                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] font-mono text-xs"
+                    />
+                  </div>
+                  <div className="col-span-3 flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">이메일 2 (부 수신)</label>
+                    <input
+                      type="email"
+                      value={ctTaxSpec.customerEmail2}
+                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerEmail2: e.target.value })}
+                      placeholder="보조 이메일 (선택)"
+                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* 계약서 첨부 영역 */}
               <div className="flex flex-col gap-1" onClick={() => setShowCustomerDropdown(false)}>
                 <label className="text-[#1e293b] font-semibold">임대계약서 파일 첨부 (선택)</label>
@@ -2494,6 +2616,126 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     onChange={(e) => setEditCtMemo(e.target.value)}
                     className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917]"
                   />
+                </div>
+              </div>
+
+              {/* 공급받는자 세금계산서 수신 설정 및 사업자 제원 (용역계약과 동일 구조) */}
+              <div className="flex flex-col gap-2 p-3 rounded border border-[#b5a894] bg-[#ebe5d8]/80">
+                <div className="flex items-center justify-between border-b border-[#b5a894] pb-1.5">
+                  <div className="flex items-center gap-1.5 font-bold text-[#1e3a8a]">
+                    <FileText className="w-4 h-4 text-blue-700" />
+                    <span>전자세금계산서 발행 제원 (임대계약 · 고객 이메일 연동)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-[#57534e]">영수/청구 구분</span>
+                    <div className="inline-flex rounded border border-[#b5a894] overflow-hidden bg-[#f4efe4]">
+                      <button
+                        type="button"
+                        onClick={() => setEditCtTaxSpec({ ...editCtTaxSpec, taxPurpose: "청구" })}
+                        className={`px-2.5 py-0.5 text-[11px] font-bold transition ${
+                          editCtTaxSpec.taxPurpose === "청구"
+                            ? "bg-blue-700 text-white"
+                            : "text-[#57534e] hover:bg-[#e2dbcd]"
+                        }`}
+                      >
+                        청구
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditCtTaxSpec({ ...editCtTaxSpec, taxPurpose: "영수" })}
+                        className={`px-2.5 py-0.5 text-[11px] font-bold transition ${
+                          editCtTaxSpec.taxPurpose === "영수"
+                            ? "bg-blue-700 text-white"
+                            : "text-[#57534e] hover:bg-[#e2dbcd]"
+                        }`}
+                      >
+                        영수
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 bg-[#f4efe4] p-2.5 rounded border border-[#c4b6a0]">
+                  <div className="text-[11px] font-bold text-[#1e3a8a] flex items-center justify-between">
+                    <span>공급받는자 세금계산서 제원</span>
+                    <span className="text-[10px] font-normal text-[#78716c]">고객 선택 시 자동 입력 / 직접 수정 가능</span>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">등록번호 (사업자번호)</label>
+                      <input
+                        type="text"
+                        value={editCtTaxSpec.customerBizNo}
+                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerBizNo: e.target.value })}
+                        placeholder="000-00-00000"
+                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-xs"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">성명 (대표자)</label>
+                      <input
+                        type="text"
+                        value={editCtTaxSpec.customerCeoName}
+                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerCeoName: e.target.value })}
+                        placeholder="대표자 성명"
+                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] text-xs"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">업태</label>
+                      <input
+                        type="text"
+                        value={editCtTaxSpec.customerBizType}
+                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerBizType: e.target.value })}
+                        placeholder="예: 도매업, 서비스"
+                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] text-xs"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">종목</label>
+                      <input
+                        type="text"
+                        value={editCtTaxSpec.customerBizClass}
+                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerBizClass: e.target.value })}
+                        placeholder="예: 소프트웨어 개발, 전자제품"
+                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-12 gap-2">
+                    <div className="col-span-6 flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">사업장 주소</label>
+                      <input
+                        type="text"
+                        value={editCtTaxSpec.customerAddress}
+                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerAddress: e.target.value })}
+                        placeholder="사업장 소재지 주소"
+                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] text-xs"
+                      />
+                    </div>
+                    <div className="col-span-3 flex flex-col gap-1">
+                      <label className="text-[11px] font-bold text-[#1e3a8a] whitespace-nowrap">이메일 1 (주 수신)</label>
+                      <input
+                        type="email"
+                        value={editCtTaxSpec.customerEmail}
+                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerEmail: e.target.value })}
+                        placeholder="account@company.co.kr"
+                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-xs"
+                      />
+                    </div>
+                    <div className="col-span-3 flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">이메일 2 (부 수신)</label>
+                      <input
+                        type="email"
+                        value={editCtTaxSpec.customerEmail2}
+                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerEmail2: e.target.value })}
+                        placeholder="보조 이메일 (선택)"
+                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-xs"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 

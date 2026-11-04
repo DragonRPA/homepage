@@ -56,7 +56,7 @@ export async function GET(request: Request) {
         COALESCE(NULLIF(c.customer_biz_type, ''), p.biz_type, '') as "customerBizType",
         COALESCE(NULLIF(c.customer_biz_class, ''), p.biz_item, '') as "customerBizClass",
         COALESCE(NULLIF(c.customer_email, ''), p.main_email, '') as "customerEmail",
-        COALESCE(c.customer_email2, '') as "customerEmail2",
+        COALESCE(NULLIF(c.customer_email2, ''), p.sub_email, '') as "customerEmail2",
         COALESCE(c.tax_purpose, '청구') as "taxPurpose",
         COALESCE(c.tax_memo, '') as "taxMemo",
         COALESCE(c.tax_items, '[]'::jsonb) as "taxItems",
@@ -310,6 +310,24 @@ export async function POST(request: Request) {
     // Sync assigned employee contract rates to erp_employees & erp_payroll_records
     await syncAssignedEmployeeContractRates(pool);
 
+    // 용역계약 등록 시 입력한 세금계산서 이메일을 거래처(erp_partners)에도 자동 동기화
+    if (customerEmail || customerEmail2) {
+      await pool.query(
+        `UPDATE erp_partners
+         SET main_email = COALESCE(NULLIF($1, ''), main_email),
+             sub_email = COALESCE(NULLIF($2, ''), sub_email),
+             updated_at = NOW()
+         WHERE id = $3 OR name = $4 OR ($5 <> '' AND business_no = $5)`,
+        [
+          customerEmail || "",
+          customerEmail2 || "",
+          partnerId ? parseInt(String(partnerId), 10) : -1,
+          customerName.trim(),
+          customerBizNo || "",
+        ]
+      );
+    }
+
     // Audit log
     await pool.query(
       `INSERT INTO erp_audit_logs (domain, action_type, record_id, actor_name, details)
@@ -465,6 +483,24 @@ export async function PUT(request: Request) {
 
     // Sync assigned employee contract rates to erp_employees & erp_payroll_records
     await syncAssignedEmployeeContractRates(pool);
+
+    // 용역계약 등록 시 입력한 세금계산서 이메일을 거래처(erp_partners)에도 자동 동기화
+    if (customerEmail || customerEmail2) {
+      await pool.query(
+        `UPDATE erp_partners
+         SET main_email = COALESCE(NULLIF($1, ''), main_email),
+             sub_email = COALESCE(NULLIF($2, ''), sub_email),
+             updated_at = NOW()
+         WHERE id = $3 OR name = $4 OR ($5 <> '' AND business_no = $5)`,
+        [
+          customerEmail || "",
+          customerEmail2 || "",
+          partnerId ? parseInt(String(partnerId), 10) : -1,
+          customerName.trim(),
+          customerBizNo || "",
+        ]
+      );
+    }
 
     // Audit log
     await pool.query(

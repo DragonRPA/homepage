@@ -60,7 +60,7 @@ export async function GET(request: Request) {
         COALESCE(NULLIF(c.customer_biz_type, ''), p.biz_type, '') as "customerBizType",
         COALESCE(NULLIF(c.customer_biz_class, ''), p.biz_item, '') as "customerBizClass",
         COALESCE(NULLIF(c.customer_email, ''), p.main_email, '') as "customerEmail",
-        COALESCE(c.customer_email2, '') as "customerEmail2",
+        COALESCE(NULLIF(c.customer_email2, ''), p.sub_email, '') as "customerEmail2",
         COALESCE(c.tax_purpose, '청구') as "taxPurpose",
         COALESCE(c.tax_memo, '{1번째 아이템} 외') as "taxMemo",
         COALESCE(c.tax_items, '[]'::jsonb) as "taxItems",
@@ -409,7 +409,7 @@ export async function POST(request: Request) {
             customerBizType || partnerRow?.biz_type || "",
             customerBizClass || partnerRow?.biz_item || "",
             customerEmail || partnerRow?.main_email || "",
-            customerEmail2 || "",
+            customerEmail2 || partnerRow?.sub_email || "",
             taxPurpose || "청구",
             taxMemo || "{1번째 아이템} 외",
             contractFileUrl || null,
@@ -516,7 +516,7 @@ export async function POST(request: Request) {
           customerBizType || partnerRow?.biz_type || "",
           customerBizClass || partnerRow?.biz_item || "",
           customerEmail || partnerRow?.main_email || "",
-          customerEmail2 || "",
+          customerEmail2 || partnerRow?.sub_email || "",
           taxPurpose || "청구",
           taxMemo || "{1번째 아이템} 외",
           JSON.stringify(groupedItems),
@@ -526,6 +526,23 @@ export async function POST(request: Request) {
         ]
       );
       savedContract = updRes.rows[0];
+
+      // 임대계약에서 입력한 이메일을 거래처(erp_partners)에도 자동 동기화
+      if (customerEmail || customerEmail2) {
+        await client.query(
+          `UPDATE erp_partners
+           SET main_email = COALESCE(NULLIF($1, ''), main_email),
+               sub_email = COALESCE(NULLIF($2, ''), sub_email),
+               updated_at = NOW()
+           WHERE id = $3 OR name = $4`,
+          [
+            customerEmail || "",
+            customerEmail2 || "",
+            partnerRow ? partnerRow.id : targetPartnerId ? parseInt(String(targetPartnerId), 10) : -1,
+            cleanCustomer,
+          ]
+        );
+      }
 
       // Audit log
       await client.query(
@@ -774,6 +791,24 @@ export async function PUT(request: Request) {
         "UPDATE erp_rental_assets SET current_customer = $1, current_site = NULL, updated_at = NOW() WHERE current_contract_id = $2 OR id = $3",
         [cleanCustomer, existing.id, existing.asset_id]
       );
+
+      // 임대계약 수정 시 입력한 이메일을 거래처(erp_partners)에도 자동 동기화
+      if (customerEmail || customerEmail2) {
+        await client.query(
+          `UPDATE erp_partners
+           SET main_email = CASE WHEN $1::text <> '' THEN $1 ELSE main_email END,
+               sub_email = CASE WHEN $2::text <> '' THEN $2 ELSE sub_email END,
+               updated_at = NOW()
+           WHERE id = $3 OR name = $4 OR ($5 <> '' AND business_no = $5)`,
+          [
+            customerEmail || "",
+            customerEmail2 || "",
+            partnerId ? parseInt(String(partnerId), 10) : -1,
+            cleanCustomer,
+            customerBizNo || "",
+          ]
+        );
+      }
 
       // Audit log
       await client.query(

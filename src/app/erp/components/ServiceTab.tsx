@@ -600,14 +600,20 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     const savedMemo = (c.taxMemo ?? "").trim();
     const resolvedInitialMemo =
       !savedMemo || savedMemo === baseProjectName ? defaultTemplate : savedMemo;
+    const matchedPartner = partners.find(
+      (p) => (c.partnerId && p.id === c.partnerId) || p.name === c.customerName || (c.customerBizNo && p.businessNo === c.customerBizNo)
+    );
+    const partnerAddr = matchedPartner
+      ? [matchedPartner.address, matchedPartner.addressDetail].filter(Boolean).join(" ")
+      : "";
     setEditCtTaxSpec({
-      customerBizNo: c.customerBizNo || "",
-      customerCeoName: c.customerCeoName || "",
-      customerAddress: c.customerAddress || "",
-      customerBizType: c.customerBizType || "",
-      customerBizClass: c.customerBizClass || "",
-      customerEmail: c.customerEmail || "",
-      customerEmail2: c.customerEmail2 || "",
+      customerBizNo: c.customerBizNo || matchedPartner?.businessNo || "",
+      customerCeoName: c.customerCeoName || matchedPartner?.ceoName || "",
+      customerAddress: c.customerAddress || partnerAddr || "",
+      customerBizType: c.customerBizType || matchedPartner?.bizType || "",
+      customerBizClass: c.customerBizClass || matchedPartner?.bizItem || "",
+      customerEmail: c.customerEmail || matchedPartner?.mainEmail || matchedPartner?.primaryContact?.email || "",
+      customerEmail2: c.customerEmail2 || matchedPartner?.subEmail || "",
       taxPurpose: c.taxPurpose === "영수" ? "영수" : "청구",
       taxMemo: resolvedInitialMemo,
       taxItems:

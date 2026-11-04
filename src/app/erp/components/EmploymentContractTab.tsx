@@ -174,6 +174,81 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
   const [statusMsg, setStatusMsg] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pledgeFileInputRef = useRef<HTMLInputElement | null>(null);
+  const hasInitializedRef = useRef<boolean>(false);
+
+  // 세션 스토리지 저장 (메뉴 이동 시에도 선택된 직원 및 작성 중인 양식 유지)
+  useEffect(() => {
+    if (!hasInitializedRef.current) return;
+    try {
+      sessionStorage.setItem(
+        "dragonrpa_erp_contract_draft",
+        JSON.stringify({
+          selectedContractId,
+          rightViewMode,
+          yearFilter,
+          typeFilter,
+          form,
+        })
+      );
+      if (form.employeeId) {
+        sessionStorage.setItem("dragonrpa_erp_selected_emp_id", String(form.employeeId));
+      }
+      if (form.employeeName) {
+        sessionStorage.setItem("dragonrpa_erp_selected_emp_name", form.employeeName);
+      }
+    } catch (e) {}
+  }, [form, selectedContractId, rightViewMode, yearFilter, typeFilter]);
+
+  const populateEmployeeIntoNewDraft = (
+    emp: EmployeeOption,
+    allContracts: EmploymentContractItem[],
+    mode: "NEW_HIRE" | "RENEWAL" | "SECURITY_PLEDGE" = "NEW_HIRE"
+  ) => {
+    const existingWithPledge = allContracts.find(
+      (c) => c.employeeId === emp.id && (c.pledgeScanUrl || c.residentRegNo)
+    );
+    const joinDt = emp.joinDate ? String(emp.joinDate).slice(0, 10) : todayStr;
+    const janFirst = `${currentYearStr}-01-01`;
+    const isRenewal = mode === "RENEWAL";
+    const startDt = isRenewal ? janFirst : joinDt;
+
+    setSelectedContractId(null);
+    setRightViewMode(mode === "SECURITY_PLEDGE" ? "PLEDGE_DOC" : "DOCUMENT");
+    setForm((prev) => ({
+      ...prev,
+      id: 0,
+      contractNo: "",
+      contractYear: startDt.slice(0, 4) || currentYearStr,
+      contractType: mode,
+      status: "SIGNED",
+      employeeId: emp.id,
+      employeeName: emp.name.replace(" 대표이사", ""),
+      employeePhone: emp.phone || "",
+      employeeAddress: emp.address || "",
+      residentRegNo: existingWithPledge?.residentRegNo || prev.residentRegNo || "",
+      startDate: startDt,
+      endDate: isRenewal ? `${currentYearStr}-12-31` : "",
+      contractDate: startDt,
+      pledgeDate: existingWithPledge?.pledgeDate || joinDt,
+      pledgeScanName: existingWithPledge?.pledgeScanName || "",
+      pledgeScanUrl: existingWithPledge?.pledgeScanUrl || "",
+      baseSalary: Number(emp.baseSalary || 2800000),
+      mealAllowance: Number(emp.mealAllowance || 200000),
+      vehicleAllowance: Number(emp.vehicleAllowance || 0),
+      scanFileName: "",
+      scanFileUrl: "",
+      memo:
+        mode === "RENEWAL"
+          ? `${currentYearStr}년 연봉협상 재계약 체결`
+          : mode === "SECURITY_PLEDGE"
+          ? "입사 시 정보보호(보안) 서약서 1회 작성 보관"
+          : `${startDt.slice(0, 4)}년 신입 직원 채용 근로계약 및 정보보호 서약`,
+      syncEmployeeMaster: true,
+      registerNewEmployee: false,
+      newEmployeePosition: emp.position || "사원",
+      newEmployeeDepartment: emp.department || "렌탈운영팀",
+    }));
+  };
 
   const fetchAllData = async () => {
     setLoading(true);
@@ -185,17 +260,75 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       const cData = await cRes.json();
       const eData = await eRes.json();
 
-      if (eData.success && Array.isArray(eData.employees)) {
-        setEmployees(eData.employees);
+      const loadedEmps: EmployeeOption[] =
+        eData.success && Array.isArray(eData.employees) ? eData.employees : [];
+      if (loadedEmps.length > 0) {
+        setEmployees(loadedEmps);
       }
 
+      const loadedContracts: EmploymentContractItem[] =
+        cData.success && Array.isArray(cData.contracts) ? cData.contracts : [];
       if (cData.success && Array.isArray(cData.contracts)) {
-        setContracts(cData.contracts);
-        if (cData.contracts.length > 0 && !selectedContractId) {
+        setContracts(loadedContracts);
+      }
+
+      // 최초 마운트 시에만 초기 선택 복원 수행 (필터·탭·모드 변경 시 기존 선택된 사원이 풀리지 않도록 보호)
+      if (!hasInitializedRef.current) {
+        hasInitializedRef.current = true;
+        let restored = false;
+
+        try {
+          const savedEmpId = sessionStorage.getItem("dragonrpa_erp_selected_emp_id");
+          const savedEmpName = sessionStorage.getItem("dragonrpa_erp_selected_emp_name");
+          const savedDraftStr = sessionStorage.getItem("dragonrpa_erp_contract_draft");
+          const savedDraft = savedDraftStr ? JSON.parse(savedDraftStr) : null;
+
+          // 1) 직전에 근로계약서 화면에서 작성 중이던 사원과 조직 인사관리에서 선택한 사원이 동일한 경우 드래프트 복원
+          if (
+            savedDraft &&
+            savedDraft.form &&
+            (!savedEmpId || String(savedDraft.form.employeeId) === String(savedEmpId))
+          ) {
+            setForm(savedDraft.form);
+            setSelectedContractId(savedDraft.selectedContractId ?? null);
+            if (savedDraft.rightViewMode) setRightViewMode(savedDraft.rightViewMode);
+            restored = true;
+          } else if (savedEmpId || savedEmpName) {
+            // 2) 조직 인사관리 등에서 선택/신규등록한 직원이 있는 경우 해당 직원을 최우선 자동 선택
+            const matchedEmp =
+              loadedEmps.find((e) => savedEmpId && String(e.id) === String(savedEmpId)) ||
+              loadedEmps.find((e) => savedEmpName && e.name === savedEmpName);
+            if (matchedEmp) {
+              const empContract = loadedContracts.find((c) => c.employeeId === matchedEmp.id);
+              if (empContract) {
+                loadContractIntoForm(empContract);
+              } else {
+                populateEmployeeIntoNewDraft(matchedEmp, loadedContracts, "NEW_HIRE");
+              }
+              restored = true;
+            }
+          }
+        } catch (e) {}
+
+        if (!restored && loadedContracts.length > 0) {
           const defaultTarget =
-            cData.contracts.find((c: EmploymentContractItem) => c.employeeName === "박종환") ||
-            cData.contracts[0];
+            loadedContracts.find((c: EmploymentContractItem) => c.employeeName === "박종환") ||
+            loadedContracts[0];
           loadContractIntoForm(defaultTarget);
+        }
+      } else {
+        // 이미 초기화된 상태에서 연도/유형 필터만 변경한 경우:
+        // 현재 선택된 직원(form.employeeId 또는 form.employeeName)은 절대 초기화하지 않고 유지!
+        // 만약 기존 계약서 조회 중(selectedContractId !== null)이었다면, 필터링된 목록에 동일 사원의 해당 연도 계약서가 있을 때만 매칭
+        if (selectedContractId !== null && (form.employeeId || form.employeeName)) {
+          const sameEmpContract = loadedContracts.find(
+            (c) =>
+              (form.employeeId && String(c.employeeId) === String(form.employeeId)) ||
+              (form.employeeName && c.employeeName === form.employeeName)
+          );
+          if (sameEmpContract) {
+            loadContractIntoForm(sameEmpContract);
+          }
         }
       }
     } catch (err) {
@@ -211,6 +344,14 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
 
   const loadContractIntoForm = (c: EmploymentContractItem) => {
     setSelectedContractId(c.id);
+    try {
+      if (c.employeeId) {
+        sessionStorage.setItem("dragonrpa_erp_selected_emp_id", String(c.employeeId));
+      }
+      if (c.employeeName) {
+        sessionStorage.setItem("dragonrpa_erp_selected_emp_name", c.employeeName);
+      }
+    } catch (e) {}
     if (c.contractType === "SECURITY_PLEDGE") {
       setRightViewMode(c.pledgeScanUrl || c.scanFileUrl ? "PLEDGE_SCAN" : "PLEDGE_DOC");
     } else if (rightViewMode === "PLEDGE_SCAN" && !c.pledgeScanUrl) {
@@ -263,27 +404,44 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     });
   };
 
-  // 신입 채용 기본 양식 초기화 (입사 시 근로계약서 + 정보보호서약서 1회 동시 작성 가능)
+  // 신입 채용 기본 양식 전환 (현재 선택된 사원이 있으면 선택 해제하지 않고 그대로 유지!)
   const handleStartNewHire = () => {
+    const targetEmp =
+      employees.find((e) => String(e.id) === String(form.employeeId)) ||
+      employees.find((e) => form.employeeName && e.name.replace(" 대표이사", "") === form.employeeName);
+
+    const existingWithPledge = targetEmp
+      ? contracts.find((c) => c.employeeId === targetEmp.id && (c.pledgeScanUrl || c.residentRegNo))
+      : null;
+
+    const joinDt = targetEmp?.joinDate ? String(targetEmp.joinDate).slice(0, 10) : todayStr;
+    const targetYear =
+      yearFilter !== "ALL" ? yearFilter : joinDt.slice(0, 4) || currentYearStr;
+
     setSelectedContractId(null);
     setRightViewMode("DOCUMENT");
-    setStatusMsg("신입 직원 채용 근로계약서(및 입사 시 1회 보안서약서) 작성 모드입니다.");
-    setForm({
+    setStatusMsg(
+      targetEmp
+        ? `[${targetEmp.name}] 신입 채용 근로계약서(및 입사 시 1회 보안서약서) 작성 모드입니다. (미등록 신규 입사자는 사원 선택에서 '직접 입력'을 선택하세요)`
+        : "신입 직원 채용 근로계약서(및 입사 시 1회 보안서약서) 작성 모드입니다."
+    );
+    setForm((prev) => ({
+      ...prev,
       id: 0,
       contractNo: "",
-      contractYear: currentYearStr,
+      contractYear: targetYear,
       contractType: "NEW_HIRE",
       status: "SIGNED",
-      employeeId: "",
-      employeeName: "",
-      employeePhone: "",
-      employeeAddress: "",
-      residentRegNo: "",
+      employeeId: targetEmp ? targetEmp.id : prev.employeeId,
+      employeeName: targetEmp ? targetEmp.name.replace(" 대표이사", "") : prev.employeeName,
+      employeePhone: targetEmp?.phone || prev.employeePhone,
+      employeeAddress: targetEmp?.address || prev.employeeAddress,
+      residentRegNo: existingWithPledge?.residentRegNo || prev.residentRegNo,
       employerName: "주식회사 드래곤알피에이",
       employerPhone: "010-9224-4097",
       employerAddress: "서울 금천구 서부샛길 528, 547호",
       employerRep: "이정용",
-      startDate: todayStr,
+      startDate: joinDt,
       endDate: "",
       workplace: "서울시 금천구 벚꽃로278, SJ테크노빌 B155호",
       jobDescription: "주식회사 현대렌탈서비스의 렌탈자산 입/출고/배송 설치 등",
@@ -292,36 +450,35 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       breakMinutes: 60,
       workDays: "매주 월~금요일 근무",
       weeklyHoliday: "주휴일 매주 토~일요일",
-      baseSalary: 2800000,
+      baseSalary: targetEmp ? Number(targetEmp.baseSalary || 2800000) : prev.baseSalary || 2800000,
       hourlyWageNote: "시급은 통상시급",
-      mealAllowance: 200000,
-      vehicleAllowance: 0,
+      mealAllowance: targetEmp ? Number(targetEmp.mealAllowance || 200000) : prev.mealAllowance || 200000,
+      vehicleAllowance: targetEmp ? Number(targetEmp.vehicleAllowance || 0) : prev.vehicleAllowance || 0,
       otherAllowance: 0,
       otherAllowanceLabel: "",
       payDay: 10,
       payMethod: "근로자 명의 예금통장에 입금",
-      contractDate: todayStr,
+      contractDate: joinDt,
       scanFileName: "",
       scanFileUrl: "",
-      pledgeDate: todayStr,
-      pledgeScanName: "",
-      pledgeScanUrl: "",
-      memo: `${currentYearStr}년 신입 직원 채용 근로계약 및 정보보호 서약`,
+      pledgeDate: existingWithPledge?.pledgeDate || joinDt,
+      pledgeScanName: existingWithPledge?.pledgeScanName || prev.pledgeScanName || "",
+      pledgeScanUrl: existingWithPledge?.pledgeScanUrl || prev.pledgeScanUrl || "",
+      memo: `${targetYear}년 신입 직원 채용 근로계약 및 정보보호 서약`,
       syncEmployeeMaster: true,
-      registerNewEmployee: true,
-      newEmployeePosition: "사원",
-      newEmployeeDepartment: "렌탈운영팀",
-    });
+      registerNewEmployee: !targetEmp,
+      newEmployeePosition: targetEmp?.position || "사원",
+      newEmployeeDepartment: targetEmp?.department || "렌탈운영팀",
+    }));
   };
 
-  // 입사 시 1회 정보보호(보안)서약서 전용 작성 모드
+  // 입사 시 1회 정보보호(보안)서약서 전용 작성 모드 (현재 선택된 사원 유지)
   const handleStartSecurityPledge = () => {
     const targetEmp =
-      employees.find((e) => e.id === Number(form.employeeId)) ||
-      employees.find((e) => e.status === "ACTIVE" && e.id !== 1) ||
-      employees[0];
+      employees.find((e) => String(e.id) === String(form.employeeId)) ||
+      employees.find((e) => form.employeeName && e.name.replace(" 대표이사", "") === form.employeeName);
 
-    const joinDt = targetEmp?.joinDate || todayStr;
+    const joinDt = targetEmp?.joinDate ? String(targetEmp.joinDate).slice(0, 10) : form.startDate || todayStr;
     setSelectedContractId(null);
     setRightViewMode("PLEDGE_DOC");
     setStatusMsg("입사 시 1회 작성하는 정보보호(보안) 서약서 작성 및 보관 모드입니다.");
@@ -332,7 +489,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       contractYear: joinDt.slice(0, 4) || currentYearStr,
       contractType: "SECURITY_PLEDGE",
       status: "SIGNED",
-      employeeId: targetEmp ? targetEmp.id : "",
+      employeeId: targetEmp ? targetEmp.id : prev.employeeId,
       employeeName: targetEmp ? targetEmp.name.replace(" 대표이사", "") : prev.employeeName,
       employeePhone: targetEmp?.phone || prev.employeePhone,
       employeeAddress: targetEmp?.address || prev.employeeAddress,
@@ -343,41 +500,47 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     }));
   };
 
-  // 연봉협상 재계약 기본 양식 초기화
+  // 연봉협상 재계약 기본 양식 전환 (현재 선택된 사원 및 선택 연도 유지)
   const handleStartRenewal = (empId?: number) => {
     const targetEmp =
-      employees.find((e) => e.id === empId) ||
-      employees.find((e) => e.id === Number(form.employeeId)) ||
-      employees.find((e) => e.status === "ACTIVE" && e.id !== 1) ||
-      employees[0];
+      (empId ? employees.find((e) => e.id === empId) : undefined) ||
+      employees.find((e) => String(e.id) === String(form.employeeId)) ||
+      employees.find((e) => form.employeeName && e.name.replace(" 대표이사", "") === form.employeeName);
+
+    const targetYear =
+      yearFilter !== "ALL" ? yearFilter : form.contractYear || currentYearStr;
 
     setSelectedContractId(null);
     setRightViewMode("DOCUMENT");
-    setStatusMsg("연봉협상 후 재계약 체결 작성 모드입니다. 변경된 기본급/식대를 입력하세요.");
+    setStatusMsg(
+      targetEmp
+        ? `[${targetEmp.name}] ${targetYear}년 연봉협상 재계약 작성 모드입니다. 변경된 기본급/식대를 입력하세요.`
+        : `${targetYear}년 연봉협상 재계약 작성 모드입니다. 변경된 기본급/식대를 입력하세요.`
+    );
 
-    const janFirst = `${currentYearStr}-01-01`;
+    const janFirst = `${targetYear}-01-01`;
     setForm((prev) => ({
       ...prev,
       id: 0,
       contractNo: "",
-      contractYear: currentYearStr,
+      contractYear: targetYear,
       contractType: "RENEWAL",
       status: "SIGNED",
-      employeeId: targetEmp ? targetEmp.id : "",
-      employeeName: targetEmp ? targetEmp.name.replace(" 대표이사", "") : "",
-      employeePhone: targetEmp?.phone || "",
-      employeeAddress: targetEmp?.address || "",
+      employeeId: targetEmp ? targetEmp.id : prev.employeeId,
+      employeeName: targetEmp ? targetEmp.name.replace(" 대표이사", "") : prev.employeeName,
+      employeePhone: targetEmp?.phone || prev.employeePhone,
+      employeeAddress: targetEmp?.address || prev.employeeAddress,
       startDate: janFirst,
-      endDate: `${currentYearStr}-12-31`,
+      endDate: `${targetYear}-12-31`,
       workplace: "서울시 금천구 벚꽃로278, SJ테크노빌 B155호",
       jobDescription: "주식회사 현대렌탈서비스의 렌탈자산 입/출고/배송 설치 등",
-      baseSalary: targetEmp ? Number(targetEmp.baseSalary || 2800000) : 2800000,
-      mealAllowance: targetEmp ? Number(targetEmp.mealAllowance || 200000) : 200000,
-      vehicleAllowance: targetEmp ? Number(targetEmp.vehicleAllowance || 0) : 0,
+      baseSalary: targetEmp ? Number(targetEmp.baseSalary || prev.baseSalary || 2800000) : prev.baseSalary || 2800000,
+      mealAllowance: targetEmp ? Number(targetEmp.mealAllowance || prev.mealAllowance || 200000) : prev.mealAllowance || 200000,
+      vehicleAllowance: targetEmp ? Number(targetEmp.vehicleAllowance || prev.vehicleAllowance || 0) : prev.vehicleAllowance || 0,
       contractDate: janFirst,
       scanFileName: "",
       scanFileUrl: "",
-      memo: `${currentYearStr}년 연봉협상 재계약 체결`,
+      memo: `${targetYear}년 연봉협상 재계약 체결`,
       syncEmployeeMaster: true,
       registerNewEmployee: false,
     }));
@@ -386,16 +549,46 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
   // 사원 드롭다운 선택 시 사원 기본 정보 및 기존 보안서약서 정보 자동 로드
   const handleSelectEmployee = (empIdStr: string) => {
     if (!empIdStr) {
-      setForm((prev) => ({ ...prev, employeeId: "" }));
+      try {
+        sessionStorage.removeItem("dragonrpa_erp_selected_emp_id");
+        sessionStorage.removeItem("dragonrpa_erp_selected_emp_name");
+      } catch (e) {}
+      setSelectedContractId(null);
+      setForm((prev) => ({
+        ...prev,
+        id: 0,
+        contractNo: "",
+        contractType: "NEW_HIRE",
+        employeeId: "",
+        employeeName: "",
+        employeePhone: "",
+        employeeAddress: "",
+        residentRegNo: "",
+        startDate: todayStr,
+        endDate: "",
+        contractDate: todayStr,
+        pledgeDate: todayStr,
+        scanFileName: "",
+        scanFileUrl: "",
+        pledgeScanName: "",
+        pledgeScanUrl: "",
+        registerNewEmployee: true,
+      }));
       return;
     }
     const emp = employees.find((e) => String(e.id) === empIdStr);
     if (!emp) return;
 
+    try {
+      sessionStorage.setItem("dragonrpa_erp_selected_emp_id", String(emp.id));
+      sessionStorage.setItem("dragonrpa_erp_selected_emp_name", emp.name);
+    } catch (e) {}
+
     // 해당 사원의 기존 계약 중 보안서약서나 주민번호가 있는 레코드 참조
     const existingWithPledge = contracts.find(
       (c) => c.employeeId === emp.id && (c.pledgeScanUrl || c.residentRegNo)
     );
+    const joinDt = emp.joinDate ? String(emp.joinDate).slice(0, 10) : todayStr;
 
     setForm((prev) => ({
       ...prev,
@@ -404,12 +597,16 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       employeePhone: emp.phone || prev.employeePhone,
       employeeAddress: emp.address || prev.employeeAddress,
       residentRegNo: existingWithPledge?.residentRegNo || prev.residentRegNo,
-      pledgeDate: existingWithPledge?.pledgeDate || emp.joinDate || prev.pledgeDate,
+      startDate: prev.contractType === "NEW_HIRE" ? joinDt : prev.startDate,
+      contractDate: prev.contractType === "NEW_HIRE" ? joinDt : prev.contractDate,
+      pledgeDate: existingWithPledge?.pledgeDate || joinDt || prev.pledgeDate,
       pledgeScanName: existingWithPledge?.pledgeScanName || prev.pledgeScanName,
       pledgeScanUrl: existingWithPledge?.pledgeScanUrl || prev.pledgeScanUrl,
       baseSalary: Number(emp.baseSalary || prev.baseSalary),
       mealAllowance: Number(emp.mealAllowance || prev.mealAllowance),
       vehicleAllowance: Number(emp.vehicleAllowance || prev.vehicleAllowance),
+      newEmployeePosition: emp.position || prev.newEmployeePosition,
+      newEmployeeDepartment: emp.department || prev.newEmployeeDepartment,
       registerNewEmployee: false,
     }));
   };
@@ -1046,14 +1243,12 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                         | "NEW_HIRE"
                         | "RENEWAL"
                         | "SECURITY_PLEDGE";
-                      setForm((prev) => ({
-                        ...prev,
-                        contractType: nextType,
-                      }));
-                      if (nextType === "SECURITY_PLEDGE") {
-                        setRightViewMode("PLEDGE_DOC");
-                      } else if (rightViewMode.startsWith("PLEDGE")) {
-                        setRightViewMode("DOCUMENT");
+                      if (nextType === "NEW_HIRE") {
+                        handleStartNewHire();
+                      } else if (nextType === "RENEWAL") {
+                        handleStartRenewal();
+                      } else if (nextType === "SECURITY_PLEDGE") {
+                        handleStartSecurityPledge();
                       }
                     }}
                     className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1.5 font-bold text-xs"
@@ -1071,7 +1266,24 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
                   <input
                     type="text"
                     value={form.contractYear}
-                    onChange={(e) => setForm((prev) => ({ ...prev, contractYear: e.target.value }))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setForm((prev) => {
+                        const isValidYear = /^\d{4}$/.test(val);
+                        const isRenewal = prev.contractType === "RENEWAL";
+                        return {
+                          ...prev,
+                          contractYear: val,
+                          startDate: isValidYear && isRenewal ? `${val}-01-01` : prev.startDate,
+                          endDate: isValidYear && isRenewal ? `${val}-12-31` : prev.endDate,
+                          contractDate: isValidYear && isRenewal ? `${val}-01-01` : prev.contractDate,
+                          memo:
+                            isValidYear && isRenewal
+                              ? `${val}년 연봉협상 재계약 체결`
+                              : prev.memo,
+                        };
+                      });
+                    }}
                     className="bg-white dark:bg-slate-950 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1.5 font-mono font-bold text-xs"
                   />
                 </div>

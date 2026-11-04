@@ -920,6 +920,17 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       // 즉시 DB 동기화 수행하여 새로고침 시에도 완벽 보존
       const saved = await syncOrganizationBatchToDb(departments, updated, true);
       if (saved) {
+        try {
+          const savedEmp = saved.users.find((u) => u.name === profileWithTier.name) || profileWithTier;
+          if (savedEmp.id && !String(savedEmp.id).startsWith("new-user-")) {
+            sessionStorage.setItem("dragonrpa_erp_selected_emp_id", String(savedEmp.id));
+          } else {
+            sessionStorage.removeItem("dragonrpa_erp_selected_emp_id");
+          }
+          if (savedEmp.name) {
+            sessionStorage.setItem("dragonrpa_erp_selected_emp_name", savedEmp.name);
+          }
+        } catch (e) {}
         showToast("임직원 프로필 및 시스템 역할 설정이 성공적으로 저장되었습니다.");
       }
     }
@@ -1210,6 +1221,14 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
   };
 
   const openUserProfile = (user: UserNode) => {
+    try {
+      if (user.id && !String(user.id).startsWith("new-user-")) {
+        sessionStorage.setItem("dragonrpa_erp_selected_emp_id", String(user.id));
+      }
+      if (user.name) {
+        sessionStorage.setItem("dragonrpa_erp_selected_emp_name", user.name);
+      }
+    } catch (e) {}
     setSelectedProfile({
       ...user,
       passwordHash: user.passwordHash ? "__HASHED__" : "",

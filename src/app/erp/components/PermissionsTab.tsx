@@ -57,6 +57,7 @@ const MENU_DEFS: Array<{ key: string; name: string; category: string; hasBilling
   { key: "trade", name: "판매용 (커머스)", category: "영업", hasBilling: true },
   { key: "rental", name: "임대 계약/청구", category: "영업", hasBilling: true },
   { key: "service", name: "용역 관리 (운영/개발)", category: "영업", hasBilling: true },
+  { key: "cloud_share", name: "클라우드 자료실", category: "영업" },
 ];
 
 export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?: () => void }> = ({ currentUser, onPermissionsChanged }) => {

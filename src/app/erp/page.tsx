@@ -43,6 +43,7 @@ import { ServiceTab } from "./components/ServiceTab";
 import { TaxInvoiceTab } from "./components/TaxInvoiceTab";
 import { OutboundRegTab } from "./components/OutboundRegTab";
 import { InboundRegTab } from "./components/InboundRegTab";
+import { CloudShareTab } from "./components/CloudShareTab";
 import "./erp-theme.css";
 
 export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "PARTNER" | "ASSET" | "INOUT" | "BUSINESS";
@@ -71,7 +72,8 @@ export type ErpMenuKey =
   | "INBOUND_REG"
   | "TRADE"
   | "RENTAL"
-  | "SERVICES";
+  | "SERVICES"
+  | "CLOUD_SHARE";
 
 interface MenuItem {
   key: ErpMenuKey;
@@ -158,6 +160,7 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "TRADE", label: "판매용 (커머스)", icon: ShoppingCart },
       { key: "RENTAL", label: "임대 계약/청구", icon: Truck },
       { key: "SERVICES", label: "용역 관리 (운영/개발)", icon: Briefcase },
+      { key: "CLOUD_SHARE", label: "클라우드 자료실", icon: Database },
     ],
   },
 ];
@@ -187,6 +190,7 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   TRADE: "trade",
   RENTAL: "rental",
   SERVICES: "service",
+  CLOUD_SHARE: "cloud_share",
 };
 
 export default function ErpMainPage() {
@@ -753,6 +757,9 @@ export default function ErpMainPage() {
                     selectedEntity={selectedEntity}
                     onNavigateToTax={navigateToTax} 
                   />
+                )}
+                {activeMenu === "CLOUD_SHARE" && (
+                  <CloudShareTab currentUser={enrichedUser} />
                 )}
               </>
             )}

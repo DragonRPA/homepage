@@ -231,3 +231,124 @@ export async function getErpPrivateObject(
     contentType,
   };
 }
+
+/**
+ * ERP 전용 R2 비공개 버킷에서 객체 삭제 (DELETE Object)
+ */
+export async function deleteErpPrivateObject(objectKey: string): Promise<void> {
+  const cfg = await resolveR2Config();
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+
+  const canonicalUri = buildCanonicalUri(cfg.bucket, objectKey);
+  const payloadHash = sha256Hex("");
+
+  const canonicalHeaders =
+    `host:${cfg.host}\n` +
+    `x-amz-content-sha256:${payloadHash}\n` +
+    `x-amz-date:${amzDate}\n`;
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+
+  const canonicalRequest = [
+    "DELETE",
+    canonicalUri,
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+
+  const credentialScope = `${dateStamp}/${R2_REGION}/${R2_SERVICE}/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    sha256Hex(canonicalRequest),
+  ].join("\n");
+
+  const signingKey = getSignatureKey(cfg.secretAccessKey, dateStamp, R2_REGION, R2_SERVICE);
+  const signature = crypto.createHmac("sha256", signingKey).update(stringToSign, "utf8").digest("hex");
+
+  const authorizationHeader =
+    `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${credentialScope}, ` +
+    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  const url = `https://${cfg.host}${canonicalUri}`;
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      "x-amz-content-sha256": payloadHash,
+      "x-amz-date": amzDate,
+      Authorization: authorizationHeader,
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok && res.status !== 204 && res.status !== 404) {
+    const errText = await res.text();
+    throw new Error(`R2 DELETE 실패 (${res.status}): ${errText}`);
+  }
+}
+
+/**
+ * ERP 전용 R2 비공개 버킷 대용량 파일 직접 업로드/다운로드용 Presigned URL 생성 (S3 Signature V4 Query Auth)
+ */
+export async function createErpPresignedUrl(
+  method: "GET" | "PUT",
+  objectKey: string,
+  expiresInSeconds: number = 3600,
+  responseContentDisposition?: string
+): Promise<string> {
+  const cfg = await resolveR2Config();
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+
+  const canonicalUri = buildCanonicalUri(cfg.bucket, objectKey);
+  const credentialScope = `${dateStamp}/${R2_REGION}/${R2_SERVICE}/aws4_request`;
+  const credential = `${cfg.accessKeyId}/${credentialScope}`;
+
+  const queryParams: Record<string, string> = {
+    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+    "X-Amz-Credential": credential,
+    "X-Amz-Date": amzDate,
+    "X-Amz-Expires": String(Math.min(Math.max(expiresInSeconds, 60), 604800)),
+    "X-Amz-SignedHeaders": "host",
+  };
+
+  if (method === "GET" && responseContentDisposition) {
+    queryParams["response-content-disposition"] = responseContentDisposition;
+  }
+
+  const sortedQueryString = Object.keys(queryParams)
+    .sort()
+    .map((k) => `${encodeRfc3986(k)}=${encodeRfc3986(queryParams[k])}`)
+    .join("&");
+
+  const canonicalHeaders = `host:${cfg.host}\n`;
+  const signedHeaders = "host";
+  const payloadHash = "UNSIGNED-PAYLOAD";
+
+  const canonicalRequest = [
+    method,
+    canonicalUri,
+    sortedQueryString,
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    sha256Hex(canonicalRequest),
+  ].join("\n");
+
+  const signingKey = getSignatureKey(cfg.secretAccessKey, dateStamp, R2_REGION, R2_SERVICE);
+  const signature = crypto.createHmac("sha256", signingKey).update(stringToSign, "utf8").digest("hex");
+
+  return `https://${cfg.host}${canonicalUri}?${sortedQueryString}&X-Amz-Signature=${signature}`;
+}
+

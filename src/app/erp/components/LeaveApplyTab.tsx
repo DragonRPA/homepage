@@ -250,11 +250,19 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
       if (!res.ok || !data.success) throw new Error(data.error || "휴가 신청 실패");
 
       const approverLabel = data.approverName ? ` (${data.approverName} 결재함)` : "";
-      showToast(
-        isNonDeducting
-          ? `[${currentTypeMeta.shortLabel}] 휴가 신청이 부서장 내 결재함${approverLabel}으로 상신되었습니다.`
-          : `연차 신청이 부서장 내 결재함${approverLabel}으로 상신되었습니다.`
-      );
+      if (data.autoApproved) {
+        showToast(
+          isNonDeducting
+            ? `[${currentTypeMeta.shortLabel}] 휴가 신청이 부서장 전결로 즉시 승인되었습니다.`
+            : `연차 신청이 부서장 전결로 즉시 승인되었습니다.`
+        );
+      } else {
+        showToast(
+          isNonDeducting
+            ? `[${currentTypeMeta.shortLabel}] 휴가 신청이 부서장 내 결재함${approverLabel}으로 상신되었습니다.`
+            : `연차 신청이 부서장 내 결재함${approverLabel}으로 상신되었습니다.`
+        );
+      }
       setReason("");
       fetchData();
     } catch (err: any) {

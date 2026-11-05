@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { calculateServiceEmployeeMonthlyProRata } from "@/lib/erpFormat";
 
 // GET: List all service contracts (filter by service_type: 'OPERATIONAL' or 'DEVELOPMENT' & entityType, or id for single contract file)
 export async function GET(request: Request) {
@@ -116,11 +117,23 @@ async function syncAssignedEmployeeContractRates(pool: any) {
     }
   }
 
-  const empRes = await pool.query(`SELECT id, employee_no, name FROM erp_employees`);
+  const empRes = await pool.query(`SELECT id, employee_no, name, join_date, leave_date FROM erp_employees`);
+  const empJoinById = new Map<number, { joinDate: string; leaveDate: string }>();
+  const empJoinByNo = new Map<string, { joinDate: string; leaveDate: string }>();
+  const empJoinByName = new Map<string, { joinDate: string; leaveDate: string }>();
+
   for (const emp of empRes.rows) {
     const eid = Number(emp.id);
     const eno = String(emp.employee_no || "").trim();
     const ename = String(emp.name || "").trim();
+    const jInfo = {
+      joinDate: emp.join_date ? String(emp.join_date).slice(0, 10) : "",
+      leaveDate: emp.leave_date ? String(emp.leave_date).slice(0, 10) : "",
+    };
+    if (eid > 0) empJoinById.set(eid, jInfo);
+    if (eno) empJoinByNo.set(eno, jInfo);
+    if (ename) empJoinByName.set(ename, jInfo);
+
     const matchedRate =
       rateByEmpId.get(eid) ??
       (eno ? rateByEmpNo.get(eno) : undefined) ??
@@ -134,7 +147,7 @@ async function syncAssignedEmployeeContractRates(pool: any) {
     }
   }
 
-  // 2) erp_payroll_records의 각 귀속연월(year_month)별로 해당 기간에 유효한 모든 용역계약 단가를 합산하여 자동 반영
+  // 2) erp_payroll_records의 각 귀속연월(year_month)별로 해당 기간에 유효한 모든 용역계약 단가(입사일 일할계산 포함)를 합산하여 자동 반영
   const ymRes = await pool.query(`SELECT DISTINCT year_month FROM erp_payroll_records`);
   for (const ymRow of ymRes.rows) {
     const ym = String(ymRow.year_month || "").trim();
@@ -155,11 +168,28 @@ async function syncAssignedEmployeeContractRates(pool: any) {
 
       const list = Array.isArray(ct.assigned_employees) ? ct.assigned_employees : [];
       for (const item of list) {
-        const rate = Math.round(Number(item?.contractRate || 0));
-        if (rate <= 0) continue;
+        const baseRate = Math.round(Number(item?.contractRate || 0));
+        if (baseRate <= 0) continue;
         const eid = Number(item?.employeeId || 0);
         const eno = String(item?.employeeNo || "").trim();
         const ename = String(item?.name || "").trim();
+        const jLookup =
+          (eid > 0 ? empJoinById.get(eid) : undefined) ??
+          (eno ? empJoinByNo.get(eno) : undefined) ??
+          (ename ? empJoinByName.get(ename) : undefined);
+        const joinDate = item?.joinDate || jLookup?.joinDate || "";
+        const leaveDate = item?.leaveDate || jLookup?.leaveDate || "";
+        const proRataEnabled = item?.proRataEnabled !== false;
+        const calc = calculateServiceEmployeeMonthlyProRata(
+          baseRate,
+          ym,
+          joinDate,
+          leaveDate,
+          proRataEnabled,
+          true
+        );
+        const rate = calc.effectiveAmount;
+        if (rate <= 0) continue;
         if (eid > 0) monthRateByEmpId.set(eid, (monthRateByEmpId.get(eid) || 0) + rate);
         if (eno) monthRateByEmpNo.set(eno, (monthRateByEmpNo.get(eno) || 0) + rate);
         if (ename) monthRateByName.set(ename, (monthRateByName.get(ename) || 0) + rate);

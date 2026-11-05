@@ -662,5 +662,152 @@ export function selectPreferredBizItem(rawBizItem?: string | null): string {
   return raw;
 }
 
+export interface ServiceEmployeeProRataResult {
+  baseRate: number;
+  effectiveAmount: number;
+  diffAmount: number;
+  totalMonthDays: number;
+  activeDays: number;
+  startDay: number;
+  endDay: number;
+  isProRated: boolean;
+  isNotYetJoined: boolean;
+  isAfterLeft: boolean;
+  formulaLabel: string;
+  shortBadge: string;
+}
+
+/**
+ * 운영용역 투입 임직원 월별 용역료(받는금액) 입사일/퇴사일 기준 일할계산 SSOT 헬퍼
+ * - 대상 연월(targetYearMonth: YYYY-MM) 내 입사일(joinDateStr)이 1일 이후인 중도입사자 또는 중도퇴사자의 근무일수 비례 일할 금액 산출
+ * - 수식: Math.round(contractRate × activeDays / totalMonthDays)
+ */
+export function calculateServiceEmployeeMonthlyProRata(
+  contractRate: number | string | null | undefined,
+  targetYearMonth?: string | null,
+  joinDateStr?: string | null,
+  leaveDateStr?: string | null,
+  proRataEnabled: boolean = true,
+  excludeBeforeJoin: boolean = true
+): ServiceEmployeeProRataResult {
+  const baseRate = Math.max(0, cleanErpNumber(contractRate));
+  const ym = (targetYearMonth || new Date().toISOString().slice(0, 7)).trim().slice(0, 7);
+  const ymParts = ym.split("-").map(Number);
+  const year = ymParts[0] || new Date().getFullYear();
+  const month = ymParts[1] || new Date().getMonth() + 1;
+  const totalMonthDays = new Date(year, month, 0).getDate();
+
+  if (!proRataEnabled || baseRate <= 0) {
+    return {
+      baseRate,
+      effectiveAmount: baseRate,
+      diffAmount: 0,
+      totalMonthDays,
+      activeDays: totalMonthDays,
+      startDay: 1,
+      endDay: totalMonthDays,
+      isProRated: false,
+      isNotYetJoined: false,
+      isAfterLeft: false,
+      formulaLabel: `정상 만근 (${totalMonthDays}/${totalMonthDays}일)`,
+      shortBadge: "만근 (100%)",
+    };
+  }
+
+  const monthStartStr = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`;
+  const monthEndStr = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(totalMonthDays).padStart(2, "0")}`;
+
+  const cleanJoin = joinDateStr ? String(joinDateStr).trim().slice(0, 10) : "";
+  const cleanLeave = leaveDateStr ? String(leaveDateStr).trim().slice(0, 10) : "";
+
+  let startDay = 1;
+  let endDay = totalMonthDays;
+  let joinNote = "";
+  let leaveNote = "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(cleanJoin)) {
+    if (cleanJoin > monthEndStr) {
+      if (excludeBeforeJoin) {
+        return {
+          baseRate,
+          effectiveAmount: 0,
+          diffAmount: -baseRate,
+          totalMonthDays,
+          activeDays: 0,
+          startDay: 0,
+          endDay: 0,
+          isProRated: true,
+          isNotYetJoined: true,
+          isAfterLeft: false,
+          formulaLabel: `미투입 (${cleanJoin.slice(5).replace("-", "/")} 입사전 · 0/${totalMonthDays}일)`,
+          shortBadge: `0/${totalMonthDays}일 (${cleanJoin.slice(5).replace("-", "/")} 입사전)`,
+        };
+      }
+    } else if (cleanJoin > monthStartStr && cleanJoin <= monthEndStr) {
+      const jd = parseInt(cleanJoin.slice(8, 10), 10);
+      if (!isNaN(jd) && jd > 1) {
+        startDay = jd;
+        joinNote = `${cleanJoin.slice(5).replace("-", "/")} 입사`;
+      }
+    }
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(cleanLeave)) {
+    if (cleanLeave < monthStartStr) {
+      return {
+        baseRate,
+        effectiveAmount: 0,
+        diffAmount: -baseRate,
+        totalMonthDays,
+        activeDays: 0,
+        startDay: 0,
+        endDay: 0,
+        isProRated: true,
+        isNotYetJoined: false,
+        isAfterLeft: true,
+        formulaLabel: `퇴사/철수 (${cleanLeave.slice(5).replace("-", "/")} 퇴사 · 0/${totalMonthDays}일)`,
+        shortBadge: `0/${totalMonthDays}일 (퇴사)`,
+      };
+    } else if (cleanLeave >= monthStartStr && cleanLeave < monthEndStr) {
+      const ld = parseInt(cleanLeave.slice(8, 10), 10);
+      if (!isNaN(ld) && ld < totalMonthDays) {
+        endDay = ld;
+        leaveNote = `${cleanLeave.slice(5).replace("-", "/")} 퇴사`;
+      }
+    }
+  }
+
+  const activeDays = Math.max(0, endDay - startDay + 1);
+  const isProRated = activeDays < totalMonthDays;
+  const effectiveAmount = isProRated
+    ? Math.round((baseRate * activeDays) / totalMonthDays)
+    : baseRate;
+  const diffAmount = effectiveAmount - baseRate;
+
+  const reasonText = [joinNote, leaveNote].filter(Boolean).join(", ");
+  const formulaLabel = isProRated
+    ? `일할 ${activeDays}/${totalMonthDays}일 (${String(month).padStart(2, "0")}/${String(startDay).padStart(2, "0")}~${String(month).padStart(2, "0")}/${String(endDay).padStart(2, "0")}${reasonText ? ` · ${reasonText}` : ""})`
+    : `정상 만근 (${totalMonthDays}/${totalMonthDays}일)`;
+  const shortBadge = isProRated
+    ? `${activeDays}/${totalMonthDays}일 (${reasonText || `${startDay}~${endDay}일`})`
+    : `만근 (${totalMonthDays}일)`;
+
+  return {
+    baseRate,
+    effectiveAmount,
+    diffAmount,
+    totalMonthDays,
+    activeDays,
+    startDay,
+    endDay,
+    isProRated,
+    isNotYetJoined: false,
+    isAfterLeft: false,
+    formulaLabel,
+    shortBadge,
+  };
+}
+
+
 
 

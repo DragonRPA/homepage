@@ -7,7 +7,7 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Eye, Download,
   Edit, Trash2, AlertCircle, Users, UserPlus
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection, resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection, resolveContractItemTemplate, resolveContractTaxItemsTemplate, calculateServiceEmployeeMonthlyProRata } from "@/lib/erpFormat";
 import { ContractTaxInvoiceSection, BuyerTaxSpec, createDefaultTaxSpec, extractPartnerTaxSpec } from "./ContractTaxInvoiceSection";
 
 interface AssignedServiceEmployee {
@@ -16,7 +16,10 @@ interface AssignedServiceEmployee {
   name: string;
   position: string;
   department: string;
-  contractRate: number; // 각 직원당 받는 월 계약금액 (공급가액, 원)
+  joinDate?: string; // 입사일 (YYYY-MM-DD) - 1일 이후 입사 시 월 용역료 일할계산 기준
+  leaveDate?: string; // 퇴사일 (YYYY-MM-DD)
+  contractRate: number; // 각 직원당 받는 월 기준 계약금액 (정상 만근 공급가액, 원)
+  proRataEnabled?: boolean; // 입사일 기준 일할계산 적용 여부 (기본 true)
   note: string;
 }
 
@@ -81,6 +84,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const [ctAssignedEmployees, setCtAssignedEmployees] = useState<AssignedServiceEmployee[]>([]);
   const [ctSelectedEmpId, setCtSelectedEmpId] = useState<string>("");
   const [ctIncludeOtInBilling, setCtIncludeOtInBilling] = useState<boolean>(false);
+  const [ctApplyProRata, setCtApplyProRata] = useState<boolean>(true);
+  const [ctProRataMonth, setCtProRataMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [ctOtBreakdown, setCtOtBreakdown] = useState<{
     month: string;
     totalHours: number;
@@ -113,6 +118,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const [editCtAssignedEmployees, setEditCtAssignedEmployees] = useState<AssignedServiceEmployee[]>([]);
   const [editCtSelectedEmpId, setEditCtSelectedEmpId] = useState<string>("");
   const [editCtIncludeOtInBilling, setEditCtIncludeOtInBilling] = useState<boolean>(false);
+  const [editCtApplyProRata, setEditCtApplyProRata] = useState<boolean>(true);
+  const [editCtProRataMonth, setEditCtProRataMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [editCtOtBreakdown, setEditCtOtBreakdown] = useState<{
     month: string;
     totalHours: number;
@@ -130,6 +137,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     createDefaultTaxSpec("정기 용역료", 0)
   );
   const [blIncludeOtInBilling, setBlIncludeOtInBilling] = useState<boolean>(false);
+  const [blApplyProRata, setBlApplyProRata] = useState<boolean>(true);
   const [blOtSummary, setBlOtSummary] = useState<{
     loading: boolean;
     month: string;
@@ -312,12 +320,36 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     }
   };
 
-  // 투입 임직원 목록 또는 초과근무수당 반영 옵션이 변경될 때 월 정기 용역료 및 세금계산서 품목 동기화
+  // 투입 임직원 엔트리에 사원대장(employees)의 입사일/퇴사일 메타데이터 보강 헬퍼
+  const enrichAssignedEmployeeJoinDates = (list: AssignedServiceEmployee[]): AssignedServiceEmployee[] => {
+    if (!Array.isArray(list)) return [];
+    return list.map((item) => {
+      const matched = employees.find(
+        (emp) =>
+          (item.employeeId && Number(emp.id) === Number(item.employeeId)) ||
+          (item.employeeNo && String(emp.employeeNo || "").trim() === String(item.employeeNo).trim()) ||
+          (item.name && String(emp.name || "").trim() === String(item.name).trim())
+      );
+      const joinDate = item.joinDate || (matched?.joinDate ? String(matched.joinDate).slice(0, 10) : "");
+      const leaveDate = item.leaveDate || (matched?.leaveDate ? String(matched.leaveDate).slice(0, 10) : "");
+      return {
+        ...item,
+        joinDate,
+        leaveDate,
+        proRataEnabled: item.proRataEnabled !== false,
+      };
+    });
+  };
+
+  // 투입 임직원 목록, 일할계산 옵션 또는 초과근무수당 반영 옵션이 변경될 때 월 정기 용역료 및 세금계산서 품목 동기화
   const syncAssignedEmployeesToContract = async (
-    list: AssignedServiceEmployee[],
+    rawList: AssignedServiceEmployee[],
     isEdit: boolean,
-    overrideIncludeOt?: boolean
+    overrideIncludeOt?: boolean,
+    overrideApplyProRata?: boolean,
+    overrideTargetMonth?: string
   ) => {
+    const list = enrichAssignedEmployeeJoinDates(rawList);
     const includeOt =
       overrideIncludeOt !== undefined
         ? overrideIncludeOt
@@ -325,11 +357,45 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
         ? editCtIncludeOtInBilling
         : ctIncludeOtInBilling;
 
-    const totalRate = list.reduce((acc, item) => acc + (Number(item.contractRate) || 0), 0);
+    const applyProRata =
+      overrideApplyProRata !== undefined
+        ? overrideApplyProRata
+        : isEdit
+        ? editCtApplyProRata
+        : ctApplyProRata;
+
+    const curMonth = (
+      overrideTargetMonth ||
+      (isEdit ? editCtProRataMonth : ctProRataMonth) ||
+      new Date().toISOString().slice(0, 7)
+    ).slice(0, 7);
+
+    const proRataDetails = list.map((item) => {
+      const enabled = applyProRata && item.proRataEnabled !== false;
+      const calc = calculateServiceEmployeeMonthlyProRata(
+        item.contractRate,
+        curMonth,
+        item.joinDate,
+        item.leaveDate,
+        enabled,
+        false
+      );
+      return { item, calc };
+    });
+
+    const totalBaseRate = list.reduce((acc, item) => acc + (Number(item.contractRate) || 0), 0);
+    const totalEffectiveRate = proRataDetails.reduce((acc, x) => acc + x.calc.effectiveAmount, 0);
+    const totalRate = applyProRata ? totalEffectiveRate : totalBaseRate;
     const baseVat = Math.round(totalRate * 0.1);
     const countSpec = list.length > 0 ? `${list.length}인` : "";
 
-    const curMonth = new Date().toISOString().slice(0, 7);
+    const proRatedNotes = proRataDetails
+      .filter((x) => x.calc.isProRated)
+      .map(
+        (x) =>
+          `${x.item.name} 일할(${x.calc.activeDays}/${x.calc.totalMonthDays}일: ${x.calc.effectiveAmount.toLocaleString()}원)`
+      );
+
     const otBreakdown = await fetchAssignedOvertimeBreakdown(list, curMonth);
 
     if (isEdit) {
@@ -358,6 +424,12 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
               unitCost: totalRate,
               supplyAmount: totalRate,
               vatAmount: baseVat,
+              note:
+                proRatedNotes.length > 0
+                  ? proRatedNotes.join(", ")
+                  : String(it.note || "").includes("일할(")
+                  ? ""
+                  : it.note,
             }
           : it
       );
@@ -585,18 +657,44 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     setEditCtMemo(c.memo || "");
     setEditCtFileUrl("");
     setEditCtFileName(c.contractFileName || "");
-    const assignedList: AssignedServiceEmployee[] = Array.isArray(c.assignedEmployees)
-      ? c.assignedEmployees.map((emp: any) => ({ ...emp }))
-      : [];
+    const assignedList: AssignedServiceEmployee[] = enrichAssignedEmployeeJoinDates(
+      Array.isArray(c.assignedEmployees) ? c.assignedEmployees.map((emp: any) => ({ ...emp })) : []
+    );
+    const curMonth = new Date().toISOString().slice(0, 7);
+    setEditCtProRataMonth(curMonth);
+    setEditCtApplyProRata(true);
     setEditCtAssignedEmployees(assignedList);
     setEditCtSelectedEmpId("");
     setEditCtIncludeOtInBilling(Boolean(c.includeOtInBilling));
+
+    // 중도입사자(1일 이후 입사)가 당월에 존재할 경우 일할계산 반영 금액으로 초기 표시
+    const proRataDetails = assignedList.map((item) =>
+      calculateServiceEmployeeMonthlyProRata(
+        item.contractRate,
+        curMonth,
+        item.joinDate,
+        item.leaveDate,
+        item.proRataEnabled !== false,
+        false
+      )
+    );
+    const hasProRatedInCurMonth = proRataDetails.some((d) => d.isProRated);
+    const proRatedSum = proRataDetails.reduce((s, d) => s + d.effectiveAmount, 0);
+    const effectiveInitialSupply =
+      activeType === "OPERATIONAL" && assignedList.length > 0 && hasProRatedInCurMonth
+        ? proRatedSum
+        : baseSupply;
+    const effectiveInitialVat = Math.round(effectiveInitialSupply * 0.1);
+    if (activeType === "OPERATIONAL" && assignedList.length > 0 && hasProRatedInCurMonth) {
+      setEditCtMonthlyFee(toErpInputString(effectiveInitialSupply));
+      setEditCtVatAmount(toErpInputString(effectiveInitialVat));
+    }
 
     const baseProjectName = (c.projectName || "용역료").trim();
     const defaultTemplate = /\{[^}]+\}/.test(baseProjectName)
       ? baseProjectName
       : `{yyyy}년 {mm}월 ${baseProjectName.endsWith("료") || baseProjectName.endsWith("비") ? baseProjectName : `${baseProjectName}료`}`;
-    const defaultSpec = createDefaultTaxSpec(defaultTemplate, baseSupply);
+    const defaultSpec = createDefaultTaxSpec(defaultTemplate, effectiveInitialSupply);
     const savedMemo = (c.taxMemo ?? "").trim();
     const resolvedInitialMemo =
       !savedMemo || savedMemo === baseProjectName ? defaultTemplate : savedMemo;
@@ -606,6 +704,14 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     const partnerAddr = matchedPartner
       ? [matchedPartner.address, matchedPartner.addressDetail].filter(Boolean).join(" ")
       : "";
+    const proRatedNoteStr = assignedList
+      .map((item, idx) => ({ item, calc: proRataDetails[idx] }))
+      .filter((x) => x.calc.isProRated)
+      .map(
+        (x) =>
+          `${x.item.name} 일할(${x.calc.activeDays}/${x.calc.totalMonthDays}일: ${x.calc.effectiveAmount.toLocaleString()}원)`
+      )
+      .join(", ");
     setEditCtTaxSpec({
       customerBizNo: c.customerBizNo || matchedPartner?.businessNo || "",
       customerCeoName: c.customerCeoName || matchedPartner?.ceoName || "",
@@ -619,24 +725,35 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       taxItems:
         Array.isArray(c.taxItems) && c.taxItems.length > 0
           ? c.taxItems.map((it: any, idx: number) =>
-              idx === 0 && (!it.itemName || it.itemName === baseProjectName)
-                ? { ...it, itemName: resolvedInitialMemo }
+              idx === 0
+                ? {
+                    ...it,
+                    itemName: !it.itemName || it.itemName === baseProjectName ? resolvedInitialMemo : it.itemName,
+                    ...(hasProRatedInCurMonth
+                      ? {
+                          unitCost: effectiveInitialSupply,
+                          supplyAmount: effectiveInitialSupply,
+                          vatAmount: effectiveInitialVat,
+                          note: proRatedNoteStr || it.note,
+                        }
+                      : {}),
+                  }
                 : it
             )
           : [
               {
                 ...defaultSpec.taxItems[0],
                 itemName: resolvedInitialMemo,
-                unitCost: baseSupply,
-                supplyAmount: baseSupply,
-                vatAmount: baseVat,
+                unitCost: effectiveInitialSupply,
+                supplyAmount: effectiveInitialSupply,
+                vatAmount: effectiveInitialVat,
+                note: proRatedNoteStr || "",
               },
             ],
     });
     setShowEditContractModal(true);
 
     if (assignedList.length > 0) {
-      const curMonth = new Date().toISOString().slice(0, 7);
       const breakdown = await fetchAssignedOvertimeBreakdown(assignedList, curMonth);
       setEditCtOtBreakdown(breakdown);
     } else {
@@ -721,23 +838,52 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     }
   };
 
-  // 선택된 용역계약의 치환식 및 투입인원 초과근무수당을 기준일자(dateStr)로 평가하여 청구 폼 상태에 즉시 반영하는 헬퍼
+  // 선택된 용역계약의 치환식, 입사일 기준 일할계산 및 투입인원 초과근무수당을 기준일자(dateStr)로 평가하여 청구 폼 상태에 즉시 반영하는 헬퍼
   const applyServiceContractTemplateToBilling = async (
     ct: any,
     dateStr: string,
-    overrideIncludeOt?: boolean
+    overrideIncludeOt?: boolean,
+    overrideApplyProRata?: boolean
   ) => {
     if (!ct) return;
     const includeOt =
       overrideIncludeOt !== undefined ? overrideIncludeOt : Boolean(ct.includeOtInBilling);
     setBlIncludeOtInBilling(includeOt);
 
-    const assignedList: AssignedServiceEmployee[] = Array.isArray(ct.assignedEmployees)
-      ? ct.assignedEmployees
-      : [];
-    const empContractSum = assignedList.reduce((acc, e) => acc + (Number(e.contractRate) || 0), 0);
+    const applyProRata =
+      overrideApplyProRata !== undefined ? overrideApplyProRata : blApplyProRata;
+    setBlApplyProRata(applyProRata);
 
-    // 기본 계약 월 용역료 (계약에 저장된 monthlyFee / contractAmount 최우선 기준)
+    const targetMonth = (dateStr || new Date().toISOString().slice(0, 10)).slice(0, 7);
+    const assignedList: AssignedServiceEmployee[] = enrichAssignedEmployeeJoinDates(
+      Array.isArray(ct.assignedEmployees) ? ct.assignedEmployees : []
+    );
+
+    const proRataDetails = assignedList.map((item) => {
+      const enabled = applyProRata && item.proRataEnabled !== false;
+      const calc = calculateServiceEmployeeMonthlyProRata(
+        item.contractRate,
+        targetMonth,
+        item.joinDate,
+        item.leaveDate,
+        enabled,
+        true
+      );
+      return { item, calc };
+    });
+
+    const empContractSum = assignedList.reduce((acc, e) => acc + (Number(e.contractRate) || 0), 0);
+    const empEffectiveSum = proRataDetails.reduce((acc, x) => acc + x.calc.effectiveAmount, 0);
+    const activeHeadcount = proRataDetails.filter((x) => x.calc.effectiveAmount > 0).length;
+    const proRatedNotes = proRataDetails
+      .filter((x) => x.calc.isProRated)
+      .map((x) =>
+        x.calc.isNotYetJoined
+          ? `${x.item.name} 미투입(${x.item.joinDate?.slice(5).replace("-", "/")} 입사전 0원)`
+          : `${x.item.name} 일할(${x.calc.activeDays}/${x.calc.totalMonthDays}일: ${x.calc.effectiveAmount.toLocaleString()}원)`
+      );
+
+    // 기본 계약 월 용역료 (투입 인원이 등록된 운영용역은 해당 청구월의 직원별 단가/일할합계를 최우선 적용)
     const rawTaxItems = Array.isArray(ct.taxItems) ? ct.taxItems : [];
     const nonOtTemplateItems = rawTaxItems.filter(
       (it: any) => !String(it?.itemName || "").includes("초과근무수당")
@@ -753,7 +899,11 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
         : Number(ct.contractAmount || 0);
 
     const baseSupply =
-      contractBaseFee > 0
+      activeType === "OPERATIONAL" && assignedList.length > 0 && empContractSum > 0
+        ? applyProRata
+          ? empEffectiveSum
+          : empContractSum
+        : contractBaseFee > 0
         ? contractBaseFee
         : empContractSum > 0
         ? empContractSum
@@ -761,19 +911,32 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
         ? nonOtSupplySum
         : 0;
     const baseVat = Math.round(baseSupply * 0.1);
+    const headcountSpec =
+      assignedList.length > 0
+        ? applyProRata && activeHeadcount !== assignedList.length
+          ? `${activeHeadcount}인`
+          : `${assignedList.length}인`
+        : "";
 
     const rawTemplateName =
       ct.taxMemo || ct.projectName || (activeType === "OPERATIONAL" ? "정기 용역료" : "기성금");
     const rawItems =
       nonOtTemplateItems.length > 0
-        ? nonOtTemplateItems.length === 1 && contractBaseFee > 0
+        ? nonOtTemplateItems.length === 1 && (contractBaseFee > 0 || empContractSum > 0)
           ? [
               {
                 ...nonOtTemplateItems[0],
+                spec: headcountSpec || nonOtTemplateItems[0].spec,
                 qty: Number(nonOtTemplateItems[0].qty) || 1,
                 unitCost: Math.round(baseSupply / (Number(nonOtTemplateItems[0].qty) || 1)),
                 supplyAmount: baseSupply,
                 vatAmount: baseVat,
+                note:
+                  proRatedNotes.length > 0
+                    ? proRatedNotes.join(", ")
+                    : String(nonOtTemplateItems[0].note || "").includes("일할(")
+                    ? ""
+                    : nonOtTemplateItems[0].note,
               },
             ]
           : nonOtTemplateItems
@@ -782,12 +945,12 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
               month: dateStr.slice(5, 7),
               day: dateStr.slice(8, 10),
               itemName: ct.projectName || rawTemplateName,
-              spec: assignedList.length > 0 ? `${assignedList.length}인` : "",
+              spec: headcountSpec,
               qty: 1,
               unitCost: baseSupply,
               supplyAmount: baseSupply,
               vatAmount: baseVat,
-              note: "",
+              note: proRatedNotes.join(", "),
             },
           ];
 
@@ -796,7 +959,6 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       fallbackFirstItem: ct.projectName,
     });
 
-    const targetMonth = (dateStr || new Date().toISOString().slice(0, 10)).slice(0, 7);
     let totalOtPay = 0;
 
     if (assignedList.length > 0) {
@@ -1523,176 +1685,300 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
 
               {/* 운영용역 투입 임직원 및 직원별 계약금액(받는금액) 구성 섹션 */}
               <div className="p-3 rounded border border-blue-300 bg-[#ebe5d8] flex flex-col gap-2" onClick={() => setShowCustomerDropdown(false)}>
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#b5a894] pb-2">
-                  <div className="flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-blue-800" />
-                    <span className="font-bold text-xs text-[#1c1917]">
-                      투입 임직원 및 직원별 월 계약금액(받는금액) 편성
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px]">
-                      총 {ctAssignedEmployees.length}명 | 기본 합계{" "}
-                      {formatErpCurrency(
-                        ctAssignedEmployees.reduce((s, e) => s + (Number(e.contractRate) || 0), 0)
-                      )}
-                      {ctIncludeOtInBilling && (
-                        <span className="ml-1 text-indigo-800">
-                          + 초과근무수당 {formatErpCurrency(ctOtBreakdown.totalOtPay)}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-indigo-300 bg-indigo-50 text-indigo-900 font-bold text-[11px] cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={ctIncludeOtInBilling}
-                        onChange={(e) => {
-                          const nextVal = e.target.checked;
-                          setCtIncludeOtInBilling(nextVal);
-                          syncAssignedEmployeesToContract(ctAssignedEmployees, false, nextVal);
-                        }}
-                        className="w-3.5 h-3.5 accent-indigo-700"
-                      />
-                      <span>초과근무수당 반영 (투입인원 초과근무수당 자동합산 청구)</span>
-                    </label>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <select
-                      value={ctSelectedEmpId}
-                      onChange={(e) => setCtSelectedEmpId(e.target.value)}
-                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
-                    >
-                      <option value="">-- 투입할 임직원 선택 --</option>
-                    {employees
-                      .filter((emp) => !ctAssignedEmployees.some((a) => a.employeeId === emp.id))
-                      .map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          [{emp.employeeNo || `EMP-${emp.id}`}] {emp.name} ({emp.position || "사원"} / {emp.department || "미배정"})
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!ctSelectedEmpId) {
-                          showToast("추가할 임직원을 선택하세요.", "error");
-                          return;
-                        }
-                        const emp = employees.find((x) => String(x.id) === String(ctSelectedEmpId));
-                        if (!emp) return;
-                        if (ctAssignedEmployees.some((x) => x.employeeId === emp.id)) {
-                          showToast("이미 추가된 임직원입니다.", "error");
-                          return;
-                        }
-                        const defaultRate =
-                          Number(emp.serviceContractAmount) > 0
-                            ? Number(emp.serviceContractAmount)
-                            : Number(emp.baseSalary) > 0
-                            ? Number(emp.baseSalary)
-                            : 3000000;
-                        const nextList: AssignedServiceEmployee[] = [
-                          ...ctAssignedEmployees,
-                          {
-                            employeeId: emp.id,
-                            employeeNo: emp.employeeNo || "",
-                            name: emp.name,
-                            position: emp.position || "",
-                            department: emp.department || "",
-                            contractRate: defaultRate,
-                            note: "",
-                          },
-                        ];
-                        syncAssignedEmployeesToContract(nextList, false);
-                        setCtSelectedEmpId("");
-                      }}
-                      className="h-7 px-2.5 rounded bg-blue-700 hover:bg-blue-800 text-white font-bold text-[11px] inline-flex items-center gap-1 shadow-sm"
-                    >
-                      <UserPlus className="w-3.5 h-3.5" />
-                      <span>임직원 투입 추가</span>
-                    </button>
-                  </div>
-                </div>
+                {(() => {
+                  const enrichedAddList = enrichAssignedEmployeeJoinDates(ctAssignedEmployees);
+                  const baseRateSum = enrichedAddList.reduce((s, e) => s + (Number(e.contractRate) || 0), 0);
+                  const proRataCalcs = enrichedAddList.map((e) =>
+                    calculateServiceEmployeeMonthlyProRata(
+                      e.contractRate,
+                      ctProRataMonth,
+                      e.joinDate,
+                      e.leaveDate,
+                      ctApplyProRata && e.proRataEnabled !== false,
+                      false
+                    )
+                  );
+                  const proRatedSum = proRataCalcs.reduce((s, c) => s + c.effectiveAmount, 0);
+                  const hasProRatedDiff = ctApplyProRata && proRatedSum !== baseRateSum;
 
-                {ctAssignedEmployees.length === 0 ? (
-                  <div className="py-3 text-center text-[#78716c] text-[11px]">
-                    상단에서 투입할 임직원을 선택하고 [임직원 투입 추가] 버튼을 누르면 직원별 계약단가(받는금액)가 합산되어 월 정기 용역료 및 세금계산서 품목에 자동 반영됩니다.
-                  </div>
-                ) : (
-                  <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
-                    <thead className="bg-[#dfd7c7] text-[#44403c] border-b border-[#b5a894] font-bold">
-                      <tr>
-                        <th className="py-1.5 px-2 w-12 text-center">제외</th>
-                        <th className="py-1.5 px-2">사번</th>
-                        <th className="py-1.5 px-2">성명 / 직급</th>
-                        <th className="py-1.5 px-2">부서</th>
-                        <th className="py-1.5 px-2 text-right w-40">직원당 계약금액 (받는금액, 원)</th>
-                        <th className="py-1.5 px-2 text-right w-36">당월 초과근무수당 (자동합산)</th>
-                        <th className="py-1.5 px-2">업무/역할 비고</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#b5a894] bg-[#f4efe4]">
-                      {ctAssignedEmployees.map((row, idx) => {
-                        const empOt = ctOtBreakdown.byEmp[row.employeeId] || { hours: 0, otPay: 0, count: 0 };
-                        return (
-                        <tr key={row.employeeId}>
-                          <td className="py-1.5 px-2 text-center">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const nextList = ctAssignedEmployees.filter((_, i) => i !== idx);
-                                syncAssignedEmployeesToContract(nextList, false);
-                              }}
-                              className="p-1 text-rose-700 hover:bg-rose-100 rounded"
-                              title="투입 제외"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                          <td className="py-1.5 px-2 font-mono text-[#78716c]">{row.employeeNo || "-"}</td>
-                          <td className="py-1.5 px-2 font-bold text-[#1c1917]">
-                            {row.name} <span className="text-[10px] font-normal text-[#78716c]">({row.position || "사원"})</span>
-                          </td>
-                          <td className="py-1.5 px-2 text-[#57534e]">{row.department || "-"}</td>
-                          <td className="py-1.5 px-2">
+                  return (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#b5a894] pb-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Users className="w-4 h-4 text-blue-800" />
+                          <span className="font-bold text-xs text-[#1c1917]">
+                            투입 임직원 및 직원별 월 계약금액(받는금액) 편성
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px]">
+                            총 {enrichedAddList.length}명 | 기본 합계 {formatErpCurrency(baseRateSum)}
+                            {hasProRatedDiff && (
+                              <span className="ml-1 text-amber-900 font-extrabold">
+                                ➔ 일할반영({ctProRataMonth}) {formatErpCurrency(proRatedSum)}
+                              </span>
+                            )}
+                            {ctIncludeOtInBilling && (
+                              <span className="ml-1 text-indigo-800">
+                                + 초과근무수당 {formatErpCurrency(ctOtBreakdown.totalOtPay)}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-amber-400 bg-amber-50 text-amber-950 font-bold text-[11px]">
+                            <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={ctApplyProRata}
+                                onChange={(e) => {
+                                  const nextVal = e.target.checked;
+                                  setCtApplyProRata(nextVal);
+                                  syncAssignedEmployeesToContract(
+                                    ctAssignedEmployees,
+                                    false,
+                                    undefined,
+                                    nextVal,
+                                    ctProRataMonth
+                                  );
+                                }}
+                                className="w-3.5 h-3.5 accent-amber-700"
+                              />
+                              <span>중도입사 일할계산 반영</span>
+                            </label>
                             <input
-                              type="text"
-                              value={toErpInputString(row.contractRate)}
+                              type="month"
+                              value={ctProRataMonth}
                               onChange={(e) => {
-                                const rate = cleanErpNumber(formatErpInputNumber(e.target.value));
-                                const nextList = ctAssignedEmployees.map((it, i) =>
-                                  i === idx ? { ...it, contractRate: rate } : it
-                                );
-                                syncAssignedEmployeesToContract(nextList, false);
-                              }}
-                              className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-right font-mono font-bold text-blue-900"
-                            />
-                          </td>
-                          <td className="py-1.5 px-2 text-right font-mono">
-                            <span className={ctIncludeOtInBilling && empOt.otPay > 0 ? "font-bold text-indigo-800" : "text-[#78716c]"}>
-                              {formatErpCurrency(empOt.otPay)}
-                            </span>
-                            <span className="ml-1 text-[10px] text-[#78716c]">({empOt.hours}h)</span>
-                          </td>
-                          <td className="py-1.5 px-2">
-                            <input
-                              type="text"
-                              value={row.note}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setCtAssignedEmployees((prev) =>
-                                  prev.map((it, i) => (i === idx ? { ...it, note: val } : it))
+                                const nextMonth = e.target.value;
+                                if (!nextMonth) return;
+                                setCtProRataMonth(nextMonth);
+                                syncAssignedEmployeesToContract(
+                                  ctAssignedEmployees,
+                                  false,
+                                  undefined,
+                                  ctApplyProRata,
+                                  nextMonth
                                 );
                               }}
-                              placeholder="담당 업무 또는 비고"
-                              className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-[#1c1917]"
+                              className="h-5 px-1 rounded border border-amber-400 bg-white text-[10px] font-mono text-amber-950"
+                              title="일할계산 기준 연월"
                             />
-                          </td>
-                        </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
+                          </div>
+                          <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-indigo-300 bg-indigo-50 text-indigo-900 font-bold text-[11px] cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={ctIncludeOtInBilling}
+                              onChange={(e) => {
+                                const nextVal = e.target.checked;
+                                setCtIncludeOtInBilling(nextVal);
+                                syncAssignedEmployeesToContract(ctAssignedEmployees, false, nextVal);
+                              }}
+                              className="w-3.5 h-3.5 accent-indigo-700"
+                            />
+                            <span>초과근무수당 반영</span>
+                          </label>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={ctSelectedEmpId}
+                            onChange={(e) => setCtSelectedEmpId(e.target.value)}
+                            className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
+                          >
+                            <option value="">-- 투입할 임직원 선택 --</option>
+                            {employees
+                              .filter((emp) => !ctAssignedEmployees.some((a) => a.employeeId === emp.id))
+                              .map((emp) => (
+                                <option key={emp.id} value={emp.id}>
+                                  [{emp.employeeNo || `EMP-${emp.id}`}] {emp.name} ({emp.position || "사원"} / 입사 {emp.joinDate ? String(emp.joinDate).slice(0, 10) : "-"})
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!ctSelectedEmpId) {
+                                showToast("추가할 임직원을 선택하세요.", "error");
+                                return;
+                              }
+                              const emp = employees.find((x) => String(x.id) === String(ctSelectedEmpId));
+                              if (!emp) return;
+                              if (ctAssignedEmployees.some((x) => x.employeeId === emp.id)) {
+                                showToast("이미 추가된 임직원입니다.", "error");
+                                return;
+                              }
+                              const defaultRate =
+                                Number(emp.serviceContractAmount) > 0
+                                  ? Number(emp.serviceContractAmount)
+                                  : Number(emp.baseSalary) > 0
+                                  ? Number(emp.baseSalary)
+                                  : 3000000;
+                              const nextList: AssignedServiceEmployee[] = [
+                                ...ctAssignedEmployees,
+                                {
+                                  employeeId: emp.id,
+                                  employeeNo: emp.employeeNo || "",
+                                  name: emp.name,
+                                  position: emp.position || "",
+                                  department: emp.department || "",
+                                  joinDate: emp.joinDate ? String(emp.joinDate).slice(0, 10) : "",
+                                  leaveDate: emp.leaveDate ? String(emp.leaveDate).slice(0, 10) : "",
+                                  contractRate: defaultRate,
+                                  proRataEnabled: true,
+                                  note: "",
+                                },
+                              ];
+                              syncAssignedEmployeesToContract(nextList, false);
+                              setCtSelectedEmpId("");
+                            }}
+                            className="h-7 px-2.5 rounded bg-blue-700 hover:bg-blue-800 text-white font-bold text-[11px] inline-flex items-center gap-1 shadow-sm"
+                          >
+                            <UserPlus className="w-3.5 h-3.5" />
+                            <span>임직원 투입 추가</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {enrichedAddList.length === 0 ? (
+                        <div className="py-3 text-center text-[#78716c] text-[11px]">
+                          상단에서 투입할 임직원을 선택하고 [임직원 투입 추가] 버튼을 누르면 직원별 계약단가(받는금액)가 합산되어 월 정기 용역료 및 세금계산서 품목에 자동 반영됩니다.
+                        </div>
+                      ) : (
+                        <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
+                          <thead className="bg-[#dfd7c7] text-[#44403c] border-b border-[#b5a894] font-bold">
+                            <tr>
+                              <th className="py-1.5 px-2 w-10 text-center">제외</th>
+                              <th className="py-1.5 px-2">사번</th>
+                              <th className="py-1.5 px-2">성명 / 직급</th>
+                              <th className="py-1.5 px-2">입사일(투입일)</th>
+                              <th className="py-1.5 px-2 text-right w-36">월 기준금액 (원)</th>
+                              <th className="py-1.5 px-2 text-right w-44">당월 일할적용액 ({ctProRataMonth})</th>
+                              <th className="py-1.5 px-2 text-right w-32">당월 초과근무수당</th>
+                              <th className="py-1.5 px-2">업무/역할 비고</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#b5a894] bg-[#f4efe4]">
+                            {enrichedAddList.map((row, idx) => {
+                              const empOt = ctOtBreakdown.byEmp[row.employeeId] || { hours: 0, otPay: 0, count: 0 };
+                              const prCalc = proRataCalcs[idx];
+                              return (
+                                <tr key={row.employeeId} className={prCalc.isProRated ? "bg-amber-50/60" : ""}>
+                                  <td className="py-1.5 px-2 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const nextList = ctAssignedEmployees.filter((_, i) => i !== idx);
+                                        syncAssignedEmployeesToContract(nextList, false);
+                                      }}
+                                      className="p-1 text-rose-700 hover:bg-rose-100 rounded"
+                                      title="투입 제외"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </td>
+                                  <td className="py-1.5 px-2 font-mono text-[#78716c]">{row.employeeNo || "-"}</td>
+                                  <td className="py-1.5 px-2 font-bold text-[#1c1917]">
+                                    {row.name}{" "}
+                                    <span className="text-[10px] font-normal text-[#78716c]">
+                                      ({row.position || "사원"})
+                                    </span>
+                                  </td>
+                                  <td className="py-1.5 px-2">
+                                    <input
+                                      type="date"
+                                      value={row.joinDate || ""}
+                                      onChange={(e) => {
+                                        const nextJoin = e.target.value;
+                                        const nextList = enrichedAddList.map((it, i) =>
+                                          i === idx ? { ...it, joinDate: nextJoin } : it
+                                        );
+                                        syncAssignedEmployeesToContract(nextList, false);
+                                      }}
+                                      className="h-7 px-1.5 rounded border border-[#b5a894] bg-white font-mono text-[11px] text-[#1c1917]"
+                                    />
+                                  </td>
+                                  <td className="py-1.5 px-2">
+                                    <input
+                                      type="text"
+                                      value={toErpInputString(row.contractRate)}
+                                      onChange={(e) => {
+                                        const rate = cleanErpNumber(formatErpInputNumber(e.target.value));
+                                        const nextList = enrichedAddList.map((it, i) =>
+                                          i === idx ? { ...it, contractRate: rate } : it
+                                        );
+                                        syncAssignedEmployeesToContract(nextList, false);
+                                      }}
+                                      className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-right font-mono font-bold text-blue-900"
+                                    />
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right font-mono">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <input
+                                        type="checkbox"
+                                        checked={row.proRataEnabled !== false}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          const nextList = enrichedAddList.map((it, i) =>
+                                            i === idx ? { ...it, proRataEnabled: checked } : it
+                                          );
+                                          syncAssignedEmployeesToContract(nextList, false);
+                                        }}
+                                        className="w-3.5 h-3.5 accent-amber-700"
+                                        title="해당 직원 입사일 일할계산 적용 여부"
+                                      />
+                                      <span
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                                          prCalc.isProRated
+                                            ? "bg-amber-100 text-amber-900 border-amber-400"
+                                            : "bg-[#ebe5d8] text-[#78716c] border-[#b5a894]"
+                                        }`}
+                                      >
+                                        {prCalc.shortBadge}
+                                      </span>
+                                      <span
+                                        className={
+                                          prCalc.isProRated
+                                            ? "font-extrabold text-amber-900"
+                                            : "font-bold text-[#1c1917]"
+                                        }
+                                      >
+                                        {formatErpCurrency(prCalc.effectiveAmount)}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right font-mono">
+                                    <span
+                                      className={
+                                        ctIncludeOtInBilling && empOt.otPay > 0
+                                          ? "font-bold text-indigo-800"
+                                          : "text-[#78716c]"
+                                      }
+                                    >
+                                      {formatErpCurrency(empOt.otPay)}
+                                    </span>
+                                    <span className="ml-1 text-[10px] text-[#78716c]">({empOt.hours}h)</span>
+                                  </td>
+                                  <td className="py-1.5 px-2">
+                                    <input
+                                      type="text"
+                                      value={row.note}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setCtAssignedEmployees((prev) =>
+                                          prev.map((it, i) => (i === idx ? { ...it, note: val } : it))
+                                        );
+                                      }}
+                                      placeholder="담당 업무 또는 비고"
+                                      className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-[#1c1917]"
+                                    />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* 전자세금계산서 발행 제원 및 품목 명세 섹션 */}
@@ -2115,176 +2401,300 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
 
               {/* 운영용역 투입 임직원 및 직원별 계약금액(받는금액) 수정 섹션 */}
               <div className="p-3 rounded border border-blue-300 bg-[#ebe5d8] flex flex-col gap-2">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#b5a894] pb-2">
-                  <div className="flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-blue-800" />
-                    <span className="font-bold text-xs text-[#1c1917]">
-                      투입 임직원 및 직원별 월 계약금액(받는금액) 편성
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px]">
-                      총 {editCtAssignedEmployees.length}명 | 기본 합계{" "}
-                      {formatErpCurrency(
-                        editCtAssignedEmployees.reduce((s, e) => s + (Number(e.contractRate) || 0), 0)
-                      )}
-                      {editCtIncludeOtInBilling && (
-                        <span className="ml-1 text-indigo-800">
-                          + 초과근무수당 {formatErpCurrency(editCtOtBreakdown.totalOtPay)}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-indigo-300 bg-indigo-50 text-indigo-900 font-bold text-[11px] cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={editCtIncludeOtInBilling}
-                        onChange={(e) => {
-                          const nextVal = e.target.checked;
-                          setEditCtIncludeOtInBilling(nextVal);
-                          syncAssignedEmployeesToContract(editCtAssignedEmployees, true, nextVal);
-                        }}
-                        className="w-3.5 h-3.5 accent-indigo-700"
-                      />
-                      <span>초과근무수당 반영 (투입인원 초과근무수당 자동합산 청구)</span>
-                    </label>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <select
-                      value={editCtSelectedEmpId}
-                      onChange={(e) => setEditCtSelectedEmpId(e.target.value)}
-                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
-                    >
-                      <option value="">-- 투입할 임직원 선택 --</option>
-                    {employees
-                      .filter((emp) => !editCtAssignedEmployees.some((a) => a.employeeId === emp.id))
-                      .map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          [{emp.employeeNo || `EMP-${emp.id}`}] {emp.name} ({emp.position || "사원"} / {emp.department || "미배정"})
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!editCtSelectedEmpId) {
-                          showToast("추가할 임직원을 선택하세요.", "error");
-                          return;
-                        }
-                        const emp = employees.find((x) => String(x.id) === String(editCtSelectedEmpId));
-                        if (!emp) return;
-                        if (editCtAssignedEmployees.some((x) => x.employeeId === emp.id)) {
-                          showToast("이미 추가된 임직원입니다.", "error");
-                          return;
-                        }
-                        const defaultRate =
-                          Number(emp.serviceContractAmount) > 0
-                            ? Number(emp.serviceContractAmount)
-                            : Number(emp.baseSalary) > 0
-                            ? Number(emp.baseSalary)
-                            : 3000000;
-                        const nextList: AssignedServiceEmployee[] = [
-                          ...editCtAssignedEmployees,
-                          {
-                            employeeId: emp.id,
-                            employeeNo: emp.employeeNo || "",
-                            name: emp.name,
-                            position: emp.position || "",
-                            department: emp.department || "",
-                            contractRate: defaultRate,
-                            note: "",
-                          },
-                        ];
-                        syncAssignedEmployeesToContract(nextList, true);
-                        setEditCtSelectedEmpId("");
-                      }}
-                      className="h-7 px-2.5 rounded bg-blue-700 hover:bg-blue-800 text-white font-bold text-[11px] inline-flex items-center gap-1 shadow-sm"
-                    >
-                      <UserPlus className="w-3.5 h-3.5" />
-                      <span>임직원 투입 추가</span>
-                    </button>
-                  </div>
-                </div>
+                {(() => {
+                  const enrichedEditList = enrichAssignedEmployeeJoinDates(editCtAssignedEmployees);
+                  const baseRateSum = enrichedEditList.reduce((s, e) => s + (Number(e.contractRate) || 0), 0);
+                  const proRataCalcs = enrichedEditList.map((e) =>
+                    calculateServiceEmployeeMonthlyProRata(
+                      e.contractRate,
+                      editCtProRataMonth,
+                      e.joinDate,
+                      e.leaveDate,
+                      editCtApplyProRata && e.proRataEnabled !== false,
+                      false
+                    )
+                  );
+                  const proRatedSum = proRataCalcs.reduce((s, c) => s + c.effectiveAmount, 0);
+                  const hasProRatedDiff = editCtApplyProRata && proRatedSum !== baseRateSum;
 
-                {editCtAssignedEmployees.length === 0 ? (
-                  <div className="py-3 text-center text-[#78716c] text-[11px]">
-                    등록된 투입 임직원이 없습니다. 상단에서 임직원을 선택하고 [임직원 투입 추가]를 클릭하세요.
-                  </div>
-                ) : (
-                  <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
-                    <thead className="bg-[#dfd7c7] text-[#44403c] border-b border-[#b5a894] font-bold">
-                      <tr>
-                        <th className="py-1.5 px-2 w-12 text-center">제외</th>
-                        <th className="py-1.5 px-2">사번</th>
-                        <th className="py-1.5 px-2">성명 / 직급</th>
-                        <th className="py-1.5 px-2">부서</th>
-                        <th className="py-1.5 px-2 text-right w-40">직원당 계약금액 (받는금액, 원)</th>
-                        <th className="py-1.5 px-2 text-right w-36">당월 초과근무수당 (자동합산)</th>
-                        <th className="py-1.5 px-2">업무/역할 비고</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#b5a894] bg-[#f4efe4]">
-                      {editCtAssignedEmployees.map((row, idx) => {
-                        const empOt = editCtOtBreakdown.byEmp[row.employeeId] || { hours: 0, otPay: 0, count: 0 };
-                        return (
-                        <tr key={row.employeeId}>
-                          <td className="py-1.5 px-2 text-center">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const nextList = editCtAssignedEmployees.filter((_, i) => i !== idx);
-                                syncAssignedEmployeesToContract(nextList, true);
-                              }}
-                              className="p-1 text-rose-700 hover:bg-rose-100 rounded"
-                              title="투입 제외"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                          <td className="py-1.5 px-2 font-mono text-[#78716c]">{row.employeeNo || "-"}</td>
-                          <td className="py-1.5 px-2 font-bold text-[#1c1917]">
-                            {row.name} <span className="text-[10px] font-normal text-[#78716c]">({row.position || "사원"})</span>
-                          </td>
-                          <td className="py-1.5 px-2 text-[#57534e]">{row.department || "-"}</td>
-                          <td className="py-1.5 px-2">
+                  return (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#b5a894] pb-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Users className="w-4 h-4 text-blue-800" />
+                          <span className="font-bold text-xs text-[#1c1917]">
+                            투입 임직원 및 직원별 월 계약금액(받는금액) 편성
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px]">
+                            총 {enrichedEditList.length}명 | 기본 합계 {formatErpCurrency(baseRateSum)}
+                            {hasProRatedDiff && (
+                              <span className="ml-1 text-amber-900 font-extrabold">
+                                ➔ 일할반영({editCtProRataMonth}) {formatErpCurrency(proRatedSum)}
+                              </span>
+                            )}
+                            {editCtIncludeOtInBilling && (
+                              <span className="ml-1 text-indigo-800">
+                                + 초과근무수당 {formatErpCurrency(editCtOtBreakdown.totalOtPay)}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-amber-400 bg-amber-50 text-amber-950 font-bold text-[11px]">
+                            <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={editCtApplyProRata}
+                                onChange={(e) => {
+                                  const nextVal = e.target.checked;
+                                  setEditCtApplyProRata(nextVal);
+                                  syncAssignedEmployeesToContract(
+                                    editCtAssignedEmployees,
+                                    true,
+                                    undefined,
+                                    nextVal,
+                                    editCtProRataMonth
+                                  );
+                                }}
+                                className="w-3.5 h-3.5 accent-amber-700"
+                              />
+                              <span>중도입사 일할계산 반영</span>
+                            </label>
                             <input
-                              type="text"
-                              value={toErpInputString(row.contractRate)}
+                              type="month"
+                              value={editCtProRataMonth}
                               onChange={(e) => {
-                                const rate = cleanErpNumber(formatErpInputNumber(e.target.value));
-                                const nextList = editCtAssignedEmployees.map((it, i) =>
-                                  i === idx ? { ...it, contractRate: rate } : it
-                                );
-                                syncAssignedEmployeesToContract(nextList, true);
-                              }}
-                              className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-right font-mono font-bold text-blue-900"
-                            />
-                          </td>
-                          <td className="py-1.5 px-2 text-right font-mono">
-                            <span className={editCtIncludeOtInBilling && empOt.otPay > 0 ? "font-bold text-indigo-800" : "text-[#78716c]"}>
-                              {formatErpCurrency(empOt.otPay)}
-                            </span>
-                            <span className="ml-1 text-[10px] text-[#78716c]">({empOt.hours}h)</span>
-                          </td>
-                          <td className="py-1.5 px-2">
-                            <input
-                              type="text"
-                              value={row.note}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setEditCtAssignedEmployees((prev) =>
-                                  prev.map((it, i) => (i === idx ? { ...it, note: val } : it))
+                                const nextMonth = e.target.value;
+                                if (!nextMonth) return;
+                                setEditCtProRataMonth(nextMonth);
+                                syncAssignedEmployeesToContract(
+                                  editCtAssignedEmployees,
+                                  true,
+                                  undefined,
+                                  editCtApplyProRata,
+                                  nextMonth
                                 );
                               }}
-                              placeholder="담당 업무 또는 비고"
-                              className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-[#1c1917]"
+                              className="h-5 px-1 rounded border border-amber-400 bg-white text-[10px] font-mono text-amber-950"
+                              title="일할계산 기준 연월"
                             />
-                          </td>
-                        </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
+                          </div>
+                          <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-indigo-300 bg-indigo-50 text-indigo-900 font-bold text-[11px] cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={editCtIncludeOtInBilling}
+                              onChange={(e) => {
+                                const nextVal = e.target.checked;
+                                setEditCtIncludeOtInBilling(nextVal);
+                                syncAssignedEmployeesToContract(editCtAssignedEmployees, true, nextVal);
+                              }}
+                              className="w-3.5 h-3.5 accent-indigo-700"
+                            />
+                            <span>초과근무수당 반영</span>
+                          </label>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={editCtSelectedEmpId}
+                            onChange={(e) => setEditCtSelectedEmpId(e.target.value)}
+                            className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
+                          >
+                            <option value="">-- 투입할 임직원 선택 --</option>
+                            {employees
+                              .filter((emp) => !editCtAssignedEmployees.some((a) => a.employeeId === emp.id))
+                              .map((emp) => (
+                                <option key={emp.id} value={emp.id}>
+                                  [{emp.employeeNo || `EMP-${emp.id}`}] {emp.name} ({emp.position || "사원"} / 입사 {emp.joinDate ? String(emp.joinDate).slice(0, 10) : "-"})
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!editCtSelectedEmpId) {
+                                showToast("추가할 임직원을 선택하세요.", "error");
+                                return;
+                              }
+                              const emp = employees.find((x) => String(x.id) === String(editCtSelectedEmpId));
+                              if (!emp) return;
+                              if (editCtAssignedEmployees.some((x) => x.employeeId === emp.id)) {
+                                showToast("이미 추가된 임직원입니다.", "error");
+                                return;
+                              }
+                              const defaultRate =
+                                Number(emp.serviceContractAmount) > 0
+                                  ? Number(emp.serviceContractAmount)
+                                  : Number(emp.baseSalary) > 0
+                                  ? Number(emp.baseSalary)
+                                  : 3000000;
+                              const nextList: AssignedServiceEmployee[] = [
+                                ...editCtAssignedEmployees,
+                                {
+                                  employeeId: emp.id,
+                                  employeeNo: emp.employeeNo || "",
+                                  name: emp.name,
+                                  position: emp.position || "",
+                                  department: emp.department || "",
+                                  joinDate: emp.joinDate ? String(emp.joinDate).slice(0, 10) : "",
+                                  leaveDate: emp.leaveDate ? String(emp.leaveDate).slice(0, 10) : "",
+                                  contractRate: defaultRate,
+                                  proRataEnabled: true,
+                                  note: "",
+                                },
+                              ];
+                              syncAssignedEmployeesToContract(nextList, true);
+                              setEditCtSelectedEmpId("");
+                            }}
+                            className="h-7 px-2.5 rounded bg-blue-700 hover:bg-blue-800 text-white font-bold text-[11px] inline-flex items-center gap-1 shadow-sm"
+                          >
+                            <UserPlus className="w-3.5 h-3.5" />
+                            <span>임직원 투입 추가</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {enrichedEditList.length === 0 ? (
+                        <div className="py-3 text-center text-[#78716c] text-[11px]">
+                          등록된 투입 임직원이 없습니다. 상단에서 임직원을 선택하고 [임직원 투입 추가]를 클릭하세요.
+                        </div>
+                      ) : (
+                        <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
+                          <thead className="bg-[#dfd7c7] text-[#44403c] border-b border-[#b5a894] font-bold">
+                            <tr>
+                              <th className="py-1.5 px-2 w-10 text-center">제외</th>
+                              <th className="py-1.5 px-2">사번</th>
+                              <th className="py-1.5 px-2">성명 / 직급</th>
+                              <th className="py-1.5 px-2">입사일(투입일)</th>
+                              <th className="py-1.5 px-2 text-right w-36">월 기준금액 (원)</th>
+                              <th className="py-1.5 px-2 text-right w-44">당월 일할적용액 ({editCtProRataMonth})</th>
+                              <th className="py-1.5 px-2 text-right w-32">당월 초과근무수당</th>
+                              <th className="py-1.5 px-2">업무/역할 비고</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#b5a894] bg-[#f4efe4]">
+                            {enrichedEditList.map((row, idx) => {
+                              const empOt = editCtOtBreakdown.byEmp[row.employeeId] || { hours: 0, otPay: 0, count: 0 };
+                              const prCalc = proRataCalcs[idx];
+                              return (
+                                <tr key={row.employeeId} className={prCalc.isProRated ? "bg-amber-50/60" : ""}>
+                                  <td className="py-1.5 px-2 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const nextList = editCtAssignedEmployees.filter((_, i) => i !== idx);
+                                        syncAssignedEmployeesToContract(nextList, true);
+                                      }}
+                                      className="p-1 text-rose-700 hover:bg-rose-100 rounded"
+                                      title="투입 제외"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </td>
+                                  <td className="py-1.5 px-2 font-mono text-[#78716c]">{row.employeeNo || "-"}</td>
+                                  <td className="py-1.5 px-2 font-bold text-[#1c1917]">
+                                    {row.name}{" "}
+                                    <span className="text-[10px] font-normal text-[#78716c]">
+                                      ({row.position || "사원"})
+                                    </span>
+                                  </td>
+                                  <td className="py-1.5 px-2">
+                                    <input
+                                      type="date"
+                                      value={row.joinDate || ""}
+                                      onChange={(e) => {
+                                        const nextJoin = e.target.value;
+                                        const nextList = enrichedEditList.map((it, i) =>
+                                          i === idx ? { ...it, joinDate: nextJoin } : it
+                                        );
+                                        syncAssignedEmployeesToContract(nextList, true);
+                                      }}
+                                      className="h-7 px-1.5 rounded border border-[#b5a894] bg-white font-mono text-[11px] text-[#1c1917]"
+                                    />
+                                  </td>
+                                  <td className="py-1.5 px-2">
+                                    <input
+                                      type="text"
+                                      value={toErpInputString(row.contractRate)}
+                                      onChange={(e) => {
+                                        const rate = cleanErpNumber(formatErpInputNumber(e.target.value));
+                                        const nextList = enrichedEditList.map((it, i) =>
+                                          i === idx ? { ...it, contractRate: rate } : it
+                                        );
+                                        syncAssignedEmployeesToContract(nextList, true);
+                                      }}
+                                      className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-right font-mono font-bold text-blue-900"
+                                    />
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right font-mono">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <input
+                                        type="checkbox"
+                                        checked={row.proRataEnabled !== false}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          const nextList = enrichedEditList.map((it, i) =>
+                                            i === idx ? { ...it, proRataEnabled: checked } : it
+                                          );
+                                          syncAssignedEmployeesToContract(nextList, true);
+                                        }}
+                                        className="w-3.5 h-3.5 accent-amber-700"
+                                        title="해당 직원 입사일 일할계산 적용 여부"
+                                      />
+                                      <span
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                                          prCalc.isProRated
+                                            ? "bg-amber-100 text-amber-900 border-amber-400"
+                                            : "bg-[#ebe5d8] text-[#78716c] border-[#b5a894]"
+                                        }`}
+                                      >
+                                        {prCalc.shortBadge}
+                                      </span>
+                                      <span
+                                        className={
+                                          prCalc.isProRated
+                                            ? "font-extrabold text-amber-900"
+                                            : "font-bold text-[#1c1917]"
+                                        }
+                                      >
+                                        {formatErpCurrency(prCalc.effectiveAmount)}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right font-mono">
+                                    <span
+                                      className={
+                                        editCtIncludeOtInBilling && empOt.otPay > 0
+                                          ? "font-bold text-indigo-800"
+                                          : "text-[#78716c]"
+                                      }
+                                    >
+                                      {formatErpCurrency(empOt.otPay)}
+                                    </span>
+                                    <span className="ml-1 text-[10px] text-[#78716c]">({empOt.hours}h)</span>
+                                  </td>
+                                  <td className="py-1.5 px-2">
+                                    <input
+                                      type="text"
+                                      value={row.note}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setEditCtAssignedEmployees((prev) =>
+                                          prev.map((it, i) => (i === idx ? { ...it, note: val } : it))
+                                        );
+                                      }}
+                                      placeholder="담당 업무 또는 비고"
+                                      className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-[#1c1917]"
+                                    />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* 전자세금계산서 발행 제원 및 품목 명세 섹션 */}
@@ -2452,46 +2862,121 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
                 </div>
               </div>
 
-              {/* 투입인원 초과근무수당 자동합산 반영 섹션 */}
+              {/* 투입인원 월 용역료 및 중도입사 일할계산 / 초과근무수당 자동합산 반영 섹션 */}
               {blContractId && (
-                <div className="p-3 rounded border border-indigo-300 bg-[#ebe5d8] flex flex-col gap-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="inline-flex items-center gap-2 font-bold text-xs text-indigo-900 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={blIncludeOtInBilling}
-                        onChange={(e) => {
-                          const nextVal = e.target.checked;
-                          const ct = contracts.find((c) => String(c.id) === blContractId);
-                          if (ct) {
-                            applyServiceContractTemplateToBilling(ct, blDate, nextVal);
-                          } else {
-                            setBlIncludeOtInBilling(nextVal);
-                          }
-                        }}
-                        className="w-4 h-4 accent-indigo-700"
-                      />
-                      <span>
-                        초과근무수당 청구 반영 ({blOtSummary.month || blDate.slice(0, 7)} 투입인원 초과근무수당 자동합산)
-                      </span>
-                    </label>
-                    <div className="text-xs font-mono font-bold text-indigo-900">
-                      합산 초과근무: {blOtSummary.totalHours}시간 | 합산 수당액:{" "}
-                      <span className="text-blue-800">{formatErpCurrency(blOtSummary.totalOtPay)}</span>
-                    </div>
-                  </div>
-                  {blOtSummary.items.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[#b5a894] text-[11px]">
-                      {blOtSummary.items.map((it) => (
-                        <span
-                          key={it.employeeId}
-                          className="px-2 py-0.5 rounded bg-[#f4efe4] border border-[#b5a894] font-mono text-[#1c1917]"
-                        >
-                          <strong>{it.employeeName}</strong>: {it.hours}h ({formatErpCurrency(it.otPay)})
+                <div className="flex flex-col gap-2">
+                  {(() => {
+                    const selectedCt = contracts.find((c) => String(c.id) === blContractId);
+                    const assignedList: AssignedServiceEmployee[] = enrichAssignedEmployeeJoinDates(
+                      Array.isArray(selectedCt?.assignedEmployees) ? selectedCt.assignedEmployees : []
+                    );
+                    if (assignedList.length === 0) return null;
+                    const targetYm = (blDate || new Date().toISOString().slice(0, 10)).slice(0, 7);
+                    const details = assignedList.map((emp) => ({
+                      emp,
+                      calc: calculateServiceEmployeeMonthlyProRata(
+                        emp.contractRate,
+                        targetYm,
+                        emp.joinDate,
+                        emp.leaveDate,
+                        blApplyProRata && emp.proRataEnabled !== false,
+                        true
+                      ),
+                    }));
+                    const baseSum = assignedList.reduce((s, e) => s + (Number(e.contractRate) || 0), 0);
+                    const effSum = details.reduce((s, d) => s + d.calc.effectiveAmount, 0);
+
+                    return (
+                      <div className="p-3 rounded border border-amber-400 bg-[#ebe5d8] flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 font-bold text-xs text-amber-950 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={blApplyProRata}
+                              onChange={(e) => {
+                                const nextVal = e.target.checked;
+                                if (selectedCt) {
+                                  applyServiceContractTemplateToBilling(
+                                    selectedCt,
+                                    blDate,
+                                    blIncludeOtInBilling,
+                                    nextVal
+                                  );
+                                } else {
+                                  setBlApplyProRata(nextVal);
+                                }
+                              }}
+                              className="w-4 h-4 accent-amber-700"
+                            />
+                            <span>
+                              투입인원 입사일 기준 일할계산 반영 ({targetYm} 근무일수 비례)
+                            </span>
+                          </label>
+                          <div className="text-xs font-mono font-bold text-[#1c1917]">
+                            월 기본합계: {formatErpCurrency(baseSum)} ➔{" "}
+                            <span className="text-amber-900 font-extrabold">
+                              당월 적용합계: {formatErpCurrency(blApplyProRata ? effSum : baseSum)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[#b5a894] text-[11px]">
+                          {details.map(({ emp, calc }) => (
+                            <span
+                              key={emp.employeeId}
+                              className={`px-2 py-0.5 rounded border font-mono ${
+                                calc.isProRated
+                                  ? "bg-amber-50 border-amber-400 text-amber-950 font-bold"
+                                  : "bg-[#f4efe4] border-[#b5a894] text-[#1c1917]"
+                              }`}
+                            >
+                              <strong>{emp.name}</strong> ({emp.joinDate || "입사일미상"}):{" "}
+                              {calc.shortBadge} ➔ {formatErpCurrency(calc.effectiveAmount)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="p-3 rounded border border-indigo-300 bg-[#ebe5d8] flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="inline-flex items-center gap-2 font-bold text-xs text-indigo-900 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={blIncludeOtInBilling}
+                          onChange={(e) => {
+                            const nextVal = e.target.checked;
+                            const ct = contracts.find((c) => String(c.id) === blContractId);
+                            if (ct) {
+                              applyServiceContractTemplateToBilling(ct, blDate, nextVal);
+                            } else {
+                              setBlIncludeOtInBilling(nextVal);
+                            }
+                          }}
+                          className="w-4 h-4 accent-indigo-700"
+                        />
+                        <span>
+                          초과근무수당 청구 반영 ({blOtSummary.month || blDate.slice(0, 7)} 투입인원 초과근무수당 자동합산)
                         </span>
-                      ))}
+                      </label>
+                      <div className="text-xs font-mono font-bold text-indigo-900">
+                        합산 초과근무: {blOtSummary.totalHours}시간 | 합산 수당액:{" "}
+                        <span className="text-blue-800">{formatErpCurrency(blOtSummary.totalOtPay)}</span>
+                      </div>
                     </div>
-                  )}
+                    {blOtSummary.items.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[#b5a894] text-[11px]">
+                        {blOtSummary.items.map((it) => (
+                          <span
+                            key={it.employeeId}
+                            className="px-2 py-0.5 rounded bg-[#f4efe4] border border-[#b5a894] font-mono text-[#1c1917]"
+                          >
+                            <strong>{it.employeeName}</strong>: {it.hours}h ({formatErpCurrency(it.otPay)})
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

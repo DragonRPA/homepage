@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { decryptPii } from "@/lib/piiCrypto";
+import { calculateServiceEmployeeMonthlyProRata } from "@/lib/erpFormat";
 
 // GET: 특정 귀속연월의 급여 정산 대장 조회
 export async function GET(request: Request) {
@@ -173,12 +174,26 @@ export async function GET(request: Request) {
         (r.employeeNo ? contractMapByEmpNo.get(String(r.employeeNo).trim()) : undefined) ||
         (r.employeeName ? contractMapByName.get(String(r.employeeName).trim()) : undefined);
 
-      // 해당 귀속연월 기간에 유효한 용역계약이 있으면 그 합산액(matchedContract.rate)을 우선 적용하고, 없을 때만 수동 저장값 반영
-      const resolvedServiceAmt =
+      // 해당 귀속연월 기간에 유효한 용역계약이 있으면 그 합산액(matchedContract.rate)에 입사일 기준 일할계산을 적용하고, 없을 때만 수동 저장값 반영
+      const baseServiceAmt =
         matchedContract && matchedContract.rate > 0
           ? matchedContract.rate
           : Number(r.serviceContractAmount || 0);
-      const serviceContractLabel = matchedContract?.labels?.join(" + ") || "";
+      const joinDateStr = r.joinDate ? String(r.joinDate).slice(0, 10) : "";
+      const proRataCalc = calculateServiceEmployeeMonthlyProRata(
+        baseServiceAmt,
+        yearMonth,
+        joinDateStr,
+        null,
+        true,
+        true
+      );
+      const resolvedServiceAmt = matchedContract ? proRataCalc.effectiveAmount : baseServiceAmt;
+      const baseLabel = matchedContract?.labels?.join(" + ") || "";
+      const serviceContractLabel =
+        proRataCalc.isProRated && baseLabel
+          ? `${baseLabel} (${proRataCalc.shortBadge})`
+          : baseLabel;
 
       totalGrossSum += adjustedGross;
       totalDeductionSum += Number(r.totalDeduction);
@@ -374,7 +389,7 @@ export async function POST(request: Request) {
 
     // 2. 기본 자동 계산 로직 (1시간 표준임금, 식대, 차량보조금, 4대보험 가입여부 및 일시별 초과근무수당 반영)
     const empRes = await pool.query(`
-      SELECT id, name, base_salary,
+      SELECT id, name, join_date, leave_date, base_salary,
              COALESCE(hourly_wage, 0) as hourly_wage,
              COALESCE(meal_allowance, 200000) as meal_allowance,
              COALESCE(vehicle_allowance, 0) as vehicle_allowance,
@@ -444,8 +459,16 @@ export async function POST(request: Request) {
     const insertedRecords = [];
     for (const emp of empRes.rows) {
       const baseSalary = Number(emp.base_salary || 3500000);
-      const serviceContractAmount =
+      const rawContractRate =
         activeContractRateMap[Number(emp.id)] || Number(emp.service_contract_amount || 0);
+      const serviceContractAmount = calculateServiceEmployeeMonthlyProRata(
+        rawContractRate,
+        yearMonth,
+        emp.join_date ? String(emp.join_date).slice(0, 10) : null,
+        emp.leave_date ? String(emp.leave_date).slice(0, 10) : null,
+        true,
+        true
+      ).effectiveAmount;
       const empOt = otMap[emp.id] || { hours: 0, otPay: 0 };
       const otHours = empOt.hours;
 

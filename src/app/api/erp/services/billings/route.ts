@@ -7,6 +7,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const serviceType = searchParams.get("serviceType");
+    const entityType = searchParams.get("entityType");
 
     const pool = getErpPool();
     let query = `
@@ -40,11 +41,16 @@ export async function GET(request: Request) {
       FROM erp_service_billings b
       JOIN erp_service_contracts c ON b.contract_id = c.id
       LEFT JOIN erp_tax_invoices ti ON b.tax_invoice_id = ti.id
+      WHERE 1=1
     `;
     const params: any[] = [];
-    if (serviceType) {
-      query += " WHERE c.service_type = $1";
+    if (serviceType && serviceType !== "ALL") {
       params.push(serviceType);
+      query += ` AND c.service_type = $${params.length}`;
+    }
+    if (entityType && entityType !== "ALL") {
+      params.push(entityType);
+      query += ` AND c.entity_type = $${params.length}`;
     }
     query += " ORDER BY b.billing_date DESC, b.id DESC";
 

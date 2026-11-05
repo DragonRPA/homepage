@@ -611,13 +611,67 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     }));
   };
 
-  // 근로계약서 스캔 파일 업로드 및 AI OCR 자동 판독
+  // 근로계약서 & 보안서약서 DB 저장 (직접 저장 및 스캔 파일 업로드 시 즉시 자동 저장 공용)
+  const saveContractFormToDb = async (
+    targetForm: typeof form,
+    customSuccessMsg?: string
+  ): Promise<boolean> => {
+    if (!targetForm.employeeName.trim()) {
+      alert("근로자 성명을 입력해 주십시오.");
+      return false;
+    }
+
+    setSaving(true);
+    try {
+      const isUpdate = Boolean(
+        (selectedContractId && selectedContractId > 0) || targetForm.id > 0
+      );
+      const method = isUpdate ? "PUT" : "POST";
+      const payloadId =
+        targetForm.id > 0 ? targetForm.id : selectedContractId || 0;
+
+      const res = await fetch("/api/erp/employment-contracts", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...targetForm,
+          id: payloadId,
+          createdBy: currentUser?.name || "ADMIN",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const savedId = isUpdate ? payloadId : data.contract?.id;
+        if (savedId) {
+          setSelectedContractId(savedId);
+          setForm((prev) => ({
+            ...prev,
+            id: savedId,
+            contractNo: data.contract?.contractNo || prev.contractNo,
+          }));
+        }
+        setStatusMsg(customSuccessMsg || data.message || "저장되었습니다.");
+        await fetchAllData();
+        return true;
+      } else {
+        alert(data.error || "저장 실패");
+        return false;
+      }
+    } catch (err: any) {
+      alert("저장 중 오류 발생: " + err.message);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 근로계약서 스캔 파일 업로드 및 AI OCR 자동 판독 + 즉시 DB 자동 저장
   const handleScanFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setOcrLoading(true);
-    setStatusMsg("스캔된 문서를 분석하고 있습니다...");
+    setStatusMsg("스캔된 문서를 분석하고 자동 저장하고 있습니다...");
 
     try {
       const reader = new FileReader();
@@ -638,6 +692,9 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       });
       const data = await res.json();
 
+      let nextForm = { ...form };
+      let autoSaveMsg = "스캔 파일이 첨부 및 자동 저장되었습니다.";
+
       if (data.success && data.parsed) {
         const p = data.parsed;
         const isPledge = p.docKind === "PLEDGE" || /보안|서약|정보보호/.test(file.name);
@@ -646,61 +703,77 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
         );
 
         if (isPledge) {
-          setForm((prev) => ({
-            ...prev,
-            employeeId: matchedEmp ? matchedEmp.id : prev.employeeId,
-            employeeName: p.employeeName || prev.employeeName,
-            residentRegNo: p.residentRegNo || prev.residentRegNo,
-            pledgeDate: p.contractDate || p.startDate || prev.pledgeDate,
+          nextForm = {
+            ...form,
+            employeeId: matchedEmp ? matchedEmp.id : form.employeeId,
+            employeeName: p.employeeName || form.employeeName,
+            residentRegNo: p.residentRegNo || form.residentRegNo,
+            pledgeDate: p.contractDate || p.startDate || form.pledgeDate,
             pledgeScanName: file.name,
             pledgeScanUrl: dataUrl,
-          }));
+          };
+          setForm(nextForm);
           setRightViewMode("PLEDGE_SCAN");
-          setStatusMsg(
-            `${p.employeeName || ""} 보안서약서 스캔본이 첨부되었습니다. [저장]을 눌러 보관하세요.`
-          );
+          autoSaveMsg = `${nextForm.employeeName || ""} 보안서약서 스캔본이 첨부 및 자동 저장되었습니다.`;
         } else {
-          setForm((prev) => ({
-            ...prev,
-            employeeId: matchedEmp ? matchedEmp.id : prev.employeeId,
-            employeeName: p.employeeName || prev.employeeName,
-            employeePhone: p.employeePhone || matchedEmp?.phone || prev.employeePhone,
-            employeeAddress: p.employeeAddress || matchedEmp?.address || prev.employeeAddress,
-            residentRegNo: p.residentRegNo || prev.residentRegNo,
-            startDate: p.startDate || prev.startDate,
-            endDate: p.endDate || prev.endDate,
+          nextForm = {
+            ...form,
+            employeeId: matchedEmp ? matchedEmp.id : form.employeeId,
+            employeeName: p.employeeName || form.employeeName,
+            employeePhone: p.employeePhone || matchedEmp?.phone || form.employeePhone,
+            employeeAddress: p.employeeAddress || matchedEmp?.address || form.employeeAddress,
+            residentRegNo: p.residentRegNo || form.residentRegNo,
+            startDate: p.startDate || form.startDate,
+            endDate: p.endDate || form.endDate,
             contractYear:
-              p.contractYear || (p.startDate ? p.startDate.slice(0, 4) : prev.contractYear),
-            workplace: p.workplace || prev.workplace,
-            jobDescription: p.jobDescription || prev.jobDescription,
-            workStartTime: p.workStartTime || prev.workStartTime,
-            workEndTime: p.workEndTime || prev.workEndTime,
-            breakMinutes: p.breakMinutes || prev.breakMinutes,
-            baseSalary: p.baseSalary > 0 ? p.baseSalary : prev.baseSalary,
-            hourlyWageNote: p.hourlyWageNote || prev.hourlyWageNote,
+              p.contractYear || (p.startDate ? p.startDate.slice(0, 4) : form.contractYear),
+            workplace: p.workplace || form.workplace,
+            jobDescription: p.jobDescription || form.jobDescription,
+            workStartTime: p.workStartTime || form.workStartTime,
+            workEndTime: p.workEndTime || form.workEndTime,
+            breakMinutes: p.breakMinutes || form.breakMinutes,
+            baseSalary: p.baseSalary > 0 ? p.baseSalary : form.baseSalary,
+            hourlyWageNote: p.hourlyWageNote || form.hourlyWageNote,
             mealAllowance:
-              p.mealAllowance !== undefined ? p.mealAllowance : prev.mealAllowance,
+              p.mealAllowance !== undefined ? p.mealAllowance : form.mealAllowance,
             vehicleAllowance:
-              p.vehicleAllowance !== undefined ? p.vehicleAllowance : prev.vehicleAllowance,
-            payDay: p.payDay || prev.payDay,
-            contractDate: p.contractDate || p.startDate || prev.contractDate,
+              p.vehicleAllowance !== undefined ? p.vehicleAllowance : form.vehicleAllowance,
+            payDay: p.payDay || form.payDay,
+            contractDate: p.contractDate || p.startDate || form.contractDate,
             scanFileName: file.name,
             scanFileUrl: dataUrl,
-          }));
+          };
+          setForm(nextForm);
           setRightViewMode("SCAN");
-          setStatusMsg(
-            data.message ||
-              "근로계약서 스캔본 첨부 및 항목 추출이 완료되었습니다. [저장]을 눌러 보관하세요."
-          );
+          autoSaveMsg = `${nextForm.employeeName || ""} 근로계약서 스캔본 첨부 및 자동 저장이 완료되었습니다.`;
         }
       } else {
-        setForm((prev) => ({
-          ...prev,
-          scanFileName: file.name,
-          scanFileUrl: dataUrl,
-        }));
-        setRightViewMode("SCAN");
-        setStatusMsg("스캔 파일이 첨부되었습니다.");
+        const isPledgeName = /보안|서약|정보보호/.test(file.name);
+        if (isPledgeName) {
+          nextForm = {
+            ...form,
+            pledgeScanName: file.name,
+            pledgeScanUrl: dataUrl,
+          };
+          setForm(nextForm);
+          setRightViewMode("PLEDGE_SCAN");
+          autoSaveMsg = "보안서약서 스캔본이 첨부 및 자동 저장되었습니다.";
+        } else {
+          nextForm = {
+            ...form,
+            scanFileName: file.name,
+            scanFileUrl: dataUrl,
+          };
+          setForm(nextForm);
+          setRightViewMode("SCAN");
+          autoSaveMsg = "근로계약서 스캔본이 첨부 및 자동 저장되었습니다.";
+        }
+      }
+
+      if (nextForm.employeeName.trim()) {
+        await saveContractFormToDb(nextForm, autoSaveMsg);
+      } else {
+        setStatusMsg("스캔 파일이 첨부되었습니다. 성명 입력 후 저장해 주십시오.");
       }
     } catch (err: any) {
       console.error("Scan upload error:", err);
@@ -711,13 +784,13 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     }
   };
 
-  // 보안서약서 전용 스캔 파일 업로드 핸들러
+  // 보안서약서 전용 스캔 파일 업로드 핸들러 + 즉시 DB 자동 저장
   const handlePledgeScanUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setOcrLoading(true);
-    setStatusMsg("보안서약서 스캔 파일을 분석하고 있습니다...");
+    setStatusMsg("보안서약서 스캔 파일을 분석하고 자동 저장하고 있습니다...");
 
     try {
       const reader = new FileReader();
@@ -738,31 +811,40 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       });
       const data = await res.json();
 
+      let nextForm = { ...form };
       if (data.success && data.parsed) {
         const p = data.parsed;
         const matchedEmp = employees.find(
           (emp) => p.employeeName && emp.name.includes(p.employeeName)
         );
-        setForm((prev) => ({
-          ...prev,
-          employeeId: matchedEmp ? matchedEmp.id : prev.employeeId,
-          employeeName: p.employeeName || prev.employeeName,
-          residentRegNo: p.residentRegNo || prev.residentRegNo,
-          pledgeDate: p.contractDate || p.startDate || prev.pledgeDate,
+        nextForm = {
+          ...form,
+          employeeId: matchedEmp ? matchedEmp.id : form.employeeId,
+          employeeName: p.employeeName || form.employeeName,
+          residentRegNo: p.residentRegNo || form.residentRegNo,
+          pledgeDate: p.contractDate || p.startDate || form.pledgeDate,
           pledgeScanName: file.name,
           pledgeScanUrl: dataUrl,
-        }));
+        };
       } else {
-        setForm((prev) => ({
-          ...prev,
+        nextForm = {
+          ...form,
           pledgeScanName: file.name,
           pledgeScanUrl: dataUrl,
-        }));
+        };
       }
+
+      setForm(nextForm);
       setRightViewMode("PLEDGE_SCAN");
-      setStatusMsg(
-        "보안서약서 스캔본이 등록되었습니다. [계약서·보안서약서 저장] 버튼을 눌러 DB에 보관하세요."
-      );
+
+      if (nextForm.employeeName.trim()) {
+        await saveContractFormToDb(
+          nextForm,
+          `${nextForm.employeeName} 보안서약서 스캔본이 첨부 및 자동 저장되었습니다.`
+        );
+      } else {
+        setStatusMsg("보안서약서 스캔본이 첨부되었습니다. 성명 입력 후 저장해 주십시오.");
+      }
     } catch (err: any) {
       setStatusMsg("보안서약서 업로드 오류: " + err.message);
     } finally {
@@ -771,42 +853,10 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     }
   };
 
-  // 근로계약서 & 보안서약서 DB 저장
+  // 근로계약서 & 보안서약서 수동 DB 저장
   const handleSaveContract = async () => {
-    if (!form.employeeName.trim()) {
-      alert("근로자 성명을 입력해 주십시오.");
-      return;
-    }
-
-    setSaving(true);
     setStatusMsg("");
-    try {
-      const isUpdate = Boolean(selectedContractId && form.id > 0);
-      const method = isUpdate ? "PUT" : "POST";
-
-      const res = await fetch("/api/erp/employment-contracts", {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          createdBy: currentUser?.name || "ADMIN",
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setStatusMsg(data.message || "저장되었습니다.");
-        await fetchAllData();
-        if (!isUpdate && data.contract?.id) {
-          setSelectedContractId(data.contract.id);
-        }
-      } else {
-        alert(data.error || "저장 실패");
-      }
-    } catch (err: any) {
-      alert("저장 중 오류 발생: " + err.message);
-    } finally {
-      setSaving(false);
-    }
+    await saveContractFormToDb(form);
   };
 
   const handleDeleteContract = async (id: number, name: string) => {

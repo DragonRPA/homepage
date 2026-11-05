@@ -272,9 +272,9 @@ export default function ErpMainPage() {
       if (stored) {
         setCurrentUser(JSON.parse(stored));
       }
-      const savedTheme = localStorage.getItem("dragonrpa_erp_theme") as ErpThemeMode;
-      if (savedTheme === "light" || savedTheme === "white" || savedTheme === "dark") {
-        setTheme(savedTheme);
+      const savedTheme = localStorage.getItem("dragonrpa_erp_theme");
+      if (savedTheme === "white") {
+        setTheme("white");
       } else {
         setTheme("light"); // e-Bro ERP 전사 표준: 밝은화면모드 기본
       }
@@ -450,8 +450,7 @@ export default function ErpMainPage() {
   }, [currentUser, effectiveRoleCode, activeMenuCanSave, activeMenuCanBill]);
 
   const toggleTheme = () => {
-    const next: ErpThemeMode =
-      theme === "light" ? "white" : theme === "white" ? "dark" : "light";
+    const next: ErpThemeMode = theme === "light" ? "white" : "light";
     setTheme(next);
     try {
       localStorage.setItem("dragonrpa_erp_theme", next);
@@ -493,7 +492,7 @@ export default function ErpMainPage() {
   const isMenuAllowed = visibleCategories.some((c) => c.items.some((i) => i.key === activeMenu));
 
   return (
-    <div data-theme={theme} className={`erp-app-container ${theme === 'dark' ? 'dark' : ''} flex flex-col h-dvh w-screen overflow-hidden select-none`}>
+    <div data-theme={theme} className="erp-app-container flex flex-col h-dvh w-screen overflow-hidden select-none">
       {/* 1. Enterprise Top Header */}
       <ErpHeader
         user={enrichedUser}

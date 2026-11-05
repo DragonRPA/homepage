@@ -6,7 +6,7 @@ import "../erp-theme.css";
 
 interface ErpLoginProps {
   onLoginSuccess: (user: any) => void;
-  theme?: "light" | "white" | "dark";
+  theme?: "light" | "white";
 }
 
 export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess, theme = "light" }) => {
@@ -51,7 +51,7 @@ export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess, theme = "lig
   };
 
   return (
-    <div data-theme={theme} className={`erp-app-container ${theme === "dark" ? "dark" : ""} min-h-screen flex flex-col items-center justify-center p-4`}>
+    <div data-theme={theme} className="erp-app-container min-h-screen flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-lg border p-6 select-none shadow-sm erp-login-card">
         <div className="flex flex-col items-center text-center mb-6">
           <img

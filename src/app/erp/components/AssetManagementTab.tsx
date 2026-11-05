@@ -214,16 +214,16 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
     return (
       <th
         onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-${align} whitespace-nowrap`}
+        className={`py-1.5 px-2 cursor-pointer select-none hover:bg-slate-500/10 transition text-${align} whitespace-nowrap`}
         title={`${label} 기준 정렬`}
       >
-        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+        <div className={`inline-flex items-center gap-1 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
           <span>{label}</span>
           <span className="shrink-0">
             {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+              sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
             ) : (
-              <ArrowUpDown className="w-3 h-3 opacity-30" />
+              <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />
             )}
           </span>
         </div>
@@ -253,16 +253,16 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
     return (
       <th
         onClick={() => handleSummarySort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-${align} whitespace-nowrap`}
+        className={`py-1.5 px-2 cursor-pointer select-none hover:bg-slate-500/10 transition text-${align} whitespace-nowrap`}
         title={`${label} 기준 정렬`}
       >
-        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
+        <div className={`inline-flex items-center gap-1 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
           <span>{label}</span>
           <span className="shrink-0">
             {isActive ? (
-              summarySortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+              summarySortDir === "asc" ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
             ) : (
-              <ArrowUpDown className="w-3 h-3 opacity-30" />
+              <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />
             )}
           </span>
         </div>
@@ -515,7 +515,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
       a.serialNo || "-",
       a.ownerType === "OWNED" ? "자사자산" : "외부임차",
       a.status,
-      a.acquisitionDate,
+      a.acquisitionDate ? String(a.acquisitionDate).slice(0, 10) : "-",
       a.acquisitionCost,
       a.salvageValue,
       a.usefulLifeYears,
@@ -556,156 +556,136 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
         </div>
       )}
 
-      {/* 1. Gutenberg Z-Pattern Scope: KPI Top Metrics Bar */}
-      <div className="p-3 border-b flex flex-wrap items-center gap-3 shrink-0">
-        <div className="flex items-center gap-2 px-3 py-2 rounded border flex-1 min-w-[140px]">
-          <Layers className="w-5 h-5 text-blue-600 shrink-0" />
-          <div className="flex flex-col">
-            <span className="text-[11px] opacity-70">총 자산 대수</span>
-            <span className="text-sm font-bold">{formatErpNumber(kpiStats.totalCount)}대</span>
-          </div>
+      {/* 1. Gutenberg Z-Pattern Scope: Compact 1-Line KPI Metrics Strip */}
+      <div className="px-2.5 py-1.5 border-b flex flex-wrap items-center gap-2 shrink-0 text-xs">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border flex-1 min-w-[120px] whitespace-nowrap">
+          <Layers className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+          <span className="text-[11px] opacity-70">총 자산</span>
+          <span className="font-bold ml-auto">{formatErpNumber(kpiStats.totalCount)}대</span>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-2 rounded border flex-1 min-w-[140px]">
-          <Shield className="w-5 h-5 text-emerald-600 shrink-0" />
-          <div className="flex flex-col">
-            <span className="text-[11px] opacity-70">자사 / 외부임차</span>
-            <span className="text-sm font-bold">
-              <span className="text-emerald-700">{formatErpNumber(kpiStats.ownedCount)}</span> / <span className="text-indigo-700">{formatErpNumber(kpiStats.rentedCount)}</span>
-            </span>
-          </div>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border flex-1 min-w-[130px] whitespace-nowrap">
+          <Shield className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          <span className="text-[11px] opacity-70">자사/임차</span>
+          <span className="font-bold ml-auto">
+            <span className="text-emerald-700">{formatErpNumber(kpiStats.ownedCount)}</span> / <span className="text-indigo-700">{formatErpNumber(kpiStats.rentedCount)}</span>
+          </span>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-2 rounded border flex-1 min-w-[140px]">
-          <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0" />
-          <div className="flex flex-col">
-            <span className="text-[11px] opacity-70">현장 대여 운용중</span>
-            <span className="text-sm font-bold text-blue-700">{formatErpNumber(kpiStats.rentedOpCount)}대</span>
-          </div>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border flex-1 min-w-[125px] whitespace-nowrap">
+          <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+          <span className="text-[11px] opacity-70">대여운용중</span>
+          <span className="font-bold text-blue-700 ml-auto">{formatErpNumber(kpiStats.rentedOpCount)}대</span>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-2 rounded border flex-1 min-w-[140px]">
-          <Clock className="w-5 h-5 text-teal-600 shrink-0" />
-          <div className="flex flex-col">
-            <span className="text-[11px] opacity-70">즉시 임대 가용</span>
-            <span className="text-sm font-bold text-teal-700">{formatErpNumber(kpiStats.availableCount)}대</span>
-          </div>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border flex-1 min-w-[125px] whitespace-nowrap">
+          <Clock className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+          <span className="text-[11px] opacity-70">임대가용</span>
+          <span className="font-bold text-teal-700 ml-auto">{formatErpNumber(kpiStats.availableCount)}대</span>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-2 rounded border flex-1 min-w-[140px]">
-          <Wrench className="w-5 h-5 text-amber-600 shrink-0" />
-          <div className="flex flex-col">
-            <span className="text-[11px] opacity-70">점검/수리중</span>
-            <span className="text-sm font-bold text-amber-700">{formatErpNumber(kpiStats.repairingCount)}대</span>
-          </div>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border flex-1 min-w-[120px] whitespace-nowrap">
+          <Wrench className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+          <span className="text-[11px] opacity-70">점검/수리</span>
+          <span className="font-bold text-amber-700 ml-auto">{formatErpNumber(kpiStats.repairingCount)}대</span>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-2 rounded border flex-1 min-w-[180px]">
-          <DollarSign className="w-5 h-5 text-purple-600 shrink-0" />
-          <div className="flex flex-col">
-            <span className="text-[11px] opacity-70">자사자산 총 장부가액</span>
-            <span className="text-sm font-bold font-mono text-purple-800">
-              {formatErpCurrency(kpiStats.totalBookValue)}
-            </span>
-          </div>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border flex-1 min-w-[165px] whitespace-nowrap">
+          <DollarSign className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+          <span className="text-[11px] opacity-70">총 장부가액</span>
+          <span className="font-bold font-mono text-purple-800 ml-auto">
+            {formatErpCurrency(kpiStats.totalBookValue)}
+          </span>
         </div>
       </div>
 
-      {/* 1.5 Sub-Tab Switcher: 요약표 vs 상세목록 */}
-      <div className="px-3 pt-2.5 border-b flex items-center justify-between gap-2 shrink-0">
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveSubTab("SUMMARY");
-              setSelectedAsset(null);
-            }}
-            className={`px-4 py-2 text-xs font-bold border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
-              activeSubTab === "SUMMARY"
-                ? "border-blue-600 text-blue-700 bg-blue-600/5"
-                : "border-transparent opacity-65 hover:opacity-100"
-            }`}
-          >
-            <Package className="w-3.5 h-3.5" />
-            <span>요약표</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-blue-600/15 text-blue-700">
-              {formatErpNumber(modelSummaryRows.length)}개 모델
-            </span>
-          </button>
+      {/* 2. Gutenberg Z-Pattern Unified Sub-Tab + Search & Action Toolbar */}
+      <div className="px-2.5 py-1.5 border-b flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Sub-Tab Switcher Inline */}
+          <div className="flex items-center gap-1 pr-2 border-r mr-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSubTab("SUMMARY");
+                setSelectedAsset(null);
+              }}
+              className={`h-7 px-2.5 rounded text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap border ${
+                activeSubTab === "SUMMARY"
+                  ? "border-blue-600 text-blue-700 bg-blue-600/10"
+                  : "border-transparent opacity-65 hover:opacity-100"
+              }`}
+            >
+              <Package className="w-3.5 h-3.5" />
+              <span>요약표</span>
+              <span className="px-1 py-0.2 rounded text-[10px] font-mono bg-blue-600/15 text-blue-700">
+                {formatErpNumber(modelSummaryRows.length)}개 모델
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveSubTab("DETAIL")}
-            className={`px-4 py-2 text-xs font-bold border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
-              activeSubTab === "DETAIL"
-                ? "border-blue-600 text-blue-700 bg-blue-600/5"
-                : "border-transparent opacity-65 hover:opacity-100"
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>상세목록</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-slate-500/15">
-              {formatErpNumber(filteredAssets.length)}대
-            </span>
-          </button>
-        </div>
-      </div>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab("DETAIL")}
+              className={`h-7 px-2.5 rounded text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap border ${
+                activeSubTab === "DETAIL"
+                  ? "border-blue-600 text-blue-700 bg-blue-600/10"
+                  : "border-transparent opacity-65 hover:opacity-100"
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>상세목록</span>
+              <span className="px-1 py-0.2 rounded text-[10px] font-mono bg-slate-500/15">
+                {formatErpNumber(filteredAssets.length)}대
+              </span>
+            </button>
+          </div>
 
-      {/* 2. Gutenberg Z-Pattern Pipeline: Search & Action Toolbar */}
-      <div className="p-3 border-b flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <div className="flex items-center gap-2 flex-wrap">
           {activeSubTab === "DETAIL" && (
             <>
               {/* Status Filter */}
-              <div className="flex flex-col gap-1">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="h-8 px-2 rounded text-xs border font-medium"
-                >
-                  <option value="ALL">전체 자산 상태</option>
-                  <option value="AVAILABLE">임대가능 (가용)</option>
-                  <option value="RENTED">대여중 (현장운용)</option>
-                  <option value="OUTBOUND_PENDING">출고대기</option>
-                  <option value="REPAIRING">정비/수리중</option>
-                  <option value="DISPOSED">폐기/매각완료</option>
-                </select>
-              </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="h-7 px-2 rounded text-xs border font-medium"
+              >
+                <option value="ALL">전체 자산 상태</option>
+                <option value="AVAILABLE">임대가능 (가용)</option>
+                <option value="RENTED">대여중 (현장운용)</option>
+                <option value="OUTBOUND_PENDING">출고대기</option>
+                <option value="REPAIRING">정비/수리중</option>
+                <option value="DISPOSED">폐기/매각완료</option>
+              </select>
 
               {/* Owner Filter */}
-              <div className="flex flex-col gap-1">
-                <select
-                  value={ownerFilter}
-                  onChange={(e) => setOwnerFilter(e.target.value)}
-                  className="h-8 px-2 rounded text-xs border font-medium"
-                >
-                  <option value="ALL">전체 소유구분</option>
-                  <option value="OWNED">자사자산 (당사소유)</option>
-                  <option value="RENTED">외부임차 (전대용)</option>
-                </select>
-              </div>
+              <select
+                value={ownerFilter}
+                onChange={(e) => setOwnerFilter(e.target.value)}
+                className="h-7 px-2 rounded text-xs border font-medium"
+              >
+                <option value="ALL">전체 소유구분</option>
+                <option value="OWNED">자사자산 (당사소유)</option>
+                <option value="RENTED">외부임차 (전대용)</option>
+              </select>
 
               {/* Manufacturer Filter */}
-              <div className="flex flex-col gap-1">
-                <select
-                  value={manufacturerFilter}
-                  onChange={(e) => setManufacturerFilter(e.target.value)}
-                  className="h-8 px-2 rounded text-xs border"
-                >
-                  <option value="ALL">전체 제조사</option>
-                  {uniqueManufacturers.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <select
+                value={manufacturerFilter}
+                onChange={(e) => setManufacturerFilter(e.target.value)}
+                className="h-7 px-2 rounded text-xs border"
+              >
+                <option value="ALL">전체 제조사</option>
+                {uniqueManufacturers.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
             </>
           )}
 
           {/* Search Box */}
           <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 opacity-50" />
+            <Search className="w-3.5 h-3.5 absolute left-2 top-2 opacity-50" />
             <input
               type="text"
               value={searchTerm}
@@ -715,7 +695,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                   ? "모델명 / 모델코드 검색"
                   : "자산번호 / 모델명 / 시리얼 / 고객사 검색"
               }
-              className="h-8 pl-8 pr-3 rounded text-xs border w-60"
+              className="h-7 pl-7 pr-2.5 rounded text-xs border w-56"
             />
           </div>
         </div>
@@ -725,19 +705,19 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
           <button
             onClick={fetchData}
             disabled={loading}
-            className="h-8 px-2.5 rounded border text-xs flex items-center gap-1.5 font-medium hover:opacity-80 transition"
+            className="h-7 px-2 rounded border text-xs flex items-center gap-1 font-medium hover:opacity-80 transition whitespace-nowrap"
             title="새로고침"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
             <span>새로고침</span>
           </button>
 
           <button
             onClick={handleExportExcel}
-            className="h-8 px-2.5 rounded border text-xs font-semibold flex items-center gap-1.5 hover:opacity-80 transition text-emerald-700"
+            className="h-7 px-2 rounded border text-xs font-semibold flex items-center gap-1 hover:opacity-80 transition text-emerald-700 whitespace-nowrap"
             title="엑셀 다운로드"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3 h-3" />
             <span>엑셀 다운로드</span>
           </button>
 
@@ -759,7 +739,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                 }));
                 setShowAddModal(true);
               }}
-              className="h-8 px-3 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5 shadow-sm transition"
+              className="h-7 px-2.5 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1 shadow-sm transition whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5 text-white" />
               <span className="text-white">신규 자산 취득</span>
@@ -786,7 +766,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
               <tbody>
                 {modelSummaryRows.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center text-xs opacity-60">
+                    <td colSpan={5} className="py-10 text-center text-xs opacity-60">
                       {loading ? "자산 요약표를 집계하는 중입니다..." : "집계된 모델 자산이 없습니다."}
                     </td>
                   </tr>
@@ -802,34 +782,34 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                         className="cursor-pointer transition border-b hover:bg-black/5"
                         title="클릭 시 해당 모델의 상세목록 조회"
                       >
-                        <td className="py-2.5 px-3 font-semibold whitespace-nowrap">
+                        <td className="py-1 px-2 font-semibold whitespace-nowrap">
                           {row.modelName}
                         </td>
-                        <td className="py-2.5 px-3 font-mono opacity-75 whitespace-nowrap">
+                        <td className="py-1 px-2 font-mono opacity-75 whitespace-nowrap">
                           {row.modelCode}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold whitespace-nowrap">
+                        <td className="py-1 px-2 text-right font-mono font-bold whitespace-nowrap">
                           {formatErpQty(row.totalQty, "대")}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
+                        <td className="py-1 px-2 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
                           {formatErpQty(row.availableQty, "대")}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
+                        <td className="py-1 px-2 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
                           {formatErpQty(row.rentedQty, "대")}
                         </td>
                       </tr>
                     ))}
                     <tr className="bg-slate-500/10 font-bold border-t-2">
-                      <td className="py-2.5 px-3 whitespace-nowrap" colSpan={2}>
+                      <td className="py-1.5 px-2 whitespace-nowrap" colSpan={2}>
                         합계 ({formatErpNumber(modelSummaryRows.length)}개 모델)
                       </td>
-                      <td className="py-2.5 px-3 text-right font-mono whitespace-nowrap">
+                      <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
                         {formatErpQty(summaryTotals.totalQty, "대")}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-mono text-emerald-700 whitespace-nowrap">
+                      <td className="py-1.5 px-2 text-right font-mono text-emerald-700 whitespace-nowrap">
                         {formatErpQty(summaryTotals.availableQty, "대")}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-mono text-blue-700 whitespace-nowrap">
+                      <td className="py-1.5 px-2 text-right font-mono text-blue-700 whitespace-nowrap">
                         {formatErpQty(summaryTotals.rentedQty, "대")}
                       </td>
                     </tr>
@@ -850,19 +830,20 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                   {renderSortTh("취득일자", "acquisitionDate", "right")}
                   {renderSortTh("취득원가", "acquisitionCost", "right")}
                   {renderSortTh("현재 장부가액", "bookValue", "right")}
-                  <th className="py-2.5 px-3 text-center">관리</th>
+                  <th className="py-1.5 px-2 text-center whitespace-nowrap">관리</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedFilteredAssets.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-xs opacity-60">
+                    <td colSpan={10} className="py-10 text-center text-xs opacity-60">
                       {loading ? "자산 대장을 불러오는 중입니다..." : "조회 조건에 일치하는 자산이 없습니다."}
                     </td>
                   </tr>
                 ) : (
                   sortedFilteredAssets.map((a) => {
                     const isSelected = selectedAsset?.id === a.id;
+                    const formattedDate = a.acquisitionDate ? String(a.acquisitionDate).slice(0, 10) : "-";
                     return (
                       <tr
                         key={a.id}
@@ -871,21 +852,23 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                           isSelected ? "bg-blue-600/10 font-medium" : "hover:bg-black/5"
                         }`}
                       >
-                        <td className="py-2 px-3 font-mono font-bold text-blue-700 whitespace-nowrap">
+                        <td className="py-1 px-2 font-mono font-bold text-blue-700 whitespace-nowrap">
                           {a.assetNo}
                         </td>
-                        <td className="py-2 px-3 whitespace-nowrap">
-                          <div className="flex flex-col">
+                        <td className="py-1 px-2 whitespace-nowrap">
+                          <div className="inline-flex items-baseline gap-1.5">
                             <span className="font-semibold">{a.modelName}</span>
-                            <span className="text-[10px] opacity-60 font-mono">{a.modelCode}</span>
+                            {a.modelCode && (
+                              <span className="text-[10px] opacity-60 font-mono">({a.modelCode})</span>
+                            )}
                           </div>
                         </td>
-                        <td className="py-2 px-3 font-mono opacity-80 whitespace-nowrap">
+                        <td className="py-1 px-2 font-mono opacity-80 whitespace-nowrap">
                           {a.serialNo || "-"}
                         </td>
-                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                        <td className="py-1 px-2 text-center whitespace-nowrap">
                           <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                            className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${
                               a.ownerType === "OWNED"
                                 ? "bg-emerald-600/10 text-emerald-700 border-emerald-600/30"
                                 : "bg-indigo-600/10 text-indigo-700 border-indigo-600/30"
@@ -894,9 +877,9 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                             {a.ownerType === "OWNED" ? "자사자산" : "외부임차"}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                        <td className="py-1 px-2 text-center whitespace-nowrap">
                           <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
                               a.status === "RENTED"
                                 ? "bg-blue-600 text-white"
                                 : a.status === "AVAILABLE"
@@ -919,30 +902,32 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                               : a.status}
                           </span>
                         </td>
-                        <td className="py-2 px-3 whitespace-nowrap max-w-xs truncate">
+                        <td className="py-1 px-2 whitespace-nowrap max-w-xs truncate">
                           {a.currentCustomer ? (
-                            <div className="flex flex-col truncate">
+                            <div className="inline-flex items-baseline gap-1.5 truncate">
                               <span className="font-medium text-emerald-800 truncate">{a.currentCustomer}</span>
-                              <span className="text-[10px] opacity-60 truncate">{a.currentSite || "-"}</span>
+                              {a.currentSite && (
+                                <span className="text-[10px] opacity-65 truncate">/ {a.currentSite}</span>
+                              )}
                             </div>
                           ) : (
                             <span className="opacity-40">-</span>
                           )}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono opacity-75 whitespace-nowrap">
-                          {a.acquisitionDate}
+                        <td className="py-1 px-2 text-right font-mono opacity-80 whitespace-nowrap">
+                          {formattedDate}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono whitespace-nowrap">
+                        <td className="py-1 px-2 text-right font-mono whitespace-nowrap">
                           {a.acquisitionCost > 0 ? formatErpCurrency(a.acquisitionCost) : "-"}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
+                        <td className="py-1 px-2 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
                           {a.bookValue > 0 ? formatErpCurrency(a.bookValue) : "-"}
                         </td>
-                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                        <td className="py-1 px-2 text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
                             <button
                               onClick={() => handleSelectAsset(a)}
-                              className="px-2 py-1 rounded border text-[11px] hover:bg-black/5"
+                              className="px-1.5 py-0.5 rounded border text-[10px] hover:bg-black/5"
                               title="상세 장부"
                             >
                               상세
@@ -950,7 +935,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                             {isAdmin && (
                               <button
                                 onClick={() => handleDeleteAsset(a.id, a.assetNo)}
-                                className="p-1 rounded text-rose-600 hover:bg-rose-500/10"
+                                className="p-0.5 rounded text-rose-600 hover:bg-rose-500/10"
                                 title="삭제"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -1172,7 +1157,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
                 <div className="p-2.5 rounded border flex flex-col gap-1.5 font-mono text-[11px] bg-purple-500/5">
                   <div className="flex justify-between">
                     <span className="opacity-60">취득일자 / 내용연수</span>
-                    <span>{selectedAsset.acquisitionDate} ({selectedAsset.usefulLifeYears}년)</span>
+                    <span>{selectedAsset.acquisitionDate ? String(selectedAsset.acquisitionDate).slice(0, 10) : "-"} ({selectedAsset.usefulLifeYears}년)</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="opacity-60">취득원가</span>

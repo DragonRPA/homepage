@@ -2052,15 +2052,6 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                                   전송
                                 </button>
                               )}
-
-                              {!isPurchaseTab && (
-                                <button
-                                  onClick={() => handleOpenPopbillPrint(inv)}
-                                  className="px-1.5 py-1 rounded text-[10px] font-semibold border border-[#b5a894] bg-[#f4efe4] hover:bg-[#e2dbcd]"
-                                >
-                                  인쇄
-                                </button>
-                              )}
                             </div>
                           </td>
 

@@ -61,11 +61,12 @@ interface CorporateDocumentTabProps {
 
 const DOC_CATEGORIES = [
   "전체",
-  "설립·정관·등기",
+  "정관·등기·의사록",
   "주주·주식·자본",
   "세무·공과·인증",
   "부동산·임대차",
   "기타 중요문서",
+  "법인설립 원시서류 (보존용)",
 ];
 
 type MainSubTab = "VAULT" | "CORP_MANUAL" | "INDIV_MANUAL" | "TEMPLATE_STUDIO";
@@ -95,7 +96,7 @@ export const CorporateDocumentTab: React.FC<CorporateDocumentTabProps> = ({
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadTargetDoc, setUploadTargetDoc] = useState<CorporateDocItem | null>(null);
   const [formEntityType, setFormEntityType] = useState<"CORP" | "INDIVIDUAL">("CORP");
-  const [formCategory, setFormCategory] = useState<string>("설립·정관·등기");
+  const [formCategory, setFormCategory] = useState<string>("정관·등기·의사록");
   const [formTitle, setFormTitle] = useState<string>("");
   const [formDesc, setFormDesc] = useState<string>("");
   const [formEffectiveDate, setFormEffectiveDate] = useState<string>(
@@ -181,23 +182,40 @@ export const CorporateDocumentTab: React.FC<CorporateDocumentTabProps> = ({
   }, []);
 
   const filteredDocs = useMemo(() => {
-    return documents.filter((d) => {
-      if (entityFilter !== "ALL" && d.entityType !== entityFilter) return false;
-      if (categoryFilter !== "전체" && d.category !== categoryFilter) return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
-        const inTitle = d.title.toLowerCase().includes(q);
-        const inDesc = (d.description || "").toLowerCase().includes(q);
-        const inCode = (d.docCode || "").toLowerCase().includes(q);
-        const inFiles = d.versions.some(
-          (v) =>
-            v.fileName.toLowerCase().includes(q) ||
-            (v.changeNote || "").toLowerCase().includes(q)
-        );
-        return inTitle || inDesc || inCode || inFiles;
-      }
-      return true;
-    });
+    const getCatOrder = (cat: string) => {
+      if (cat === "정관·등기·의사록") return 1;
+      if (cat === "주주·주식·자본") return 2;
+      if (cat === "세무·공과·인증") return 3;
+      if (cat === "부동산·임대차") return 4;
+      if (cat === "기타 중요문서") return 5;
+      if (cat === "법인설립 원시서류 (보존용)") return 99;
+      return 50;
+    };
+
+    return documents
+      .filter((d) => {
+        if (entityFilter !== "ALL" && d.entityType !== entityFilter) return false;
+        if (categoryFilter !== "전체" && d.category !== categoryFilter) return false;
+        if (searchQuery.trim()) {
+          const q = searchQuery.trim().toLowerCase();
+          const inTitle = d.title.toLowerCase().includes(q);
+          const inDesc = (d.description || "").toLowerCase().includes(q);
+          const inCode = (d.docCode || "").toLowerCase().includes(q);
+          const inFiles = d.versions.some(
+            (v) =>
+              v.fileName.toLowerCase().includes(q) ||
+              (v.changeNote || "").toLowerCase().includes(q)
+          );
+          return inTitle || inDesc || inCode || inFiles;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const orderDiff = getCatOrder(a.category) - getCatOrder(b.category);
+        if (orderDiff !== 0) return orderDiff;
+        if (a.entityType !== b.entityType) return a.entityType === "CORP" ? -1 : 1;
+        return a.id - b.id;
+      });
   }, [documents, entityFilter, categoryFilter, searchQuery]);
 
   const selectedDoc = useMemo(
@@ -227,7 +245,7 @@ export const CorporateDocumentTab: React.FC<CorporateDocumentTabProps> = ({
   const openNewDocModal = (defaultEntity: "CORP" | "INDIVIDUAL" = "CORP") => {
     setUploadTargetDoc(null);
     setFormEntityType(defaultEntity);
-    setFormCategory(defaultEntity === "CORP" ? "설립·정관·등기" : "세무·공과·인증");
+    setFormCategory(defaultEntity === "CORP" ? "정관·등기·의사록" : "세무·공과·인증");
     setFormTitle("");
     setFormDesc("");
     setFormEffectiveDate(new Date().toISOString().slice(0, 10));
@@ -1213,6 +1231,8 @@ ${tplAfterText}
                       filteredDocs.map((doc) => {
                         const isSelected = selectedDoc?.id === doc.id;
                         const latest = doc.latestVersion;
+                        const isIncorporationArchive =
+                          doc.category === "법인설립 원시서류 (보존용)";
                         return (
                           <tr
                             key={doc.id}
@@ -1227,6 +1247,8 @@ ${tplAfterText}
                             className={`cursor-pointer transition ${
                               isSelected
                                 ? "bg-[#dbeafe]/75 dark:bg-blue-950/50 font-semibold"
+                                : isIncorporationArchive
+                                ? "bg-[#e8e2d6]/60 hover:bg-[#e2dbcd] dark:bg-slate-900/50 dark:hover:bg-slate-800/40"
                                 : "hover:bg-[#f4efe4] dark:hover:bg-slate-800/40"
                             }`}
                           >
@@ -1245,15 +1267,24 @@ ${tplAfterText}
                                     <span>다운로드</span>
                                   </a>
                                 )}
-                                <button
-                                  type="button"
-                                  onClick={() => openNewVersionModal(doc)}
-                                  className="px-2 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap"
-                                  title="개정 버전 업로드"
-                                >
-                                  <Upload className="w-3 h-3" />
-                                  <span>+버전추가</span>
-                                </button>
+                                {isIncorporationArchive ? (
+                                  <span
+                                    className="px-2 py-1 rounded bg-[#cbd5e1] text-[#334155] border border-[#94a3b8] text-[10.5px] font-bold inline-flex items-center whitespace-nowrap"
+                                    title="법인 설립 시 작성된 원시서류로 이후 수정·변경이 필요 없는 영구 보존 문서입니다."
+                                  >
+                                    설립보존본(변경불필요)
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => openNewVersionModal(doc)}
+                                    className="px-2 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap"
+                                    title="개정 버전 업로드"
+                                  >
+                                    <Upload className="w-3 h-3" />
+                                    <span>+버전추가</span>
+                                  </button>
+                                )}
                               </div>
                             </td>
                             <td className="py-2 px-2 whitespace-nowrap">
@@ -1268,7 +1299,15 @@ ${tplAfterText}
                               </span>
                             </td>
                             <td className="py-2 px-2 whitespace-nowrap">
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#e2dbcd] border border-[#b5a894] dark:bg-slate-800 dark:border-slate-700">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                                  doc.category === "정관·등기·의사록"
+                                    ? "bg-[#dbeafe] text-[#1e3a8a] border-[#93c5fd]"
+                                    : isIncorporationArchive
+                                    ? "bg-[#e2e8f0] text-[#475569] border-[#cbd5e1]"
+                                    : "bg-[#e2dbcd] text-[#0f172a] border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                                }`}
+                              >
                                 {doc.category}
                               </span>
                             </td>
@@ -1328,14 +1367,20 @@ ${tplAfterText}
                         <History className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400 shrink-0" />
                         <span className="truncate">{selectedDoc.title} — 버전 히스토리</span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => openNewVersionModal(selectedDoc)}
-                        className="px-2.5 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold flex items-center gap-1 shrink-0 whitespace-nowrap"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>신규 개정본(v{selectedDoc.currentVersion + 1}.0) 업로드</span>
-                      </button>
+                      {selectedDoc.category === "법인설립 원시서류 (보존용)" ? (
+                        <span className="px-2.5 py-1 rounded bg-[#cbd5e1] text-[#334155] border border-[#94a3b8] text-[11px] font-bold shrink-0 whitespace-nowrap">
+                          법인설립 원시서류 (영구보존·수정불필요)
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openNewVersionModal(selectedDoc)}
+                          className="px-2.5 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold flex items-center gap-1 shrink-0 whitespace-nowrap"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>신규 개정본(v{selectedDoc.currentVersion + 1}.0) 업로드</span>
+                        </button>
+                      )}
                     </div>
 
                     <div className="p-2.5 space-y-2 max-h-[250px] overflow-y-auto">

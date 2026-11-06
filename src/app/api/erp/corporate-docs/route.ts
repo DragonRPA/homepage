@@ -71,7 +71,17 @@ export async function GET(request: Request) {
               d.updated_at AS "updatedAt"
        FROM erp_corporate_documents d
        ${where}
-       ORDER BY d.category ASC, d.id ASC`,
+       ORDER BY
+         CASE d.category
+           WHEN '정관·등기·의사록' THEN 1
+           WHEN '주주·주식·자본' THEN 2
+           WHEN '세무·공과·인증' THEN 3
+           WHEN '부동산·임대차' THEN 4
+           WHEN '기타 중요문서' THEN 5
+           WHEN '법인설립 원시서류 (보존용)' THEN 99
+           ELSE 50
+         END ASC,
+         d.id ASC`,
       params
     );
 
@@ -135,7 +145,7 @@ export async function POST(request: Request) {
     const file = formData.get("file") as File | null;
     const documentIdRaw = formData.get("documentId") as string | null;
     const entityType = String(formData.get("entityType") || "CORP").toUpperCase() === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
-    const category = String(formData.get("category") || "설립·정관·등기").trim();
+    const category = String(formData.get("category") || "정관·등기·의사록").trim();
     const title = String(formData.get("title") || "").trim();
     const description = String(formData.get("description") || "").trim();
     const effectiveDate = String(formData.get("effectiveDate") || new Date().toISOString().slice(0, 10)).trim();

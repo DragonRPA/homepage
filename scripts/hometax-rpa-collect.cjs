@@ -289,9 +289,9 @@ function parseHometaxRows(rows) {
       invoiceeAddr: buyAddr,
       invoiceeEmail1: colBuyerEmail1 >= 0 ? String(row[colBuyerEmail1] || "").trim() : "",
       invoiceeEmail2: colBuyerEmail2 >= 0 ? String(row[colBuyerEmail2] || "").trim() : "",
-      supplyCostTotal: supply > 0 ? supply : Math.round(total / 1.1),
-      taxTotal: vat > 0 ? vat : total - Math.round(total / 1.1),
-      totalAmount: total > 0 ? total : supply + vat,
+      supplyCostTotal: supply !== 0 ? supply : Math.round(total / 1.1),
+      taxTotal: vat !== 0 ? vat : total !== 0 ? total - (supply !== 0 ? supply : Math.round(total / 1.1)) : Math.round(supply * 0.1),
+      totalAmount: total !== 0 ? total : supply + vat,
       purposeType: colPurpose >= 0 && String(row[colPurpose]).includes("영수") ? "영수" : "청구",
       remark: colRemark >= 0 ? String(row[colRemark] || "").trim() : "",
       itemName,
@@ -376,15 +376,43 @@ function parseHometaxRows(rows) {
       const counterpartyEmail = item.ioType === "PURCHASE" ? item.invoicerEmail || "" : item.invoiceeEmail1 || "";
       const counterpartyEmail2 = item.ioType === "PURCHASE" ? "" : item.invoiceeEmail2 || "";
 
-      // Domain classification for SALE
+      // Domain classification for SALE & Modified Invoice Pairing
+      const isNegative = item.supplyCostTotal < 0 || item.totalAmount < 0;
       let domainType = item.ioType === "PURCHASE" ? "PURCHASE_EXPENSE" : "TRADE_SALE";
-      if (item.ioType === "SALE") {
+      let matchedOriginalInvoice = null;
+
+      if (isNegative) {
+        const absSupply = Math.abs(item.supplyCostTotal);
+        const absTotal = Math.abs(item.totalAmount);
+        const origRes = await pool.query(
+          `SELECT id, domain_type
+           FROM erp_tax_invoices
+           WHERE COALESCE(supplier_entity_type, 'CORP') = $1
+             AND COALESCE(io_type, 'SALE') = $2
+             AND (customer_name = $3 OR ($4 <> '' AND business_no = $4))
+             AND supply_amount > 0
+             AND (ABS(COALESCE(supply_amount, 0) - $5) <= 10 OR ABS(COALESCE(total_amount, 0) - $6) <= 10)
+           ORDER BY
+             (CASE WHEN issue_date = $7::date THEN 0 ELSE 1 END),
+             (CASE WHEN COALESCE(settlement_status, 'UNPAID') <> 'PAID' THEN 0 ELSE 1 END),
+             ABS(issue_date - $7::date) ASC,
+             id DESC
+           LIMIT 1`,
+          [ENTITY_KEY, item.ioType, counterpartyName, fmtBiz, absSupply, absTotal, item.writeDate]
+        );
+        if (origRes.rows.length > 0) {
+          matchedOriginalInvoice = origRes.rows[0];
+          if (matchedOriginalInvoice.domain_type) domainType = matchedOriginalInvoice.domain_type;
+        }
+      }
+
+      if (item.ioType === "SALE" && !matchedOriginalInvoice) {
         const text = `${item.itemName} ${item.remark || ""}`;
-        if (/임대|렌탈|TV|모니터|노트북|복합기|프로젝터|EPSON/i.test(text)) {
+        if (/임대|렌탈|TV|모니터|노트북|복합기|프로젝터|EPSON|DDR4|RAM/i.test(text)) {
           domainType = "RENTAL";
         } else if (/운영용역|유지보수|용역료/i.test(text)) {
           domainType = "OP_SERVICE";
-        } else if (/개발|구축|착수금|잔금|중도금/i.test(text)) {
+        } else if (/개발|구축|착수금|잔금|중도금|컨설팅/i.test(text)) {
           domainType = "DEV_SERVICE";
         }
       }
@@ -442,9 +470,9 @@ function parseHometaxRows(rows) {
         `INSERT INTO erp_tax_invoices
          (invoice_no, io_type, source_type, domain_type, supplier_entity_type, supplier_corp_num, supplier_corp_name,
           customer_name, business_no, ceo_name, customer_address, customer_email, customer_email2,
-          purpose_type, tax_items, issue_date, supply_amount, vat_amount, total_amount, item_name,
+          purpose_type, modify_reason, tax_items, issue_date, supply_amount, vat_amount, total_amount, item_name,
           status, nts_confirm_no, memo, settled_amount, settlement_status, matched_bank_tx_ids)
-         VALUES ($1, $2, 'HOMETAX_RPA', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17, $18, $19, 'SENT_NTS', $20, $21, 0, 'UNPAID', '[]'::jsonb)`,
+         VALUES ($1, $2, 'HOMETAX_RPA', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17, $18, $19, $20, 'SENT_NTS', $21, $22, $23, $24, '[]'::jsonb)`,
         [
           invoiceNo,
           item.ioType,
@@ -459,6 +487,7 @@ function parseHometaxRows(rows) {
           counterpartyEmail,
           counterpartyEmail2,
           item.purposeType || "청구",
+          isNegative ? "수정세금계산서(감액/취소)" : "해당없음",
           JSON.stringify(item.taxItems || []),
           item.writeDate,
           item.supplyCostTotal,
@@ -467,9 +496,42 @@ function parseHometaxRows(rows) {
           item.itemName,
           item.ntsConfirmNo,
           item.remark || "",
+          isNegative ? item.totalAmount : 0,
+          isNegative ? "PAID" : "UNPAID",
         ]
       );
       inserted++;
+
+      if (isNegative && matchedOriginalInvoice) {
+        await pool.query(
+          `UPDATE erp_tax_invoices
+           SET settled_amount = total_amount,
+               settlement_status = 'PAID',
+               settled_at = COALESCE(settled_at, NOW()),
+               memo = CASE
+                 WHEN COALESCE(memo, '') LIKE '%[수정세금계산서 상계]%' THEN memo
+                 ELSE TRIM(CONCAT(COALESCE(memo, ''), ' [수정세금계산서 상계]'))
+               END
+           WHERE id = $1`,
+          [matchedOriginalInvoice.id]
+        );
+        await pool.query(
+          `UPDATE erp_rental_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID', paid_amount = 0 WHERE tax_invoice_id = $1`,
+          [matchedOriginalInvoice.id]
+        );
+        await pool.query(
+          `UPDATE erp_service_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID' WHERE tax_invoice_id = $1`,
+          [matchedOriginalInvoice.id]
+        );
+        await pool.query(
+          `UPDATE erp_trade_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID', paid_amount = 0 WHERE tax_invoice_id = $1`,
+          [matchedOriginalInvoice.id]
+        );
+        await pool.query(
+          `UPDATE erp_trade_sales SET tax_invoice_id = NULL WHERE tax_invoice_id = $1`,
+          [matchedOriginalInvoice.id]
+        );
+      }
     }
 
     await pool.query(

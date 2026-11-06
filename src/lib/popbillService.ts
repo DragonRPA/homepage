@@ -643,6 +643,7 @@ export interface HometaxCollectedInvoice {
   taxTotal: number;
   totalAmount: number;
   purposeType: string;
+  modifyReason?: string;
   itemName: string;
   remark1?: string;
   mgtKey?: string;

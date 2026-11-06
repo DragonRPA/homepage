@@ -116,6 +116,7 @@ function parseHometaxExcelBuffer(
       ["품목일자", "품목규격", "품목수량", "품목단가", "품목공급가액", "품목세액", "품목비고"]
     );
     const colPurpose = findCol(["영수/청구", "영수청구", "구분"]);
+    const colModifyReason = findCol(["수정사유", "종류"]);
     const colRemark = findCol(["비고"], -1, ["품목비고"]);
     const colItemRemark = findCol(["품목비고"]);
 
@@ -129,9 +130,9 @@ function parseHometaxExcelBuffer(
       const total = colTotal >= 0 ? parseAmount(row[colTotal]) : supply + vat;
       if (supply === 0 && total === 0) continue;
 
-      const finalSupply = supply > 0 ? supply : Math.round(total / 1.1);
-      const finalVat = vat > 0 ? vat : total - finalSupply;
-      const finalTotal = total > 0 ? total : finalSupply + finalVat;
+      const finalSupply = supply !== 0 ? supply : Math.round(total / 1.1);
+      const finalVat = vat !== 0 ? vat : total !== 0 ? total - finalSupply : Math.round(finalSupply * 0.1);
+      const finalTotal = total !== 0 ? total : finalSupply + finalVat;
 
       const writeDate = colWriteDate >= 0 ? parseExcelDate(row[colWriteDate]) : new Date().toISOString().slice(0, 10);
       const issueDate = colIssueDate >= 0 ? parseExcelDate(row[colIssueDate]) : writeDate;
@@ -155,6 +156,13 @@ function parseHometaxExcelBuffer(
       const validItemCandidate = /^\d{4}-\d{2}-\d{2}$/.test(rawItemCandidate) ? "" : rawItemCandidate;
       const remarkStr = colRemark >= 0 ? String(row[colRemark] || "").trim() : "";
       const itemRemarkStr = colItemRemark >= 0 ? String(row[colItemRemark] || "").trim() : "";
+      const modifyReasonRaw = colModifyReason >= 0 ? String(row[colModifyReason] || "").trim() : "";
+      const resolvedModifyReason =
+        modifyReasonRaw && !/^일반|전자세금계산서$/.test(modifyReasonRaw)
+          ? modifyReasonRaw
+          : finalSupply < 0 || finalTotal < 0
+          ? "수정세금계산서(감액/취소)"
+          : "해당없음";
       const resolvedItemName =
         validItemCandidate ||
         remarkStr ||
@@ -176,6 +184,7 @@ function parseHometaxExcelBuffer(
         taxTotal: finalVat,
         totalAmount: finalTotal,
         purposeType: colPurpose >= 0 && String(row[colPurpose]).includes("영수") ? "영수" : "청구",
+        modifyReason: resolvedModifyReason,
         itemName: resolvedItemName,
         remark1: remarkStr,
         sourceChannel: "EXCEL_UPLOAD",
@@ -198,6 +207,7 @@ async function saveCollectedInvoicesToDb(
 
   let insertedCount = 0;
   let skippedCount = 0;
+  let offsetCount = 0;
   const savedRows: any[] = [];
 
   try {
@@ -252,6 +262,66 @@ async function saveCollectedInvoicesToDb(
         continue;
       }
 
+      const isNegative = item.supplyCostTotal < 0 || item.totalAmount < 0;
+      let resolvedDomainType = ioType === "PURCHASE" ? "PURCHASE_EXPENSE" : "TRADE_SALE";
+      let matchedOriginalInvoice: any = null;
+
+      // 1) 수정세금계산서(마이너스 취소분)인 경우: 당초 발행된 원본(+) 세금계산서를 찾아 domain_type 동기화 및 상계 준비
+      if (isNegative) {
+        const absSupply = Math.abs(item.supplyCostTotal);
+        const absTotal = Math.abs(item.totalAmount);
+        const origRes = await client.query(
+          `SELECT id, domain_type, total_amount, settlement_status, issue_date::text AS issue_date
+           FROM erp_tax_invoices
+           WHERE COALESCE(supplier_entity_type, 'CORP') = $1
+             AND COALESCE(io_type, 'SALE') = $2
+             AND (customer_name = $3 OR ($4 <> '' AND business_no = $4))
+             AND supply_amount > 0
+             AND (ABS(COALESCE(supply_amount, 0) - $5) <= 10 OR ABS(COALESCE(total_amount, 0) - $6) <= 10)
+           ORDER BY
+             (CASE WHEN issue_date = $7::date THEN 0 ELSE 1 END),
+             (CASE WHEN COALESCE(settlement_status, 'UNPAID') <> 'PAID' THEN 0 ELSE 1 END),
+             ABS(issue_date - $7::date) ASC,
+             id DESC
+           LIMIT 1`,
+          [entity.key, ioType, counterpartyName, counterpartyBizNo, absSupply, absTotal, item.writeDate]
+        );
+        if (origRes.rows.length > 0) {
+          matchedOriginalInvoice = origRes.rows[0];
+          if (matchedOriginalInvoice.domain_type) {
+            resolvedDomainType = matchedOriginalInvoice.domain_type;
+          }
+        }
+      }
+
+      // 2) 일반 매출이거나 원본 매칭이 안 된 경우: 품목명/비고 및 기존 거래처 이력으로 매출 분과(domain_type) 지능형 분류
+      if (ioType === "SALE" && !matchedOriginalInvoice) {
+        const text = `${item.itemName || ""} ${item.remark1 || ""}`;
+        if (/임대|렌탈|TV|모니터|노트북|복합기|프로젝터|EPSON|DDR4|RAM/i.test(text)) {
+          resolvedDomainType = "RENTAL";
+        } else if (/운영용역|유지보수|용역료/i.test(text)) {
+          resolvedDomainType = "OP_SERVICE";
+        } else if (/개발|구축|착수금|잔금|중도금|컨설팅/i.test(text)) {
+          resolvedDomainType = "DEV_SERVICE";
+        } else {
+          // 같은 날/같은 달 취소된 원본이 있는지 혹은 거래처 최근 분과 조회
+          const histRes = await client.query(
+            `SELECT domain_type
+             FROM erp_tax_invoices
+             WHERE COALESCE(supplier_entity_type, 'CORP') = $1
+               AND COALESCE(io_type, 'SALE') = 'SALE'
+               AND (customer_name = $2 OR ($3 <> '' AND business_no = $3))
+               AND item_name = $4
+             ORDER BY issue_date DESC, id DESC
+             LIMIT 1`,
+            [entity.key, counterpartyName, counterpartyBizNo, item.itemName || ""]
+          );
+          if (histRes.rows.length > 0 && histRes.rows[0].domain_type) {
+            resolvedDomainType = histRes.rows[0].domain_type;
+          }
+        }
+      }
+
       const prefix = ioType === "PURCHASE" ? "PX" : "TX";
       const dateCompact = item.writeDate.slice(2, 10).replace(/-/g, "");
       const invoiceNo = item.mgtKey || `${prefix}${dateCompact}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -272,6 +342,16 @@ async function saveCollectedInvoicesToDb(
         },
       ];
 
+      // 음수 수정세금계산서는 자체적으로 채권/채무가 발생하지 않으므로 PAID(상계완료) 상태로 저장
+      const initialSettlementStatus = isNegative ? "PAID" : "UNPAID";
+      const initialSettledAmount = isNegative ? item.totalAmount : 0;
+      const resolvedModifyReason =
+        item.modifyReason && item.modifyReason !== "해당없음"
+          ? item.modifyReason
+          : isNegative
+          ? "수정세금계산서(감액/취소)"
+          : "해당없음";
+
       const ins = await client.query(
         `INSERT INTO erp_tax_invoices
          (invoice_no, io_type, source_type, domain_type, supplier_entity_type, supplier_corp_num, supplier_corp_name,
@@ -279,14 +359,14 @@ async function saveCollectedInvoicesToDb(
           customer_name, business_no, ceo_name, customer_email, purpose_type, modify_reason, tax_items,
           issue_date, supply_amount, vat_amount, total_amount, item_name,
           status, nts_confirm_no, memo, settled_amount, settlement_status, matched_bank_tx_ids)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, '해당없음', $18::jsonb,
-                 $19, $20, $21, $22, $23, 'SENT_NTS', $24, $25, 0, 'UNPAID', '[]'::jsonb)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb,
+                 $20, $21, $22, $23, $24, 'SENT_NTS', $25, $26, $27, $28, '[]'::jsonb)
          RETURNING *`,
         [
           invoiceNo,
           ioType,
           sourceType,
-          ioType === "PURCHASE" ? "PURCHASE_EXPENSE" : "TRADE_SALE",
+          resolvedDomainType,
           entity.key,
           ioType === "PURCHASE" ? (item.invoicerCorpNum || entity.bizNumRaw) : entity.bizNumRaw,
           ioType === "PURCHASE" ? (item.invoicerCorpName || counterpartyName) : entity.corpName,
@@ -300,6 +380,7 @@ async function saveCollectedInvoicesToDb(
           counterpartyCeo || "대표자",
           counterpartyEmail,
           item.purposeType || "청구",
+          resolvedModifyReason,
           JSON.stringify(taxItemsJson),
           item.writeDate,
           item.supplyCostTotal,
@@ -308,14 +389,50 @@ async function saveCollectedInvoicesToDb(
           item.itemName || (ioType === "PURCHASE" ? "매입 세금계산서" : "매출 세금계산서"),
           ntsNo || null,
           item.remark1 || "",
+          initialSettledAmount,
+          initialSettlementStatus,
         ]
       );
       insertedCount++;
       savedRows.push(ins.rows[0]);
+
+      // 3) 수정세금계산서(취소분)와 매칭된 원본 세금계산서가 있으면 원본도 자동으로 상계완료(PAID) 처리 및 연결 청구 해제
+      if (isNegative && matchedOriginalInvoice) {
+        await client.query(
+          `UPDATE erp_tax_invoices
+           SET settled_amount = total_amount,
+               settlement_status = 'PAID',
+               settled_at = COALESCE(settled_at, NOW()),
+               memo = CASE
+                 WHEN COALESCE(memo, '') LIKE '%[수정세금계산서 상계]%' THEN memo
+                 ELSE TRIM(CONCAT(COALESCE(memo, ''), ' [수정세금계산서 상계]'))
+               END
+           WHERE id = $1`,
+          [matchedOriginalInvoice.id]
+        );
+        // 원본 세금계산서에 묶여 있던 청구 레코드의 tax_invoice_id 연결을 해제하여 재청구/재발행 가능 상태로 복원
+        await client.query(
+          `UPDATE erp_rental_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID', paid_amount = 0 WHERE tax_invoice_id = $1`,
+          [matchedOriginalInvoice.id]
+        );
+        await client.query(
+          `UPDATE erp_service_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID' WHERE tax_invoice_id = $1`,
+          [matchedOriginalInvoice.id]
+        );
+        await client.query(
+          `UPDATE erp_trade_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID', paid_amount = 0 WHERE tax_invoice_id = $1`,
+          [matchedOriginalInvoice.id]
+        );
+        await client.query(
+          `UPDATE erp_trade_sales SET tax_invoice_id = NULL WHERE tax_invoice_id = $1`,
+          [matchedOriginalInvoice.id]
+        );
+        offsetCount++;
+      }
     }
 
     await client.query("COMMIT");
-    return { insertedCount, skippedCount, savedRows };
+    return { insertedCount, skippedCount, offsetCount, savedRows };
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
@@ -384,14 +501,15 @@ export async function POST(request: Request) {
         );
       }
 
-      const { insertedCount, skippedCount } = await saveCollectedInvoicesToDb(parsedItems, entityKey, "EXCEL_UPLOAD");
+      const { insertedCount, skippedCount, offsetCount } = await saveCollectedInvoicesToDb(parsedItems, entityKey, "EXCEL_UPLOAD");
 
       return NextResponse.json({
         success: true,
         parsedCount: parsedItems.length,
         insertedCount,
         skippedCount,
-        message: `홈택스 엑셀에서 총 ${parsedItems.length}건을 분석하여 신규 ${insertedCount}건 저장 완료 (중복 제외 ${skippedCount}건).`,
+        offsetCount,
+        message: `홈택스 엑셀에서 총 ${parsedItems.length}건을 분석하여 신규 ${insertedCount}건 저장 완료 (중복 제외 ${skippedCount}건${offsetCount > 0 ? `, 수정세금계산서 원본 상계 ${offsetCount}건` : ""}).`,
       });
     }
 

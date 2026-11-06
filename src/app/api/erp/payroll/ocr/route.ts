@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import zlib from "zlib";
 import { getErpPool } from "@/lib/supabaseErp";

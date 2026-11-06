@@ -193,10 +193,13 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       if (entityFilter !== "ALL") params.set("supplierEntityType", entityFilter);
 
       const url = `/api/erp/tax-invoices${params.toString() ? `?${params.toString()}` : ""}`;
-      const res = await fetch(url);
+      const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
       if (data.success) {
-        setInvoices(data.invoices || []);
+        const list = data.invoices || [];
+        setInvoices(list);
+        setDetailInvoice((prev: any) => (prev ? list.find((i: any) => i.id === prev.id) || prev : null));
+        setReconcileInvoice((prev: any) => (prev ? list.find((i: any) => i.id === prev.id) || prev : null));
       } else {
         throw new Error(data.error || "세금계산서 대장 조회 실패");
       }
@@ -212,7 +215,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const fetchUnissuedBillings = async () => {
     setUnissuedLoading(true);
     try {
-      const res = await fetch("/api/erp/tax-invoices?type=UNISSUED_BILLINGS");
+      const res = await fetch("/api/erp/tax-invoices?type=UNISSUED_BILLINGS", { cache: "no-store" });
       const data = await res.json();
       if (data.success) {
         setUnissuedBillings(data.billings || []);
@@ -237,7 +240,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
 
   const fetchPartners = async () => {
     try {
-      const res = await fetch("/api/erp/partners?type=ALL");
+      const res = await fetch("/api/erp/partners?type=ALL", { cache: "no-store" });
       const data = await res.json();
       if (data.success && Array.isArray(data.partners)) {
         setRegisteredPartners(data.partners);
@@ -250,7 +253,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const fetchRpaSettings = async () => {
     try {
       const ent = entityFilter === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
-      const res = await fetch(`/api/erp/tax-invoices/hometax?entityType=${ent}`);
+      const res = await fetch(`/api/erp/tax-invoices/hometax?entityType=${ent}`, { cache: "no-store" });
       const data = await res.json();
       if (data.success && data.settings) {
         setRpaDeptUserId(data.settings.deptUserId || "");
@@ -459,9 +462,23 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     setManualSettleInput(String(Math.round(Number(inv.settledAmount || 0))));
     setReconcileLoading(true);
     try {
-      const res = await fetch(`/api/erp/tax-invoices/reconcile?invoiceId=${inv.id}`);
+      const res = await fetch(`/api/erp/tax-invoices/reconcile?invoiceId=${inv.id}`, { cache: "no-store" });
       const data = await res.json();
       if (data.success) {
+        if (data.invoice) {
+          const nextSettled = Number(data.invoice.settled_amount ?? data.invoice.settledAmount ?? inv.settledAmount ?? 0);
+          setReconcileInvoice((prev: any) =>
+            prev
+              ? {
+                  ...prev,
+                  settledAmount: nextSettled,
+                  settlementStatus: data.invoice.settlement_status ?? data.invoice.settlementStatus ?? prev.settlementStatus,
+                  matchedBankTxIds: data.invoice.matched_bank_tx_ids ?? data.invoice.matchedBankTxIds ?? prev.matchedBankTxIds,
+                }
+              : prev
+          );
+          setManualSettleInput(String(Math.round(nextSettled)));
+        }
         const cands = data.candidateTransactions || [];
         setLinkedBankTxs(data.linkedTransactions || []);
         setCandidateBankTxs(cands);
@@ -860,7 +877,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       setCustSearch("");
       setManualNtsConfirmNo("");
       setManualTaxSpec(createDefaultTaxSpec("용역/판매 품목", 1000000));
-      fetchIssuedInvoices();
+      await fetchIssuedInvoices();
       setActiveSubTab(modalIoType === "PURCHASE" ? "PURCHASE_LEDGER" : "SALE_LEDGER");
     } catch (err: any) {
       showToast(err.message, "error");
@@ -971,7 +988,7 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "상태 동기화 실패");
       showToast(`[${inv.invoiceNo}] 팝빌 국세청 상태 동기화 완료`);
-      fetchIssuedInvoices();
+      await fetchIssuedInvoices();
     } catch (err: any) {
       showToast(err.message, "error");
     }

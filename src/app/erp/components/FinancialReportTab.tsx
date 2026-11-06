@@ -265,7 +265,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
         entityType: entityFilter,
         amountBasis,
       });
-      const res = await fetch(`/api/erp/financial-report?${params.toString()}`);
+      const res = await fetch(`/api/erp/financial-report?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
       if (data.success) {
         setMonths(data.months || []);

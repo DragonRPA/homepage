@@ -281,8 +281,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const fetchPartners = async () => {
     try {
       const [pRes, eRes] = await Promise.all([
-        fetch("/api/erp/partners?type=CUSTOMER"),
-        fetch("/api/erp/employees"),
+        fetch("/api/erp/partners?type=CUSTOMER", { cache: "no-store" }),
+        fetch("/api/erp/employees", { cache: "no-store" }),
       ]);
       const pData = await pRes.json();
       const eData = await eRes.json();
@@ -347,7 +347,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
 
     try {
       const res = await fetch(
-        `/api/erp/overtimes?month=${encodeURIComponent(targetMonth)}&employeeIds=${empIds.join(",")}`
+        `/api/erp/overtimes?month=${encodeURIComponent(targetMonth)}&employeeIds=${empIds.join(",")}`,
+        { cache: "no-store" }
       );
       const data = await res.json();
       const rows: any[] = data.overtimes || [];
@@ -595,7 +596,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       return;
     }
     try {
-      const res = await fetch(`/api/erp/services/contracts?id=${c.id}`);
+      const res = await fetch(`/api/erp/services/contracts?id=${c.id}`, { cache: "no-store" });
       const data = await res.json();
       if (data.success && data.contract?.contractFileUrl) {
         const entry = {
@@ -629,8 +630,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
         : `/api/erp/services/billings?serviceType=${activeType}`;
 
       const [cRes, bRes] = await Promise.all([
-        fetch(contractsUrl),
-        fetch(billingsUrl)
+        fetch(contractsUrl, { cache: "no-store" }),
+        fetch(billingsUrl, { cache: "no-store" })
       ]);
       const cData = await cRes.json();
       const bData = await bRes.json();
@@ -709,7 +710,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       setCtMonthlyFee("0");
       setCtVatAmount("0");
       setCtTaxSpec(createDefaultTaxSpec("{yyyy}년 {mm}월 용역료", 0));
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -888,7 +889,8 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
 
       showToast(`계약 [${editCtContractNo}] 수정 완료`);
       setShowEditContractModal(false);
-      fetchData();
+      if (editCtId) delete contractFileCacheRef.current[editCtId];
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -910,7 +912,11 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       if (!res.ok || !data.success) throw new Error(data.error || "계약 삭제 실패");
 
       showToast(data.message || `계약 [${c.contractNo}] 삭제 완료`);
-      fetchData();
+      delete contractFileCacheRef.current[c.id];
+      if (String(billingContractFilter) === String(c.id)) {
+        setBillingContractFilter("ALL");
+      }
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -1128,7 +1134,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
 
       showToast(`용역 청구 등록 완료`);
       setShowAddBillingModal(false);
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -1148,7 +1154,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       if (!res.ok || !data.success) throw new Error(data.error || "청구 삭제 실패");
 
       showToast(data.message || "청구 내역이 삭제되었습니다.");
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }

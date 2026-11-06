@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
 
@@ -36,7 +37,13 @@ export async function GET() {
       ORDER BY p.model_code ASC
     `;
     const res = await pool.query(query);
-    return NextResponse.json({ success: true, products: res.rows });
+    const products = res.rows.map((r: any) => ({
+      ...r,
+      standardMonthlyRate: Number(r.standardMonthlyRate || 0),
+      standardDailyRate: Number(r.standardDailyRate || 0),
+      standardPrice: Number(r.standardPrice || 0),
+    }));
+    return NextResponse.json({ success: true, products });
   } catch (error: any) {
     console.error("GET Products Error:", error);
     return NextResponse.json({ error: "제품 목록 조회 실패: " + error.message }, { status: 500 });
@@ -108,7 +115,16 @@ export async function POST(request: Request) {
       warrantyType || "1년 무상",
     ]);
 
-    return NextResponse.json({ success: true, product: res.rows[0] });
+    const created = res.rows[0];
+    return NextResponse.json({
+      success: true,
+      product: {
+        ...created,
+        standardMonthlyRate: Number(created.standardMonthlyRate || 0),
+        standardDailyRate: Number(created.standardDailyRate || 0),
+        standardPrice: Number(created.standardPrice || 0),
+      },
+    });
   } catch (error: any) {
     console.error("POST Product Error:", error);
     if (error.code === "23505") {
@@ -134,25 +150,57 @@ export async function PUT(request: Request) {
 
     const pool = getErpPool();
     const updateQuery = `
-      UPDATE erp_rental_products
-      SET 
-        model_code = COALESCE($1, model_code),
-        model_name = COALESCE($2, model_name),
-        short_name = $3,
-        category = COALESCE($4, category),
-        manufacturer = COALESCE($5, manufacturer),
-        standard_monthly_rate = COALESCE($6, standard_monthly_rate),
-        standard_daily_rate = COALESCE($7, standard_daily_rate),
-        standard_price = COALESCE($8, standard_price),
-        cpu = $9,
-        ram = $10,
-        storage = $11,
-        gpu = $12,
-        spec = COALESCE($13, spec),
-        warranty_type = $14,
-        status = COALESCE($15, status)
-      WHERE id = $16
-      RETURNING *
+      WITH updated AS (
+        UPDATE erp_rental_products
+        SET 
+          model_code = COALESCE($1, model_code),
+          model_name = COALESCE($2, model_name),
+          short_name = $3,
+          category = COALESCE($4, category),
+          manufacturer = COALESCE($5, manufacturer),
+          standard_monthly_rate = COALESCE($6, standard_monthly_rate),
+          standard_daily_rate = COALESCE($7, standard_daily_rate),
+          standard_price = COALESCE($8, standard_price),
+          cpu = $9,
+          ram = $10,
+          storage = $11,
+          gpu = $12,
+          spec = COALESCE($13, spec),
+          warranty_type = $14,
+          status = COALESCE($15, status)
+        WHERE id = $16
+        RETURNING *
+      )
+      SELECT 
+        p.id,
+        p.model_code as "modelCode",
+        p.model_name as "modelName",
+        p.short_name as "shortName",
+        p.category,
+        p.manufacturer,
+        p.standard_monthly_rate as "standardMonthlyRate",
+        p.standard_daily_rate as "standardDailyRate",
+        p.standard_price as "standardPrice",
+        p.cpu,
+        p.ram,
+        p.storage,
+        p.gpu,
+        p.spec,
+        p.warranty_type as "warrantyType",
+        p.status,
+        p.created_at as "createdAt",
+        COALESCE(COUNT(a.id), 0)::integer as "totalAssets",
+        COALESCE(SUM(CASE WHEN a.owner_type = 'OWNED' THEN 1 ELSE 0 END), 0)::integer as "ownedAssets",
+        COALESCE(SUM(CASE WHEN a.owner_type = 'RENTED' THEN 1 ELSE 0 END), 0)::integer as "subleasedAssets",
+        COALESCE(SUM(CASE WHEN a.status = 'AVAILABLE' THEN 1 ELSE 0 END), 0)::integer as "availableAssets",
+        COALESCE(SUM(CASE WHEN a.status = 'RENTED' THEN 1 ELSE 0 END), 0)::integer as "rentedAssets",
+        COALESCE(SUM(CASE WHEN a.status = 'REPAIRING' THEN 1 ELSE 0 END), 0)::integer as "repairingAssets"
+      FROM updated p
+      LEFT JOIN erp_rental_assets a ON p.id = a.rental_product_id
+      GROUP BY
+        p.id, p.model_code, p.model_name, p.short_name, p.category, p.manufacturer,
+        p.standard_monthly_rate, p.standard_daily_rate, p.standard_price,
+        p.cpu, p.ram, p.storage, p.gpu, p.spec, p.warranty_type, p.status, p.created_at
     `;
 
     const res = await pool.query(updateQuery, [
@@ -161,9 +209,9 @@ export async function PUT(request: Request) {
       shortName || null,
       category,
       manufacturer,
-      standardMonthlyRate !== undefined ? parseFloat(standardMonthlyRate) : null,
-      standardDailyRate !== undefined ? parseFloat(standardDailyRate) : null,
-      standardPrice !== undefined ? parseFloat(standardPrice) : null,
+      standardMonthlyRate !== undefined && !isNaN(parseFloat(standardMonthlyRate)) ? parseFloat(standardMonthlyRate) : 0,
+      standardDailyRate !== undefined && !isNaN(parseFloat(standardDailyRate)) ? parseFloat(standardDailyRate) : 0,
+      standardPrice !== undefined && !isNaN(parseFloat(standardPrice)) ? parseFloat(standardPrice) : 0,
       cpu || null,
       ram || null,
       storage || null,
@@ -178,7 +226,16 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "해당 제품을 찾을 수 없습니다." }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, product: res.rows[0] });
+    const created = res.rows[0];
+    return NextResponse.json({
+      success: true,
+      product: {
+        ...created,
+        standardMonthlyRate: Number(created.standardMonthlyRate || 0),
+        standardDailyRate: Number(created.standardDailyRate || 0),
+        standardPrice: Number(created.standardPrice || 0),
+      },
+    });
   } catch (error: any) {
     console.error("PUT Product Error:", error);
     return NextResponse.json({ error: "제품 수정 실패: " + error.message }, { status: 500 });

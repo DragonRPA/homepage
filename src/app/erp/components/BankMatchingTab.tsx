@@ -312,7 +312,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       if (selectedEntity !== "ALL") {
         params.set("entityType", selectedEntity);
       }
-      const res = await fetch(`/api/erp/bank-matching?${params.toString()}`);
+      const res = await fetch(`/api/erp/bank-matching?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "조회 실패");
 
@@ -437,7 +437,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       );
       setSelectedFiles([]);
       setRawPasteText("");
-      fetchTransactions();
+      await fetchTransactions();
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -463,7 +463,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
 
       showToast("은행 거래내역이 등록되었습니다.");
       setModalOpen(false);
-      fetchTransactions();
+      await fetchTransactions();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -477,7 +477,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
         (tx?.accountNo?.includes("140") ? "INDIVIDUAL" : selectedEntity !== "ALL" ? selectedEntity : "ALL");
       const params = new URLSearchParams();
       if (targetEntity !== "ALL") params.set("supplierEntityType", targetEntity);
-      const res = await fetch(`/api/erp/tax-invoices?${params.toString()}`);
+      const res = await fetch(`/api/erp/tax-invoices?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
       if (data.success && Array.isArray(data.invoices)) {
         const list = data.invoices.filter((inv: any) => (inv.settlementStatus || "UNPAID") !== "PAID");
@@ -515,7 +515,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
         return next;
       });
       setMatchModalOpen(false);
-      fetchTransactions();
+      await fetchTransactions();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -544,9 +544,14 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       if (!res.ok || !data.success) throw new Error(data.error || "세금계산서 연동 대사 실패");
 
       showToast(data.message);
+      setSelectedTxIds((prev) => {
+        const next = new Set(prev);
+        next.delete(selectedTrans.id);
+        return next;
+      });
       setMatchModalOpen(false);
       setSelectedInvoiceIds(new Set());
-      fetchTransactions();
+      await fetchTransactions();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -593,8 +598,13 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       if (!res.ok || !data.success) throw new Error(data.error || "대사 매칭 실패");
 
       showToast("대사 매칭이 완료되었습니다.");
+      setSelectedTxIds((prev) => {
+        const next = new Set(prev);
+        next.delete(selectedTrans.id);
+        return next;
+      });
       setMatchModalOpen(false);
-      fetchTransactions();
+      await fetchTransactions();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -612,7 +622,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       if (!res.ok || !data.success) throw new Error(data.error || "취소 실패");
 
       showToast("대사가 취소되었습니다.");
-      fetchTransactions();
+      await fetchTransactions();
     } catch (err: any) {
       showToast(err.message, "error");
     }

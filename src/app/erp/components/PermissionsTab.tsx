@@ -106,8 +106,8 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
     setLoading(true);
     try {
       const [permRes, empRes] = await Promise.all([
-        fetch("/api/erp/permissions"),
-        fetch("/api/erp/employees"),
+        fetch("/api/erp/permissions", { cache: "no-store" }),
+        fetch("/api/erp/employees", { cache: "no-store" }),
       ]);
       const permData = await permRes.json();
       const empData = await empRes.json();
@@ -269,7 +269,11 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
       showToast("신규 역할이 등록되었습니다.");
       setNewRoleModal(false);
       setSelectedRoleCode(newRoleCode.toUpperCase());
-      fetchData();
+      setNewRoleCode("");
+      setNewRoleName("");
+      setNewRoleDesc("");
+      await fetchData();
+      if (onPermissionsChanged) onPermissionsChanged();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -286,7 +290,8 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
       if (!res.ok || !data.success) throw new Error(data.error || "역할 배정 실패");
 
       showToast("사원의 권한 역할이 변경되었습니다.");
-      fetchData();
+      await fetchData();
+      if (onPermissionsChanged) onPermissionsChanged();
     } catch (err: any) {
       showToast(err.message, "error");
     }

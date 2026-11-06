@@ -219,7 +219,7 @@ export const WorkImprovementTab: React.FC<{
       if (statusFilter !== "ALL") params.set("status", statusFilter);
       if (searchQuery.trim()) params.set("search", searchQuery.trim());
 
-      const res = await fetch(`/api/erp/work-improvements?${params.toString()}`);
+      const res = await fetch(`/api/erp/work-improvements?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "보고서 목록 조회 실패");
 
@@ -238,10 +238,11 @@ export const WorkImprovementTab: React.FC<{
         }
       }
 
-      if (list.length > 0 && selectedId === null && keepSelectionId === undefined) {
+      if (list.length > 0) {
         setSelectedId(list[0].id || null);
         setForm(list[0]);
-      } else if (list.length === 0 && !selectedId) {
+      } else {
+        setSelectedId(null);
         setForm(createBlankReport(currentUser, empList));
       }
     } catch (err: any) {

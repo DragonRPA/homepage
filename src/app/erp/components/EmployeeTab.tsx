@@ -73,8 +73,8 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
     setLoading(true);
     try {
       const [empRes, leaveRes] = await Promise.all([
-        fetch("/api/erp/employees"),
-        fetch("/api/erp/leaves")
+        fetch("/api/erp/employees", { cache: "no-store" }),
+        fetch("/api/erp/leaves", { cache: "no-store" })
       ]);
       const empData = await empRes.json();
       const leaveData = await leaveRes.json();
@@ -187,7 +187,7 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
       setEmpSalaryBankName("");
       setEmpSalaryAccountNo("");
       setEmpSalaryAccountHolder("");
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -214,7 +214,7 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
 
       showToast(data.message, "success");
       setShowResetLeaveModal(false);
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -247,7 +247,7 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
       showToast("연차 신청이 접수되었습니다. 결재 대기 중입니다.");
       setShowLeaveApplyModal(false);
       setLeaveReason("");
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -273,7 +273,7 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
       if (!res.ok || !data.success) throw new Error(data.error || "결재 처리 실패");
 
       showToast(data.message);
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -392,8 +392,8 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
             >
               <option value="ALL">전체 상태</option>
               <option value="ACTIVE">재직</option>
-              <option value="ON_LEAVE">휴직</option>
-              <option value="RESIGNED">퇴사</option>
+              <option value="LEAVE">휴직</option>
+              <option value="RETIRED">퇴사</option>
             </select>
           </div>
 
@@ -456,10 +456,10 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
                     <td className="py-2 px-3">
                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                         e.employmentStatus === "ACTIVE" ? "bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800" :
-                        e.employmentStatus === "ON_LEAVE" ? "bg-[#fef3c7] text-[#92400e] border border-[#fde68a] dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800" :
+                        (e.employmentStatus === "LEAVE" || e.employmentStatus === "ON_LEAVE") ? "bg-[#fef3c7] text-[#92400e] border border-[#fde68a] dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800" :
                         "bg-[#fef2f2] text-[#991b1b] border border-[#fecaca] dark:bg-rose-950 dark:text-rose-400 dark:border-rose-800"
                       }`}>
-                        {e.employmentStatus === "ACTIVE" ? "재직" : e.employmentStatus === "ON_LEAVE" ? "휴직" : "퇴사"}
+                        {e.employmentStatus === "ACTIVE" ? "재직" : (e.employmentStatus === "LEAVE" || e.employmentStatus === "ON_LEAVE") ? "휴직" : "퇴사"}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-[#0f172a] dark:text-slate-200">{formatErpNumber(e.grantDays)}일</td>

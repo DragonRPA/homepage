@@ -325,7 +325,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
   const fetchPartners = async () => {
     try {
-      const res = await fetch("/api/erp/partners?type=CUSTOMER");
+      const res = await fetch("/api/erp/partners?type=CUSTOMER", { cache: "no-store" });
       const data = await res.json();
       if (data.success && Array.isArray(data.partners)) {
         setPartners(data.partners);
@@ -372,7 +372,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       return;
     }
     try {
-      const res = await fetch(`/api/erp/rental/contracts?id=${c.id}`);
+      const res = await fetch(`/api/erp/rental/contracts?id=${c.id}`, { cache: "no-store" });
       const data = await res.json();
       if (data.success && data.contract?.contractFileUrl) {
         const entry = {
@@ -403,10 +403,10 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
         : "/api/erp/rental/contracts";
 
       const [mRes, aRes, cRes, bRes] = await Promise.all([
-        fetch("/api/erp/rental/products"),
-        fetch("/api/erp/rental/assets"),
-        fetch(contractsUrl),
-        fetch(`/api/erp/rental/billings?yearMonth=${selectedYm}`)
+        fetch("/api/erp/rental/products", { cache: "no-store" }),
+        fetch("/api/erp/rental/assets", { cache: "no-store" }),
+        fetch(contractsUrl, { cache: "no-store" }),
+        fetch(`/api/erp/rental/billings?yearMonth=${selectedYm}`, { cache: "no-store" })
       ]);
 
       const mData = await mRes.json();
@@ -458,11 +458,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       setShowAddModelModal(false);
       setModelCode("");
       setModelName("");
-      if (data.product) {
-        setModels((prev) => [...prev, data.product]);
-      } else {
-        fetchData();
-      }
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -523,11 +519,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       setShowAcquireAssetModal(false);
       setAssetNo("");
       setAssetQty("1");
-      if (createdList.length > 0 && createdList[0]?.assetNo) {
-        setAssets((prev) => [...prev, ...createdList]);
-      } else {
-        fetchData();
-      }
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -551,7 +543,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
       showToast(data.message, "success");
       setShowDeprecModal(false);
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -626,7 +618,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       setCtFileUrl("");
       setCtFileName("");
       setCtTaxSpec(createDefaultTaxSpec("{1번째 아이템} 외", 0));
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -647,7 +639,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       if (!res.ok || !data.success) throw new Error(data.error || "반납 처리 실패");
 
       showToast(data.message);
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -766,7 +758,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
       showToast(`임대계약 [${editCtContractNo}] 수정 완료`);
       setShowEditContractModal(false);
-      fetchData();
+      if (editCtId) delete contractFileCacheRef.current[editCtId];
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -788,7 +781,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       if (!res.ok || !data.success) throw new Error(data.error || "임대계약 삭제 실패");
 
       showToast(data.message || `계약 [${c.contractNo}] 삭제 완료`);
-      fetchData();
+      delete contractFileCacheRef.current[c.id];
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -808,7 +802,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       if (!res.ok || !data.success) throw new Error(data.error || "청구 삭제 실패");
 
       showToast(data.message || "임대 청구 내역이 삭제되었습니다.");
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -904,7 +898,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       showToast(`임대 계약 항목 기반 청구 생성 완료`);
       setShowAddBillingModal(false);
       setSubTab("billings");
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -948,8 +942,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       if (!res.ok || !data.success) throw new Error(data.error || "세금계산서 발행 실패");
 
       showToast(`세금계산서 [${data.invoice.invoice_no || data.invoice.invoiceNo}] 국세청 발행 완료!`);
+      await fetchData();
       if (onNavigateToTax) onNavigateToTax();
-      fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }

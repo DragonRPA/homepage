@@ -68,17 +68,20 @@ export const ApprovalInboxTab: React.FC<{
       if (!isAdmin && currentUserId) {
         url += `&userId=${currentUserId}`;
       }
-      const res = await fetch(url);
+      const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "결재함 조회 실패");
 
-      const list = data.requests || [];
+      const list: ApprovalRequest[] = data.requests || [];
       setRequests(list);
-      if (list.length > 0) {
-        setSelectedRequest(list[0]);
-      } else {
-        setSelectedRequest(null);
-      }
+      setSelectedRequest((prev) => {
+        if (list.length === 0) return null;
+        if (prev) {
+          const found = list.find((r) => r.id === prev.id);
+          if (found) return found;
+        }
+        return list[0];
+      });
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -106,7 +109,7 @@ export const ApprovalInboxTab: React.FC<{
       if (!res.ok || !data.success) throw new Error(data.error || "결재 승인 실패");
 
       showToast("결재가 승인되었습니다.");
-      fetchInbox();
+      await fetchInbox();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -135,7 +138,7 @@ export const ApprovalInboxTab: React.FC<{
       showToast("결재가 반려 처리되었습니다.");
       setRejectModalOpen(false);
       setRejectComment("");
-      fetchInbox();
+      await fetchInbox();
     } catch (err: any) {
       showToast(err.message, "error");
     }

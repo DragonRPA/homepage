@@ -138,7 +138,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
     const ym = targetYm || yearMonth;
     setLoading(true);
     try {
-      const res = await fetch(`/api/erp/inout?yearMonth=${encodeURIComponent(ym)}`);
+      const res = await fetch(`/api/erp/inout?yearMonth=${encodeURIComponent(ym)}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || "데이터 로드 실패");

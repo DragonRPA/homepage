@@ -1,19 +1,22 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { encryptPii, decryptPii, hashPassword } from "@/lib/piiCrypto";
 import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
 
-function normalizeStatusToDb(rawStatus: string | null | undefined): "ACTIVE" | "LEAVE" | "RETIRED" {
-  const s = (rawStatus || "ACTIVE").toUpperCase();
-  if (s === "LEAVE" || s === "LEAVE_OF_ABSENCE" || s === "ON_LEAVE") return "LEAVE";
-  if (s === "RETIRED" || s === "RESIGNED") return "RETIRED";
+function normalizeStatusToDb(rawStatus: string | null | undefined, leaveDate?: string | null): "ACTIVE" | "LEAVE" | "RETIRED" {
+  if (leaveDate && String(leaveDate).trim() !== "") return "RETIRED";
+  const s = (rawStatus || "ACTIVE").trim().toUpperCase();
+  if (s === "LEAVE" || s === "LEAVE_OF_ABSENCE" || s === "ON_LEAVE" || s === "휴직") return "LEAVE";
+  if (s === "RETIRED" || s === "RESIGNED" || s === "퇴사" || s === "퇴직") return "RETIRED";
   return "ACTIVE";
 }
 
-function normalizeStatusToEbro(rawStatus: string | null | undefined): "ACTIVE" | "LEAVE_OF_ABSENCE" | "RETIRED" {
-  const s = (rawStatus || "ACTIVE").toUpperCase();
-  if (s === "LEAVE" || s === "LEAVE_OF_ABSENCE" || s === "ON_LEAVE") return "LEAVE_OF_ABSENCE";
-  if (s === "RETIRED" || s === "RESIGNED") return "RETIRED";
+function normalizeStatusToEbro(rawStatus: string | null | undefined, leaveDate?: string | null): "ACTIVE" | "LEAVE_OF_ABSENCE" | "RETIRED" {
+  if (leaveDate && String(leaveDate).trim() !== "") return "RETIRED";
+  const s = (rawStatus || "ACTIVE").trim().toUpperCase();
+  if (s === "LEAVE" || s === "LEAVE_OF_ABSENCE" || s === "ON_LEAVE" || s === "휴직") return "LEAVE_OF_ABSENCE";
+  if (s === "RETIRED" || s === "RESIGNED" || s === "퇴사" || s === "퇴직") return "RETIRED";
   return "ACTIVE";
 }
 
@@ -310,7 +313,7 @@ export async function POST(request: Request) {
         d.updated_at as "updatedAt",
         COUNT(e.id)::int as "memberCount"
       FROM erp_departments d
-      LEFT JOIN erp_employees e ON e.department_id = d.id
+      LEFT JOIN erp_employees e ON (e.department_id = d.id OR (e.department_id IS NULL AND e.department = d.dept_name AND e.department <> ''))
       GROUP BY d.id
       ORDER BY d.sort_order ASC, d.id ASC
     `);
@@ -337,9 +340,11 @@ export async function POST(request: Request) {
         COALESCE(e.ins_health_insurance, TRUE) as "insHealthInsurance",
         COALESCE(e.ins_employment_insurance, TRUE) as "insEmploymentInsurance",
         COALESCE(e.ins_industrial_accident, TRUE) as "insIndustrialAccident",
+        COALESCE(e.service_contract_amount, 0)::numeric as "serviceContractAmount",
         e.salary_bank_name as "salaryBankName",
         e.salary_account_no as "salaryAccountNo",
         e.salary_account_holder as "salaryAccountHolder",
+        e.resident_reg_no as "residentRegNo",
         e.email, 
         e.phone, 
         e.birth_date::text as "birthDate",
@@ -349,18 +354,25 @@ export async function POST(request: Request) {
         e.employment_status as "employmentStatus",
         e.profile_image_url as "profileImageUrl",
         e.annual_leave_grant as "grantDays",
+        COALESCE(SUM(CASE WHEN l.status = 'APPROVED' AND EXTRACT(YEAR FROM l.start_date) = EXTRACT(YEAR FROM CURRENT_DATE) THEN l.deducted_days ELSE 0 END), 0) as "usedDays",
+        (e.annual_leave_grant - COALESCE(SUM(CASE WHEN l.status = 'APPROVED' AND EXTRACT(YEAR FROM l.start_date) = EXTRACT(YEAR FROM CURRENT_DATE) THEN l.deducted_days ELSE 0 END), 0)) as "remainDays",
+        COALESCE(COUNT(CASE WHEN l.status = 'APPROVED' AND EXTRACT(YEAR FROM l.start_date) = EXTRACT(YEAR FROM CURRENT_DATE) AND COALESCE(l.deducted_days, 0) = 0 THEN 1 END), 0)::int as "nonDeductedCount",
+        e.must_change_password as "mustChangePassword",
         e.created_at as "createdAt",
         e.updated_at as "updatedAt"
       FROM erp_employees e
       LEFT JOIN erp_departments d ON e.department_id = d.id
+      LEFT JOIN erp_leave_requests l ON e.id = l.employee_id
+      GROUP BY e.id, d.dept_name
       ORDER BY e.id ASC
     `);
 
     const finalUsers = finalEmpsRes.rows.map((row: any) => ({
       ...row,
       salaryAccountNo: decryptPii(row.salaryAccountNo),
-      status: normalizeStatusToEbro(row.employmentStatus),
-      employmentStatus: normalizeStatusToDb(row.employmentStatus),
+      residentRegNo: decryptPii(row.residentRegNo),
+      status: normalizeStatusToEbro(row.employmentStatus, row.leaveDate),
+      employmentStatus: normalizeStatusToDb(row.employmentStatus, row.leaveDate),
     }));
 
     return NextResponse.json({

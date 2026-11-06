@@ -91,9 +91,9 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     setLoading(true);
     try {
       const [empRes, leaveRes, deptRes] = await Promise.all([
-        fetch("/api/erp/employees"),
-        fetch("/api/erp/leaves"),
-        fetch("/api/erp/departments"),
+        fetch("/api/erp/employees", { cache: "no-store" }),
+        fetch("/api/erp/leaves", { cache: "no-store" }),
+        fetch("/api/erp/departments", { cache: "no-store" }),
       ]);
       const empData = await empRes.json();
       const leaveData = await leaveRes.json();
@@ -344,7 +344,7 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
       if (!res.ok || !data.success) throw new Error(data.error || "연차 재계산 실패");
 
       showToast(data.message || "전 사원 연차 재계산이 완료되었습니다.");
-      fetchEmployees();
+      await fetchEmployees();
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -369,7 +369,8 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
 
       showToast(`[${selectedEmp.name}] 부여 연차가 ${newGrantDays}일로 조정되었습니다.`);
       setAdjustModalOpen(false);
-      fetchEmployees();
+      setSelectedEmp(null);
+      await fetchEmployees();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -865,8 +866,20 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
                           {item.reason}
                         </td>
                         <td className="py-1.5 px-3 text-center whitespace-nowrap">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0]">
-                            승인완료
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              item.status === "APPROVED"
+                                ? "bg-[#ecfdf5] text-[#065f46] border-[#a7f3d0]"
+                                : item.status === "REJECTED"
+                                ? "bg-[#fee2e2] text-[#dc2626] border-[#fecaca]"
+                                : "bg-[#fef3c7] text-[#b45309] border-[#fde68a]"
+                            }`}
+                          >
+                            {item.status === "APPROVED"
+                              ? "승인완료"
+                              : item.status === "REJECTED"
+                              ? "반려"
+                              : "결재대기"}
                           </span>
                         </td>
                       </tr>

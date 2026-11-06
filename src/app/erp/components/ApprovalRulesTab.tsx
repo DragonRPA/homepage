@@ -70,7 +70,7 @@ export const ApprovalRulesTab: React.FC<{ currentUser: any }> = ({ currentUser }
   const fetchRules = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/erp/approvals/rules");
+      const res = await fetch("/api/erp/approvals/rules", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "결재 규칙 조회 실패");
 
@@ -124,7 +124,7 @@ export const ApprovalRulesTab: React.FC<{ currentUser: any }> = ({ currentUser }
 
       showToast("결재선 규칙 설정이 모두 저장되었습니다.");
       setIsDirty(false);
-      fetchRules();
+      await fetchRules();
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {

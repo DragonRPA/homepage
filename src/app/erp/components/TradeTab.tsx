@@ -183,12 +183,12 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
         : "/api/erp/trade/billings";
 
       const [prodRes, purRes, saleRes, billRes, setRes, partRes] = await Promise.all([
-        fetch("/api/erp/trade/products"),
-        fetch("/api/erp/trade/purchases"),
-        fetch(salesUrl),
-        fetch(billingsUrl),
-        fetch(`/api/erp/trade/settlement?startDate=${startDate}&endDate=${endDate}`),
-        fetch("/api/erp/partners?type=ALL")
+        fetch("/api/erp/trade/products", { cache: "no-store" }),
+        fetch("/api/erp/trade/purchases", { cache: "no-store" }),
+        fetch(salesUrl, { cache: "no-store" }),
+        fetch(billingsUrl, { cache: "no-store" }),
+        fetch(`/api/erp/trade/settlement?startDate=${startDate}&endDate=${endDate}`, { cache: "no-store" }),
+        fetch("/api/erp/partners?type=ALL", { cache: "no-store" })
       ]);
 
       const pData = await prodRes.json();
@@ -298,7 +298,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       return;
     }
     try {
-      const res = await fetch(`/api/erp/trade/sales?id=${s.id}`);
+      const res = await fetch(`/api/erp/trade/sales?id=${s.id}`, { cache: "no-store" });
       const data = await res.json();
       if (data.success && data.sale?.contractFileUrl) {
         const entry = {
@@ -350,7 +350,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       setShowAddProductModal(false);
       setSkuCode("");
       setProdName("");
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -381,7 +381,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       showToast(`구매 입고 완료 (재고 자동 반영)`);
       setShowAddPurchaseModal(false);
       setPoVendor("");
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -493,7 +493,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       setSoFileUrl("");
       setSoFileName("");
       setSoTaxSpec(createDefaultTaxSpec("{1번째 아이템} 외", 0));
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -585,7 +585,8 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
 
       showToast(`판매 계약 [${editSoSaleNo}] 수정 완료`);
       setShowEditSaleModal(false);
-      fetchData();
+      if (editSoId) delete saleFileCacheRef.current[editSoId];
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -604,7 +605,9 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       if (!res.ok || !data.success) throw new Error(data.error || "판매 계약 삭제 실패");
 
       showToast(data.message || `판매 [${s.saleNo}] 삭제 완료`);
-      fetchData();
+      delete saleFileCacheRef.current[s.id];
+      setSelectedSaleIds((prev) => prev.filter((id) => id !== s.id));
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -698,7 +701,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       showToast(`유통 판매 계약 항목 기반 청구 생성 완료`);
       setShowAddBillingModal(false);
       setSubTab("billings");
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -717,7 +720,8 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       if (!res.ok || !data.success) throw new Error(data.error || "청구 삭제 실패");
 
       showToast(data.message || "유통 청구 내역이 삭제되었습니다.");
-      fetchData();
+      setSelectedBillingIds((prev) => prev.filter((id) => id !== b.id));
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -758,8 +762,8 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       if (!res.ok || !data.success) throw new Error(data.error || "세금계산서 발행 실패");
 
       showToast(`세금계산서 [${data.invoice.invoice_no || data.invoice.invoiceNo}] 국세청 발행 완료!`);
+      await fetchData();
       if (onNavigateToTax) onNavigateToTax();
-      fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -801,7 +805,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       showToast(data.message || `${selectedSales.length}건의 유통계약이 1건의 묶음 청구로 생성되었습니다.`);
       setSelectedSaleIds([]);
       setSubTab("billings");
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -862,8 +866,8 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
 
       showToast(data.message || "선택 청구건 묶음 세금계산서 발행 완료!");
       setSelectedBillingIds([]);
+      await fetchData();
       if (onNavigateToTax) onNavigateToTax();
-      fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }

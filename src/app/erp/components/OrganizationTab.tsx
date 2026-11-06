@@ -366,8 +366,8 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
   const loadOrganizationData = async (preserveSelection = false) => {
     try {
       const [deptRes, empRes] = await Promise.all([
-        fetch("/api/erp/departments"),
-        fetch("/api/erp/employees"),
+        fetch("/api/erp/departments", { cache: "no-store" }),
+        fetch("/api/erp/employees", { cache: "no-store" }),
       ]);
       const deptData = await deptRes.json();
       const empData = await empRes.json();
@@ -589,6 +589,36 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       setUsers(savedUsers);
       setIsDirty(false);
 
+      // 선택된 부서가 임시 ID(new-dept-...)였거나 변경된 경우 실제 저장된 DB 부서 ID로 즉시 매핑
+      setSelectedDeptId((prevDeptId) => {
+        if (!prevDeptId) return prevDeptId;
+        if (savedDepts.some((d) => d.id === prevDeptId)) return prevDeptId;
+        const prevDeptObj = cleanDepts.find((d) => d.id === prevDeptId);
+        if (prevDeptObj) {
+          const matched = savedDepts.find(
+            (d) =>
+              d.name === prevDeptObj.name &&
+              String(d.parentDepartmentId || "") === String(prevDeptObj.parentDepartmentId || "")
+          ) || savedDepts.find((d) => d.name === prevDeptObj.name);
+          if (matched) return matched.id;
+        }
+        return savedDepts[0]?.id || null;
+      });
+
+      // 프로필 드로어가 열려 있는 경우 최신 DB 데이터로 동기화
+      setSelectedProfile((prevProfile) => {
+        if (!prevProfile) return null;
+        return (
+          savedUsers.find(
+            (u) =>
+              u.id === prevProfile.id ||
+              (prevProfile.employeeNo && u.employeeNo === prevProfile.employeeNo) ||
+              (prevProfile.loginId && u.loginId === prevProfile.loginId) ||
+              u.name === prevProfile.name
+          ) || prevProfile
+        );
+      });
+
       if (!silentToast) {
         showToast("조직도 및 구성원 마스터 데이터가 데이터베이스에 성공적으로 저장되었습니다.");
       }
@@ -611,7 +641,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
   };
 
   // --- Action Handlers ---
-  const handleToggleDeptFunctionalTag = (deptId: string, attrId: string) => {
+  const handleToggleDeptFunctionalTag = async (deptId: string, attrId: string) => {
     if (!canEdit) return;
     const nextDepts = departments.map((d) => {
       if (d.id !== deptId) return d;
@@ -626,7 +656,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       };
     });
     setDepartments(nextDepts);
-    setIsDirty(true);
+    await syncOrganizationBatchToDb(nextDepts, users, true);
   };
 
   const handleAddDept = (forceRoot: boolean = false) => {
@@ -764,9 +794,9 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
     updated = enforceManagerPolicies(updated, departments);
     setUsers(updated);
     setDraggedUserId(null);
-    setIsDirty(true);
+    await syncOrganizationBatchToDb(departments, updated, true);
     showToast(
-      `[${targetUser?.name || "신규직원"}] 님이 [${targetDept?.name || "선택 부서"}] 소속으로 배속되었습니다.`
+      `[${targetUser?.name || "신규직원"}] 님이 [${targetDept?.name || "선택 부서"}] 소속으로 배속 및 저장되었습니다.`
     );
   };
 
@@ -782,8 +812,8 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
     updated = enforceManagerPolicies(updated, departments);
     setUsers(updated);
     setDraggedUserId(null);
-    setIsDirty(true);
-    showToast(`[${targetUser?.name || "직원"}] 님이 미배정 인력 목록으로 이동되었습니다.`);
+    await syncOrganizationBatchToDb(departments, updated, true);
+    showToast(`[${targetUser?.name || "직원"}] 님이 미배정 인력 목록으로 이동 및 저장되었습니다.`);
   };
 
   // --- Department Inline Edit Handlers ---
@@ -794,22 +824,25 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
     setEditingDeptName(dept.name);
   };
 
-  const commitEditDept = () => {
+  const commitEditDept = async () => {
     if (!editingDeptId) return;
+    const targetId = editingDeptId;
     const trimmed = editingDeptName.trim();
+    setEditingDeptId(null);
     if (trimmed) {
-      setDepartments((prev) =>
-        prev.map((d) => (d.id === editingDeptId ? { ...d, name: trimmed, deptName: trimmed } : d))
+      const nextDepts = departments.map((d) =>
+        d.id === targetId ? { ...d, name: trimmed, deptName: trimmed } : d
       );
-      setIsDirty(true);
+      setDepartments(nextDepts);
+      await syncOrganizationBatchToDb(nextDepts, users, true);
+      showToast(`부서 [${trimmed}] 정보가 저장되었습니다.`);
     } else {
       // 이름 미입력 상태로 생성 직후 취소된 빈 신규 부서는 제거
-      const target = departments.find((d) => d.id === editingDeptId);
+      const target = departments.find((d) => d.id === targetId);
       if (target && !target.name && String(target.id).startsWith("new-dept-")) {
-        setDepartments((prev) => prev.filter((d) => d.id !== editingDeptId));
+        setDepartments((prev) => prev.filter((d) => d.id !== targetId));
       }
     }
-    setEditingDeptId(null);
   };
 
   const handleDeptKeyDown = (e: React.KeyboardEvent) => {
@@ -847,7 +880,11 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
           leaveDate: newStatus === "ACTIVE" ? "" : selectedProfile.leaveDate,
         });
       }
-      setIsDirty(true);
+      if (!String(userId).startsWith("new-user-")) {
+        await syncOrganizationBatchToDb(departments, nextUsers, true);
+      } else {
+        setIsDirty(true);
+      }
       showToast(
         `재직 상태가 [${
           newStatus === "ACTIVE" ? "재직" : newStatus === "LEAVE_OF_ABSENCE" ? "휴직" : "퇴사"
@@ -921,7 +958,15 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       const saved = await syncOrganizationBatchToDb(departments, updated, true);
       if (saved) {
         try {
-          const savedEmp = saved.users.find((u) => u.name === profileWithTier.name) || profileWithTier;
+          const savedEmp =
+            saved.users.find(
+              (u) =>
+                u.id === profileWithTier.id ||
+                (profileWithTier.employeeNo && u.employeeNo === profileWithTier.employeeNo) ||
+                (profileWithTier.loginId && u.loginId === profileWithTier.loginId)
+            ) ||
+            saved.users.filter((u) => u.name === profileWithTier.name).pop() ||
+            profileWithTier;
           if (savedEmp.id && !String(savedEmp.id).startsWith("new-user-")) {
             sessionStorage.setItem("dragonrpa_erp_selected_emp_id", String(savedEmp.id));
           } else {

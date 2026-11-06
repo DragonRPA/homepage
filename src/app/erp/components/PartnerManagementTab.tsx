@@ -297,7 +297,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   // Fetch Employees for assigning 본사 담당직원
   const fetchEmployees = async () => {
     try {
-      const res = await fetch("/api/erp/employees");
+      const res = await fetch("/api/erp/employees", { cache: "no-store" });
       const data = await res.json();
       if (data.success && Array.isArray(data.employees)) {
         setEmployees(data.employees);
@@ -309,13 +309,25 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   const fetchPartners = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/erp/partners?type=ALL");
+      const res = await fetch("/api/erp/partners?type=ALL", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "거래처 목록 조회 실패");
 
       const list: Partner[] = data.partners || [];
       setPartners(list);
       if (data.kpi) setKpi(data.kpi);
+      setSelectedPartner((prev) => {
+        if (!prev) return null;
+        const updated = list.find((p) => p.id === prev.id);
+        if (!updated) return prev;
+        const cached = filesCacheRef.current[prev.id] || {};
+        return {
+          ...updated,
+          bizCertFileUrl: updated.bizCertFileUrl ?? cached.bizCertFileUrl ?? prev.bizCertFileUrl,
+          bankCopyFileUrl: updated.bankCopyFileUrl ?? cached.bankCopyFileUrl ?? prev.bankCopyFileUrl,
+          contractFileUrl: updated.contractFileUrl ?? cached.contractFileUrl ?? prev.contractFileUrl,
+        };
+      });
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -344,7 +356,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
 
     setDocFetching(true);
     try {
-      const res = await fetch(`/api/erp/partners?id=${p.id}`);
+      const res = await fetch(`/api/erp/partners?id=${p.id}`, { cache: "no-store" });
       const data = await res.json();
       if (data.success && data.partner) {
         const loaded = {
@@ -421,7 +433,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     }
     setContactsLoading(true);
     try {
-      const res = await fetch(`/api/erp/partners/contacts?partnerId=${partnerId}`);
+      const res = await fetch(`/api/erp/partners/contacts?partnerId=${partnerId}`, { cache: "no-store" });
       const data = await res.json();
       if (data.success) {
         const list = data.contacts || [];
@@ -717,7 +729,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       }
       showToast(data.message || "거래처가 성공적으로 저장되었습니다.");
       setShowPartnerModal(false);
-      fetchPartners();
+      await fetchPartners();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -736,7 +748,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       delete contactsCacheRef.current[id];
       showToast("거래처가 삭제되었습니다.");
       if (selectedPartner?.id === id) setSelectedPartner(null);
-      fetchPartners();
+      await fetchPartners();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -806,9 +818,9 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       setShowContactModal(false);
       if (selectedPartner?.id) {
         delete contactsCacheRef.current[selectedPartner.id];
-        fetchContacts(selectedPartner.id, true);
+        await fetchContacts(selectedPartner.id, true);
       }
-      fetchPartners();
+      await fetchPartners();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -826,9 +838,9 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       showToast("담당자가 삭제되었습니다.");
       if (selectedPartner?.id) {
         delete contactsCacheRef.current[selectedPartner.id];
-        fetchContacts(selectedPartner.id, true);
+        await fetchContacts(selectedPartner.id, true);
       }
-      fetchPartners();
+      await fetchPartners();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -1366,7 +1378,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
           : prev
       );
       showToast(`[${selectedPartner.name}] 계약서(${file.name})가 저장되었습니다.`);
-      fetchPartners();
+      await fetchPartners();
     } catch (err: any) {
       showToast(err.message || "계약서 업로드 실패", "error");
     } finally {
@@ -1444,7 +1456,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
           : prev
       );
       showToast(`[${selectedPartner.name}] 계약서 파일이 삭제되었습니다.`);
-      fetchPartners();
+      await fetchPartners();
     } catch (err: any) {
       showToast(err.message || "계약서 삭제 실패", "error");
     } finally {

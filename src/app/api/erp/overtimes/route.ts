@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
 import { calculateOvertimeBreakdown } from "@/lib/erpFormat";
@@ -270,6 +271,31 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // 연동된 전자결재 요청(erp_approval_requests) 및 결재선(erp_approval_steps) 동기화
+    try {
+      const pool = getErpPool();
+      const reqRes = await pool.query(
+        `UPDATE erp_approval_requests
+         SET current_status = $1
+         WHERE target_table = 'erp_overtimes' AND target_id = $2
+         RETURNING id`,
+        [nextStatus, Number(id)]
+      );
+      if (reqRes.rows.length > 0) {
+        const reqIds = reqRes.rows.map((r: any) => Number(r.id));
+        await pool.query(
+          `UPDATE erp_approval_steps
+           SET status = $1,
+               comment = COALESCE($2, comment),
+               decided_at = NOW()
+           WHERE request_id = ANY($3::int[])`,
+          [nextStatus, memo || (nextStatus === "APPROVED" ? "관리자 승인" : "관리자 반려"), reqIds]
+        );
+      }
+    } catch (syncErr) {
+      console.warn("Overtime approval sync warning:", syncErr);
+    }
+
     return NextResponse.json({
       success: true,
       message: `초과근무가 ${nextStatus === "APPROVED" ? "승인" : "반려"} 처리되었습니다.`,
@@ -294,6 +320,26 @@ export async function DELETE(request: Request) {
     const { error } = await supabaseErp.from("erp_overtimes").delete().eq("id", id);
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // 연동된 전자결재 요청(erp_approval_requests) 및 결재선 삭제
+    try {
+      const pool = getErpPool();
+      await pool.query(
+        `DELETE FROM erp_approval_steps
+         WHERE request_id IN (
+           SELECT id FROM erp_approval_requests
+           WHERE target_table = 'erp_overtimes' AND target_id = $1
+         )`,
+        [Number(id)]
+      );
+      await pool.query(
+        `DELETE FROM erp_approval_requests
+         WHERE target_table = 'erp_overtimes' AND target_id = $1`,
+        [Number(id)]
+      );
+    } catch (syncErr) {
+      console.warn("Overtime approval delete sync warning:", syncErr);
     }
 
     return NextResponse.json({ success: true, message: "삭제되었습니다." });

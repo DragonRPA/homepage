@@ -338,13 +338,13 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const fetchData = async () => {
+  const fetchData = async (targetMonth = selectedMonth) => {
     setLoading(true);
     try {
       const [otRes, empRes, deptRes] = await Promise.all([
-        fetch(`/api/erp/overtimes?month=${selectedMonth}`),
-        fetch("/api/erp/employees"),
-        fetch("/api/erp/departments"),
+        fetch(`/api/erp/overtimes?month=${targetMonth}`, { cache: "no-store" }),
+        fetch("/api/erp/employees", { cache: "no-store" }),
+        fetch("/api/erp/departments", { cache: "no-store" }),
       ]);
       const otData = await otRes.json();
       const empData = await empRes.json();
@@ -363,7 +363,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(selectedMonth);
   }, [selectedMonth]);
 
   // Unique departments from employees + overtimes
@@ -542,7 +542,13 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
           : `초과근무 신청이 등록되었습니다 (산정 수당 ${formatErpCurrency(finalPay)})`
       );
       setOtModalOpen(false);
-      fetchData();
+      const submitMonth = otForm.otDate ? otForm.otDate.slice(0, 7) : selectedMonth;
+      if (submitMonth && submitMonth !== selectedMonth) {
+        setSelectedMonth(submitMonth);
+        await fetchData(submitMonth);
+      } else {
+        await fetchData(selectedMonth);
+      }
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -564,7 +570,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
       if (!res.ok || !data.success) throw new Error(data.error || "처리 실패");
 
       showToast(data.message || "처리되었습니다.");
-      fetchData();
+      await fetchData(selectedMonth);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -578,7 +584,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
       if (!res.ok || !data.success) throw new Error(data.error || "삭제 실패");
 
       showToast("초과근무 내역이 삭제되었습니다.");
-      fetchData();
+      await fetchData(selectedMonth);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -706,7 +712,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
 
         <div className="flex items-center gap-2">
           <button
-            onClick={fetchData}
+            onClick={() => fetchData(selectedMonth)}
             disabled={loading}
             className="p-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
             title="새로고침"

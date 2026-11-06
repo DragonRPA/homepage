@@ -152,8 +152,8 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
     setLoading(true);
     try {
       const [empRes, leaveRes] = await Promise.all([
-        fetch("/api/erp/employees"),
-        fetch("/api/erp/leaves"),
+        fetch("/api/erp/employees", { cache: "no-store" }),
+        fetch("/api/erp/leaves", { cache: "no-store" }),
       ]);
       const empData = await empRes.json();
       const leaveData = await leaveRes.json();
@@ -264,7 +264,7 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
         );
       }
       setReason("");
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -278,7 +278,7 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
       if (!res.ok || !data.success) throw new Error(data.error || "삭제 실패");
 
       showToast("연차 신청이 취소되었습니다.");
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }

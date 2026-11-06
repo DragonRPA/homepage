@@ -250,12 +250,12 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
     }));
   };
 
-  const fetchAllData = async () => {
+  const fetchAllData = async (explicitTargetContractId?: number | null) => {
     setLoading(true);
     try {
       const [cRes, eRes] = await Promise.all([
-        fetch(`/api/erp/employment-contracts?year=${yearFilter}&contractType=${typeFilter}`),
-        fetch("/api/erp/employees"),
+        fetch(`/api/erp/employment-contracts?year=${yearFilter}&contractType=${typeFilter}`, { cache: "no-store" }),
+        fetch("/api/erp/employees", { cache: "no-store" }),
       ]);
       const cData = await cRes.json();
       const eData = await eRes.json();
@@ -317,10 +317,16 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
           loadContractIntoForm(defaultTarget);
         }
       } else {
-        // 이미 초기화된 상태에서 연도/유형 필터만 변경한 경우:
-        // 현재 선택된 직원(form.employeeId 또는 form.employeeName)은 절대 초기화하지 않고 유지!
-        // 만약 기존 계약서 조회 중(selectedContractId !== null)이었다면, 필터링된 목록에 동일 사원의 해당 연도 계약서가 있을 때만 매칭
-        if (selectedContractId !== null && (form.employeeId || form.employeeName)) {
+        // 이미 초기화된 상태에서 저장 직후이거나 연도/유형 필터를 변경한 경우:
+        const targetId = explicitTargetContractId !== undefined ? explicitTargetContractId : selectedContractId;
+        if (targetId) {
+          const exactContract = loadedContracts.find((c) => c.id === targetId);
+          if (exactContract) {
+            loadContractIntoForm(exactContract);
+            return;
+          }
+        }
+        if (targetId !== null && (form.employeeId || form.employeeName)) {
           const sameEmpContract = loadedContracts.find(
             (c) =>
               (form.employeeId && String(c.employeeId) === String(form.employeeId)) ||
@@ -328,6 +334,17 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
           );
           if (sameEmpContract) {
             loadContractIntoForm(sameEmpContract);
+          }
+        } else if (explicitTargetContractId === null) {
+          if (loadedContracts.length > 0) {
+            loadContractIntoForm(loadedContracts[0]);
+          } else {
+            setSelectedContractId(null);
+            setForm((prev) => ({
+              ...prev,
+              id: 0,
+              contractNo: "",
+            }));
           }
         }
       }
@@ -647,11 +664,13 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
           setForm((prev) => ({
             ...prev,
             id: savedId,
+            employeeId: data.employeeId || data.contract?.employeeId || prev.employeeId,
             contractNo: data.contract?.contractNo || prev.contractNo,
+            registerNewEmployee: false,
           }));
         }
         setStatusMsg(customSuccessMsg || data.message || "저장되었습니다.");
-        await fetchAllData();
+        await fetchAllData(savedId);
         return true;
       } else {
         alert(data.error || "저장 실패");
@@ -867,10 +886,11 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
       });
       const data = await res.json();
       if (data.success) {
-        if (selectedContractId === id) {
+        const wasSelected = selectedContractId === id || form.id === id;
+        if (wasSelected) {
           setSelectedContractId(null);
         }
-        await fetchAllData();
+        await fetchAllData(wasSelected ? null : selectedContractId);
       }
     } catch (err) {
       console.error(err);
@@ -1027,7 +1047,7 @@ export const EmploymentContractTab: React.FC<EmploymentContractTabProps> = ({
         <div className="flex flex-wrap items-center gap-1.5 shrink-0">
           <button
             type="button"
-            onClick={fetchAllData}
+            onClick={() => fetchAllData()}
             className="p-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
             title="새로고침"
           >

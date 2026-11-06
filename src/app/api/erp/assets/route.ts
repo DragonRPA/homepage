@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 
@@ -57,7 +58,17 @@ export async function GET(request: Request) {
     query += ` ORDER BY a.asset_no ASC`;
 
     const res = await pool.query(query, params);
-    return NextResponse.json({ success: true, assets: res.rows });
+    const normalized = res.rows.map((r: any) => ({
+      ...r,
+      acquisitionDate: r.acquisitionDate ? String(r.acquisitionDate).slice(0, 10) : "",
+      acquisitionCost: Number(r.acquisitionCost || 0),
+      salvageValue: Number(r.salvageValue || 0),
+      usefulLifeYears: Number(r.usefulLifeYears || 5),
+      accumulatedDepreciation: Number(r.accumulatedDepreciation || 0),
+      bookValue: Number(r.bookValue || 0),
+      monthlyDepreciation: Number(r.monthlyDepreciation || 0),
+    }));
+    return NextResponse.json({ success: true, assets: normalized });
   } catch (error: any) {
     console.error("GET Assets Error:", error);
     return NextResponse.json({ error: "자산 대장 조회 실패: " + error.message }, { status: 500 });
@@ -248,7 +259,16 @@ export async function POST(request: Request) {
         ]
       );
 
-      const createdAssets = bulkInsertRes.rows;
+      const createdAssets = bulkInsertRes.rows.map((r: any) => ({
+        ...r,
+        acquisitionDate: r.acquisitionDate ? String(r.acquisitionDate).slice(0, 10) : "",
+        acquisitionCost: Number(r.acquisitionCost || 0),
+        salvageValue: Number(r.salvageValue || 0),
+        usefulLifeYears: Number(r.usefulLifeYears || 5),
+        accumulatedDepreciation: Number(r.accumulatedDepreciation || 0),
+        bookValue: Number(r.bookValue || 0),
+        monthlyDepreciation: Number(r.monthlyDepreciation || 0),
+      }));
 
       // 2) 일괄 이력 감사 로그 기록 (ACQUISITION + OUTBOUND 단일 쿼리)
       const logAssetIds: number[] = [];
@@ -350,29 +370,63 @@ export async function PUT(request: Request) {
     const bookVal = Math.max(salvage, cost - accumDeprec);
 
     const updateQuery = `
-      UPDATE erp_rental_assets
-      SET 
-        asset_no = COALESCE($1, asset_no),
-        serial_no = COALESCE($2, serial_no),
-        owner_type = COALESCE($3, owner_type),
-        status = COALESCE($4, status),
-        acquisition_date = COALESCE($5, acquisition_date),
-        acquisition_cost = $6,
-        salvage_value = $7,
-        useful_life_years = $8,
-        accumulated_depreciation = $9,
-        book_value = $10,
-        monthly_depreciation = $11,
-        supplier = $12,
-        renter = $13,
-        current_customer = $14,
-        current_site = $15,
-        contract_no = $16,
-        custom_spec = $17,
-        memo = $18,
-        updated_at = NOW()
-      WHERE id = $19
-      RETURNING *
+      WITH updated AS (
+        UPDATE erp_rental_assets
+        SET 
+          asset_no = COALESCE($1, asset_no),
+          serial_no = COALESCE($2, serial_no),
+          owner_type = COALESCE($3, owner_type),
+          status = COALESCE($4, status),
+          acquisition_date = COALESCE($5, acquisition_date),
+          acquisition_cost = $6,
+          salvage_value = $7,
+          useful_life_years = $8,
+          accumulated_depreciation = $9,
+          book_value = $10,
+          monthly_depreciation = $11,
+          supplier = $12,
+          renter = $13,
+          current_customer = $14,
+          current_site = $15,
+          contract_no = $16,
+          custom_spec = $17,
+          memo = $18,
+          updated_at = NOW()
+        WHERE id = $19
+        RETURNING *
+      )
+      SELECT
+        a.id,
+        a.asset_no as "assetNo",
+        a.asset_no,
+        a.rental_product_id as "rentalProductId",
+        rp.model_code as "modelCode",
+        rp.model_name as "modelName",
+        rp.category,
+        rp.manufacturer,
+        rp.spec as "modelSpec",
+        a.serial_no as "serialNo",
+        a.owner_type as "ownerType",
+        a.status,
+        a.acquisition_date as "acquisitionDate",
+        a.acquisition_cost as "acquisitionCost",
+        a.salvage_value as "salvageValue",
+        a.useful_life_years as "usefulLifeYears",
+        a.depreciation_method as "depreciationMethod",
+        a.accumulated_depreciation as "accumulatedDepreciation",
+        a.book_value as "bookValue",
+        a.monthly_depreciation as "monthlyDepreciation",
+        a.supplier,
+        a.renter,
+        a.current_customer as "currentCustomer",
+        a.current_site as "currentSite",
+        a.contract_no as "contractNo",
+        a.custom_spec as "customSpec",
+        a.memo,
+        a.created_at as "createdAt",
+        a.updated_at as "updatedAt"
+      FROM updated a
+      JOIN erp_rental_products rp ON a.rental_product_id = rp.id
     `;
 
     const res = await pool.query(updateQuery, [
@@ -397,7 +451,17 @@ export async function PUT(request: Request) {
       id
     ]);
 
-    const updatedAsset = res.rows[0];
+    const rawUpdated = res.rows[0];
+    const updatedAsset = {
+      ...rawUpdated,
+      acquisitionDate: rawUpdated.acquisitionDate ? String(rawUpdated.acquisitionDate).slice(0, 10) : "",
+      acquisitionCost: Number(rawUpdated.acquisitionCost || 0),
+      salvageValue: Number(rawUpdated.salvageValue || 0),
+      usefulLifeYears: Number(rawUpdated.usefulLifeYears || 5),
+      accumulatedDepreciation: Number(rawUpdated.accumulatedDepreciation || 0),
+      bookValue: Number(rawUpdated.bookValue || 0),
+      monthlyDepreciation: Number(rawUpdated.monthlyDepreciation || 0),
+    };
 
     // 상태 변경 시 이력 로그 무누락 기록
     if (status && status !== prevAsset.status) {
@@ -413,10 +477,10 @@ export async function PUT(request: Request) {
         VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, $6)
       `, [
         updatedAsset.id,
-        updatedAsset.asset_no,
+        updatedAsset.assetNo || updatedAsset.asset_no,
         eventType,
-        updatedAsset.current_customer || prevAsset.current_customer || "-",
-        updatedAsset.current_site || prevAsset.current_site || "-",
+        updatedAsset.currentCustomer || prevAsset.current_customer || "-",
+        updatedAsset.currentSite || prevAsset.current_site || "-",
         logMemo || `상태 변경: ${prevAsset.status} ➔ ${status}`
       ]);
     }

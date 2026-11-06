@@ -293,13 +293,13 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
     setSelectedMonth(nextYm);
   };
 
-  const fetchData = async () => {
+  const fetchData = async (targetYm = selectedMonth) => {
     setLoading(true);
     try {
       const [expRes, empRes, deptRes] = await Promise.all([
-        fetch(`/api/erp/expenses?yearMonth=${selectedMonth}`),
-        fetch("/api/erp/employees"),
-        fetch("/api/erp/departments"),
+        fetch(`/api/erp/expenses?yearMonth=${targetYm}`, { cache: "no-store" }),
+        fetch("/api/erp/employees", { cache: "no-store" }),
+        fetch("/api/erp/departments", { cache: "no-store" }),
       ]);
 
       const expData = await expRes.json();
@@ -307,7 +307,9 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
       const deptData = await deptRes.json().catch(() => ({ departments: [] }));
 
       if (expData.success) {
-        setReceipts(expData.receipts || []);
+        const list = expData.receipts || [];
+        setReceipts(list);
+        setPreviewItem((prev) => (prev ? list.find((r: ExpenseReceiptItem) => r.id === prev.id) || null : null));
       }
       if (empData.success) {
         const activeEmps = (empData.employees || []).filter((e: any) => e.status === "ACTIVE");
@@ -324,7 +326,7 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(selectedMonth);
   }, [selectedMonth]);
 
   // 기본 선택 사원 세팅
@@ -405,8 +407,9 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
       setModalOpen(false);
       if (yearMonth !== selectedMonth) {
         setSelectedMonth(yearMonth);
+        await fetchData(yearMonth);
       } else {
-        fetchData();
+        await fetchData(selectedMonth);
       }
     } catch (err: any) {
       showToast(err.message, "error");
@@ -423,6 +426,7 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
         body: JSON.stringify({
           id,
           status: newStatus,
+          approverId: currentUser?.id,
           approved_by: currentUser?.name || "부서장",
         }),
       });
@@ -430,7 +434,7 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
       if (!res.ok || !data.success) throw new Error(data.error || "결재 처리 실패");
 
       showToast(data.message || "처리되었습니다.");
-      fetchData();
+      await fetchData(selectedMonth);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -451,6 +455,7 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
         body: JSON.stringify({
           action: "APPROVE_ALL",
           yearMonth: selectedMonth,
+          approverId: currentUser?.id,
           approved_by: currentUser?.name || "관리자",
         }),
       });
@@ -458,7 +463,7 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
       if (!res.ok || !data.success) throw new Error(data.error || "일괄 승인 실패");
 
       showToast(data.message || "일괄 승인 및 급여 정산 동기화가 완료되었습니다.");
-      fetchData();
+      await fetchData(selectedMonth);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -471,8 +476,9 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "삭제 실패");
 
+      if (previewItem?.id === id) setPreviewItem(null);
       showToast("삭제 및 급여 정산 재동기화가 완료되었습니다.");
-      fetchData();
+      await fetchData(selectedMonth);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -670,7 +676,7 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
 
         <div className="flex items-center gap-1.5">
           <button
-            onClick={fetchData}
+            onClick={() => fetchData(selectedMonth)}
             disabled={loading}
             className="p-1.5 bg-[#f4efe4] hover:bg-[#ebe5d8] text-[#334155] rounded border border-[#b5a894] transition"
             title="새로고침"

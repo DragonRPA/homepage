@@ -90,10 +90,15 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/erp/products");
+      const res = await fetch("/api/erp/products", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "제품 목록 조회 실패");
-      setProducts(data.products || []);
+      const loadedProducts: ProductModel[] = data.products || [];
+      setProducts(loadedProducts);
+      setSelectedProduct((prev) => {
+        if (!prev) return null;
+        return loadedProducts.find((p) => p.id === prev.id) || prev;
+      });
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -109,7 +114,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
   const fetchMappedAssets = async (productId: number) => {
     setLoadingMappedAssets(true);
     try {
-      const res = await fetch(`/api/erp/assets?productId=${productId}`);
+      const res = await fetch(`/api/erp/assets?productId=${productId}`, { cache: "no-store" });
       const data = await res.json();
       if (res.ok && data.success) {
         setMappedAssets(data.assets || []);
@@ -249,9 +254,12 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
 
       showToast("제품 모델 정보가 수정되었습니다.");
       setIsEditingDossier(false);
-      setProducts((prev) => prev.map((p) => (p.id === selectedProduct.id ? { ...p, ...editForm } as ProductModel : p)));
-      // Update selected product state
-      setSelectedProduct((prev) => (prev ? { ...prev, ...editForm } : null));
+      if (data.product) {
+        setProducts((prev) => prev.map((p) => (p.id === selectedProduct.id ? { ...p, ...data.product } : p)));
+        setSelectedProduct((prev) => (prev ? { ...prev, ...data.product } : null));
+        setEditForm((prev) => ({ ...prev, ...data.product }));
+      }
+      await fetchProducts();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -270,6 +278,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
         setSelectedProduct(null);
       }
       setProducts((prev) => prev.filter((p) => p.id !== id));
+      await fetchProducts();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -294,11 +303,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
 
       showToast("신규 제품 모델이 등록되었습니다.");
       setShowAddModal(false);
-      if (data.product) {
-        setProducts((prev) => [...prev, data.product]);
-      } else {
-        fetchProducts();
-      }
+      await fetchProducts();
       setAddForm({
         modelCode: "",
         modelName: "",

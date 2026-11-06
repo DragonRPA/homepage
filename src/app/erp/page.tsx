@@ -248,7 +248,7 @@ export default function ErpMainPage() {
 
   const fetchRolePermissions = async () => {
     try {
-      const res = await fetch("/api/erp/permissions");
+      const res = await fetch("/api/erp/permissions", { cache: "no-store" });
       const data = await res.json();
       if (data.success && Array.isArray(data.permissions)) {
         setRolePerms(data.permissions);

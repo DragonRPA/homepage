@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { putErpPrivateObject } from "@/lib/r2ErpVault";
@@ -158,11 +159,29 @@ export async function GET(request: Request) {
     query += ` ORDER BY r.expense_date DESC, r.id DESC`;
 
     const result = await pool.query(query, params);
-    const receipts = result.rows.map((row: any) => ({
-      ...row,
-      expenseDate: String(row.expenseDate || "").slice(0, 10),
-      amount: Number(row.amount || 0),
-    }));
+    const receipts = result.rows.map((row: any) => {
+      const cleanDate = String(row.expenseDate || "").slice(0, 10);
+      const amt = Number(row.amount || 0);
+      return {
+        ...row,
+        expenseDate: cleanDate,
+        amount: amt,
+        // snake_case 호환 필드 동시 제공
+        employee_id: Number(row.employeeId),
+        employee_no: row.employeeNo || "",
+        employee_name: row.employeeName || "",
+        expense_date: cleanDate,
+        year_month: row.yearMonth || "",
+        merchant_name: row.merchantName || "",
+        payment_method: row.paymentMethod || "",
+        description: row.reason || "",
+        receipt_file_url: row.receiptFileUrl || null,
+        receipt_file_name: row.receiptFileName || null,
+        approved_by: row.approverName || (row.approverId ? String(row.approverId) : null),
+        approved_at: row.approvedAt || null,
+        created_at: row.createdAt || null,
+      };
+    });
 
     return NextResponse.json({
       success: true,
@@ -184,32 +203,23 @@ export async function POST(request: Request) {
     const pool = getErpPool();
     await ensureExpenseSchema(pool);
 
-    // 1. 영수증 파일 업로드 및 AI OCR 자동 판독 (multipart/form-data)
+    // 1. 영수증 파일 업로드 + DB 등록 또는 OCR 판독 (multipart/form-data)
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData();
       const file = formData.get("file") as File | null;
-      if (!file) {
-        return NextResponse.json({ error: "영수증 파일이 누락되었습니다." }, { status: 400 });
-      }
+      const formEmpId = formData.get("employee_id") || formData.get("employeeId");
+      const formExpenseDate = formData.get("expense_date") || formData.get("expenseDate");
+      const formYearMonth = formData.get("year_month") || formData.get("yearMonth");
+      const formCategory = formData.get("category");
+      const formPaymentMethod = formData.get("payment_method") || formData.get("paymentMethod");
+      const formMerchantName = formData.get("merchant_name") || formData.get("merchantName");
+      const formAmount = formData.get("amount");
+      const formDescription = formData.get("description") || formData.get("reason");
+      const formAutoApprove = formData.get("auto_approve") ?? formData.get("autoApprove");
+      const formApprovedBy = formData.get("approved_by") || formData.get("approverId");
 
-      const originalName = file.name || "receipt.jpg";
-      const mimeType = file.type || "image/jpeg";
-      const fileBuffer = Buffer.from(await file.arrayBuffer());
-
-      const ext = (originalName.split(".").pop() || "jpg")
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "");
-      const safeSlug = originalName
-        .replace(/\.[^.]+$/, "")
-        .replace(/[^a-zA-Z0-9가-힣_-]/g, "_")
-        .slice(0, 40);
-      const ymFolder = new Date().toISOString().slice(0, 7);
-      const objectKey = `expenses/${ymFolder}/${Date.now()}_${safeSlug}.${ext}`;
-
-      await putErpPrivateObject(objectKey, fileBuffer, mimeType);
-      const vaultUrl = `/api/erp/vault?key=${encodeURIComponent(objectKey)}`;
-
-      // 이미지 파일인 경우 AI Vision으로 가맹점명, 결제금액, 결제일자 자동 추출 시도
+      let vaultUrl: string | null = null;
+      let originalName: string | null = null;
       let parsedInfo: {
         expenseDate?: string;
         merchantName?: string;
@@ -217,54 +227,139 @@ export async function POST(request: Request) {
         category?: string;
       } = {};
 
-      if (mimeType.startsWith("image/") && fileBuffer.length < 4 * 1024 * 1024) {
-        try {
-          const base64Img = fileBuffer.toString("base64");
-          const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${GROQ_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "meta-llama/llama-4-scout-17b-16e-instruct",
-              temperature: 0.1,
-              response_format: { type: "json_object" },
-              messages: [
-                {
-                  role: "user",
-                  content: [
-                    {
-                      type: "text",
-                      text: `다음 영수증 이미지에서 결제일자(YYYY-MM-DD), 가맹점명(상호), 총 결제금액(숫자만), 경비구분(식대·회식비 / 유류비·주차·통행료 / 출장·교통비 / 소모품·현장자재 / 접대·업무추진비 / 기타 업무경비 중 택1)을 JSON으로 추출하세요. 형식: {"expenseDate":"YYYY-MM-DD","merchantName":"상호명","amount":15000,"category":"식대·회식비"}`,
-                    },
-                    {
-                      type: "image_url",
-                      image_url: {
-                        url: `data:${mimeType};base64,${base64Img}`,
+      if (file && file.size > 0) {
+        originalName = file.name || "receipt.jpg";
+        const mimeType = file.type || "image/jpeg";
+        const fileBuffer = Buffer.from(await file.arrayBuffer());
+
+        const ext = (originalName.split(".").pop() || "jpg")
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "");
+        const safeSlug = originalName
+          .replace(/\.[^.]+$/, "")
+          .replace(/[^a-zA-Z0-9가-힣_-]/g, "_")
+          .slice(0, 40);
+        const ymFolder = new Date().toISOString().slice(0, 7);
+        const objectKey = `expenses/${ymFolder}/${Date.now()}_${safeSlug}.${ext}`;
+
+        await putErpPrivateObject(objectKey, fileBuffer, mimeType);
+        vaultUrl = `/api/erp/vault?key=${encodeURIComponent(objectKey)}`;
+
+        // 이미지 파일인 경우 AI Vision으로 가맹점명, 결제금액, 결제일자 자동 추출 시도
+        if (mimeType.startsWith("image/") && fileBuffer.length < 4 * 1024 * 1024) {
+          try {
+            const base64Img = fileBuffer.toString("base64");
+            const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${GROQ_API_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "meta-llama/llama-4-scout-17b-16e-instruct",
+                temperature: 0.1,
+                response_format: { type: "json_object" },
+                messages: [
+                  {
+                    role: "user",
+                    content: [
+                      {
+                        type: "text",
+                        text: `다음 영수증 이미지에서 결제일자(YYYY-MM-DD), 가맹점명(상호), 총 결제금액(숫자만), 경비구분(식대·회식비 / 유류비·주차·통행료 / 출장·교통비 / 소모품·현장자재 / 접대·업무추진비 / 기타 업무경비 중 택1)을 JSON으로 추출하세요. 형식: {"expenseDate":"YYYY-MM-DD","merchantName":"상호명","amount":15000,"category":"식대·회식비"}`,
                       },
-                    },
-                  ],
-                },
-              ],
-            }),
-          });
-          if (aiRes.ok) {
-            const aiData = await aiRes.json();
-            const rawJson = aiData.choices?.[0]?.message?.content;
-            if (rawJson) {
-              parsedInfo = JSON.parse(rawJson);
+                      {
+                        type: "image_url",
+                        image_url: {
+                          url: `data:${mimeType};base64,${base64Img}`,
+                        },
+                      },
+                    ],
+                  },
+                ],
+              }),
+            });
+            if (aiRes.ok) {
+              const aiData = await aiRes.json();
+              const rawJson = aiData.choices?.[0]?.message?.content;
+              if (rawJson) {
+                parsedInfo = JSON.parse(rawJson);
+              }
             }
+          } catch (ocrErr) {
+            console.warn("[Expense OCR Warning]:", ocrErr);
           }
-        } catch (ocrErr) {
-          console.warn("[Expense OCR Warning]:", ocrErr);
         }
       }
 
+      // 파일만 단독 업로드(OCR 미리보기 용도)한 경우
+      if (!formEmpId) {
+        if (!file) {
+          return NextResponse.json({ error: "영수증 파일이 누락되었습니다." }, { status: 400 });
+        }
+        return NextResponse.json({
+          success: true,
+          receiptFileUrl: vaultUrl,
+          receiptFileName: originalName,
+          parsed: parsedInfo,
+        });
+      }
+
+      // 폼 데이터와 함께 제출된 경우 DB에 즉시 INSERT
+      const resolvedDate = String(formExpenseDate || parsedInfo.expenseDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+      const resolvedYm =
+        formYearMonth && /^\d{4}-\d{2}$/.test(String(formYearMonth))
+          ? String(formYearMonth)
+          : resolvedDate.slice(0, 7);
+      const resolvedCategory = String(formCategory || parsedInfo.category || "식대·회식비").trim();
+      const resolvedMerchant = String(formMerchantName || parsedInfo.merchantName || "").trim();
+      const resolvedAmount = Number(formAmount || parsedInfo.amount || 0);
+      const resolvedPaymentMethod = String(formPaymentMethod || "개인카드").trim();
+      const resolvedReason = String(formDescription || "").trim();
+      const isAutoApprove = String(formAutoApprove) === "true" || formAutoApprove === "1";
+      const status = isAutoApprove ? "APPROVED" : "PENDING";
+
+      let resolvedApproverId: number | null = null;
+      if (isAutoApprove) {
+        const parsedApprover = Number(formApprovedBy);
+        resolvedApproverId = !isNaN(parsedApprover) && parsedApprover > 0 ? parsedApprover : Number(formEmpId);
+      }
+
+      const insertRes = await pool.query(
+        `INSERT INTO erp_expense_receipts (
+          employee_id, expense_date, year_month, category, merchant_name,
+          amount, payment_method, reason, receipt_file_url, receipt_file_name,
+          status, approver_id, approved_at, memo, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, $8, $9, $10,
+          $11, $12, $13, $14, NOW()
+        ) RETURNING *`,
+        [
+          Number(formEmpId),
+          resolvedDate,
+          resolvedYm,
+          resolvedCategory,
+          resolvedMerchant,
+          resolvedAmount,
+          resolvedPaymentMethod,
+          resolvedReason,
+          vaultUrl,
+          originalName,
+          status,
+          resolvedApproverId,
+          isAutoApprove ? new Date().toISOString() : null,
+          isAutoApprove ? "등록 즉시 승인 (급여정산 반영)" : null,
+        ]
+      );
+
+      await syncPayrollPersonalExpense(pool, resolvedYm, Number(formEmpId));
+
       return NextResponse.json({
         success: true,
-        receiptFileUrl: vaultUrl,
-        receiptFileName: originalName,
+        message: isAutoApprove
+          ? `개인경비 영수증이 등록·승인되어 [${resolvedYm}] 급여 정산에 즉시 반영되었습니다.`
+          : `개인경비 영수증이 등록되었습니다.`,
+        receipt: insertRes.rows[0],
         parsed: parsedInfo,
       });
     }
@@ -347,29 +442,70 @@ export async function POST(request: Request) {
   }
 }
 
-// PATCH: 개인경비 영수증 승인 / 반려 처리
+// PATCH: 개인경비 영수증 승인 / 반려 처리 (단건 및 일괄 승인 지원)
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, action, approverId } = body;
-
-    if (!id || !action) {
-      return NextResponse.json({ error: "영수증 ID와 처리 액션이 필요합니다." }, { status: 400 });
-    }
+    const { id, action, status, approverId, approved_by, yearMonth } = body;
 
     const pool = getErpPool();
     await ensureExpenseSchema(pool);
 
-    const nextStatus = action === "APPROVE" ? "APPROVED" : "REJECTED";
+    const resolvedApproverId =
+      approverId && !isNaN(Number(approverId)) ? Number(approverId) : null;
+
+    // 1) 당월 대기건 일괄 승인 (APPROVE_ALL)
+    if (action === "APPROVE_ALL") {
+      if (!yearMonth) {
+        return NextResponse.json({ error: "일괄 승인할 귀속연월이 필요합니다." }, { status: 400 });
+      }
+      const batchRes = await pool.query(
+        `UPDATE erp_expense_receipts
+         SET status = 'APPROVED',
+             approver_id = COALESCE($1, approver_id),
+             approved_at = NOW(),
+             updated_at = NOW()
+         WHERE year_month = $2 AND status = 'PENDING'
+         RETURNING id, year_month, employee_id`,
+        [resolvedApproverId, String(yearMonth)]
+      );
+
+      const empIds = Array.from(new Set(batchRes.rows.map((r: any) => Number(r.employee_id))));
+      for (const empId of empIds) {
+        await syncPayrollPersonalExpense(pool, String(yearMonth), empId);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `[${yearMonth}] 대기 중인 영수증 ${batchRes.rows.length}건이 일괄 승인되어 급여 정산에 반영되었습니다.`,
+        count: batchRes.rows.length,
+      });
+    }
+
+    // 2) 단건 승인 / 반려 처리
+    const effectiveAction =
+      action || (status === "APPROVED" ? "APPROVE" : status === "REJECTED" ? "REJECT" : null);
+
+    if (!id || !effectiveAction) {
+      return NextResponse.json({ error: "영수증 ID와 처리 액션이 필요합니다." }, { status: 400 });
+    }
+
+    const nextStatus = effectiveAction === "APPROVE" ? "APPROVED" : "REJECTED";
     const updateRes = await pool.query(
       `UPDATE erp_expense_receipts
        SET status = $1,
-           approver_id = $2,
+           approver_id = COALESCE($2, approver_id),
            approved_at = NOW(),
+           memo = COALESCE($3, memo),
            updated_at = NOW()
-       WHERE id = $3
+       WHERE id = $4
        RETURNING *`,
-      [nextStatus, approverId ? Number(approverId) : null, Number(id)]
+      [
+        nextStatus,
+        resolvedApproverId,
+        approved_by ? `결재자: ${approved_by}` : null,
+        Number(id),
+      ]
     );
 
     if (updateRes.rows.length === 0) {

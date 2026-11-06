@@ -101,7 +101,7 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/erp/inout?mode=INBOUND");
+      const res = await fetch("/api/erp/inout?mode=INBOUND", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || "입고 데이터 조회 실패");
@@ -267,6 +267,7 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
       setSelectedAssetId(null);
       setMemo("");
       setActiveView("INBOUND_LOGS");
+      await fetchData();
     } catch (err: any) {
       showFeedback(err.message, "error");
     } finally {

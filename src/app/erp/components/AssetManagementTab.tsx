@@ -118,15 +118,20 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
     setLoading(true);
     try {
       const [assetRes, prodRes] = await Promise.all([
-        fetch("/api/erp/assets"),
-        fetch("/api/erp/products")
+        fetch("/api/erp/assets", { cache: "no-store" }),
+        fetch("/api/erp/products", { cache: "no-store" })
       ]);
 
       const assetData = await assetRes.json();
       const prodData = await prodRes.json();
 
       if (assetData.success) {
-        setAssets(assetData.assets || []);
+        const loadedAssets: AssetRecord[] = assetData.assets || [];
+        setAssets(loadedAssets);
+        setSelectedAsset((prev) => {
+          if (!prev) return null;
+          return loadedAssets.find((a) => a.id === prev.id) || prev;
+        });
       }
       if (prodData.success) {
         setProducts(prodData.products || []);
@@ -149,7 +154,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   const fetchAssetLogs = async (assetNo: string, assetId: number) => {
     setLoadingLogs(true);
     try {
-      const res = await fetch(`/api/erp/assets/logs?assetNo=${encodeURIComponent(assetNo)}&assetId=${assetId}`);
+      const res = await fetch(`/api/erp/assets/logs?assetNo=${encodeURIComponent(assetNo)}&assetId=${assetId}`, { cache: "no-store" });
       const data = await res.json();
       if (res.ok && data.success) {
         setAssetLogs(data.logs || []);
@@ -373,9 +378,12 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
 
       showToast("자산 정보 및 상태가 성공적으로 갱신되었습니다.");
       setIsEditingDossier(false);
-      fetchData();
-      setSelectedAsset((prev) => (prev ? { ...prev, ...data.asset } : null));
-      fetchAssetLogs(selectedAsset.assetNo, selectedAsset.id);
+      if (data.asset) {
+        setSelectedAsset((prev) => (prev ? { ...prev, ...data.asset } : null));
+        setEditForm((prev) => ({ ...prev, ...data.asset }));
+      }
+      await fetchData();
+      await fetchAssetLogs(selectedAsset.assetNo, selectedAsset.id);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -403,7 +411,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
 
       showToast("정비 및 관리 이력이 기록되었습니다.");
       setNewLogMemo("");
-      fetchAssetLogs(selectedAsset.assetNo, selectedAsset.id);
+      await fetchAssetLogs(selectedAsset.assetNo, selectedAsset.id);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -420,6 +428,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
       showToast("자산이 삭제되었습니다.");
       if (selectedAsset?.id === id) setSelectedAsset(null);
       setAssets((prev) => prev.filter((a) => a.id !== id));
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -482,11 +491,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
           : `자산 [${firstNo}]이(가) 신규 취득 등록되었습니다.`
       );
       setShowAddModal(false);
-      if (createdList.length > 0 && createdList[0]?.assetNo) {
-        setAssets((prev) => [...prev, ...createdList]);
-      } else {
-        fetchData();
-      }
+      await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
     }

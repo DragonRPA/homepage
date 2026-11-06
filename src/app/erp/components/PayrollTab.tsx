@@ -179,10 +179,10 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     return sortErpItems(records, sortKey, sortDir);
   }, [records, sortKey, sortDir]);
 
-  const fetchPayroll = async () => {
+  const fetchPayroll = async (targetMonth = selectedMonth) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/erp/payroll?yearMonth=${selectedMonth}`);
+      const res = await fetch(`/api/erp/payroll?yearMonth=${targetMonth}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "급여 대장 조회 실패");
 
@@ -205,7 +205,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   };
 
   useEffect(() => {
-    fetchPayroll();
+    fetchPayroll(selectedMonth);
   }, [selectedMonth]);
 
   // 임직원 용역 계약금액 단독 인라인 저장
@@ -226,7 +226,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       if (!res.ok || !data.success) throw new Error(data.error || "저장 실패");
 
       showToast("용역 계약금액이 저장되었습니다.");
-      fetchPayroll();
+      await fetchPayroll(selectedMonth);
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -248,7 +248,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       if (!res.ok || !data.success) throw new Error(data.error || "계산 실패");
 
       showToast(data.message || "급여 계산 완료");
-      fetchPayroll();
+      await fetchPayroll(selectedMonth);
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -274,7 +274,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       if (!res.ok || !data.success) throw new Error(data.error || "상태 변경 실패");
 
       showToast(data.message || "상태가 변경되었습니다.");
-      fetchPayroll();
+      await fetchPayroll(selectedMonth);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -302,7 +302,8 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
       showToast("급여 정보가 갱신되었습니다.");
       setEditModalOpen(false);
-      fetchPayroll();
+      setEditingRecord(null);
+      await fetchPayroll(selectedMonth);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -380,11 +381,11 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       setOcrResult(null);
       setOcrFile(null);
 
-      if (ocrResult.yearMonth) {
-        setSelectedMonth(ocrResult.yearMonth);
-      } else {
-        fetchPayroll();
+      const targetYm = ocrResult.yearMonth || selectedMonth;
+      if (targetYm !== selectedMonth) {
+        setSelectedMonth(targetYm);
       }
+      await fetchPayroll(targetYm);
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -530,7 +531,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
         <div className="flex flex-wrap items-center gap-1.5">
           <button
-            onClick={fetchPayroll}
+            onClick={() => fetchPayroll(selectedMonth)}
             disabled={loading}
             className="p-1.5 bg-[#f4efe4] hover:bg-[#ebe5d8] text-[#334155] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700"
             title="새로고침"

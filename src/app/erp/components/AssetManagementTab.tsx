@@ -301,11 +301,13 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
         availableQty: 0,
         rentedQty: 0,
       };
-      existing.totalQty += 1;
-      if (a.status === "AVAILABLE") {
-        existing.availableQty += 1;
-      } else if (a.status === "RENTED") {
-        existing.rentedQty += 1;
+      if (a.status !== "DISPOSED") {
+        existing.totalQty += 1;
+        if (a.status === "AVAILABLE") {
+          existing.availableQty += 1;
+        } else if (a.status === "RENTED") {
+          existing.rentedQty += 1;
+        }
       }
       map.set(k, existing);
     }
@@ -335,9 +337,10 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
     return { totalQty, availableQty, rentedQty };
   }, [modelSummaryRows]);
 
-  // KPI Metrics (단일 패스 계산)
+  // KPI Metrics (단일 패스 계산 - 폐기 자산은 현 가동 보유수량에서 제외)
   const kpiStats = useMemo(() => {
-    const totalCount = assets.length;
+    const activeAssets = assets.filter((a) => a.status !== "DISPOSED");
+    const totalCount = activeAssets.length;
     let ownedCount = 0;
     let rentedCount = 0;
     let rentedOpCount = 0;
@@ -345,7 +348,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
     let repairingCount = 0;
     let totalBookValue = 0;
 
-    for (const a of assets) {
+    for (const a of activeAssets) {
       if (a.ownerType === "OWNED") {
         ownedCount++;
         totalBookValue += a.bookValue || 0;

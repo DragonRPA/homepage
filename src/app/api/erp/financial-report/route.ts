@@ -39,14 +39,17 @@ function isCapitalizedAssetPurchaseInvoice(
   // 1) 주식회사 삼원아이엔지 (65인치 TV 4대, PX260309-581912)
   // 2) 주식회사 진진씨앤씨 (한글과컴퓨터 한글 ALA + 한컴어시스턴트 연간계약 7카피, PX260311-529669)
   // 3) 주식회사에이브이랜드 (EPSON EB-FH08 프로젝터 1대, PX250801-415385)
+  // 4) 주식회사 키타드에스이 (55인치 TV 10대, PX241120-587365)
   if (/삼원아이엔지/.test(c) && /65인치/.test(text)) return true;
   if (/진진씨앤씨/.test(c) && /한글과컴퓨터|한컴어시스턴트/.test(text)) return true;
   if (/에이브이랜드/.test(c) && /영상기기|EB-FH08/.test(text)) return true;
+  if (/키타드에스이/.test(c) && /55인치/.test(text)) return true;
   if (
     invoiceNo &&
     (invoiceNo === "PX260309-581912" ||
       invoiceNo === "PX260311-529669" ||
-      invoiceNo === "PX250801-415385")
+      invoiceNo === "PX250801-415385" ||
+      invoiceNo === "PX241120-587365")
   ) {
     return true;
   }
@@ -60,12 +63,19 @@ function getPartialCapitalizedInvoiceSupply(
   supplyAmount?: number
 ): number {
   const c = (customerName || "").trim();
-  // 주식회사 엠디케이팩토리 PX250904-e4wcph (총 공급가 2,640,000원 중 RAM-001 40개 @ 33,000원 = 1,320,000원 자산화)
+  // 1) 주식회사 엠디케이팩토리 PX250904-e4wcph (총 공급가 2,640,000원 중 RAM-001 40개 @ 33,000원 = 1,320,000원 + RAM-002 10개 @ 33,000원 = 330,000원 => 합계 1,650,000원 자산화)
   if (
     invoiceNo === "PX250904-e4wcph" ||
     (/엠디케이팩토리/.test(c) && /컴퓨터 및 주변기기/.test(itemName || "") && Number(supplyAmount || 0) === 2640000)
   ) {
-    return 1320000;
+    return 1650000;
+  }
+  // 2) 주식회사 엠디케이팩토리 PX250904-jt555a (총 공급가 1,440,000원 중 SSD-001 3개 @ 36,000원 = 108,000원 자산화)
+  if (
+    invoiceNo === "PX250904-jt555a" ||
+    (/엠디케이팩토리/.test(c) && /컴퓨터 및 주변기기/.test(itemName || "") && Number(supplyAmount || 0) === 1440000)
+  ) {
+    return 108000;
   }
   return 0;
 }
@@ -91,13 +101,23 @@ function computeAssetMonthlyDeprecForYm(asset: any, ym: string): number {
   const acqYm = String(asset.acquisition_date).slice(0, 7);
   if (ym < acqYm) return 0;
 
+  // 파손/폐기(DISPOSED) 자산은 폐기월(disposed_date의 YYYY-MM)부터는 정기 감가상각을 중단하고 폐기손실로 일시 인식
+  const dispYm = asset.disposed_date ? String(asset.disposed_date).slice(0, 7) : "";
+  if (dispYm && ym >= dispYm) return 0;
+
   const [acqY, acqM] = acqYm.split("-").map(Number);
   const [curY, curM] = ym.split("-").map(Number);
   const monthIdx = (curY - acqY) * 12 + (curM - acqM); // 취득월 = 0번째 상각월 (취득월 포함 월할상각)
+  const monthlyDep = Number(asset.monthly_depreciation || 0) || Math.round(depAmount / (lifeYears * 12));
+
+  // 1개월 전액 상각 자산 (monthly_depreciation >= depAmount) 처리
+  if (monthlyDep >= depAmount) {
+    return monthIdx === 0 ? depAmount : 0;
+  }
+
   const totalMonths = lifeYears * 12;
   if (monthIdx < 0 || monthIdx >= totalMonths) return 0;
 
-  const monthlyDep = Number(asset.monthly_depreciation || 0) || Math.round(depAmount / totalMonths);
   if (monthIdx === totalMonths - 1) {
     // 마지막 상각월에는 단수차이 보정하여 잔존가치까지 정확히 상각
     const prevAccum = Math.min(depAmount, monthlyDep * (totalMonths - 1));
@@ -105,6 +125,27 @@ function computeAssetMonthlyDeprecForYm(asset: any, ym: string): number {
   }
   const prevAccum = Math.min(depAmount, monthlyDep * monthIdx);
   return Math.max(0, Math.min(monthlyDep, depAmount - prevAccum));
+}
+
+function computeAssetDisposalLossForYm(asset: any, ym: string): number {
+  if (!asset.disposed_date) return 0;
+  const dispYm = String(asset.disposed_date).slice(0, 7);
+  if (dispYm !== ym) return 0;
+
+  const cost = Number(asset.acquisition_cost || 0);
+  const salvage = Number(asset.salvage_value || 0);
+  const lifeYears = Math.max(1, Number(asset.useful_life_years || 4));
+  const depAmount = Math.max(0, cost - salvage);
+  if (depAmount <= 0 || !asset.acquisition_date) return 0;
+
+  const acqYm = String(asset.acquisition_date).slice(0, 7);
+  const [acqY, acqM] = acqYm.split("-").map(Number);
+  const [dispY, dispM] = dispYm.split("-").map(Number);
+  // 취득월부터 파손 전월까지 상각 개월수
+  const monthsBeforeDisposal = Math.max(0, (dispY - acqY) * 12 + (dispM - acqM));
+  const monthlyDep = Number(asset.monthly_depreciation || 0) || Math.round(depAmount / (lifeYears * 12));
+  const accumBeforeDisposal = Math.min(depAmount, monthlyDep * monthsBeforeDisposal);
+  return Math.max(0, cost - accumBeforeDisposal);
 }
 
 function computeAssetAccumDeprecAsOf(asset: any, cutoffDate: string): number {
@@ -117,14 +158,21 @@ function computeAssetAccumDeprecAsOf(asset: any, cutoffDate: string): number {
   const acqDateStr = String(asset.acquisition_date).slice(0, 10);
   if (cutoffDate < acqDateStr) return 0;
 
+  // 기준일 이전에 파손/폐기된 자산은 (폐기전 상각누계 + 폐기손실 = 취득원가 전액)이 비용 반영 완료됨
+  if (asset.disposed_date && String(asset.disposed_date).slice(0, 10) <= cutoffDate) {
+    return cost;
+  }
+
   const acqYm = acqDateStr.slice(0, 7);
   const cutYm = cutoffDate.slice(0, 7);
   const [acqY, acqM] = acqYm.split("-").map(Number);
   const [cutY, cutM] = cutYm.split("-").map(Number);
+  const monthlyDep = Number(asset.monthly_depreciation || 0) || Math.round(depAmount / (lifeYears * 12));
+  if (monthlyDep >= depAmount) return depAmount;
+
   const monthsCount = Math.min(lifeYears * 12, Math.max(0, (cutY - acqY) * 12 + (cutM - acqM) + 1));
   const totalMonths = lifeYears * 12;
   if (monthsCount >= totalMonths) return depAmount;
-  const monthlyDep = Number(asset.monthly_depreciation || 0) || Math.round(depAmount / totalMonths);
   return Math.min(depAmount, monthlyDep * monthsCount);
 }
 
@@ -725,7 +773,9 @@ export async function GET(request: Request) {
                a.rental_product_id,
                rp.model_code,
                rp.model_name,
+               a.status,
                a.acquisition_date::text AS acquisition_date,
+               a.disposed_date::text AS disposed_date,
                COALESCE(a.acquisition_cost, 0)::numeric AS acquisition_cost,
                COALESCE(a.salvage_value, 0)::numeric AS salvage_value,
                COALESCE(a.useful_life_years, 4)::int AS useful_life_years,
@@ -748,6 +798,10 @@ export async function GET(request: Request) {
     let tangibleAssets = 0;
     let accumDepreciation = 0;
     for (const ast of activeRentalAssets) {
+      // 기준일(endCutoff) 이전에 이미 파손/폐기 완료된 자산은 기말 재무상태표(BS) 총유형자산 및 감가상각누계액에서 모두 제각(제거)
+      if (ast.disposed_date && String(ast.disposed_date).slice(0, 10) <= endCutoff) {
+        continue;
+      }
       tangibleAssets += Number(ast.acquisition_cost || 0);
       accumDepreciation += computeAssetAccumDeprecAsOf(ast, endCutoff);
     }
@@ -845,7 +899,7 @@ export async function GET(request: Request) {
             majorAccount: "NON_OP",
             subAccount: "임대자산취득(자산화)",
             counterparty: row.customer_name || "-",
-            description: `${row.item_name || row.memo || "매입 세금계산서"} (RAM-001 40개 자산화분) [임대자산 자산화 → 월별 감가상각 반영]`,
+            description: `${row.item_name || row.memo || "매입 세금계산서"} (임대자산 자산화분) [임대자산 자산화 → 월별 감가상각 반영]`,
             supplyAmount: partialCapSupply,
             vatAmount: capVat,
             totalAmount: capTotal,
@@ -926,19 +980,26 @@ export async function GET(request: Request) {
           cfPurchaseOutflow += 660000;
           cfInvestingOutflow += 2000000;
         } else if (
-          /삼원아이엔지|진진씨앤씨|에이브이랜드/.test(combined) ||
+          /삼원아이엔지|진진씨앤씨|에이브이랜드|키타드에스이/.test(combined) ||
           row.matched_id === "PX260309-581912" ||
           row.matched_id === "PX260311-529669" ||
           row.matched_id === "PX250801-415385" ||
+          row.matched_id === "PX241120-587365" ||
           row.matched_id === "101" ||
           row.matched_id === "99" ||
-          row.matched_id === "151"
+          row.matched_id === "151" ||
+          row.matched_id === "56"
         ) {
-          // 임대용 자산 취득(65인치 TV, 한글 라이선스, EB-FH08 프로젝터) 대금 지급은 투자활동 현금유출로 분류
+          // 임대용 자산 취득(65인치 TV, 한글 라이선스, EB-FH08 프로젝터, 55인치 TV 10대) 대금 지급은 투자활동 현금유출로 분류
           cfInvestingOutflow += wAmt;
         } else if (row.matched_id === "PX250904-e4wcph" || row.matched_id === "137" || Number(row.id) === 259) {
-          // 엠디케이팩토리 2025-09-08 이체분 중 RAM-001 40개 자산화분(공급가 1,320,000 + 부가세 132,000 = 1,452,000원)은 투자활동 현금유출
-          const capPortion = Math.min(wAmt, 1452000);
+          // 엠디케이팩토리 2025-09-08 이체분 중 RAM-001(40개) + RAM-002(10개) 자산화분(공급가 1,650,000 + 부가세 165,000 = 1,815,000원)은 투자활동 현금유출
+          const capPortion = Math.min(wAmt, 1815000);
+          cfInvestingOutflow += capPortion;
+          cfPurchaseOutflow += Math.max(0, wAmt - capPortion);
+        } else if (row.matched_id === "PX250904-jt555a" || row.matched_id === "138" || Number(row.id) === 247) {
+          // 엠디케이팩토리 2025-09-10 이체분 중 SSD-001(3개) 자산화분(공급가 108,000 + 부가세 10,800 = 118,800원)은 투자활동 현금유출
+          const capPortion = Math.min(wAmt, 118800);
           cfInvestingOutflow += capPortion;
           cfPurchaseOutflow += Math.max(0, wAmt - capPortion);
         } else {
@@ -1110,6 +1171,28 @@ export async function GET(request: Request) {
           totalAmount: grp.depSum,
           status: "상각계상(비현금)",
           refNo: grp.firstNo,
+        });
+      }
+
+      // 파손/폐기(DISPOSED) 자산의 폐기월 잔여 미상각 장부가액 일시 손실 처리
+      for (const ast of activeRentalAssets) {
+        const lossAmt = computeAssetDisposalLossForYm(ast, ym);
+        if (lossAmt <= 0) continue;
+        details.push({
+          id: `DISP-LOSS-${ym}-${ast.asset_no}`,
+          source: "DEPRECIATION",
+          entityType: "CORP",
+          yearMonth: ym,
+          date: String(ast.disposed_date || `${ym}-28`).slice(0, 10),
+          majorAccount: "COGS",
+          subAccount: "임대자산 감가상각비",
+          counterparty: ast.supplier || "자사보유",
+          description: `[자산파손·폐기손실] ${ast.model_name || ast.model_code || "임대자산"} ${ast.asset_no} (파손시점 미상각 잔여장부가 일시 비용 반영)`,
+          supplyAmount: lossAmt,
+          vatAmount: 0,
+          totalAmount: lossAmt,
+          status: "파손폐기손실(비현금)",
+          refNo: ast.asset_no,
         });
       }
     }

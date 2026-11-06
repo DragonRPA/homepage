@@ -172,6 +172,14 @@ export const STANDARD_ACCOUNT_SUBJECTS: StandardAccountSubject[] = [
     sign: 1,
   },
   {
+    code: "WTH_RETIREMENT_PENSION",
+    label: "퇴직연금부담금(푸른씨앗·퇴직급여)",
+    direction: "WITHDRAWAL",
+    majorAccount: "PAYROLL",
+    subAccount: "퇴직급여·정산",
+    sign: 1,
+  },
+  {
     code: "WTH_PAYROLL_DAILY",
     label: "일용직·단기노무비",
     direction: "WITHDRAWAL",
@@ -282,7 +290,10 @@ export function resolveExplicitAccountSubject(
   if (/일용|아르바이트|노무/.test(label)) {
     return { majorAccount: "PAYROLL", subAccount: "일용직급여", sign: isDeposit ? -1 : 1 };
   }
-  if (/급여|상여|퇴직/.test(label)) {
+  if (/퇴직|푸른씨앗/.test(label)) {
+    return { majorAccount: "PAYROLL", subAccount: "퇴직급여·정산", sign: isDeposit ? -1 : 1 };
+  }
+  if (/급여|상여/.test(label)) {
     return { majorAccount: "PAYROLL", subAccount: "임직원급여·수당", sign: isDeposit ? -1 : 1 };
   }
   if (/상품|자재|원재료|매입원가/.test(label)) {
@@ -357,6 +368,9 @@ export function recommendAccountSubjectForTx(row: any): string | null {
   }
 
   if (wAmt > 0) {
+    if (/퇴직연금|푸른씨앗|중소기업퇴직|퇴직급여/.test(combined)) {
+      return "퇴직연금부담금(푸른씨앗·퇴직급여)";
+    }
     if (/국민연금|국민건강|건강보험|고용보험|산재보험|국민건강보험공단/.test(combined)) {
       return "4대보험료(건강·연금·고용·산재)";
     }

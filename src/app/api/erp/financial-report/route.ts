@@ -248,7 +248,13 @@ function classifyBankTxAccount(row: any): {
     return null;
   }
 
-  // 3. 4대보험 (국민연금, 국민건강, 고용보험, 산재보험, 국민건강보험공단)
+  // 3. 4대보험 (국민연금, 국민건강, 고용보험, 산재보험, 국민건강보험공단) 및 퇴직연금(중소기업퇴직연금기금 푸른씨앗 등)
+  if (
+    wAmt > 0 &&
+    (/퇴직연금|푸른씨앗|중소기업퇴직|퇴직급여/.test(combined))
+  ) {
+    return { majorAccount: "PAYROLL", subAccount: "퇴직급여·정산", sign: 1 };
+  }
   if (
     wAmt > 0 &&
     (/국민연금|국민건강|건강보험|고용보험|산재보험/.test(combined) ||
@@ -722,144 +728,6 @@ export async function GET(request: Request) {
         totalAmount: signedAmt,
         status: row.is_matched ? `매칭완료 (${row.matched_id || row.matched_type})` : "통장집행",
         refNo: row.matched_id || `${row.tx_channel || "통장"}-${row.id}`,
-      });
-    }
-
-    // 4-1. 상품매입(erp_trade_purchases) 및 상품판매(erp_trade_sales) 조회 및 적재 (세금계산서/통장 미반영분 자동 연동)
-    const tradePurParams: any[] = [];
-    let tradePurWhere = `WHERE tp.status != 'CANCELLED'`;
-    if (year !== "ALL") {
-      tradePurParams.push(`${year}-%`);
-      tradePurWhere += ` AND TO_CHAR(tp.purchase_date AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') LIKE $${tradePurParams.length}`;
-    }
-    if (entityType !== "ALL") {
-      tradePurParams.push(entityType);
-      tradePurWhere += ` AND COALESCE(tp.entity_type, 'CORP') = $${tradePurParams.length}`;
-    }
-
-    const tradePurRes = await pool
-      .query(
-        `SELECT tp.id,
-                tp.purchase_no,
-                COALESCE(tp.entity_type, 'CORP') AS entity_type,
-                TO_CHAR(tp.purchase_date AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS purchase_date,
-                tp.vendor_name,
-                tp.qty,
-                COALESCE(tp.unit_cost, 0)::numeric AS unit_cost,
-                COALESCE(tp.total_amount, 0)::numeric AS supply_amount,
-                tp.status,
-                tp.memo,
-                p.name AS product_name
-         FROM erp_trade_purchases tp
-         LEFT JOIN erp_trade_products p ON p.id = tp.product_id
-         ${tradePurWhere}
-         ORDER BY tp.purchase_date ASC, tp.id ASC`,
-        tradePurParams
-      )
-      .catch(() => ({ rows: [] as any[] }));
-
-    for (const row of tradePurRes.rows) {
-      const pDate = String(row.purchase_date);
-      const ym = pDate.slice(0, 7);
-      const supply = Number(row.supply_amount || 0);
-      const vat = Math.round(supply * 0.1);
-      const total = supply + vat;
-      const ent = (row.entity_type === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP") as "CORP" | "INDIVIDUAL";
-
-      // 동일 월·금액으로 이미 통장 출금이나 매입세금계산서에 반영된 건인지 중복 방어 체크
-      const isDuplicateInDetails = details.some(
-        (d) =>
-          d.entityType === ent &&
-          d.majorAccount === "COGS" &&
-          d.yearMonth === ym &&
-          (Math.abs(d.supplyAmount - supply) <= 10 || Math.abs(d.totalAmount - total) <= 10)
-      );
-      if (isDuplicateInDetails) continue;
-
-      details.push({
-        id: `TRADEPUR-${row.id}`,
-        source: "TAX_INVOICE",
-        entityType: ent,
-        yearMonth: ym,
-        date: pDate,
-        majorAccount: "COGS",
-        subAccount: "무증빙·카드 상품자재매입",
-        counterparty: row.vendor_name || "-",
-        description: `${row.product_name || "상품매입"} (${row.qty}EA)${row.memo ? ` - ${row.memo}` : ""}`,
-        supplyAmount: supply,
-        vatAmount: vat,
-        totalAmount: total,
-        status: `입고확정 (${row.purchase_no})`,
-        refNo: row.purchase_no || `PO-${row.id}`,
-      });
-    }
-
-    // 4-1b. 상품판매(erp_trade_sales) 중 아직 세금계산서(tax_invoice_id)가 발행되지 않은 확정 출고건 매출 적재
-    const tradeSaleParams: any[] = [];
-    let tradeSaleWhere = `WHERE ts.status != 'CANCELLED' AND ts.tax_invoice_id IS NULL`;
-    if (year !== "ALL") {
-      tradeSaleParams.push(`${year}-%`);
-      tradeSaleWhere += ` AND TO_CHAR(ts.sale_date AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') LIKE $${tradeSaleParams.length}`;
-    }
-    if (entityType !== "ALL") {
-      tradeSaleParams.push(entityType);
-      tradeSaleWhere += ` AND COALESCE(ts.entity_type, 'CORP') = $${tradeSaleParams.length}`;
-    }
-
-    const tradeSaleRes = await pool
-      .query(
-        `SELECT ts.id,
-                ts.sale_no,
-                COALESCE(ts.entity_type, 'CORP') AS entity_type,
-                TO_CHAR(ts.sale_date AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS sale_date,
-                ts.customer_name,
-                ts.qty,
-                COALESCE(ts.total_amount, 0)::numeric AS supply_amount,
-                COALESCE(ts.vat_amount, 0)::numeric AS vat_amount,
-                ts.status,
-                ts.memo,
-                p.name AS product_name
-         FROM erp_trade_sales ts
-         LEFT JOIN erp_trade_products p ON p.id = ts.product_id
-         ${tradeSaleWhere}
-         ORDER BY ts.sale_date ASC, ts.id ASC`,
-        tradeSaleParams
-      )
-      .catch(() => ({ rows: [] as any[] }));
-
-    for (const row of tradeSaleRes.rows) {
-      const sDate = String(row.sale_date);
-      const ym = sDate.slice(0, 7);
-      const supply = Number(row.supply_amount || 0);
-      const vat = Number(row.vat_amount || Math.round(supply * 0.1));
-      const total = supply + vat;
-      const ent = (row.entity_type === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP") as "CORP" | "INDIVIDUAL";
-
-      const isDuplicateSale = details.some(
-        (d) =>
-          d.entityType === ent &&
-          d.majorAccount === "REVENUE" &&
-          d.yearMonth === ym &&
-          Math.abs(d.supplyAmount - supply) <= 10
-      );
-      if (isDuplicateSale) continue;
-
-      accountsReceivable += total;
-      details.push({
-        id: `TRADESALE-${row.id}`,
-        source: "TAX_INVOICE",
-        entityType: ent,
-        yearMonth: ym,
-        date: sDate,
-        majorAccount: "REVENUE",
-        subAccount: "상품·장비 판매매출",
-        counterparty: row.customer_name || "-",
-        description: `${row.product_name || "상품판매"} (${row.qty}EA)${row.memo ? ` - ${row.memo}` : ""}`,
-        supplyAmount: supply,
-        vatAmount: vat,
-        totalAmount: total,
-        status: `출고확정·청구예정 (${row.sale_no})`,
-        refNo: row.sale_no || `SO-${row.id}`,
       });
     }
 

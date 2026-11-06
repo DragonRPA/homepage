@@ -15,6 +15,7 @@ import { PasswordChangeModal } from "./components/PasswordChangeModal";
 
 // ebro_it 모방 핵심 모듈군
 import { OrganizationTab } from "./components/OrganizationTab";
+import { CorporateDocumentTab } from "./components/CorporateDocumentTab";
 import { PermissionsTab } from "./components/PermissionsTab";
 import { ApprovalInboxTab } from "./components/ApprovalInboxTab";
 import { ApprovalRulesTab } from "./components/ApprovalRulesTab";
@@ -51,6 +52,7 @@ export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "PARTNER" | "ASSET"
 
 export type ErpMenuKey =
   | "ORG"
+  | "CORPORATE_DOCS"
   | "EMPLOYMENT_CONTRACT"
   | "PERMISSIONS"
   | "LEAVE_APPLY"
@@ -97,6 +99,7 @@ const CATEGORIES: CategoryConfig[] = [
     icon: Users,
     items: [
       { key: "ORG", label: "조직 인사관리", icon: Building2 },
+      { key: "CORPORATE_DOCS", label: "법인 중요문서 (설립·정관)", icon: FolderTree },
       { key: "EMPLOYMENT_CONTRACT", label: "근로계약서 관리", icon: FileSignature },
       { key: "PERMISSIONS", label: "사용자 및 권한", icon: Shield },
       { key: "LEAVE_APPLY", label: "연차 신청", icon: Calendar },
@@ -170,6 +173,7 @@ const CATEGORIES: CategoryConfig[] = [
 
 const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   ORG: "org",
+  CORPORATE_DOCS: "org",
   EMPLOYMENT_CONTRACT: "org",
   PERMISSIONS: "users",
   LEAVE_APPLY: "leave_apply",
@@ -670,6 +674,9 @@ export default function ErpMainPage() {
             ) : (
               <>
                 {activeMenu === "ORG" && <OrganizationTab currentUser={enrichedUser} />}
+                {activeMenu === "CORPORATE_DOCS" && (
+                  <CorporateDocumentTab currentUser={enrichedUser} selectedEntity={selectedEntity} />
+                )}
                 {activeMenu === "EMPLOYMENT_CONTRACT" && (
                   <EmploymentContractTab currentUser={enrichedUser} />
                 )}

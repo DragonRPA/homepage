@@ -926,16 +926,12 @@ export async function GET(request: Request) {
     };
 
     // [BS: 재무상태표 (자산 = 부채 + 자본 보존 항등식)]
+    // 국세청 납부세액(taxItems)은 이미 통장에서 납부 완료된 세액(PL 비용 및 CF 유출)이므로 기말 미지급 유동부채에는 가산하지 않음
     const currentAssets = cashEnding + accountsReceivable;
     const nonCurrentAssets = Math.max(0, tangibleAssets - accumDepreciation);
     const totalAssets = currentAssets + nonCurrentAssets;
 
-    const currentLiabilities =
-      accountsPayable +
-      taxItems.withholdingTax +
-      taxItems.vatTax +
-      taxItems.corporateTax +
-      taxItems.taxPayment;
+    const currentLiabilities = accountsPayable;
     const nonCurrentLiabilities = 0; // 가수금 1회 반환 완료로 0원
     const totalLiabilities = currentLiabilities + nonCurrentLiabilities;
 
@@ -963,10 +959,10 @@ export async function GET(request: Request) {
       },
       liabilities: {
         accountsPayable,
-        withholdingTaxPayable: taxItems.withholdingTax, // 원천세 예수금 (초기 0)
-        vatTaxPayable: taxItems.vatTax,                 // 부가세 예수금 (초기 0)
-        corporateTaxPayable: taxItems.corporateTax,     // 미지급 법인세 (초기 0)
-        taxPaymentPayable: taxItems.taxPayment,         // 세무 납부항목 (초기 0)
+        withholdingTaxPayable: 0, // 기납부 세액은 PL/CF 반영 완료 (기말 미지급 예수금 0)
+        vatTaxPayable: 0,
+        corporateTaxPayable: 0,
+        taxPaymentPayable: 0,
         currentLiabilities,
         nonCurrentLiabilities,
         totalLiabilities,

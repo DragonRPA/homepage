@@ -18,7 +18,7 @@ import {
   MessageSquare,
   Printer,
 } from "lucide-react";
-import { formatErpCurrency } from "@/lib/erpFormat";
+import { formatErpCurrency, formatErpInputNumber, cleanErpNumber } from "@/lib/erpFormat";
 
 interface FinancialDetailItem {
   id: string;
@@ -808,49 +808,49 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
 
               <div className="p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5 flex-1 text-xs">
                 {/* 좌측: 자산 (Assets) */}
-                <div className="bg-[#f4efe4] border border-[#c4b6a0] rounded p-2 dark:bg-slate-950 dark:border-slate-800 flex flex-col justify-between">
-                  <div className="space-y-1.5">
-                    <div className="font-bold text-[#1e3a8a] dark:text-blue-300 border-b border-[#d5cbb8] dark:border-slate-800 pb-1 flex justify-between whitespace-nowrap">
+                <div className="bg-[#f4efe4] border border-[#c4b6a0] rounded p-2.5 dark:bg-slate-950 dark:border-slate-800 flex flex-col justify-between">
+                  <div className="space-y-1">
+                    <div className="py-1 px-2 flex items-center justify-between font-bold text-xs text-[#1e3a8a] dark:text-blue-300 border-b border-[#d5cbb8] dark:border-slate-800 whitespace-nowrap">
                       <span>Ⅰ. 유동자산</span>
-                      <span className="font-mono">{formatErpCurrency(statements.bs.assets.currentAssets)}</span>
+                      <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.bs.assets.currentAssets)}</span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 현금및현금성자산</span>
-                      <span className="font-mono font-semibold">
+                      <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
                         {formatErpCurrency(statements.bs.assets.cashAndEquivalents)}
                       </span>
                     </div>
                     {entityFilter === "ALL" && (
-                      <div className="pl-4 flex justify-between text-[10px] text-[#64748b] dark:text-slate-400 whitespace-nowrap">
+                      <div className="py-1 pl-6 pr-2 flex items-center justify-between text-xs text-[#64748b] dark:text-slate-400 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                         <span>└ 법인 / 개인 계좌잔액</span>
-                        <span className="font-mono">
+                        <span className="font-mono tabular-nums text-right">
                           {formatErpCurrency(statements.bs.assets.cashCorp)} /{" "}
                           {formatErpCurrency(statements.bs.assets.cashIndiv)}
                         </span>
                       </div>
                     )}
-                    <div className="pl-2 flex justify-between text-[11px] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 매출채권 (미수금)</span>
-                      <span className="font-mono font-semibold">
+                      <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
                         {formatErpCurrency(statements.bs.assets.accountsReceivable)}
                       </span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 whitespace-nowrap">
                       <span>· 부가세대급금</span>
-                      <span className="font-mono">{formatErpCurrency(statements.bs.assets.vatPrepaid)}</span>
+                      <span className="font-mono tabular-nums text-[#0f172a] dark:text-slate-100 text-right">{formatErpCurrency(statements.bs.assets.vatPrepaid)}</span>
                     </div>
 
-                    <div className="font-bold text-[#1e3a8a] dark:text-blue-300 border-b border-[#d5cbb8] dark:border-slate-800 pb-1 pt-1.5 flex justify-between whitespace-nowrap">
+                    <div className="py-1 px-2 pt-2 flex items-center justify-between font-bold text-xs text-[#1e3a8a] dark:text-blue-300 border-b border-[#d5cbb8] dark:border-slate-800 whitespace-nowrap">
                       <span>Ⅱ. 비유동자산</span>
-                      <span className="font-mono">{formatErpCurrency(statements.bs.assets.nonCurrentAssets)}</span>
+                      <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.bs.assets.nonCurrentAssets)}</span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 유형자산 (취득가액)</span>
-                      <span className="font-mono">{formatErpCurrency(statements.bs.assets.tangibleAssets)}</span>
+                      <span className="font-mono tabular-nums text-[#0f172a] dark:text-slate-100 text-right">{formatErpCurrency(statements.bs.assets.tangibleAssets)}</span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] text-[#64748b] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#64748b] dark:text-slate-400 whitespace-nowrap">
                       <span>· 감가상각누계액</span>
-                      <span className="font-mono">
+                      <span className="font-mono tabular-nums text-right">
                         {statements.bs.assets.accumDepreciation > 0
                           ? `-${formatErpCurrency(statements.bs.assets.accumDepreciation)}`
                           : "₩0"}
@@ -858,77 +858,77 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                     </div>
                   </div>
 
-                  <div className="mt-2 pt-1.5 border-t-2 border-[#1d4ed8] flex justify-between font-extrabold text-[#1e3a8a] dark:text-blue-300 whitespace-nowrap">
+                  <div className="mt-2 pt-2 px-2 border-t-2 border-[#1d4ed8] flex items-center justify-between font-extrabold text-xs text-[#1e3a8a] dark:text-blue-300 whitespace-nowrap">
                     <span>자산총계</span>
-                    <span className="font-mono">{formatErpCurrency(statements.bs.assets.totalAssets)}</span>
+                    <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.bs.assets.totalAssets)}</span>
                   </div>
                 </div>
 
                 {/* 우측: 부채 및 자본 (Liabilities & Equity) */}
-                <div className="bg-[#f4efe4] border border-[#c4b6a0] rounded p-2 dark:bg-slate-950 dark:border-slate-800 flex flex-col justify-between">
+                <div className="bg-[#f4efe4] border border-[#c4b6a0] rounded p-2.5 dark:bg-slate-950 dark:border-slate-800 flex flex-col justify-between">
                   <div className="space-y-1">
-                    <div className="font-bold text-[#991b1b] dark:text-rose-300 border-b border-[#d5cbb8] dark:border-slate-800 pb-1 flex justify-between whitespace-nowrap">
+                    <div className="py-1 px-2 flex items-center justify-between font-bold text-xs text-[#991b1b] dark:text-rose-300 border-b border-[#d5cbb8] dark:border-slate-800 whitespace-nowrap">
                       <span>Ⅰ. 부채 (유동부채)</span>
-                      <span className="font-mono">
+                      <span className="font-mono tabular-nums text-right">
                         {formatErpCurrency(statements.bs.liabilities.totalLiabilities)}
                       </span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 매입채무 (미지급금)</span>
-                      <span className="font-mono font-semibold">
+                      <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
                         {formatErpCurrency(statements.bs.liabilities.accountsPayable)}
                       </span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 원천세 (예수금)</span>
-                      <span className="font-mono">
+                      <span className="font-mono tabular-nums text-[#0f172a] dark:text-slate-100 text-right">
                         {formatErpCurrency(statements.bs.liabilities.withholdingTaxPayable)}
                       </span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 부가세 (예수금)</span>
-                      <span className="font-mono">
+                      <span className="font-mono tabular-nums text-[#0f172a] dark:text-slate-100 text-right">
                         {formatErpCurrency(statements.bs.liabilities.vatTaxPayable)}
                       </span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 법인세 (미지급)</span>
-                      <span className="font-mono">
+                      <span className="font-mono tabular-nums text-[#0f172a] dark:text-slate-100 text-right">
                         {formatErpCurrency(statements.bs.liabilities.corporateTaxPayable)}
                       </span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 whitespace-nowrap">
                       <span>· 납부항목 (세무)</span>
-                      <span className="font-mono">
+                      <span className="font-mono tabular-nums text-[#0f172a] dark:text-slate-100 text-right">
                         {formatErpCurrency(statements.bs.liabilities.taxPaymentPayable)}
                       </span>
                     </div>
 
-                    <div className="font-bold text-[#065f46] dark:text-emerald-300 border-b border-[#d5cbb8] dark:border-slate-800 pb-1 pt-1 flex justify-between whitespace-nowrap">
+                    <div className="py-1 px-2 pt-2 flex items-center justify-between font-bold text-xs text-[#065f46] dark:text-emerald-300 border-b border-[#d5cbb8] dark:border-slate-800 whitespace-nowrap">
                       <span>Ⅱ. 자본</span>
-                      <span className="font-mono">{formatErpCurrency(statements.bs.equity.totalEquity)}</span>
+                      <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.bs.equity.totalEquity)}</span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 자본금</span>
-                      <span className="font-mono">{formatErpCurrency(statements.bs.equity.capitalStock)}</span>
+                      <span className="font-mono tabular-nums text-[#0f172a] dark:text-slate-100 text-right">{formatErpCurrency(statements.bs.equity.capitalStock)}</span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 전기이월이익잉여금</span>
-                      <span className="font-mono">
+                      <span className="font-mono tabular-nums text-[#0f172a] dark:text-slate-100 text-right">
                         {formatErpCurrency(statements.bs.equity.retainedEarningsBefore)}
                       </span>
                     </div>
-                    <div className="pl-2 flex justify-between text-[11px] font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                       <span>· 당기순이익</span>
-                      <span className="font-mono">
+                      <span className="font-mono tabular-nums text-right">
                         {formatErpCurrency(statements.bs.equity.currentTermNetIncome)}
                       </span>
                     </div>
                   </div>
 
-                  <div className="mt-2 pt-1.5 border-t-2 border-[#047857] flex justify-between font-extrabold text-[#065f46] dark:text-emerald-300 whitespace-nowrap">
+                  <div className="mt-2 pt-2 px-2 border-t-2 border-[#047857] flex items-center justify-between font-extrabold text-xs text-[#065f46] dark:text-emerald-300 whitespace-nowrap">
                     <span>부채와자본총계</span>
-                    <span className="font-mono">
+                    <span className="font-mono tabular-nums text-right">
                       {formatErpCurrency(
                         statements.bs.liabilities.totalLiabilities + statements.bs.equity.totalEquity
                       )}
@@ -951,73 +951,71 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
               </div>
 
               <div className="p-2.5 flex-1 flex flex-col justify-between text-xs bg-[#f4efe4] dark:bg-slate-950 m-2.5 rounded border border-[#c4b6a0] dark:border-slate-800">
-                <div className="space-y-1.5">
-                  <div className="flex justify-between font-bold text-[#1e3a8a] dark:text-blue-300 whitespace-nowrap">
+                <div className="space-y-1">
+                  <div className="py-1 px-2 flex items-center justify-between font-bold text-xs text-[#1e3a8a] dark:text-blue-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                     <span>Ⅰ. 매출액 (수익)</span>
-                    <span className="font-mono">{formatErpCurrency(statements.pl.revenue)}</span>
+                    <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.pl.revenue)}</span>
                   </div>
-                  <div className="flex justify-between font-bold text-[#92400e] dark:text-amber-300 whitespace-nowrap">
+                  <div className="py-1 px-2 flex items-center justify-between font-bold text-xs text-[#92400e] dark:text-amber-300 whitespace-nowrap">
                     <span>Ⅱ. 매출원가 (매입·외주)</span>
-                    <span className="font-mono">{formatErpCurrency(statements.pl.cogs)}</span>
+                    <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.pl.cogs)}</span>
                   </div>
-                  <div className="flex justify-between font-extrabold text-[#065f46] bg-[#d1fae5]/70 dark:bg-emerald-950/50 dark:text-emerald-300 px-2 py-1 rounded whitespace-nowrap">
+                  <div className="py-1 px-2 flex items-center justify-between font-extrabold text-xs text-[#065f46] bg-[#d1fae5]/70 dark:bg-emerald-950/50 dark:text-emerald-300 rounded whitespace-nowrap">
                     <span>★ 매출총이익 (이익률 {statements.pl.grossMarginRate}%)</span>
-                    <span className="font-mono">{formatErpCurrency(statements.pl.grossProfit)}</span>
+                    <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.pl.grossProfit)}</span>
                   </div>
 
-                  <div className="flex justify-between font-semibold text-[#5b21b6] dark:text-violet-300 pt-0.5 whitespace-nowrap">
+                  <div className="py-1 px-2 flex items-center justify-between font-bold text-xs text-[#5b21b6] dark:text-violet-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                     <span>Ⅲ. 급여·인건비 (급여·퇴직·4대보험)</span>
-                    <span className="font-mono">{formatErpCurrency(statements.pl.payroll)}</span>
+                    <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.pl.payroll)}</span>
                   </div>
-                  <div className="flex justify-between font-semibold text-[#991b1b] dark:text-rose-300 whitespace-nowrap">
+                  <div className="py-1 px-2 flex items-center justify-between font-bold text-xs text-[#991b1b] dark:text-rose-300 whitespace-nowrap">
                     <span>Ⅳ. 판매비와관리비 (운영비용)</span>
-                    <span className="font-mono">{formatErpCurrency(statements.pl.opex)}</span>
+                    <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.pl.opex)}</span>
                   </div>
-                  <div className="flex justify-between font-extrabold text-[#1e3a8a] bg-[#dbeafe]/80 dark:bg-blue-950/60 dark:text-blue-200 px-2 py-1 rounded whitespace-nowrap">
+                  <div className="py-1 px-2 flex items-center justify-between font-extrabold text-xs text-[#1e3a8a] bg-[#dbeafe]/80 dark:bg-blue-950/60 dark:text-blue-200 rounded whitespace-nowrap">
                     <span>★★ 영업이익 (이익률 {statements.pl.operatingMarginRate}%)</span>
-                    <span className="font-mono">{formatErpCurrency(statements.pl.operatingProfit)}</span>
+                    <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.pl.operatingProfit)}</span>
                   </div>
 
-                  {/* 세무 4대 항목 (원천세, 부가세, 법인세, 납부항목 - 초기값 0) */}
-                  <div className="pt-1 border-t border-[#d5cbb8] dark:border-slate-800 space-y-1">
-                    <div className="flex justify-between font-bold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                  {/* 세무 4대 항목 (원천세, 부가세, 법인세, 납부항목 - 우측 금액 열 수직 정렬 통일) */}
+                  <div className="pt-1 border-t border-[#d5cbb8] dark:border-slate-800 space-y-0.5">
+                    <div className="py-1 px-2 flex items-center justify-between font-bold text-xs text-[#334155] dark:text-slate-300 border-b border-[#d5cbb8] dark:border-slate-800 whitespace-nowrap">
                       <span>Ⅴ. 세무 항목 (원천세·부가세·법인세·납부항목)</span>
-                      <span className="font-mono">
+                      <span className="font-mono tabular-nums text-right">
                         {formatErpCurrency(statements.pl.taxItems.totalTax)}
                       </span>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pl-1 text-[11px]">
-                      <div className="bg-[#ebe5d8] dark:bg-slate-900 px-2 py-1 rounded border border-[#c4b6a0] dark:border-slate-800 flex justify-between whitespace-nowrap">
-                        <span className="text-[#475569] dark:text-slate-400">원천세</span>
-                        <span className="font-mono font-bold">
-                          {formatErpCurrency(statements.pl.taxItems.withholdingTax)}
-                        </span>
-                      </div>
-                      <div className="bg-[#ebe5d8] dark:bg-slate-900 px-2 py-1 rounded border border-[#c4b6a0] dark:border-slate-800 flex justify-between whitespace-nowrap">
-                        <span className="text-[#475569] dark:text-slate-400">부가세</span>
-                        <span className="font-mono font-bold">
-                          {formatErpCurrency(statements.pl.taxItems.vatTax)}
-                        </span>
-                      </div>
-                      <div className="bg-[#ebe5d8] dark:bg-slate-900 px-2 py-1 rounded border border-[#c4b6a0] dark:border-slate-800 flex justify-between whitespace-nowrap">
-                        <span className="text-[#475569] dark:text-slate-400">법인세</span>
-                        <span className="font-mono font-bold">
-                          {formatErpCurrency(statements.pl.taxItems.corporateTax)}
-                        </span>
-                      </div>
-                      <div className="bg-[#ebe5d8] dark:bg-slate-900 px-2 py-1 rounded border border-[#c4b6a0] dark:border-slate-800 flex justify-between whitespace-nowrap">
-                        <span className="text-[#475569] dark:text-slate-400">납부항목</span>
-                        <span className="font-mono font-bold">
-                          {formatErpCurrency(statements.pl.taxItems.taxPayment)}
-                        </span>
-                      </div>
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
+                      <span>· 원천세</span>
+                      <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
+                        {formatErpCurrency(statements.pl.taxItems.withholdingTax)}
+                      </span>
+                    </div>
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
+                      <span>· 부가세</span>
+                      <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
+                        {formatErpCurrency(statements.pl.taxItems.vatTax)}
+                      </span>
+                    </div>
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
+                      <span>· 법인세</span>
+                      <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
+                        {formatErpCurrency(statements.pl.taxItems.corporateTax)}
+                      </span>
+                    </div>
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                      <span>· 납부항목</span>
+                      <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
+                        {formatErpCurrency(statements.pl.taxItems.taxPayment)}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-2 pt-1.5 border-t-2 border-[#047857] flex justify-between font-extrabold text-sm text-[#047857] dark:text-emerald-400 whitespace-nowrap">
+                <div className="mt-2 pt-2 px-2 border-t-2 border-[#047857] flex items-center justify-between font-extrabold text-xs text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                   <span>★★★ 당기순이익 (순이익률 {statements.pl.netMarginRate}%)</span>
-                  <span className="font-mono">{formatErpCurrency(statements.pl.netIncome)}</span>
+                  <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.pl.netIncome)}</span>
                 </div>
               </div>
             </div>
@@ -1035,72 +1033,74 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
               </div>
 
               <div className="p-2.5 flex-1 flex flex-col justify-between text-xs bg-[#f4efe4] dark:bg-slate-950 m-2.5 rounded border border-[#c4b6a0] dark:border-slate-800">
-                <div className="space-y-1.5">
-                  <div className="flex justify-between font-bold text-[#334155] dark:text-slate-300 border-b border-[#d5cbb8] dark:border-slate-800 pb-1 whitespace-nowrap">
+                <div className="space-y-1">
+                  <div className="py-1 px-2 flex items-center justify-between font-bold text-xs text-[#334155] dark:text-slate-300 border-b border-[#d5cbb8] dark:border-slate-800 whitespace-nowrap">
                     <span>Ⅰ. 기초 현금및현금성자산</span>
-                    <span className="font-mono">{formatErpCurrency(statements.cf.beginningCash)}</span>
+                    <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.cf.beginningCash)}</span>
                   </div>
 
-                  <div className="flex justify-between font-bold text-[#1e3a8a] dark:text-blue-300 pt-0.5 whitespace-nowrap">
+                  <div className="py-1 px-2 flex items-center justify-between font-bold text-xs text-[#1e3a8a] dark:text-blue-300 border-b border-[#d5cbb8] dark:border-slate-800 whitespace-nowrap">
                     <span>Ⅱ. 영업활동 현금흐름</span>
-                    <span className="font-mono">
+                    <span className="font-mono tabular-nums text-right">
                       {formatErpCurrency(statements.cf.operating.netOperatingCashFlow)}
                     </span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 pl-2 text-[11px]">
-                    <div className="flex justify-between whitespace-nowrap">
+                  <div className="space-y-0.5">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 매출수납 유입 (+)</span>
-                      <span className="font-mono text-[#1d4ed8] dark:text-blue-400">
+                      <span className="font-mono tabular-nums font-semibold text-[#1d4ed8] dark:text-blue-400 text-right">
                         {formatErpCurrency(statements.cf.operating.saleInflow)}
                       </span>
                     </div>
-                    <div className="flex justify-between whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 매입·외주 지출 (-)</span>
-                      <span className="font-mono text-[#dc2626] dark:text-rose-400">
+                      <span className="font-mono tabular-nums font-semibold text-[#dc2626] dark:text-rose-400 text-right">
                         {formatErpCurrency(statements.cf.operating.purchaseOutflow)}
                       </span>
                     </div>
-                    <div className="flex justify-between whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 급여·인건비 지출 (-)</span>
-                      <span className="font-mono text-[#dc2626] dark:text-rose-400">
+                      <span className="font-mono tabular-nums font-semibold text-[#dc2626] dark:text-rose-400 text-right">
                         {formatErpCurrency(statements.cf.operating.payrollOutflow)}
                       </span>
                     </div>
-                    <div className="flex justify-between whitespace-nowrap">
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 운영경비 지출 (-)</span>
-                      <span className="font-mono text-[#dc2626] dark:text-rose-400">
+                      <span className="font-mono tabular-nums font-semibold text-[#dc2626] dark:text-rose-400 text-right">
                         {formatErpCurrency(statements.cf.operating.opexOutflow)}
                       </span>
                     </div>
-                    <div className="flex justify-between whitespace-nowrap sm:col-span-2 text-[#475569] dark:text-slate-400">
-                      <span>· 세무 유출 (원천세/부가세/법인세/납부항목)</span>
-                      <span className="font-mono">
-                        {formatErpCurrency(statements.cf.operating.withholdingTaxOutflow)} /{" "}
-                        {formatErpCurrency(statements.cf.operating.vatTaxOutflow)} /{" "}
-                        {formatErpCurrency(statements.cf.operating.corporateTaxOutflow)} /{" "}
-                        {formatErpCurrency(statements.cf.operating.taxPaymentOutflow)}
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                      <span>· 세무 유출 (원천세·부가세·법인세·납부항목) (-)</span>
+                      <span className="font-mono tabular-nums font-semibold text-[#dc2626] dark:text-rose-400 text-right">
+                        {formatErpCurrency(
+                          statements.cf.operating.withholdingTaxOutflow +
+                            statements.cf.operating.vatTaxOutflow +
+                            statements.cf.operating.corporateTaxOutflow +
+                            statements.cf.operating.taxPaymentOutflow
+                        )}
                       </span>
                     </div>
                   </div>
 
-                  <div className="flex justify-between font-bold text-[#92400e] dark:text-amber-300 pt-1 whitespace-nowrap">
+                  <div className="py-1 px-2 pt-1.5 flex items-center justify-between font-bold text-xs text-[#92400e] dark:text-amber-300 border-t border-[#d5cbb8] dark:border-slate-800 whitespace-nowrap">
                     <span>Ⅲ. 투자활동 현금흐름 (자산취득·처분)</span>
-                    <span className="font-mono">
+                    <span className="font-mono tabular-nums text-right">
                       {formatErpCurrency(statements.cf.investing.netInvestingCashFlow)}
                     </span>
                   </div>
 
-                  <div className="flex justify-between font-bold text-[#5b21b6] dark:text-violet-300 whitespace-nowrap">
+                  <div className="py-1 px-2 flex items-center justify-between font-bold text-xs text-[#5b21b6] dark:text-violet-300 whitespace-nowrap">
                     <span>Ⅳ. 재무활동 현금흐름 (가수금·자금이동)</span>
-                    <span className="font-mono">
+                    <span className="font-mono tabular-nums text-right">
                       {formatErpCurrency(statements.cf.financing.netFinancingCashFlow)}
                     </span>
                   </div>
                 </div>
 
-                <div className="mt-2 pt-1.5 border-t-2 border-[#b45309] flex justify-between font-extrabold text-sm text-[#0f172a] dark:text-white whitespace-nowrap">
+                <div className="mt-2 pt-2 px-2 border-t-2 border-[#b45309] flex items-center justify-between font-extrabold text-xs text-[#0f172a] dark:text-white whitespace-nowrap">
                   <span>Ⅴ. 기말 현금및현금성자산</span>
-                  <span className="font-mono text-[#1d4ed8] dark:text-blue-400">
+                  <span className="font-mono tabular-nums text-[#1d4ed8] dark:text-blue-400 text-right">
                     {formatErpCurrency(statements.cf.endingCash)}
                   </span>
                 </div>
@@ -1147,47 +1147,47 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                 {/* 세무 4대 항목 (원천세, 부가세, 법인세, 납부항목 - 초기값 0원) */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-[#f4efe4] dark:bg-slate-950 p-2 rounded border border-[#c4b6a0] dark:border-slate-800">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
+                    <label className="text-xs font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
                       원천세 (원)
                     </label>
                     <input
-                      type="number"
-                      value={taxWithholding}
-                      onChange={(e) => setTaxWithholding(Number(e.target.value || 0))}
-                      className="bg-white dark:bg-slate-900 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1 text-right font-mono font-bold text-xs focus:outline-none focus:border-[#1d4ed8]"
+                      type="text"
+                      value={formatErpInputNumber(taxWithholding)}
+                      onChange={(e) => setTaxWithholding(cleanErpNumber(e.target.value))}
+                      className="bg-white dark:bg-slate-900 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1 text-right font-mono tabular-nums font-bold text-xs focus:outline-none focus:border-[#1d4ed8]"
                     />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
+                    <label className="text-xs font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
                       부가세 (원)
                     </label>
                     <input
-                      type="number"
-                      value={taxVat}
-                      onChange={(e) => setTaxVat(Number(e.target.value || 0))}
-                      className="bg-white dark:bg-slate-900 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1 text-right font-mono font-bold text-xs focus:outline-none focus:border-[#1d4ed8]"
+                      type="text"
+                      value={formatErpInputNumber(taxVat)}
+                      onChange={(e) => setTaxVat(cleanErpNumber(e.target.value))}
+                      className="bg-white dark:bg-slate-900 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1 text-right font-mono tabular-nums font-bold text-xs focus:outline-none focus:border-[#1d4ed8]"
                     />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
+                    <label className="text-xs font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
                       법인세 (원)
                     </label>
                     <input
-                      type="number"
-                      value={taxCorporate}
-                      onChange={(e) => setTaxCorporate(Number(e.target.value || 0))}
-                      className="bg-white dark:bg-slate-900 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1 text-right font-mono font-bold text-xs focus:outline-none focus:border-[#1d4ed8]"
+                      type="text"
+                      value={formatErpInputNumber(taxCorporate)}
+                      onChange={(e) => setTaxCorporate(cleanErpNumber(e.target.value))}
+                      className="bg-white dark:bg-slate-900 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1 text-right font-mono tabular-nums font-bold text-xs focus:outline-none focus:border-[#1d4ed8]"
                     />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
+                    <label className="text-xs font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
                       납부항목 (원)
                     </label>
                     <input
-                      type="number"
-                      value={taxPayment}
-                      onChange={(e) => setTaxPayment(Number(e.target.value || 0))}
-                      className="bg-white dark:bg-slate-900 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1 text-right font-mono font-bold text-xs focus:outline-none focus:border-[#1d4ed8]"
+                      type="text"
+                      value={formatErpInputNumber(taxPayment)}
+                      onChange={(e) => setTaxPayment(cleanErpNumber(e.target.value))}
+                      className="bg-white dark:bg-slate-900 border border-[#b5a894] dark:border-slate-700 rounded px-2 py-1 text-right font-mono tabular-nums font-bold text-xs focus:outline-none focus:border-[#1d4ed8]"
                     />
                   </div>
                 </div>

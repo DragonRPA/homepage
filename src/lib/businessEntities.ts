@@ -65,7 +65,7 @@ export const BUSINESS_ENTITIES: Record<EntityType, BusinessEntity> = {
     ceoName: "이정용",
     birthDate: "1977-06-17",
     openDate: "2023-05-10",
-    address: "서울특별시 송파구 동남로11길 26-11(가락동)",
+    address: "서울 노원구 섬밭로 196 장미아파트 610동 302호",
     bizType: "정보통신업",
     bizClass: "응용 소프트웨어 개발 및 공급업, 컴퓨터시설 관리업",
     email: "77.victor.lee@gmail.com",

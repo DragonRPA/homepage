@@ -115,9 +115,114 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   // Add Purchase Form
   const [poVendor, setPoVendor] = useState("");
   const [poProductId, setPoProductId] = useState("");
+  const [poInputMode, setPoInputMode] = useState<"UNIT" | "TOTAL">("UNIT");
+  const [poVatIncluded, setPoVatIncluded] = useState<boolean>(true);
   const [poQty, setPoQty] = useState("1");
   const [poUnitCost, setPoUnitCost] = useState("0");
+  const [poTotalInput, setPoTotalInput] = useState("0");
   const [poDate, setPoDate] = useState(new Date().toISOString().split("T")[0]);
+
+  // 구매입고 수량분할 정수단가 자동 산출 (소수점 단가 발생 시 수량을 분할하여 정수 단가로 맞춤)
+  const poSplitPreview = useMemo(() => {
+    const qty = Math.max(0, Math.round(cleanErpNumber(poQty)));
+    if (qty <= 0) {
+      return {
+        qty: 0,
+        supplyTotal: 0,
+        vatTotal: 0,
+        grandTotal: 0,
+        hasRemainder: false,
+        rows: [] as Array<{ qty: number; unitCost: number; rowTotal: number; memo: string }>,
+      };
+    }
+
+    if (poInputMode === "UNIT") {
+      const unitRaw = cleanErpNumber(poUnitCost);
+      const totalSupply = Math.round(qty * unitRaw);
+      const baseUnit = Math.floor(totalSupply / qty);
+      const remainder = totalSupply - baseUnit * qty;
+
+      const rows: Array<{ qty: number; unitCost: number; rowTotal: number; memo: string }> = [];
+      if (remainder === 0) {
+        rows.push({
+          qty,
+          unitCost: baseUnit,
+          rowTotal: qty * baseUnit,
+          memo: "",
+        });
+      } else {
+        const normalQty = qty - remainder;
+        if (normalQty > 0) {
+          rows.push({
+            qty: normalQty,
+            unitCost: baseUnit,
+            rowTotal: normalQty * baseUnit,
+            memo: `단가 정수화 수량분할 (${normalQty}개 × ₩${baseUnit.toLocaleString()})`,
+          });
+        }
+        rows.push({
+          qty: remainder,
+          unitCost: baseUnit + 1,
+          rowTotal: remainder * (baseUnit + 1),
+          memo: `단가 정수화 수량분할 (${remainder}개 × ₩${(baseUnit + 1).toLocaleString()})`,
+        });
+      }
+
+      const vatTotal = Math.round(totalSupply * 0.1);
+      return {
+        qty,
+        supplyTotal: totalSupply,
+        vatTotal,
+        grandTotal: totalSupply + vatTotal,
+        hasRemainder: remainder > 0,
+        rows,
+      };
+    } else {
+      // TOTAL 모드 (수량 + 총액 입력)
+      const rawTotal = Math.max(0, Math.round(cleanErpNumber(poTotalInput)));
+      const supplyTotal = poVatIncluded ? Math.round(rawTotal / 1.1) : rawTotal;
+      const vatTotal = poVatIncluded ? rawTotal - supplyTotal : Math.round(supplyTotal * 0.1);
+      const grandTotal = supplyTotal + vatTotal;
+
+      const baseUnit = Math.floor(supplyTotal / qty);
+      const remainder = supplyTotal - baseUnit * qty;
+
+      const rows: Array<{ qty: number; unitCost: number; rowTotal: number; memo: string }> = [];
+      if (remainder === 0) {
+        rows.push({
+          qty,
+          unitCost: baseUnit,
+          rowTotal: qty * baseUnit,
+          memo: poVatIncluded ? `총액(부가세포함 ₩${rawTotal.toLocaleString()}) 기준 입고` : `총액(공급가액 ₩${rawTotal.toLocaleString()}) 기준 입고`,
+        });
+      } else {
+        const normalQty = qty - remainder;
+        if (normalQty > 0) {
+          rows.push({
+            qty: normalQty,
+            unitCost: baseUnit,
+            rowTotal: normalQty * baseUnit,
+            memo: `단가 정수화 수량분할 1차 (${normalQty}개 × ₩${baseUnit.toLocaleString()})`,
+          });
+        }
+        rows.push({
+          qty: remainder,
+          unitCost: baseUnit + 1,
+          rowTotal: remainder * (baseUnit + 1),
+          memo: `단가 정수화 수량분할 2차 (${remainder}개 × ₩${(baseUnit + 1).toLocaleString()})`,
+        });
+      }
+
+      return {
+        qty,
+        supplyTotal,
+        vatTotal,
+        grandTotal,
+        hasRemainder: remainder > 0,
+        rows,
+      };
+    }
+  }, [poInputMode, poVatIncluded, poQty, poUnitCost, poTotalInput]);
 
   // Add Sale Form (Multi-product per outbound contract)
   const [soPartnerId, setSoPartnerId] = useState<number | null>(null);
@@ -358,8 +463,8 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   // Handle Add Purchase
   const handleAddPurchase = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!poVendor || !poProductId || !poQty) {
-      showToast("매입처, 상품, 수량은 필수입니다.", "error");
+    if (!poVendor || !poProductId || poSplitPreview.qty <= 0 || poSplitPreview.rows.length === 0) {
+      showToast("매입처, 상품, 수량 및 금액을 확인해 주십시오.", "error");
       return;
     }
     try {
@@ -370,16 +475,24 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           purchaseDate: poDate,
           vendorName: poVendor,
           productId: poProductId,
-          qty: cleanErpNumber(poQty),
-          unitCost: cleanErpNumber(poUnitCost),
+          qty: poSplitPreview.rows[0].qty,
+          unitCost: poSplitPreview.rows[0].unitCost,
+          splitRows: poSplitPreview.rows,
         }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "구매 등록 실패");
 
-      showToast(`구매 입고 완료 (재고 자동 반영)`);
+      showToast(
+        poSplitPreview.rows.length > 1
+          ? `구매 입고 완료 (단가 정수화를 위해 ${poSplitPreview.rows.length}건으로 수량분할 등록됨)`
+          : `구매 입고 완료 (재고 자동 반영)`
+      );
       setShowAddPurchaseModal(false);
       setPoVendor("");
+      setPoQty("1");
+      setPoUnitCost("0");
+      setPoTotalInput("0");
       await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -1665,7 +1778,10 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     const id = e.target.value;
                     setPoProductId(id);
                     const prod = products.find(p => p.id.toString() === id);
-                    if (prod) setPoUnitCost(prod.standard_cost?.toString() || "0");
+                    if (prod) {
+                      const stdCost = Number(prod.standard_cost || 0);
+                      setPoUnitCost(formatErpInputNumber(String(stdCost)));
+                    }
                   }}
                   className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   required
@@ -1677,30 +1793,165 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">입고 수량</label>
-                  <input
-                    type="text"
-                    value={poQty}
-                    onChange={(e) => setPoQty(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    placeholder="예: 1"
-                    required
-                  />
+              {/* 입력 방식 전환 탭: 수량 × 단가 입력 vs 수량 + 총액 입력 */}
+              <div className="flex flex-col gap-1.5 p-2 rounded bg-[#ebe5d8]/70 dark:bg-slate-950 border border-[#b5a894] dark:border-slate-800">
+                <label className="text-slate-400 font-semibold text-[11px]">금액 입력 방식 선택</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPoInputMode("UNIT")}
+                    className={`py-1.5 px-2 rounded border text-xs font-bold transition ${
+                      poInputMode === "UNIT"
+                        ? "bg-blue-600 text-white border-blue-500 shadow"
+                        : "bg-[#f4efe4] text-[#334155] border-[#b5a894] dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800"
+                    }`}
+                  >
+                    수량 × 단가 입력
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPoInputMode("TOTAL")}
+                    className={`py-1.5 px-2 rounded border text-xs font-bold transition ${
+                      poInputMode === "TOTAL"
+                        ? "bg-blue-600 text-white border-blue-500 shadow"
+                        : "bg-[#f4efe4] text-[#334155] border-[#b5a894] dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800"
+                    }`}
+                  >
+                    수량 + 총액 입력
+                  </button>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">매입 단가 (원)</label>
-                  <input
-                    type="text"
-                    value={poUnitCost}
-                    onChange={(e) => setPoUnitCost(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    placeholder="예: 0"
-                    required
-                  />
-                </div>
+
+                {poInputMode === "TOTAL" && (
+                  <div className="flex items-center justify-between pt-1 mt-1 border-t border-[#c4b6a0] dark:border-slate-800">
+                    <span className="text-[11px] text-slate-400 font-semibold">입력 총액 부가세(VAT) 구분</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setPoVatIncluded(true)}
+                        className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
+                          poVatIncluded
+                            ? "bg-emerald-600 text-white border-emerald-500"
+                            : "bg-[#f4efe4] text-[#334155] border-[#b5a894] dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700"
+                        }`}
+                      >
+                        부가세 포함 (결제총액)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPoVatIncluded(false)}
+                        className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
+                          !poVatIncluded
+                            ? "bg-amber-600 text-white border-amber-500"
+                            : "bg-[#f4efe4] text-[#334155] border-[#b5a894] dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700"
+                        }`}
+                      >
+                        부가세 별도 (공급가액)
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {poInputMode === "UNIT" ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400">입고 수량</label>
+                    <input
+                      type="text"
+                      value={poQty}
+                      onChange={(e) => setPoQty(formatErpInputNumber(e.target.value))}
+                      className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                      placeholder="예: 1"
+                      required
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400">매입 단가 (공급가, 원)</label>
+                    <input
+                      type="text"
+                      value={poUnitCost}
+                      onChange={(e) => setPoUnitCost(formatErpInputNumber(e.target.value))}
+                      className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                      placeholder="예: 0"
+                      required
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400">입고 수량</label>
+                    <input
+                      type="text"
+                      value={poQty}
+                      onChange={(e) => setPoQty(formatErpInputNumber(e.target.value))}
+                      className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                      placeholder="예: 1"
+                      required
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-slate-400">
+                      {poVatIncluded ? "매입 총액 (부가세 포함, 원)" : "매입 총액 (부가세 별도, 원)"}
+                    </label>
+                    <input
+                      type="text"
+                      value={poTotalInput}
+                      onChange={(e) => setPoTotalInput(formatErpInputNumber(e.target.value))}
+                      className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                      placeholder="예: 100,000"
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 산출 요약 및 소수점 발생 시 수량분할 정수단가 미리보기 */}
+              {poSplitPreview.qty > 0 && poSplitPreview.supplyTotal > 0 && (
+                <div className="p-2.5 rounded bg-[#ebe5d8] dark:bg-slate-950 border border-[#b5a894] dark:border-slate-800 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400 font-semibold">산출 공급가액 합계</span>
+                    <span className="font-mono font-bold text-[#0f172a] dark:text-white">
+                      ₩{formatErpCurrency(poSplitPreview.supplyTotal)}
+                      <span className="text-slate-400 font-normal ml-1">
+                        (VAT ₩{formatErpCurrency(poSplitPreview.vatTotal)} / 합계 ₩{formatErpCurrency(poSplitPreview.grandTotal)})
+                      </span>
+                    </span>
+                  </div>
+
+                  {poSplitPreview.hasRemainder ? (
+                    <div className="pt-1.5 border-t border-dashed border-[#b5a894] dark:border-slate-800 space-y-1">
+                      <div className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                        단가 소수점 방지를 위해 아래와 같이 정수 단가로 수량 분할 입고됩니다:
+                      </div>
+                      {poSplitPreview.rows.map((r, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between text-[11px] font-mono bg-[#f4efe4] dark:bg-slate-900 px-2 py-1 rounded border border-[#c4b6a0] dark:border-slate-800"
+                        >
+                          <span>
+                            #{idx + 1}) 수량 <strong>{r.qty}</strong>개 × 정수단가{" "}
+                            <strong className="text-blue-600 dark:text-blue-400">
+                              ₩{formatErpCurrency(r.unitCost)}
+                            </strong>
+                          </span>
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                            = ₩{formatErpCurrency(r.rowTotal)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between text-[11px] pt-1 border-t border-dashed border-[#b5a894] dark:border-slate-800 font-mono">
+                      <span className="text-slate-400">적용 정수 매입단가</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                        {poSplitPreview.qty}개 × ₩{formatErpCurrency(poSplitPreview.rows[0]?.unitCost || 0)} = ₩
+                        {formatErpCurrency(poSplitPreview.supplyTotal)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex flex-col gap-1">
                 <label className="text-slate-400">구매일자</label>

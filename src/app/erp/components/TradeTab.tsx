@@ -821,7 +821,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
 
   // Handle Delete Trade Billing
   const handleDeleteBilling = async (b: any) => {
-    if (!window.confirm(`유통 청구번호 [${b.billingNo}] (${b.customerName} - ₩${formatErpCurrency(b.totalAmount)})\n해당 청구 내역을 삭제하시겠습니까?`)) {
+    if (!window.confirm(`유통 청구번호 [${b.billingNo}] (${b.customerName} - ${formatErpCurrency(b.totalAmount)})\n해당 청구 내역을 삭제하시겠습니까?`)) {
       return;
     }
     try {
@@ -897,7 +897,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     const totalVat = selectedSales.reduce((acc, s) => acc + Number(s.vatAmount || Math.round(Number(s.totalAmount || 0) * 0.1)), 0);
     const customerName = selectedSales[0].customerName;
 
-    if (!window.confirm(`[선택 계약 묶음 청구 생성]\n고객사: ${customerName}\n선택 계약: ${selectedSales.length}건 (${selectedSales.map((s) => s.saleNo).join(", ")})\n합산 공급가액: ₩${formatErpCurrency(totalSupply)} (세액 ₩${formatErpCurrency(totalVat)})\n\n선택한 계약들을 합쳐 1건의 묶음 청구서를 생성하시겠습니까?`)) {
+    if (!window.confirm(`[선택 계약 묶음 청구 생성]\n고객사: ${customerName}\n선택 계약: ${selectedSales.length}건 (${selectedSales.map((s) => s.saleNo).join(", ")})\n합산 공급가액: ${formatErpCurrency(totalSupply)} (세액 ${formatErpCurrency(totalVat)})\n\n선택한 계약들을 합쳐 1건의 묶음 청구서를 생성하시겠습니까?`)) {
       return;
     }
 
@@ -934,7 +934,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     const totalVat = selectedBills.reduce((acc, b) => acc + Number(b.vatAmount || 0), 0);
     const customers = Array.from(new Set(selectedBills.map((b) => b.customerName)));
 
-    if (!window.confirm(`[여러 계약의 청구 묶음 세금계산서 발행]\n선택 청구: ${selectedBills.length}건\n대상 고객사: ${customers.join(", ")} (고객사별 1장으로 합산 발행)\n총 공급가액: ₩${formatErpCurrency(totalSupply)} (세액 ₩${formatErpCurrency(totalVat)})\n\n선택한 청구건들을 묶어서 전자세금계산서를 발행하시겠습니까?`)) {
+    if (!window.confirm(`[여러 계약의 청구 묶음 세금계산서 발행]\n선택 청구: ${selectedBills.length}건\n대상 고객사: ${customers.join(", ")} (고객사별 1장으로 합산 발행)\n총 공급가액: ${formatErpCurrency(totalSupply)} (세액 ${formatErpCurrency(totalVat)})\n\n선택한 청구건들을 묶어서 전자세금계산서를 발행하시겠습니까?`)) {
       return;
     }
 
@@ -1315,7 +1315,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                           {canBill && (
                             <button
                               onClick={() => handleOpenBillingFromSale(s)}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] transition"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 border border-emerald-700 text-white font-bold text-[11px] shadow-xs transition"
                               title="이 판매 계약의 항목을 끌어와 청구서 생성"
                             >
                               <Plus className="w-3 h-3" />
@@ -1324,7 +1324,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                           )}
                           <button
                             onClick={() => handleOpenEditSale(s)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 font-bold text-[11px] transition"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 border border-blue-700 text-white font-bold text-[11px] shadow-xs transition"
                             title="판매 계약 및 세금계산서 제원 수정"
                           >
                             <Edit className="w-3 h-3" />
@@ -1332,7 +1332,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                           </button>
                           <button
                             onClick={() => handleDeleteSale(s)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-600/20 hover:bg-rose-600/40 border border-rose-500/40 text-rose-300 font-bold text-[11px] transition"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 border border-rose-700 text-white font-bold text-[11px] shadow-xs transition"
                             title="판매 계약 삭제"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -1395,16 +1395,9 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                       </td>
                       <td className="py-2 px-3 text-center">
                         {s.taxInvoiceId ? (
-                          <span className="px-2 py-0.5 bg-emerald-900/40 border border-emerald-500/40 text-emerald-300 rounded text-[11px] font-semibold font-mono">
+                          <span className="px-2 py-0.5 bg-emerald-700 text-white rounded text-[11px] font-semibold font-mono">
                             발행완료 ({s.taxInvoiceNo || `#${s.taxInvoiceId}`})
                           </span>
-                        ) : canBill ? (
-                          <button
-                            onClick={() => handleOpenBillingFromSale(s)}
-                            className="px-2 py-0.5 bg-emerald-900/50 hover:bg-emerald-800 border border-emerald-600/50 text-emerald-300 rounded text-[11px] font-semibold transition"
-                          >
-                            + 청구생성
-                          </button>
                         ) : (
                           <span className="text-[11px] text-slate-500">미청구</span>
                         )}
@@ -1478,7 +1471,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     <td className="py-2 px-3 text-center">
                       <button
                         onClick={() => handleDeleteBilling(b)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-600/20 hover:bg-rose-600/40 border border-rose-500/40 text-rose-300 font-bold text-[11px] transition"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 border border-rose-700 text-white font-bold text-[11px] shadow-xs transition"
                         title="청구 내역 삭제"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -1912,9 +1905,9 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-400 font-semibold">산출 공급가액 합계</span>
                     <span className="font-mono font-bold text-[#0f172a] dark:text-white">
-                      ₩{formatErpCurrency(poSplitPreview.supplyTotal)}
+                      {formatErpCurrency(poSplitPreview.supplyTotal)}
                       <span className="text-slate-400 font-normal ml-1">
-                        (VAT ₩{formatErpCurrency(poSplitPreview.vatTotal)} / 합계 ₩{formatErpCurrency(poSplitPreview.grandTotal)})
+                        (VAT {formatErpCurrency(poSplitPreview.vatTotal)} / 합계 {formatErpCurrency(poSplitPreview.grandTotal)})
                       </span>
                     </span>
                   </div>
@@ -1932,11 +1925,11 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                           <span>
                             #{idx + 1}) 수량 <strong>{r.qty}</strong>개 × 정수단가{" "}
                             <strong className="text-blue-600 dark:text-blue-400">
-                              ₩{formatErpCurrency(r.unitCost)}
+                              {formatErpCurrency(r.unitCost)}
                             </strong>
                           </span>
                           <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                            = ₩{formatErpCurrency(r.rowTotal)}
+                            = {formatErpCurrency(r.rowTotal)}
                           </span>
                         </div>
                       ))}
@@ -1945,7 +1938,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     <div className="flex items-center justify-between text-[11px] pt-1 border-t border-dashed border-[#b5a894] dark:border-slate-800 font-mono">
                       <span className="text-slate-400">적용 정수 매입단가</span>
                       <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                        {poSplitPreview.qty}개 × ₩{formatErpCurrency(poSplitPreview.rows[0]?.unitCost || 0)} = ₩
+                        {poSplitPreview.qty}개 × {formatErpCurrency(poSplitPreview.rows[0]?.unitCost || 0)} ={" "}
                         {formatErpCurrency(poSplitPreview.supplyTotal)}
                       </span>
                     </div>
@@ -2229,7 +2222,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                         <div className="col-span-2 flex flex-col gap-1">
                           <label className="text-[10px] text-slate-400 font-semibold">공급가액</label>
                           <div className="h-8 px-2 flex items-center justify-end bg-slate-950 border border-slate-800 rounded font-mono text-emerald-400 font-bold text-xs">
-                            ₩{formatErpCurrency(rowSupply)}
+                            {formatErpNumber(rowSupply)}
                           </div>
                         </div>
 
@@ -2573,7 +2566,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     <option value="">-- 유통/판매 계약 선택 --</option>
                     {sales.map((s) => (
                       <option key={s.id} value={s.id}>
-                        [{s.saleNo}] {s.customerName} - {s.productName} ({s.qty}{s.unit || "EA"} / ₩{formatErpCurrency(s.totalAmount)})
+                        [{s.saleNo}] {s.customerName} - {s.productName} ({s.qty}{s.unit || "EA"} / {formatErpCurrency(s.totalAmount)})
                       </option>
                     ))}
                   </select>

@@ -299,7 +299,16 @@ function classifyBankTxAccount(row: any): {
       return { majorAccount: "NON_OP", subAccount: "이자수익", sign: 1 };
     }
     if (txChannel === "취소" || txChannel === "정정" || /취소/.test(combined)) {
-      return { majorAccount: "OPEX", subAccount: "체크·법인카드결제(취소환급)", sign: -1 };
+      if (/우정사업본부|우체국|SKT|케이티|KT|LGU|브로드밴드/.test(combined)) {
+        return { majorAccount: "OPEX", subAccount: "통신비", sign: -1 };
+      }
+      if (/주유|석유|에너지|칼텍스|오일뱅크|주차|하이패스|쏘카|렌터카/.test(combined)) {
+        return { majorAccount: "OPEX", subAccount: "차량유지·렌트비", sign: -1 };
+      }
+      if (/저작권|수수료|세무|회계|법무|등기|인증/.test(combined)) {
+        return { majorAccount: "OPEX", subAccount: "세무·인증·수수료", sign: -1 };
+      }
+      return { majorAccount: "COGS", subAccount: "무증빙·카드 상품자재매입", sign: -1 };
     }
     if (/과오납|환급/.test(combined)) {
       return { majorAccount: "NON_OP", subAccount: "세금환급·과오납환입", sign: 1 };

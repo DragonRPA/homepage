@@ -21,16 +21,16 @@ export const STANDARD_ACCOUNT_SUBJECTS: StandardAccountSubject[] = [
     code: "DEP_CARD_REFUND",
     label: "체크/카드취소환급",
     direction: "DEPOSIT",
-    majorAccount: "OPEX",
-    subAccount: "체크·법인카드결제(취소환급)",
+    majorAccount: "COGS",
+    subAccount: "무증빙·카드 상품자재매입",
     sign: -1,
   },
   {
     code: "DEP_PURCHASE_REFUND",
     label: "매입환불/쿠팡·플랫폼환급",
     direction: "DEPOSIT",
-    majorAccount: "OPEX",
-    subAccount: "소모품·플랫폼·IT구독비",
+    majorAccount: "COGS",
+    subAccount: "무증빙·카드 상품자재매입",
     sign: -1,
   },
   {
@@ -228,10 +228,18 @@ export function resolveExplicitAccountSubject(
     (s) => s.label === label || s.code === label || label.includes(s.label)
   );
   if (found) {
+    // 비용 계정(COGS, OPEX, PAYROLL, TAX_DUES)에 입금(취소/환급) 건이 매칭된 경우 해당 계정에서 차감(-1)
+    const isExpenseAccount =
+      found.majorAccount === "COGS" ||
+      found.majorAccount === "OPEX" ||
+      found.majorAccount === "PAYROLL" ||
+      found.majorAccount === "TAX_DUES";
+    const resolvedSign: 1 | -1 =
+      isDeposit && isExpenseAccount ? -1 : found.sign;
     return {
       majorAccount: found.majorAccount,
       subAccount: found.subAccount,
-      sign: found.sign,
+      sign: resolvedSign,
     };
   }
 
@@ -241,8 +249,8 @@ export function resolveExplicitAccountSubject(
   }
   if (/취소|환급|환불/.test(label)) {
     return {
-      majorAccount: "OPEX",
-      subAccount: "체크·법인카드결제(취소환급)",
+      majorAccount: "COGS",
+      subAccount: "무증빙·카드 상품자재매입",
       sign: isDeposit ? -1 : 1,
     };
   }
@@ -269,25 +277,25 @@ export function resolveExplicitAccountSubject(
     return { majorAccount: "COGS", subAccount: "외주용역·전대임차원가", sign: isDeposit ? -1 : 1 };
   }
   if (/임차료|월세|관리비/.test(label)) {
-    return { majorAccount: "OPEX", subAccount: "임차료·관리비", sign: 1 };
+    return { majorAccount: "OPEX", subAccount: "임차료·관리비", sign: isDeposit ? -1 : 1 };
   }
   if (/수도|광열|전기|가스/.test(label)) {
-    return { majorAccount: "OPEX", subAccount: "수도광열비(공과금)", sign: 1 };
+    return { majorAccount: "OPEX", subAccount: "수도광열비(공과금)", sign: isDeposit ? -1 : 1 };
   }
   if (/통신|전화|인터넷/.test(label)) {
-    return { majorAccount: "OPEX", subAccount: "통신비", sign: 1 };
+    return { majorAccount: "OPEX", subAccount: "통신비", sign: isDeposit ? -1 : 1 };
   }
   if (/차량|주유|주차|통행|렌트/.test(label)) {
-    return { majorAccount: "OPEX", subAccount: "차량유지·렌트비", sign: 1 };
+    return { majorAccount: "OPEX", subAccount: "차량유지·렌트비", sign: isDeposit ? -1 : 1 };
   }
   if (/수수료|세무|인증|법무/.test(label)) {
-    return { majorAccount: "OPEX", subAccount: "세무·인증·수수료", sign: 1 };
+    return { majorAccount: "OPEX", subAccount: "세무·인증·수수료", sign: isDeposit ? -1 : 1 };
   }
   if (/소모품|쿠팡|플랫폼|구독/.test(label)) {
     return { majorAccount: "OPEX", subAccount: "소모품·플랫폼·IT구독비", sign: isDeposit ? -1 : 1 };
   }
   if (/복리후생|식대|경비|체크/.test(label)) {
-    return { majorAccount: "OPEX", subAccount: "체크카드·현장운영경비", sign: 1 };
+    return { majorAccount: "OPEX", subAccount: "체크카드·현장운영경비", sign: isDeposit ? -1 : 1 };
   }
   if (/매출|수납/.test(label) && isDeposit) {
     return { majorAccount: "REVENUE", subAccount: "운영·유지보수 용역매출", sign: 1 };

@@ -39,6 +39,51 @@ async function ensureCorporateDocTables(pool: any) {
   `);
 }
 
+async function resequenceDocumentVersions(client: any, docId: number) {
+  const versRes = await client.query(
+    `SELECT id, version_no, version_label, change_note
+     FROM erp_corporate_document_versions
+     WHERE document_id = $1
+     ORDER BY effective_date ASC NULLS LAST, version_no ASC, id ASC`,
+    [docId]
+  );
+  const rows = versRes.rows;
+  if (rows.length === 0) return 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    await client.query(
+      `UPDATE erp_corporate_document_versions SET version_no = $1 WHERE id = $2`,
+      [-(i + 1), rows[i].id]
+    );
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const newNo = i + 1;
+    const newLabel = `v${newNo}.0`;
+    let newNote = String(rows[i].change_note || "");
+    newNote = newNote.replace(/^v\d+(?:\.\d+)?\s*(개정본 등록|제정·등록)$/, `${newLabel} $1`);
+
+    await client.query(
+      `UPDATE erp_corporate_document_versions
+       SET version_no = $1,
+           version_label = $2,
+           change_note = $3
+       WHERE id = $4`,
+      [newNo, newLabel, newNote, rows[i].id]
+    );
+  }
+
+  await client.query(
+    `UPDATE erp_corporate_documents
+     SET current_version = $1,
+         updated_at = NOW()
+     WHERE id = $2`,
+    [rows.length, docId]
+  );
+
+  return rows.length;
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -268,6 +313,131 @@ export async function POST(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+    const action = String(body.action || "");
+    const pool = getErpPool();
+    await ensureCorporateDocTables(pool);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      if (action === "RESEQUENCE_DOCUMENT") {
+        const documentId = Number(body.documentId || 0);
+        if (!documentId) {
+          throw new Error("대상 문서 ID가 필요합니다.");
+        }
+        const count = await resequenceDocumentVersions(client, documentId);
+        await client.query("COMMIT");
+        return NextResponse.json({
+          success: true,
+          message: `버전 번호가 v1.0 ~ v${count}.0 순번으로 자동 정렬되었습니다.`,
+        });
+      }
+
+      if (action === "UPDATE_VERSION") {
+        const versionId = Number(body.versionId || 0);
+        if (!versionId) {
+          throw new Error("수정할 버전 ID가 필요합니다.");
+        }
+        const verRes = await client.query(
+          `SELECT id, document_id, version_no, version_label, effective_date::text AS effective_date, change_note
+           FROM erp_corporate_document_versions
+           WHERE id = $1 FOR UPDATE`,
+          [versionId]
+        );
+        if (verRes.rows.length === 0) {
+          throw new Error("대상 버전을 찾을 수 없습니다.");
+        }
+        const row = verRes.rows[0];
+        const newVersionNo = body.versionNo !== undefined ? Math.max(1, Number(body.versionNo)) : Number(row.version_no);
+        const newVersionLabel =
+          body.versionLabel !== undefined && String(body.versionLabel).trim() !== ""
+            ? String(body.versionLabel).trim()
+            : `v${newVersionNo}.0`;
+        const newEffectiveDate =
+          body.effectiveDate !== undefined ? String(body.effectiveDate || "").trim() || null : row.effective_date;
+        const newChangeNote =
+          body.changeNote !== undefined ? String(body.changeNote).trim() : row.change_note;
+
+        // If another version of the same document already has newVersionNo, shift it temporarily
+        if (newVersionNo !== Number(row.version_no)) {
+          const conflictRes = await client.query(
+            `SELECT id FROM erp_corporate_document_versions
+             WHERE document_id = $1 AND version_no = $2 AND id <> $3`,
+            [row.document_id, newVersionNo, versionId]
+          );
+          if (conflictRes.rows.length > 0) {
+            // Swap version_no with the conflicting row
+            const conflictId = conflictRes.rows[0].id;
+            await client.query(
+              `UPDATE erp_corporate_document_versions SET version_no = -9999 WHERE id = $1`,
+              [conflictId]
+            );
+            await client.query(
+              `UPDATE erp_corporate_document_versions
+               SET version_no = $1, version_label = $2, effective_date = $3, change_note = $4
+               WHERE id = $5`,
+              [newVersionNo, newVersionLabel, newEffectiveDate, newChangeNote, versionId]
+            );
+            await client.query(
+              `UPDATE erp_corporate_document_versions
+               SET version_no = $1, version_label = $2
+               WHERE id = $3`,
+              [row.version_no, `v${row.version_no}.0`, conflictId]
+            );
+          } else {
+            await client.query(
+              `UPDATE erp_corporate_document_versions
+               SET version_no = $1, version_label = $2, effective_date = $3, change_note = $4
+               WHERE id = $5`,
+              [newVersionNo, newVersionLabel, newEffectiveDate, newChangeNote, versionId]
+            );
+          }
+        } else {
+          await client.query(
+            `UPDATE erp_corporate_document_versions
+             SET version_label = $1, effective_date = $2, change_note = $3
+             WHERE id = $4`,
+            [newVersionLabel, newEffectiveDate, newChangeNote, versionId]
+          );
+        }
+
+        const maxVerRes = await client.query(
+          `SELECT COALESCE(MAX(version_no), 1) AS max_ver FROM erp_corporate_document_versions WHERE document_id = $1`,
+          [row.document_id]
+        );
+        const maxVer = Number(maxVerRes.rows[0].max_ver || 1);
+        await client.query(
+          `UPDATE erp_corporate_documents SET current_version = $1, updated_at = NOW() WHERE id = $2`,
+          [maxVer, row.document_id]
+        );
+
+        await client.query("COMMIT");
+        return NextResponse.json({
+          success: true,
+          message: `버전 정보(${newVersionLabel})가 수정되었습니다.`,
+        });
+      }
+
+      throw new Error("유효하지 않은 요청(action)입니다.");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (error: any) {
+    console.error("PATCH /api/erp/corporate-docs Error:", error);
+    return NextResponse.json(
+      { error: "버전 수정 실패: " + error.message },
+      { status: 500 }
+    );
+  }
+}
+
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -291,22 +461,27 @@ export async function DELETE(request: Request) {
       } catch {
         // ignore R2 delete error
       }
-      await pool.query(`DELETE FROM erp_corporate_document_versions WHERE id = $1`, [versionId]);
 
-      const remainRes = await pool.query(
-        `SELECT COALESCE(MAX(version_no), 0) AS max_ver FROM erp_corporate_document_versions WHERE document_id = $1`,
-        [row.document_id]
-      );
-      const maxVer = Number(remainRes.rows[0].max_ver || 0);
-      if (maxVer === 0) {
-        await pool.query(`DELETE FROM erp_corporate_documents WHERE id = $1`, [row.document_id]);
-      } else {
-        await pool.query(
-          `UPDATE erp_corporate_documents SET current_version = $1, updated_at = NOW() WHERE id = $2`,
-          [maxVer, row.document_id]
-        );
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(`DELETE FROM erp_corporate_document_versions WHERE id = $1`, [versionId]);
+        const remainCount = await resequenceDocumentVersions(client, Number(row.document_id));
+        if (remainCount === 0) {
+          await client.query(`DELETE FROM erp_corporate_documents WHERE id = $1`, [row.document_id]);
+        }
+        await client.query("COMMIT");
+      } catch (e) {
+        await client.query("ROLLBACK");
+        throw e;
+      } finally {
+        client.release();
       }
-      return NextResponse.json({ success: true, message: "선택한 문서 버전이 삭제되었습니다." });
+
+      return NextResponse.json({
+        success: true,
+        message: "선택한 문서 버전이 삭제되고 남은 버전 번호가 자동 정렬되었습니다.",
+      });
     }
 
     if (documentId > 0) {

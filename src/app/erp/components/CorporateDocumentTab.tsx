@@ -20,6 +20,8 @@ import {
   Copy,
   ArrowRight,
   ExternalLink,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { BUSINESS_ENTITIES } from "@/lib/businessEntities";
 
@@ -105,6 +107,14 @@ export const CorporateDocumentTab: React.FC<CorporateDocumentTabProps> = ({
   const [formChangeNote, setFormChangeNote] = useState<string>("");
   const [formFile, setFormFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // 버전 수정(버전번호·라벨·시행일·메모) 인라인 상태
+  const [editingVerId, setEditingVerId] = useState<number | null>(null);
+  const [editVerNo, setEditVerNo] = useState<number>(1);
+  const [editVerLabel, setEditVerLabel] = useState<string>("v1.0");
+  const [editVerDate, setEditVerDate] = useState<string>("");
+  const [editVerNote, setEditVerNote] = useState<string>("");
+  const [savingVer, setSavingVer] = useState<boolean>(false);
 
   // [서식 작성·출력 스튜디오] 상태
   const [tplType, setTplType] = useState<
@@ -313,7 +323,7 @@ export const CorporateDocumentTab: React.FC<CorporateDocumentTabProps> = ({
   };
 
   const handleDeleteVersion = async (ver: DocVersionItem) => {
-    if (!window.confirm(`[${ver.versionLabel}] ${ver.fileName} 버전을 삭제하시겠습니까?`)) {
+    if (!window.confirm(`[${ver.versionLabel}] ${ver.fileName} 버전을 삭제하시겠습니까?\n(삭제 후 남은 버전들의 번호는 v1.0부터 순서대로 자동 정렬됩니다.)`)) {
       return;
     }
     try {
@@ -329,6 +339,63 @@ export const CorporateDocumentTab: React.FC<CorporateDocumentTabProps> = ({
       }
     } catch (err: any) {
       alert("삭제 오류: " + err.message);
+    }
+  };
+
+  const startEditingVersion = (ver: DocVersionItem) => {
+    setEditingVerId(ver.id);
+    setEditVerNo(ver.versionNo);
+    setEditVerLabel(ver.versionLabel || `v${ver.versionNo}.0`);
+    setEditVerDate(ver.effectiveDate || "");
+    setEditVerNote(ver.changeNote || "");
+  };
+
+  const handleSaveVersionEdit = async (verId: number) => {
+    setSavingVer(true);
+    try {
+      const res = await fetch("/api/erp/corporate-docs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "UPDATE_VERSION",
+          versionId: verId,
+          versionNo: Number(editVerNo),
+          versionLabel: editVerLabel.trim() || `v${editVerNo}.0`,
+          effectiveDate: editVerDate.trim(),
+          changeNote: editVerNote.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "버전 수정 실패");
+      }
+      setEditingVerId(null);
+      await fetchDocuments();
+    } catch (err: any) {
+      alert("버전 수정 오류: " + err.message);
+    } finally {
+      setSavingVer(false);
+    }
+  };
+
+  const handleResequenceVersions = async (docId: number) => {
+    try {
+      const res = await fetch("/api/erp/corporate-docs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "RESEQUENCE_DOCUMENT",
+          documentId: docId,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "버전 번호 재정렬 실패");
+      }
+      setEditingVerId(null);
+      await fetchDocuments();
+    } catch (err: any) {
+      alert("버전 번호 재정렬 오류: " + err.message);
     }
   };
 
@@ -1367,26 +1434,38 @@ ${tplAfterText}
                         <History className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400 shrink-0" />
                         <span className="truncate">{selectedDoc.title} — 버전 히스토리</span>
                       </div>
-                      {selectedDoc.category === "법인설립 원시서류 (보존용)" ? (
-                        <span className="px-2.5 py-1 rounded bg-[#cbd5e1] text-[#334155] border border-[#94a3b8] text-[11px] font-bold shrink-0 whitespace-nowrap">
-                          법인설립 원시서류 (영구보존·수정불필요)
-                        </span>
-                      ) : (
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
-                          onClick={() => openNewVersionModal(selectedDoc)}
-                          className="px-2.5 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold flex items-center gap-1 shrink-0 whitespace-nowrap"
+                          onClick={() => handleResequenceVersions(selectedDoc.id)}
+                          className="px-2 py-1 rounded bg-[#e2e8f0] hover:bg-[#cbd5e1] text-[#0f172a] border border-[#94a3b8] text-[11px] font-bold flex items-center gap-1 whitespace-nowrap"
+                          title="중간 버전 삭제 후 남은 버전들의 번호를 시행일 순으로 v1.0, v2.0... 순번에 맞게 낮춰 자동 정렬합니다"
                         >
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>신규 개정본(v{selectedDoc.currentVersion + 1}.0) 업로드</span>
+                          <RefreshCw className="w-3 h-3" />
+                          <span>버전순번 자동정렬(v1~)</span>
                         </button>
-                      )}
+                        {selectedDoc.category === "법인설립 원시서류 (보존용)" ? (
+                          <span className="px-2.5 py-1 rounded bg-[#cbd5e1] text-[#334155] border border-[#94a3b8] text-[11px] font-bold shrink-0 whitespace-nowrap">
+                            법인설립 원시서류 (영구보존)
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => openNewVersionModal(selectedDoc)}
+                            className="px-2.5 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold flex items-center gap-1 shrink-0 whitespace-nowrap"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>신규 개정본(v{selectedDoc.currentVersion + 1}.0) 업로드</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="p-2.5 space-y-2 max-h-[250px] overflow-y-auto">
+                    <div className="p-2.5 space-y-2 max-h-[280px] overflow-y-auto">
                       {selectedDoc.versions.map((ver, idx) => {
                         const isLatest = idx === 0;
                         const isPreviewing = previewVer?.id === ver.id;
+                        const isEditing = editingVerId === ver.id;
                         return (
                           <div
                             key={ver.id}
@@ -1416,6 +1495,21 @@ ${tplAfterText}
                               </div>
 
                               <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    isEditing ? setEditingVerId(null) : startEditingVersion(ver)
+                                  }
+                                  className={`px-2 py-1 rounded text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap border ${
+                                    isEditing
+                                      ? "bg-[#fef3c7] text-[#92400e] border-[#f59e0b]"
+                                      : "bg-[#e2e8f0] hover:bg-[#cbd5e1] text-[#0f172a] border-[#94a3b8]"
+                                  }`}
+                                  title="버전 번호(숫자), 시행일, 메모 수정"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                  <span>{isEditing ? "수정취소" : "버전수정"}</span>
+                                </button>
                                 {ver.fileExt === "pdf" && (
                                   <button
                                     type="button"
@@ -1438,13 +1532,79 @@ ${tplAfterText}
                                     type="button"
                                     onClick={() => handleDeleteVersion(ver)}
                                     className="p-1 rounded bg-[#fee2e2] hover:bg-[#fecaca] text-[#991b1b] border border-[#fca5a5]"
-                                    title="이 버전 삭제"
+                                    title="이 버전 삭제 (삭제 시 남은 버전 번호 자동 정렬)"
                                   >
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                 )}
                               </div>
                             </div>
+
+                            {isEditing && (
+                              <div className="p-2 rounded bg-[#ebe5d8] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-700 grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                                <div className="sm:col-span-2 flex flex-col gap-1">
+                                  <label className="text-[10px] font-bold text-[#334155] whitespace-nowrap">
+                                    버전 숫자
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={99}
+                                    value={editVerNo}
+                                    onChange={(e) => {
+                                      const n = Math.max(1, Number(e.target.value || 1));
+                                      setEditVerNo(n);
+                                      setEditVerLabel(`v${n}.0`);
+                                    }}
+                                    className="bg-white border border-[#94a3b8] rounded px-2 py-1 text-xs font-mono font-bold text-[#0f172a]"
+                                  />
+                                </div>
+                                <div className="sm:col-span-2 flex flex-col gap-1">
+                                  <label className="text-[10px] font-bold text-[#334155] whitespace-nowrap">
+                                    버전 표기
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editVerLabel}
+                                    onChange={(e) => setEditVerLabel(e.target.value)}
+                                    className="bg-white border border-[#94a3b8] rounded px-2 py-1 text-xs font-mono font-bold text-[#0f172a]"
+                                  />
+                                </div>
+                                <div className="sm:col-span-3 flex flex-col gap-1">
+                                  <label className="text-[10px] font-bold text-[#334155] whitespace-nowrap">
+                                    시행/발급일
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={editVerDate}
+                                    onChange={(e) => setEditVerDate(e.target.value)}
+                                    className="bg-white border border-[#94a3b8] rounded px-2 py-1 text-xs font-mono text-[#0f172a]"
+                                  />
+                                </div>
+                                <div className="sm:col-span-3 flex flex-col gap-1">
+                                  <label className="text-[10px] font-bold text-[#334155] whitespace-nowrap">
+                                    개정/보관 메모
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editVerNote}
+                                    onChange={(e) => setEditVerNote(e.target.value)}
+                                    className="bg-white border border-[#94a3b8] rounded px-2 py-1 text-xs text-[#0f172a]"
+                                  />
+                                </div>
+                                <div className="sm:col-span-2 flex items-center justify-end gap-1">
+                                  <button
+                                    type="button"
+                                    disabled={savingVer}
+                                    onClick={() => handleSaveVersionEdit(ver.id)}
+                                    className="w-full px-2 py-1.5 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold inline-flex items-center justify-center gap-1 whitespace-nowrap"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>저장</span>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
 
                             <div className="flex items-center justify-between gap-2 text-[11px]">
                               <span className="font-bold text-[#0f172a] dark:text-slate-200 truncate">
@@ -1455,7 +1615,7 @@ ${tplAfterText}
                               </span>
                             </div>
 
-                            {ver.changeNote && (
+                            {ver.changeNote && !isEditing && (
                               <div className="text-[11px] text-[#334155] dark:text-slate-300 bg-[#ebe5d8] dark:bg-slate-900 px-2 py-1 rounded border border-[#d5cbb8] dark:border-slate-800">
                                 개정/보관 메모: {ver.changeNote}
                               </div>

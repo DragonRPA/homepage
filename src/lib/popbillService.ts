@@ -634,11 +634,14 @@ export interface HometaxCollectedInvoice {
   invoicerCorpNum: string;
   invoicerCorpName: string;
   invoicerCEOName: string;
+  invoicerAddr?: string;
   invoicerEmail?: string;
   invoiceeCorpNum: string;
   invoiceeCorpName: string;
   invoiceeCEOName: string;
+  invoiceeAddr?: string;
   invoiceeEmail1?: string;
+  invoiceeEmail2?: string;
   supplyCostTotal: number;
   taxTotal: number;
   totalAmount: number;
@@ -647,5 +650,6 @@ export interface HometaxCollectedInvoice {
   itemName: string;
   remark1?: string;
   mgtKey?: string;
+  taxItems?: PopbillTaxItem[];
   sourceChannel: "HOMETAX_RPA" | "EXCEL_UPLOAD";
 }

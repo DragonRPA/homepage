@@ -240,6 +240,14 @@ function parseHometaxRows(rows) {
   for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length === 0) continue;
+    const joined = row.map((c) => String(c || "").replace(/\s+/g, "")).join("|");
+    if (
+      (joined.includes("승인번호") || joined.includes("작성일자")) &&
+      (joined.includes("공급가액") || joined.includes("합계금액")) &&
+      String(row[colWriteDate >= 0 ? colWriteDate : 0] || "").replace(/\s+/g, "").includes("일자")
+    ) {
+      continue;
+    }
     const parseNum = (v) => Math.round(parseFloat(String(v || "0").replace(/[^0-9.-]/g, "")) || 0);
     const supply = colSupply >= 0 ? parseNum(row[colSupply]) : 0;
     const vat = colVat >= 0 ? parseNum(row[colVat]) : Math.round(supply * 0.1);
@@ -247,10 +255,8 @@ function parseHometaxRows(rows) {
     if (supply === 0 && total === 0) continue;
 
     const rawDate = String(colWriteDate >= 0 ? row[colWriteDate] : "").replace(/[^0-9]/g, "");
-    const writeDate =
-      rawDate.length >= 8
-        ? `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`
-        : new Date().toISOString().slice(0, 10);
+    if (rawDate.length < 8) continue;
+    const writeDate = `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`;
 
     const supBizNo = colSupplierBizNo >= 0 ? String(row[colSupplierBizNo] || "").replace(/[^0-9]/g, "") : "";
     const supName = colSupplierName >= 0 ? String(row[colSupplierName] || "").trim() : "";

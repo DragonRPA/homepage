@@ -691,6 +691,252 @@ ${tplAfterText}
       return;
     }
 
+    if (tplType === "COMPARE_TABLE") {
+      const beforeLinesHtml = tplBeforeText
+        .split("\n")
+        .map((line) => `<div style="margin-bottom: 5px;">${line}</div>`)
+        .join("");
+      const afterLinesHtml = tplAfterText
+        .split("\n")
+        .map((line) => {
+          const isNew = line.includes("(신설)") || line.includes("(조항");
+          return `<div style="margin-bottom: 5px; ${isNew ? "font-weight: 700;" : ""}">${line}</div>`;
+        })
+        .join("");
+
+      win.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>신·구조문대비표 - ${corp.corpName}</title>
+            <style>
+              @page { size: A4 portrait; margin: 16mm; }
+              body {
+                font-family: 'Malgun Gothic', '맑은 고딕', 'Dotum', sans-serif;
+                color: #000;
+                background: #fff;
+                margin: 0;
+                padding: 0;
+                font-size: 12.5px;
+                line-height: 1.55;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              h1 {
+                text-align: center;
+                font-size: 24px;
+                font-weight: 800;
+                letter-spacing: 8px;
+                text-indent: 8px;
+                margin: 0 0 18px 0;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+                border: 1.5px solid #000;
+              }
+              th, td {
+                border: 1px solid #000;
+                padding: 9px 10px;
+                vertical-align: top;
+                box-sizing: border-box;
+              }
+              th {
+                background: #f8fafc;
+                font-weight: 700;
+                text-align: center;
+                font-size: 13px;
+              }
+            </style>
+          </head>
+          <body>
+            <div style="font-weight: 700; font-size: 12px; margin-bottom: 4px;">[별첨]</div>
+            <h1>신 · 구 조 문 대 비 표</h1>
+            <div style="margin-bottom: 10px; font-size: 12px; display: flex; justify-content: space-between;">
+              <span><strong>대상 법인:</strong> ${corp.corpName} (${corp.bizNum} / ${corp.corpRegNum})</span>
+              <span><strong>결의일:</strong> ${tplResolutionDate} / <strong>시행일:</strong> ${tplEffectiveDate}</span>
+            </div>
+            <table>
+              <colgroup>
+                <col style="width: 14%;" />
+                <col style="width: 35%;" />
+                <col style="width: 35%;" />
+                <col style="width: 16%;" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>구 분</th>
+                  <th>현행 정관 (변경 전)</th>
+                  <th>개정 정관 (변경 후)</th>
+                  <th>개정 사유</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="text-align: center; font-weight: 700; vertical-align: middle;">${tplArticleNo}</td>
+                  <td>
+                    <div style="font-weight: 700; margin-bottom: 6px;">회사는 다음의 사업을 영위함을 목적으로 한다.</div>
+                    ${beforeLinesHtml}
+                  </td>
+                  <td>
+                    <div style="font-weight: 700; margin-bottom: 6px;">회사는 다음의 사업을 영위함을 목적으로 한다.</div>
+                    ${afterLinesHtml}
+                  </td>
+                  <td style="text-align: center; vertical-align: middle;">${tplReasonText}</td>
+                </tr>
+                <tr>
+                  <td style="text-align: center; font-weight: 700; vertical-align: middle;">부 칙</td>
+                  <td style="color: #555; text-align: center; vertical-align: middle;">(신설)</td>
+                  <td>
+                    <div style="font-weight: 700;">제1조 (시행일)</div>
+                    <div>이 정관은 ${tplEffectiveDate}부터 시행한다.</div>
+                  </td>
+                  <td style="text-align: center; vertical-align: middle;">개정 정관 시행일 명시</td>
+                </tr>
+              </tbody>
+            </table>
+            <script>window.onload = () => { window.print(); };</script>
+          </body>
+        </html>
+      `);
+      win.document.close();
+      return;
+    }
+
+    if (tplType === "SHAREHOLDER_LIST") {
+      win.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>주주명부 - ${corp.corpName}</title>
+            <style>
+              @page { size: A4 portrait; margin: 20mm 16mm; }
+              body {
+                font-family: 'Malgun Gothic', '맑은 고딕', 'Dotum', sans-serif;
+                color: #000;
+                background: #fff;
+                margin: 0;
+                padding: 0;
+                font-size: 13px;
+                line-height: 1.65;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              h1 {
+                text-align: center;
+                font-size: 28px;
+                font-weight: 800;
+                letter-spacing: 16px;
+                text-indent: 16px;
+                margin: 10px 0 28px 0;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+                border: 1.5px solid #000;
+                margin: 14px 0 28px 0;
+              }
+              th, td {
+                border: 1px solid #000;
+                padding: 10px 6px;
+                font-size: 12px;
+                text-align: center;
+                vertical-align: middle;
+                box-sizing: border-box;
+              }
+              th {
+                background: #f8fafc;
+                font-weight: 700;
+              }
+            </style>
+          </head>
+          <body>
+            <h1>주 주 명 부</h1>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px; font-size: 12.5px;">
+              <div style="line-height: 1.7;">
+                <div><strong>상 호 :</strong> ${corp.corpName}</div>
+                <div><strong>법인등록번호 :</strong> ${corp.corpRegNum} (사업자등록번호: ${corp.bizNum})</div>
+                <div><strong>발행주식총수 :</strong> ${(corp.totalShares || 10000).toLocaleString()} 주 (1주의 금액: ${(corp.parValue || 500).toLocaleString()} 원 / 자본금: ${corp.capitalStock.toLocaleString()} 원)</div>
+              </div>
+              <div style="font-weight: 700;">기준일 : ${tplResolutionDate}</div>
+            </div>
+
+            <table>
+              <colgroup>
+                <col style="width: 6%;" />
+                <col style="width: 10%;" />
+                <col style="width: 16%;" />
+                <col style="width: 31%;" />
+                <col style="width: 10%;" />
+                <col style="width: 11%;" />
+                <col style="width: 9%;" />
+                <col style="width: 7%;" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>순번</th>
+                  <th>주주명</th>
+                  <th>주민등록번호</th>
+                  <th>주 소</th>
+                  <th>주식의 종류</th>
+                  <th>보유주식 수</th>
+                  <th>주식보유금액</th>
+                  <th>지분율</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td style="font-weight: 700;">${tplShareholderName}</td>
+                  <td style="font-family: monospace;">${tplShareholderRegNo}</td>
+                  <td style="text-align: left; padding: 8px 8px; font-size: 11.5px; line-height: 1.35;">${tplShareholderAddr}</td>
+                  <td>보통주</td>
+                  <td style="text-align: right; padding-right: 8px; font-family: monospace;">${tplShareholderShares} 주</td>
+                  <td style="text-align: right; padding-right: 8px; font-family: monospace;">${tplShareholderAmount}</td>
+                  <td style="font-family: monospace; font-weight: 700;">${tplShareholderRatio}%</td>
+                </tr>
+                <tr style="height: 36px;">
+                  <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                </tr>
+                <tr style="height: 36px;">
+                  <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                </tr>
+                <tr style="background: #f8fafc; font-weight: 700;">
+                  <td colspan="5">총 계</td>
+                  <td style="text-align: right; padding-right: 8px; font-family: monospace;">${tplShareholderShares} 주</td>
+                  <td style="text-align: right; padding-right: 8px; font-family: monospace;">${tplShareholderAmount}</td>
+                  <td style="font-family: monospace;">${tplShareholderRatio}%</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <p style="text-align: center; margin: 28px 0; font-size: 14px;">
+              위 기재 사실이 틀림없음을 증명합니다.
+            </p>
+
+            <div style="text-align: center; font-weight: 700; font-size: 14px; margin-bottom: 32px;">
+              ${tplResolutionDate}
+            </div>
+
+            <div style="text-align: center; line-height: 2;">
+              <div style="font-size: 15px; font-weight: 700;">${corp.corpName}</div>
+              <div style="font-size: 12.5px; color: #333;">본점 : ${corp.address}</div>
+              <div style="font-size: 15px; font-weight: 700; margin-top: 8px;">
+                대표이사 &nbsp; ${corp.ceoName} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (인)
+              </div>
+            </div>
+            <script>window.onload = () => { window.print(); };</script>
+          </body>
+        </html>
+      `);
+      win.document.close();
+      return;
+    }
+
     win.document.write(`
       <html>
         <head>
@@ -2624,10 +2870,365 @@ ${tplAfterText}
                     </div>
                   </div>
                 </div>
+              ) : tplType === "COMPARE_TABLE" ? (
+                <div
+                  className="w-full max-w-[760px] bg-white text-black p-6 border border-slate-300 shadow-sm space-y-3 text-[12.5px] leading-relaxed"
+                  style={{
+                    fontFamily:
+                      "'Malgun Gothic', '맑은 고딕', 'Dotum', '돋움', sans-serif",
+                  }}
+                >
+                  <div className="font-bold text-xs">[별첨]</div>
+                  <h1
+                    className="text-center font-extrabold text-[22px] mb-3"
+                    style={{ letterSpacing: "8px", textIndent: "8px" }}
+                  >
+                    신 · 구 조 문 대 비 표
+                  </h1>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11.5px] pb-1">
+                    <span>
+                      <strong>대상 법인:</strong> {corp.corpName} ({corp.bizNum} /{" "}
+                      {corp.corpRegNum})
+                    </span>
+                    <span className="font-mono">
+                      <strong>결의일:</strong> {tplResolutionDate} /{" "}
+                      <strong>시행일:</strong> {tplEffectiveDate}
+                    </span>
+                  </div>
+
+                  <table
+                    className="w-full border-collapse text-[12px]"
+                    style={{ border: "1.5px solid #000", tableLayout: "fixed" }}
+                  >
+                    <colgroup>
+                      <col style={{ width: "14%" }} />
+                      <col style={{ width: "35%" }} />
+                      <col style={{ width: "35%" }} />
+                      <col style={{ width: "16%" }} />
+                    </colgroup>
+                    <thead>
+                      <tr className="bg-slate-50">
+                        <th
+                          className="py-2 px-2 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          구 분
+                        </th>
+                        <th
+                          className="py-2 px-2 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          현행 정관 (변경 전)
+                        </th>
+                        <th
+                          className="py-2 px-2 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          개정 정관 (변경 후)
+                        </th>
+                        <th
+                          className="py-2 px-2 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          개정 사유
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td
+                          className="p-2.5 text-center font-bold align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplArticleNo}
+                        </td>
+                        <td
+                          className="p-2.5 align-top space-y-1"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          <div className="font-bold mb-1">
+                            회사는 다음의 사업을 영위함을 목적으로 한다.
+                          </div>
+                          {tplBeforeText.split("\n").map((line, i) => (
+                            <div key={i}>{line}</div>
+                          ))}
+                        </td>
+                        <td
+                          className="p-2.5 align-top space-y-1"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          <div className="font-bold mb-1">
+                            회사는 다음의 사업을 영위함을 목적으로 한다.
+                          </div>
+                          {tplAfterText.split("\n").map((line, i) => {
+                            const isBold =
+                              line.includes("(신설)") || line.includes("(조항");
+                            return (
+                              <div key={i} className={isBold ? "font-bold" : ""}>
+                                {line}
+                              </div>
+                            );
+                          })}
+                        </td>
+                        <td
+                          className="p-2.5 text-center align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplReasonText}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td
+                          className="p-2.5 text-center font-bold align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          부 칙
+                        </td>
+                        <td
+                          className="p-2.5 text-center text-slate-500 align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          (신설)
+                        </td>
+                        <td
+                          className="p-2.5 align-top space-y-1"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          <div className="font-bold">제1조 (시행일)</div>
+                          <div>이 정관은 {tplEffectiveDate}부터 시행한다.</div>
+                        </td>
+                        <td
+                          className="p-2.5 text-center align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          개정 정관 시행일 명시
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               ) : (
-                <pre className="w-full font-mono text-xs leading-relaxed whitespace-pre-wrap text-[#0f172a] dark:text-slate-100">
-                  {generatedTemplateText}
-                </pre>
+                <div
+                  className="w-full max-w-[760px] bg-white text-black p-7 border border-slate-300 shadow-sm space-y-4 text-[12.5px] leading-relaxed"
+                  style={{
+                    fontFamily:
+                      "'Malgun Gothic', '맑은 고딕', 'Dotum', '돋움', sans-serif",
+                  }}
+                >
+                  <h1
+                    className="text-center font-extrabold text-[26px] my-3"
+                    style={{ letterSpacing: "14px", textIndent: "14px" }}
+                  >
+                    주 주 명 부
+                  </h1>
+
+                  <div className="flex flex-wrap items-end justify-between gap-2 text-[12px]">
+                    <div className="space-y-0.5">
+                      <div>
+                        <strong>상 호 :</strong> {corp.corpName}
+                      </div>
+                      <div>
+                        <strong>법인등록번호 :</strong> {corp.corpRegNum} (사업자등록번호:{" "}
+                        {corp.bizNum})
+                      </div>
+                      <div>
+                        <strong>발행주식총수 :</strong>{" "}
+                        {(corp.totalShares || 10000).toLocaleString()} 주 (1주의 금액:{" "}
+                        {(corp.parValue || 500).toLocaleString()} 원 / 자본금:{" "}
+                        {corp.capitalStock.toLocaleString()} 원)
+                      </div>
+                    </div>
+                    <div className="font-bold font-mono">
+                      기준일 : {tplResolutionDate}
+                    </div>
+                  </div>
+
+                  <table
+                    className="w-full border-collapse text-[11.5px]"
+                    style={{ border: "1.5px solid #000", tableLayout: "fixed" }}
+                  >
+                    <colgroup>
+                      <col style={{ width: "6%" }} />
+                      <col style={{ width: "10%" }} />
+                      <col style={{ width: "16%" }} />
+                      <col style={{ width: "31%" }} />
+                      <col style={{ width: "10%" }} />
+                      <col style={{ width: "11%" }} />
+                      <col style={{ width: "9%" }} />
+                      <col style={{ width: "7%" }} />
+                    </colgroup>
+                    <thead>
+                      <tr className="bg-slate-50">
+                        <th
+                          className="py-2 px-1 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          순번
+                        </th>
+                        <th
+                          className="py-2 px-1 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          주주명
+                        </th>
+                        <th
+                          className="py-2 px-1 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          주민등록번호
+                        </th>
+                        <th
+                          className="py-2 px-1 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          주 소
+                        </th>
+                        <th
+                          className="py-2 px-1 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          주식의 종류
+                        </th>
+                        <th
+                          className="py-2 px-1 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          보유주식 수
+                        </th>
+                        <th
+                          className="py-2 px-1 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          주식보유금액
+                        </th>
+                        <th
+                          className="py-2 px-1 text-center font-bold"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          지분율
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td
+                          className="py-2.5 px-1 text-center align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          1
+                        </td>
+                        <td
+                          className="py-2.5 px-1 text-center font-bold align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderName}
+                        </td>
+                        <td
+                          className="py-2.5 px-1 text-center font-mono align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderRegNo}
+                        </td>
+                        <td
+                          className="py-2 px-2 text-left align-middle text-[11px] leading-snug"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderAddr}
+                        </td>
+                        <td
+                          className="py-2.5 px-1 text-center align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          보통주
+                        </td>
+                        <td
+                          className="py-2.5 px-2 text-right font-mono align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderShares} 주
+                        </td>
+                        <td
+                          className="py-2.5 px-2 text-right font-mono align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderAmount}
+                        </td>
+                        <td
+                          className="py-2.5 px-1 text-center font-mono font-bold align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderRatio}%
+                        </td>
+                      </tr>
+                      <tr style={{ height: "34px" }}>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                      </tr>
+                      <tr style={{ height: "34px" }}>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                        <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                      </tr>
+                      <tr className="bg-slate-50 font-bold">
+                        <td
+                          colSpan={5}
+                          className="py-2.5 px-2 text-center align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          총 계
+                        </td>
+                        <td
+                          className="py-2.5 px-2 text-right font-mono align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderShares} 주
+                        </td>
+                        <td
+                          className="py-2.5 px-2 text-right font-mono align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderAmount}
+                        </td>
+                        <td
+                          className="py-2.5 px-1 text-center font-mono align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderRatio}%
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <p className="text-center pt-3 text-[13.5px]">
+                    위 기재 사실이 틀림없음을 증명합니다.
+                  </p>
+
+                  <div className="text-center font-bold font-mono text-[13.5px] py-2">
+                    {tplResolutionDate}
+                  </div>
+
+                  <div className="text-center space-y-1 pt-2">
+                    <div className="font-bold text-[14.5px]">{corp.corpName}</div>
+                    <div className="text-[12px] text-slate-700">
+                      본점 : {corp.address}
+                    </div>
+                    <div className="font-bold text-[14.5px] pt-2">
+                      대표이사 &nbsp; {corp.ceoName} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (인)
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           </div>

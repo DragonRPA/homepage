@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   RefreshCw,
   Download,
+  Upload,
   ChevronDown,
   ChevronRight,
   Search,
@@ -21,7 +22,7 @@ import { formatErpCurrency } from "@/lib/erpFormat";
 
 interface FinancialDetailItem {
   id: string;
-  source: "TAX_INVOICE" | "BANK_TX";
+  source: "TAX_INVOICE" | "BANK_TX" | "TAX_PAYMENT";
   entityType: "CORP" | "INDIVIDUAL";
   yearMonth: string;
   date: string;
@@ -235,7 +236,9 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
   const [taxCorporate, setTaxCorporate] = useState<number>(0);
   const [taxPayment, setTaxPayment] = useState<number>(0);
   const [savingRemark, setSavingRemark] = useState<boolean>(false);
+  const [uploadingTaxFile, setUploadingTaxFile] = useState<boolean>(false);
   const [saveMessage, setSaveMessage] = useState<string>("");
+  const taxFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // 상세 전표 드릴다운 필터 상태
   const [selectedMonth, setSelectedMonth] = useState<string>("ALL");
@@ -322,6 +325,40 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
       setSaveMessage("저장 오류: " + e.message);
     } finally {
       setSavingRemark(false);
+    }
+  };
+
+  const handleTaxPaymentFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploadingTaxFile(true);
+    setSaveMessage("");
+    try {
+      let totalUpserted = 0;
+      for (let i = 0; i < files.length; i++) {
+        const formData = new FormData();
+        formData.append("file", files[i]);
+        formData.append(
+          "entityType",
+          entityFilter === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP"
+        );
+        const res = await fetch("/api/erp/financial-report", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || `${files[i].name} 업로드 실패`);
+        }
+        totalUpserted += Number(data.upsertedCount || 0);
+      }
+      setSaveMessage(`국세청 납부세액 ${totalUpserted}건 업로드 완료`);
+      await fetchReport();
+    } catch (err: any) {
+      setSaveMessage("업로드 오류: " + err.message);
+    } finally {
+      setUploadingTaxFile(false);
+      if (taxFileInputRef.current) taxFileInputRef.current.value = "";
     }
   };
 
@@ -495,7 +532,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                   <div className="flex items-center justify-between gap-2">
                     <span>· {r.subAccount}</span>
                     <span className="text-[10px] font-mono text-[#64748b] dark:text-slate-400">
-                      {isTaxRow ? "(세무항목)" : `(${r.count}건)`}
+                      {r.count > 0 ? `(${r.count}건)` : isTaxRow ? "(세무항목)" : `(0건)`}
                     </span>
                   </div>
                 </td>
@@ -626,6 +663,25 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
             title="조회"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+          </button>
+
+          <input
+            ref={taxFileInputRef}
+            type="file"
+            accept=".xls,.xlsx,.csv"
+            multiple
+            onChange={handleTaxPaymentFileUpload}
+            className="hidden"
+          />
+
+          <button
+            type="button"
+            onClick={() => taxFileInputRef.current?.click()}
+            disabled={uploadingTaxFile}
+            className="px-2.5 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs whitespace-nowrap transition disabled:opacity-50"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>{uploadingTaxFile ? "업로드 중..." : "국세청 납부세액 업로드"}</span>
           </button>
 
           <button
@@ -1068,6 +1124,15 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                   )}
                   <button
                     type="button"
+                    onClick={() => taxFileInputRef.current?.click()}
+                    disabled={uploadingTaxFile}
+                    className="px-2.5 py-1 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs whitespace-nowrap transition disabled:opacity-50"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{uploadingTaxFile ? "업로드 중..." : "납부내역 엑셀 업로드"}</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleSaveRemarkAndTax}
                     disabled={savingRemark}
                     className="px-2.5 py-1 bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs whitespace-nowrap transition disabled:opacity-50"
@@ -1377,7 +1442,11 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                         </span>
                       </div>
                       <span className="text-[10px] font-semibold text-[#475569]">
-                        {d.source === "TAX_INVOICE" ? "세금계산서" : "통장입출금"}
+                        {d.source === "TAX_INVOICE"
+                          ? "세금계산서"
+                          : d.source === "TAX_PAYMENT"
+                          ? "국세청납부"
+                          : "통장입출금"}
                       </span>
                     </div>
 
@@ -1455,6 +1524,11 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1d4ed8] dark:text-blue-400">
                               <FileText className="w-3 h-3" />
                               세금계산서
+                            </span>
+                          ) : d.source === "TAX_PAYMENT" ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#475569] dark:text-slate-300">
+                              <Scale className="w-3 h-3" />
+                              국세청납부
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#047857] dark:text-emerald-400">

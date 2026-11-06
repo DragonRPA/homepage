@@ -1,12 +1,18 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
+import * as XLSX from "xlsx";
 import { getErpPool } from "@/lib/supabaseErp";
 import { resolveExplicitAccountSubject } from "@/lib/erpAccountSubjects";
 import { BUSINESS_ENTITIES } from "@/lib/businessEntities";
+import {
+  parseXlsxBufferToRows,
+  decodeTextBuffer,
+  parseCsvOrTsvTextToRows,
+} from "@/lib/ibkBankParser";
 
 interface FinancialDetailItem {
   id: string;
-  source: "TAX_INVOICE" | "BANK_TX";
+  source: "TAX_INVOICE" | "BANK_TX" | "TAX_PAYMENT";
   entityType: "CORP" | "INDIVIDUAL";
   yearMonth: string;
   date: string;
@@ -19,6 +25,140 @@ interface FinancialDetailItem {
   totalAmount: number;
   status: string;
   refNo: string;
+}
+
+function classifyTaxPaymentSubAccount(taxTypeRaw: string): "원천세" | "부가세" | "법인세" | "납부항목" {
+  const s = String(taxTypeRaw || "").trim();
+  if (/근로소득|사업소득|퇴직소득|이자소득|배당소득|기타소득|원천/.test(s)) return "원천세";
+  if (/부가가치|부가세/.test(s)) return "부가세";
+  if (/법인세/.test(s)) return "법인세";
+  return "납부항목";
+}
+
+function parseTaxPayDate(raw: any): string | null {
+  if (!raw) return null;
+  if (typeof raw === "number") {
+    const d = new Date(Math.round((raw - 25569) * 86400 * 1000));
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  const s = String(raw).trim();
+  const digits = s.replace(/[^0-9]/g, "");
+  if (digits.length >= 8) {
+    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+  }
+  return null;
+}
+
+function parseTaxPayNum(raw: any): number {
+  if (typeof raw === "number") return Math.round(raw);
+  const cleaned = String(raw || "").replace(/[^0-9.-]/g, "");
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : Math.round(n);
+}
+
+interface ParsedTaxPaymentRow {
+  entityType: "CORP" | "INDIVIDUAL";
+  payDate: string;
+  taxType: string;
+  subAccount: "원천세" | "부가세" | "법인세" | "납부항목";
+  taxpayerName: string;
+  payAmount: number;
+  electronicPayNo: string;
+  attributionYear: string;
+  taxOffice: string;
+  nationalTax: number;
+  educationTax: number;
+  defenseTax: number;
+  ruralSpecialTax: number;
+  surcharge: number;
+  remark: string;
+}
+
+function parseHometaxTaxPaymentRows(rows: string[][], defaultEntity: "CORP" | "INDIVIDUAL"): ParsedTaxPaymentRow[] {
+  const results: ParsedTaxPaymentRow[] = [];
+  if (!rows || rows.length === 0) return results;
+
+  // Header indices (support multiple header rows in concatenated CSV/Excel)
+  let colPayDate = 0;
+  let colTaxType = 1;
+  let colTaxpayer = 2;
+  let colPayAmount = 3;
+  let colEpayNo = 4;
+  let colAttrYear = 5;
+  let colOffice = 6;
+  let colNational = 7;
+  let colEdu = 8;
+  let colDef = 9;
+  let colRural = 10;
+  let colSurcharge = 11;
+  let colRemark = 12;
+
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length === 0) continue;
+    const joined = row.map((c) => String(c || "").replace(/\s+/g, "")).join("|");
+    if (joined.includes("납부일자") && (joined.includes("세목") || joined.includes("납부세액"))) {
+      const headers = row.map((h) => String(h || "").replace(/\s+/g, ""));
+      const idxOf = (kws: string[], fallback: number) => {
+        for (const kw of kws) {
+          const idx = headers.findIndex((h) => h.includes(kw));
+          if (idx >= 0) return idx;
+        }
+        return fallback;
+      };
+      colPayDate = idxOf(["납부일자", "납부일", "수납일자"], 0);
+      colTaxType = idxOf(["세목"], 1);
+      colTaxpayer = idxOf(["납세자명", "상호", "성명"], 2);
+      colPayAmount = idxOf(["납부세액", "수납세액", "납부금액"], 3);
+      colEpayNo = idxOf(["전자납부번호", "납부번호"], 4);
+      colAttrYear = idxOf(["귀속연도", "귀속년도"], 5);
+      colOffice = idxOf(["수납관서", "관할세무서", "세무서"], 6);
+      colNational = idxOf(["내국세액", "본세"], 7);
+      colEdu = idxOf(["교육세액"], 8);
+      colDef = idxOf(["방위세액"], 9);
+      colRural = idxOf(["농어촌특별세액", "농특세"], 10);
+      colSurcharge = idxOf(["가산금", "가산세"], 11);
+      colRemark = idxOf(["비고"], 12);
+      continue;
+    }
+
+    const payDate = parseTaxPayDate(row[colPayDate]);
+    const taxType = String(row[colTaxType] || "").trim();
+    const payAmount = parseTaxPayNum(row[colPayAmount]);
+    if (!payDate || !taxType || payAmount === 0) continue;
+
+    const taxpayerName = String(row[colTaxpayer] || "").trim();
+    const epayRaw = String(row[colEpayNo] || "").trim();
+    const electronicPayNo = epayRaw || `NTS-${payDate.replace(/-/g, "")}-${taxType}-${payAmount}-${r}`;
+    const attrRaw = String(row[colAttrYear] || "").replace(/[^0-9]/g, "");
+    const attributionYear = attrRaw.length === 4 ? attrRaw : payDate.slice(0, 4);
+    const taxOffice = String(row[colOffice] || "").trim();
+    const entityType: "CORP" | "INDIVIDUAL" = /주식회사|\(주\)|㈜/.test(taxpayerName)
+      ? "CORP"
+      : taxpayerName
+      ? defaultEntity
+      : defaultEntity;
+
+    results.push({
+      entityType,
+      payDate,
+      taxType,
+      subAccount: classifyTaxPaymentSubAccount(taxType),
+      taxpayerName: taxpayerName || (entityType === "CORP" ? "주식회사 드래곤알피에이" : "드래곤알피에이"),
+      payAmount,
+      electronicPayNo,
+      attributionYear,
+      taxOffice,
+      nationalTax: parseTaxPayNum(row[colNational]),
+      educationTax: parseTaxPayNum(row[colEdu]),
+      defenseTax: parseTaxPayNum(row[colDef]),
+      ruralSpecialTax: parseTaxPayNum(row[colRural]),
+      surcharge: parseTaxPayNum(row[colSurcharge]),
+      remark: String(row[colRemark] || "").trim(),
+    });
+  }
+
+  return results;
 }
 
 function classifyPurchaseInvoiceSubAccount(customerName: string, itemName: string, memo: string): {
@@ -257,6 +397,59 @@ export async function GET(request: Request) {
       corporateTax: Number(remarkRow.tax_corporate || 0),     // 법인세 (초기값 0)
       taxPayment: Number(remarkRow.tax_payment || 0),         // 납부항목 (초기값 0)
     };
+
+    // 0-2. 국세청 납부세액(erp_tax_payments) 테이블 생성 보장 및 조회
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_tax_payments (
+        id SERIAL PRIMARY KEY,
+        entity_type VARCHAR(20) NOT NULL DEFAULT 'CORP',
+        pay_date DATE NOT NULL,
+        tax_type VARCHAR(100) NOT NULL,
+        sub_account VARCHAR(50) NOT NULL,
+        taxpayer_name VARCHAR(150),
+        pay_amount NUMERIC DEFAULT 0,
+        electronic_pay_no VARCHAR(100) UNIQUE,
+        attribution_year VARCHAR(10),
+        tax_office VARCHAR(100),
+        national_tax NUMERIC DEFAULT 0,
+        education_tax NUMERIC DEFAULT 0,
+        defense_tax NUMERIC DEFAULT 0,
+        rural_special_tax NUMERIC DEFAULT 0,
+        surcharge NUMERIC DEFAULT 0,
+        remark TEXT DEFAULT '',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    const taxPayParams: any[] = [];
+    let taxPayWhere = `WHERE 1=1`;
+    if (year !== "ALL") {
+      taxPayParams.push(`${year}-%`);
+      taxPayWhere += ` AND pay_date::text LIKE $${taxPayParams.length}`;
+    }
+    if (entityType !== "ALL") {
+      taxPayParams.push(entityType);
+      taxPayWhere += ` AND COALESCE(entity_type, 'CORP') = $${taxPayParams.length}`;
+    }
+
+    const taxPayRes = await pool.query(
+      `SELECT id,
+              COALESCE(entity_type, 'CORP') AS entity_type,
+              pay_date::text AS pay_date,
+              tax_type,
+              sub_account,
+              taxpayer_name,
+              COALESCE(pay_amount, 0)::numeric AS pay_amount,
+              electronic_pay_no,
+              attribution_year,
+              tax_office,
+              remark
+       FROM erp_tax_payments
+       ${taxPayWhere}
+       ORDER BY pay_date ASC, id ASC`,
+      taxPayParams
+    );
 
     // 1. 세금계산서 조회 (매출 + 매입)
     const invParams: any[] = [];
@@ -511,6 +704,35 @@ export async function GET(request: Request) {
       });
     }
 
+    // 4-2. 국세청 납부세액(erp_tax_payments) 전표 적재
+    for (const row of taxPayRes.rows) {
+      const ym = String(row.pay_date).slice(0, 7);
+      const amt = Number(row.pay_amount || 0);
+      const ent = (row.entity_type === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP") as "CORP" | "INDIVIDUAL";
+      const subAcc = (row.sub_account || classifyTaxPaymentSubAccount(row.tax_type)) as
+        | "원천세"
+        | "부가세"
+        | "법인세"
+        | "납부항목";
+
+      details.push({
+        id: `TAXPAY-${row.id}`,
+        source: "TAX_PAYMENT",
+        entityType: ent,
+        yearMonth: ym,
+        date: row.pay_date,
+        majorAccount: "TAX_DUES",
+        subAccount: subAcc,
+        counterparty: row.tax_office ? `국세청 (${row.tax_office})` : "국세청",
+        description: `${row.tax_type}${row.attribution_year ? ` [귀속:${row.attribution_year}년]` : ""}${row.electronic_pay_no ? ` (${row.electronic_pay_no})` : ""}`,
+        supplyAmount: amt,
+        vatAmount: 0,
+        totalAmount: amt,
+        status: "납부완료",
+        refNo: row.electronic_pay_no || `TAX-${row.id}`,
+      });
+    }
+
     // 5. 대상 월 목록 구성
     const monthSet = new Set<string>();
     if (year !== "ALL") {
@@ -583,12 +805,6 @@ export async function GET(request: Request) {
       ensureRow(maj, sub);
     }
 
-    // 세무 항목(원천세, 부가세, 법인세, 납부항목) 총액 반영 (기본 0원)
-    ensureRow("TAX_DUES", "원천세").total = taxItems.withholdingTax;
-    ensureRow("TAX_DUES", "부가세").total = taxItems.vatTax;
-    ensureRow("TAX_DUES", "법인세").total = taxItems.corporateTax;
-    ensureRow("TAX_DUES", "납부항목").total = taxItems.taxPayment;
-
     const monthlyTotals: Record<
       string,
       {
@@ -635,6 +851,24 @@ export async function GET(request: Request) {
       else if (d.majorAccount === "NON_OP") mt.nonOp += val;
     }
 
+    // 세무 항목(원천세, 부가세, 법인세, 납부항목): 국세청 납부내역(erp_tax_payments)이 있으면 해당 합계를 우선 반영하고, 없으면 수동 입력(remark) 기본값을 반영
+    const rWth = ensureRow("TAX_DUES", "원천세");
+    const rVat = ensureRow("TAX_DUES", "부가세");
+    const rCorp = ensureRow("TAX_DUES", "법인세");
+    const rPay = ensureRow("TAX_DUES", "납부항목");
+
+    if (rWth.count > 0) taxItems.withholdingTax = rWth.total;
+    else rWth.total = taxItems.withholdingTax;
+
+    if (rVat.count > 0) taxItems.vatTax = rVat.total;
+    else rVat.total = taxItems.vatTax;
+
+    if (rCorp.count > 0) taxItems.corporateTax = rCorp.total;
+    else rCorp.total = taxItems.corporateTax;
+
+    if (rPay.count > 0) taxItems.taxPayment = rPay.total;
+    else rPay.total = taxItems.taxPayment;
+
     let grandRevenue = 0;
     let grandCogs = 0;
     let grandPayroll = 0;
@@ -644,6 +878,7 @@ export async function GET(request: Request) {
       taxItems.vatTax +
       taxItems.corporateTax +
       taxItems.taxPayment;
+    cfTaxOutflow = grandTaxDues;
     let grandNonOp = 0;
 
     for (const m of months) {
@@ -834,6 +1069,178 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const contentType = request.headers.get("content-type") || "";
+    const pool = getErpPool();
+
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await request.formData();
+      const file = formData.get("file") as File | null;
+      const defaultEntityRaw = String(formData.get("entityType") || "CORP").toUpperCase();
+      const defaultEntity: "CORP" | "INDIVIDUAL" =
+        defaultEntityRaw === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
+
+      if (!file) {
+        return NextResponse.json(
+          { error: "업로드할 국세청 납부세액 엑셀/CSV 파일이 없습니다." },
+          { status: 400 }
+        );
+      }
+
+      const fileName = file.name.toLowerCase();
+      const arrayBuf = await file.arrayBuffer();
+      const buf = Buffer.from(arrayBuf);
+      const uint8 = new Uint8Array(arrayBuf);
+
+      let rows: string[][] = [];
+      const isZipXlsx = uint8.length >= 2 && uint8[0] === 0x50 && uint8[1] === 0x4b;
+      const isOleXls = uint8.length >= 4 && uint8[0] === 0xd0 && uint8[1] === 0xcf;
+
+      if (isZipXlsx || isOleXls) {
+        try {
+          const wb = XLSX.read(buf, { type: "buffer", raw: false });
+          const sheetName = wb.SheetNames[0];
+          const sheet = wb.Sheets[sheetName];
+          const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+          rows = rawRows.map((r) => (Array.isArray(r) ? r.map((c) => String(c ?? "").trim()) : []));
+        } catch {
+          rows = parseXlsxBufferToRows(buf);
+        }
+      } else {
+        const text = decodeTextBuffer(buf);
+        if (text.includes("<table") || text.includes("<tr")) {
+          const wb = XLSX.read(text, { type: "string", raw: false });
+          const sheetName = wb.SheetNames[0];
+          const sheet = wb.Sheets[sheetName];
+          const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+          rows = rawRows.map((r) => (Array.isArray(r) ? r.map((c) => String(c ?? "").trim()) : []));
+        } else {
+          rows = parseCsvOrTsvTextToRows(text);
+        }
+      }
+
+      const parsedRows = parseHometaxTaxPaymentRows(rows, defaultEntity);
+      if (parsedRows.length === 0) {
+        return NextResponse.json(
+          {
+            error:
+              "파일에서 유효한 국세청 납부세액 내역(납부일자, 세목, 납부세액)을 찾지 못했습니다.",
+          },
+          { status: 400 }
+        );
+      }
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS erp_tax_payments (
+          id SERIAL PRIMARY KEY,
+          entity_type VARCHAR(20) NOT NULL DEFAULT 'CORP',
+          pay_date DATE NOT NULL,
+          tax_type VARCHAR(100) NOT NULL,
+          sub_account VARCHAR(50) NOT NULL,
+          taxpayer_name VARCHAR(150),
+          pay_amount NUMERIC DEFAULT 0,
+          electronic_pay_no VARCHAR(100) UNIQUE,
+          attribution_year VARCHAR(10),
+          tax_office VARCHAR(100),
+          national_tax NUMERIC DEFAULT 0,
+          education_tax NUMERIC DEFAULT 0,
+          defense_tax NUMERIC DEFAULT 0,
+          rural_special_tax NUMERIC DEFAULT 0,
+          surcharge NUMERIC DEFAULT 0,
+          remark TEXT DEFAULT '',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      let upsertedCount = 0;
+      const touchedYears = new Set<string>();
+
+      for (const item of parsedRows) {
+        await pool.query(
+          `INSERT INTO erp_tax_payments (
+            entity_type, pay_date, tax_type, sub_account, taxpayer_name, pay_amount,
+            electronic_pay_no, attribution_year, tax_office,
+            national_tax, education_tax, defense_tax, rural_special_tax, surcharge, remark, updated_at
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
+          ON CONFLICT (electronic_pay_no)
+          DO UPDATE SET
+            entity_type = EXCLUDED.entity_type,
+            pay_date = EXCLUDED.pay_date,
+            tax_type = EXCLUDED.tax_type,
+            sub_account = EXCLUDED.sub_account,
+            taxpayer_name = EXCLUDED.taxpayer_name,
+            pay_amount = EXCLUDED.pay_amount,
+            attribution_year = EXCLUDED.attribution_year,
+            tax_office = EXCLUDED.tax_office,
+            national_tax = EXCLUDED.national_tax,
+            education_tax = EXCLUDED.education_tax,
+            defense_tax = EXCLUDED.defense_tax,
+            rural_special_tax = EXCLUDED.rural_special_tax,
+            surcharge = EXCLUDED.surcharge,
+            remark = EXCLUDED.remark,
+            updated_at = NOW()`,
+          [
+            item.entityType,
+            item.payDate,
+            item.taxType,
+            item.subAccount,
+            item.taxpayerName,
+            item.payAmount,
+            item.electronicPayNo,
+            item.attributionYear,
+            item.taxOffice,
+            item.nationalTax,
+            item.educationTax,
+            item.defenseTax,
+            item.ruralSpecialTax,
+            item.surcharge,
+            item.remark,
+          ]
+        );
+        upsertedCount++;
+        touchedYears.add(item.payDate.slice(0, 4));
+      }
+
+      // 연도별 합계를 erp_financial_remarks에도 동기화
+      const syncRes = await pool.query(`
+        SELECT SUBSTRING(pay_date::text, 1, 4) AS yr,
+               entity_type,
+               SUM(CASE WHEN sub_account = '원천세' THEN pay_amount ELSE 0 END)::numeric AS wth,
+               SUM(CASE WHEN sub_account = '부가세' THEN pay_amount ELSE 0 END)::numeric AS vat,
+               SUM(CASE WHEN sub_account = '법인세' THEN pay_amount ELSE 0 END)::numeric AS corp,
+               SUM(CASE WHEN sub_account = '납부항목' THEN pay_amount ELSE 0 END)::numeric AS etc
+        FROM erp_tax_payments
+        GROUP BY SUBSTRING(pay_date::text, 1, 4), entity_type
+      `);
+
+      for (const s of syncRes.rows) {
+        for (const ent of [s.entity_type, "ALL"]) {
+          await pool.query(
+            `INSERT INTO erp_financial_remarks (
+              year, entity_type, remark_text, tax_withholding, tax_vat, tax_corporate, tax_payment, updated_by, updated_at
+            ) VALUES ($1, $2, '', $3, $4, $5, $6, 'TAX_UPLOAD', NOW())
+            ON CONFLICT (year, entity_type)
+            DO UPDATE SET
+              tax_withholding = EXCLUDED.tax_withholding,
+              tax_vat = EXCLUDED.tax_vat,
+              tax_corporate = EXCLUDED.tax_corporate,
+              tax_payment = EXCLUDED.tax_payment,
+              updated_by = 'TAX_UPLOAD',
+              updated_at = NOW()`,
+            [s.yr, ent, s.wth, s.vat, s.corp, s.etc]
+          );
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        parsedCount: parsedRows.length,
+        upsertedCount,
+        years: Array.from(touchedYears).sort(),
+        message: `국세청 납부세액 ${upsertedCount}건 업로드 및 세무 계정 집계가 완료되었습니다.`,
+      });
+    }
+
     const body = await request.json();
     const {
       year = "2026",
@@ -846,7 +1253,6 @@ export async function POST(request: Request) {
       updatedBy = "ADMIN",
     } = body;
 
-    const pool = getErpPool();
     await pool.query(
       `INSERT INTO erp_financial_remarks (
         year, entity_type, remark_text, tax_withholding, tax_vat, tax_corporate, tax_payment, updated_by, updated_at

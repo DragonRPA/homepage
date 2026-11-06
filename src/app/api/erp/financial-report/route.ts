@@ -29,9 +29,9 @@ interface FinancialDetailItem {
 
 function classifyTaxPaymentSubAccount(taxTypeRaw: string): "원천세" | "부가세" | "법인세" | "납부항목" {
   const s = String(taxTypeRaw || "").trim();
-  if (/근로소득|사업소득|퇴직소득|이자소득|배당소득|기타소득|원천/.test(s)) return "원천세";
+  if (/근로소득|사업소득|퇴직소득|이자소득|배당소득|기타소득|원천|특별징수/.test(s)) return "원천세";
   if (/부가가치|부가세/.test(s)) return "부가세";
-  if (/법인세/.test(s)) return "법인세";
+  if (/법인세|법인지방소득/.test(s)) return "법인세";
   return "납부항목";
 }
 

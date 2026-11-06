@@ -135,8 +135,8 @@ function parseHometaxTaxPaymentRows(rows: string[][], defaultEntity: "CORP" | "I
     const taxOffice = String(row[colOffice] || "").trim();
     const entityType: "CORP" | "INDIVIDUAL" = /주식회사|\(주\)|㈜/.test(taxpayerName)
       ? "CORP"
-      : taxpayerName
-      ? defaultEntity
+      : /\([^)]*\*+\)|이정용/.test(taxpayerName) || (taxpayerName.includes("드래곤알피에이") && !/주식회사|\(주\)|㈜/.test(taxpayerName))
+      ? "INDIVIDUAL"
       : defaultEntity;
 
     results.push({
@@ -1138,7 +1138,7 @@ export async function POST(request: Request) {
           sub_account VARCHAR(50) NOT NULL,
           taxpayer_name VARCHAR(150),
           pay_amount NUMERIC DEFAULT 0,
-          electronic_pay_no VARCHAR(100) UNIQUE,
+          electronic_pay_no VARCHAR(100),
           attribution_year VARCHAR(10),
           tax_office VARCHAR(100),
           national_tax NUMERIC DEFAULT 0,
@@ -1148,8 +1148,29 @@ export async function POST(request: Request) {
           surcharge NUMERIC DEFAULT 0,
           remark TEXT DEFAULT '',
           created_at TIMESTAMPTZ DEFAULT NOW(),
-          updated_at TIMESTAMPTZ DEFAULT NOW()
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE (electronic_pay_no, pay_date, pay_amount)
         )
+      `);
+
+      await pool.query(`
+        ALTER TABLE erp_tax_payments
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+      `);
+      await pool.query(`
+        ALTER TABLE erp_tax_payments
+        DROP CONSTRAINT IF EXISTS erp_tax_payments_electronic_pay_no_key;
+      `);
+      await pool.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'erp_tax_payments_epay_date_amt_key'
+          ) THEN
+            ALTER TABLE erp_tax_payments
+            ADD CONSTRAINT erp_tax_payments_epay_date_amt_key UNIQUE (electronic_pay_no, pay_date, pay_amount);
+          END IF;
+        END $$;
       `);
 
       let upsertedCount = 0;
@@ -1162,14 +1183,12 @@ export async function POST(request: Request) {
             electronic_pay_no, attribution_year, tax_office,
             national_tax, education_tax, defense_tax, rural_special_tax, surcharge, remark, updated_at
           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
-          ON CONFLICT (electronic_pay_no)
+          ON CONFLICT (electronic_pay_no, pay_date, pay_amount)
           DO UPDATE SET
             entity_type = EXCLUDED.entity_type,
-            pay_date = EXCLUDED.pay_date,
             tax_type = EXCLUDED.tax_type,
             sub_account = EXCLUDED.sub_account,
             taxpayer_name = EXCLUDED.taxpayer_name,
-            pay_amount = EXCLUDED.pay_amount,
             attribution_year = EXCLUDED.attribution_year,
             tax_office = EXCLUDED.tax_office,
             national_tax = EXCLUDED.national_tax,
@@ -1201,7 +1220,7 @@ export async function POST(request: Request) {
         touchedYears.add(item.payDate.slice(0, 4));
       }
 
-      // 연도별 합계를 erp_financial_remarks에도 동기화
+      // 연도별 합계를 사업자별 및 전체('ALL')로 erp_financial_remarks에 동기화
       const syncRes = await pool.query(`
         SELECT SUBSTRING(pay_date::text, 1, 4) AS yr,
                entity_type,
@@ -1214,22 +1233,47 @@ export async function POST(request: Request) {
       `);
 
       for (const s of syncRes.rows) {
-        for (const ent of [s.entity_type, "ALL"]) {
-          await pool.query(
-            `INSERT INTO erp_financial_remarks (
-              year, entity_type, remark_text, tax_withholding, tax_vat, tax_corporate, tax_payment, updated_by, updated_at
-            ) VALUES ($1, $2, '', $3, $4, $5, $6, 'TAX_UPLOAD', NOW())
-            ON CONFLICT (year, entity_type)
-            DO UPDATE SET
-              tax_withholding = EXCLUDED.tax_withholding,
-              tax_vat = EXCLUDED.tax_vat,
-              tax_corporate = EXCLUDED.tax_corporate,
-              tax_payment = EXCLUDED.tax_payment,
-              updated_by = 'TAX_UPLOAD',
-              updated_at = NOW()`,
-            [s.yr, ent, s.wth, s.vat, s.corp, s.etc]
-          );
-        }
+        await pool.query(
+          `INSERT INTO erp_financial_remarks (
+            year, entity_type, remark_text, tax_withholding, tax_vat, tax_corporate, tax_payment, updated_by, updated_at
+          ) VALUES ($1, $2, '', $3, $4, $5, $6, 'TAX_UPLOAD', NOW())
+          ON CONFLICT (year, entity_type)
+          DO UPDATE SET
+            tax_withholding = EXCLUDED.tax_withholding,
+            tax_vat = EXCLUDED.tax_vat,
+            tax_corporate = EXCLUDED.tax_corporate,
+            tax_payment = EXCLUDED.tax_payment,
+            updated_by = 'TAX_UPLOAD',
+            updated_at = NOW()`,
+          [s.yr, s.entity_type, s.wth, s.vat, s.corp, s.etc]
+        );
+      }
+
+      const syncAllRes = await pool.query(`
+        SELECT SUBSTRING(pay_date::text, 1, 4) AS yr,
+               SUM(CASE WHEN sub_account = '원천세' THEN pay_amount ELSE 0 END)::numeric AS wth,
+               SUM(CASE WHEN sub_account = '부가세' THEN pay_amount ELSE 0 END)::numeric AS vat,
+               SUM(CASE WHEN sub_account = '법인세' THEN pay_amount ELSE 0 END)::numeric AS corp,
+               SUM(CASE WHEN sub_account = '납부항목' THEN pay_amount ELSE 0 END)::numeric AS etc
+        FROM erp_tax_payments
+        GROUP BY SUBSTRING(pay_date::text, 1, 4)
+      `);
+
+      for (const s of syncAllRes.rows) {
+        await pool.query(
+          `INSERT INTO erp_financial_remarks (
+            year, entity_type, remark_text, tax_withholding, tax_vat, tax_corporate, tax_payment, updated_by, updated_at
+          ) VALUES ($1, 'ALL', '', $2, $3, $4, $5, 'TAX_UPLOAD', NOW())
+          ON CONFLICT (year, entity_type)
+          DO UPDATE SET
+            tax_withholding = EXCLUDED.tax_withholding,
+            tax_vat = EXCLUDED.tax_vat,
+            tax_corporate = EXCLUDED.tax_corporate,
+            tax_payment = EXCLUDED.tax_payment,
+            updated_by = 'TAX_UPLOAD',
+            updated_at = NOW()`,
+          [s.yr, s.wth, s.vat, s.corp, s.etc]
+        );
       }
 
       return NextResponse.json({

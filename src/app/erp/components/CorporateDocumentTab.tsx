@@ -121,23 +121,28 @@ export const CorporateDocumentTab: React.FC<CorporateDocumentTabProps> = ({
   const [tplShareholderRel, setTplShareholderRel] = useState<string>("본인");
   const [tplShareholderNote, setTplShareholderNote] = useState<string>("");
   const [tplBlankRowsCount, setTplBlankRowsCount] = useState<number>(7);
-  const [tplResolutionDate, setTplResolutionDate] = useState<string>(
-    new Date().toISOString().slice(0, 10)
+  const [tplResolutionDate, setTplResolutionDate] = useState<string>("2026-09-14");
+  const [tplResolutionDateKor, setTplResolutionDateKor] = useState<string>("2026년 09월 14일");
+  const [tplEffectiveDate, setTplEffectiveDate] = useState<string>("2026-09-14");
+  const [tplAgendaTitle, setTplAgendaTitle] = useState<string>(
+    "제1호 의안: 정관 일부 변경(목적 추가)의 건"
   );
-  const [tplEffectiveDate, setTplEffectiveDate] = useState<string>(
-    new Date().toISOString().slice(0, 10)
+  const [tplAgendaBody, setTplAgendaBody] = useState<string>(
+    "회사의 사업 영역 확장 및 신규 사업(통신판매 및 전자상거래 등) 추진을 위하여 당 회사 정관 제2조(목적)를 다음과 같이 변경하기로 전원 일치로 결의하다."
   );
-  const [tplAgendaTitle, setTplAgendaTitle] = useState<string>("제1호 의안 : 정관 일부 변경의 건");
+  const [tplCompareTableTitle, setTplCompareTableTitle] = useState<string>(
+    "[정관 제2조(목적) 변경 대비표]"
+  );
   const [tplArticleNo, setTplArticleNo] = useState<string>("제2조 (목적)");
   const [tplBeforeText, setTplBeforeText] = useState<string>(
-    `회사는 다음의 사업을 영위함을 목적으로 한다.\n1. 소프트웨어 개발 및 공급업\n2. 컴퓨터 프로그래밍 서비스업\n3. 컴퓨터 시스템 통합 자문 및 구축 서비스업\n4. 데이터베이스 구축업\n5. 기타 사무 지원 서비스업\n6. 문서 작성업\n7. 컴퓨터 및 사무용 기계·장비 임대업\n8. 기타 산업용 기계 및 장비 임대업\n9. 컴퓨터 및 주변장치, 소프트웨어 도매업\n10. 컴퓨터 및 주변장치, 소프트웨어 소매업\n11. 기계 및 장비 중개업\n12. 부동산 임대업\n13. 위 각 호에 관련된 부대사업 일체`
+    `1. 소프트웨어 개발 및 공급업\n2. 컴퓨터 프로그래밍 서비스업\n3. 컴퓨터 시스템 통합 자문 및 구축 서비스업\n4. 데이터베이스 구축업\n5. 기타 사무 지원 서비스업\n6. 문서 작성업\n7. 컴퓨터 및 사무용 기계. 장비 임대업\n8. 기타 산업용 기계 및 장비 임대업\n9. 컴퓨터 및 주변장치, 소프트웨어 도매업\n10. 컴퓨터 및 주변장치, 소프트웨어 소매업\n11. 기계 및 장비 중개업\n12. 부동산 임대업\n13. 위 각호에 관련된 부대사업 일체`
   );
   const [tplAfterText, setTplAfterText] = useState<string>(
-    `회사는 다음의 사업을 영위함을 목적으로 한다.\n1. 소프트웨어 개발 및 공급업\n2. 컴퓨터 프로그래밍 서비스업\n3. 컴퓨터 시스템 통합 자문 및 구축 서비스업\n4. 데이터베이스 구축업\n5. 기타 사무 지원 서비스업\n6. 문서 작성업\n7. 컴퓨터 및 사무용 기계·장비 임대업\n8. 기타 산업용 기계 및 장비 임대업\n9. 컴퓨터 및 주변장치, 소프트웨어 도매업\n10. 컴퓨터 및 주변장치, 소프트웨어 소매업\n11. 기계 및 장비 중개업\n12. 부동산 임대업\n13. 전자상거래 및 통신판매업\n14. 건설기계 및 산업장비 임대·유통업\n15. 위 각 호에 관련된 부대사업 일체`
+    `1. 소프트웨어 개발 및 공급업\n2. 컴퓨터 프로그래밍 서비스업\n3. 컴퓨터 시스템 통합 자문 및 구축 서비스업\n4. 데이터베이스 구축업\n5. 기타 사무 지원 서비스업\n6. 문서 작성업\n7. 컴퓨터 및 사무용 기계. 장비 임대업\n8. 기타 산업용 기계 및 장비 임대업\n9. 컴퓨터 및 주변장치, 소프트웨어 도매업\n10. 컴퓨터 및 주변장치, 소프트웨어 소매업\n11. 기계 및 장비 중개업\n12. 부동산 임대업\n13. 전자상거래 소매업 (신설)\n14. 통신판매업 (신설)\n15. 인터넷 쇼핑몰 운영업 (신설)\n16. 해외 구매대행업 (신설)\n17. 위 각호에 관련된 부대사업 일체 (조항 번호 변경)`
   );
   const [tplReasonText, setTplReasonText] = useState<string>("사업 다각화 및 신규 사업 목적 추가");
   const [tplShareholderAddr, setTplShareholderAddr] = useState<string>(
-    "서울 노원구 섬밭로 196, 610동 302호(하계동, 장미아파트)"
+    "서울특별시 노원구 섬밭로196 장미아파트 610동 302호"
   );
 
   // 상단 헤더의 selectedEntity 변경 시 연동
@@ -540,6 +545,144 @@ ${tplAfterText}
                 ${emptyRowsHtml}
               </tbody>
             </table>
+            <script>window.onload = () => { window.print(); };</script>
+          </body>
+        </html>
+      `);
+      win.document.close();
+      return;
+    }
+
+    if (tplType === "RESOLUTION") {
+      const beforeLinesHtml = tplBeforeText
+        .split("\n")
+        .map((line) => `<div style="margin-bottom: 6px;">${line}</div>`)
+        .join("");
+      const afterLinesHtml = tplAfterText
+        .split("\n")
+        .map((line) => {
+          const isNew = line.includes("(신설)") || line.includes("(조항");
+          return `<div style="margin-bottom: 6px; ${isNew ? "font-weight: 700;" : ""}">${line}</div>`;
+        })
+        .join("");
+
+      win.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>주주서면결의서 - ${corp.corpName}</title>
+            <style>
+              @page { size: A4 portrait; margin: 18mm 18mm 18mm 18mm; }
+              body {
+                font-family: 'Malgun Gothic', '맑은 고딕', 'Dotum', sans-serif;
+                color: #111;
+                background: #fff;
+                margin: 0;
+                padding: 0;
+                font-size: 13.5px;
+                line-height: 1.65;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              h1 {
+                text-align: center;
+                font-size: 26px;
+                font-weight: 800;
+                letter-spacing: 2px;
+                margin: 0 0 22px 0;
+              }
+              .section-title {
+                font-weight: 700;
+                font-size: 14px;
+                margin: 16px 0 6px 0;
+              }
+              ul {
+                margin: 6px 0 12px 22px;
+                padding: 0;
+              }
+              li {
+                margin-bottom: 4px;
+              }
+              table.compare-table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+                margin: 10px 0 18px 0;
+              }
+              table.compare-table th, table.compare-table td {
+                border: 1px solid #cbd5e1;
+                padding: 10px 12px;
+                vertical-align: top;
+                font-size: 13px;
+                line-height: 1.6;
+              }
+              table.compare-table th {
+                background: #f8fafc;
+                font-weight: 700;
+                text-align: left;
+              }
+            </style>
+          </head>
+          <body>
+            <h1>주주서면결의서</h1>
+            <div style="font-weight: 700; font-size: 14.5px; margin-bottom: 8px;">${corp.corpName}</div>
+            <p style="margin: 0 0 14px 0;">
+              상법 제363조의2 및 제383조에 따라, 자본금 10억 원 미만인 당 회사의 주주 전원의 동의로 주주총회의 소집 및 개최 절차에 갈음하여 다음과 같이 서면결의한다.
+            </p>
+
+            <div class="section-title">1. 결의 일자</div>
+            <div>${tplResolutionDateKor}</div>
+
+            <div class="section-title">2. 주주 현황</div>
+            <ul>
+              <li>발행주식 총수: ${tplShareholderShares}주</li>
+              <li>의결권 있는 주식 총수: ${tplShareholderShares}주</li>
+              <li>결의에 동의한 주식 총수: ${tplShareholderShares}주 (동의율 ${tplShareholderRatio}%)</li>
+            </ul>
+
+            <div class="section-title">3. 결의 안건</div>
+            <div style="font-weight: 700; margin-bottom: 6px;">${tplAgendaTitle}</div>
+            <p style="margin: 0 0 12px 0;">${tplAgendaBody}</p>
+
+            <div style="font-weight: 700; margin-bottom: 6px;">${tplCompareTableTitle}</div>
+            <table class="compare-table">
+              <colgroup>
+                <col style="width: 50%;" />
+                <col style="width: 50%;" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>현행 정관</th>
+                  <th>변경안</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <div style="font-weight: 700; margin-bottom: 8px;">${tplArticleNo}</div>
+                    ${beforeLinesHtml}
+                  </td>
+                  <td>
+                    <div style="font-weight: 700; margin-bottom: 8px;">${tplArticleNo}</div>
+                    ${afterLinesHtml}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <p style="margin: 18px 0 14px 0;">
+              위 결의를 증명하기 위하여 결의서를 작성하고, 주주 전원이 기명하고 인감도장을 날인한다.
+            </p>
+
+            <div style="font-weight: 700; margin-bottom: 10px;">${tplResolutionDateKor}</div>
+            <div style="font-weight: 700; margin-bottom: 6px;">${corp.corpName}</div>
+            <div style="margin-bottom: 10px;">본점: ${corp.address}</div>
+            <div style="font-weight: 700; margin-bottom: 6px;">주주 겸 대표이사: ${tplShareholderName}</div>
+            <div style="margin-bottom: 6px;">주소: ${tplShareholderAddr}</div>
+            <div style="margin-bottom: 10px;">주식 수: ${tplShareholderShares}주</div>
+            <div style="margin-top: 8px;">서명/날인: ${tplShareholderName} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+
             <script>window.onload = () => { window.print(); };</script>
           </body>
         </html>
@@ -1795,6 +1938,130 @@ ${tplAfterText}
                   </div>
                 </div>
               </>
+            ) : tplType === "RESOLUTION" ? (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">1. 결의 일자 표기</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        value={tplResolutionDateKor}
+                        onChange={(e) => setTplResolutionDateKor(e.target.value)}
+                        placeholder="2026년 09월 14일"
+                        className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold w-full"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const now = new Date();
+                          const y = now.getFullYear();
+                          const m = String(now.getMonth() + 1).padStart(2, "0");
+                          const d = String(now.getDate()).padStart(2, "0");
+                          setTplResolutionDateKor(`${y}년 ${m}월 ${d}일`);
+                        }}
+                        className="px-2 py-1.5 rounded bg-[#334155] text-white font-bold whitespace-nowrap shrink-0"
+                      >
+                        오늘
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">2. 발행·의결·동의 주식수</label>
+                    <input
+                      type="text"
+                      value={tplShareholderShares}
+                      onChange={(e) => setTplShareholderShares(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-mono font-semibold"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="font-bold text-[#334155]">3. 결의 안건 제목</label>
+                  <input
+                    type="text"
+                    value={tplAgendaTitle}
+                    onChange={(e) => setTplAgendaTitle(e.target.value)}
+                    className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="font-bold text-[#334155]">결의 안건 본문</label>
+                  <textarea
+                    rows={2}
+                    value={tplAgendaBody}
+                    onChange={(e) => setTplAgendaBody(e.target.value)}
+                    className="bg-[#ebe5d8] border border-[#b5a894] rounded p-2 text-xs"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">대비표 소제목</label>
+                    <input
+                      type="text"
+                      value={tplCompareTableTitle}
+                      onChange={(e) => setTplCompareTableTitle(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">대상 정관 조문명</label>
+                    <input
+                      type="text"
+                      value={tplArticleNo}
+                      onChange={(e) => setTplArticleNo(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">현행 정관 (좌측 열)</label>
+                    <textarea
+                      rows={6}
+                      value={tplBeforeText}
+                      onChange={(e) => setTplBeforeText(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded p-2 font-mono text-[11px] leading-relaxed"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">
+                      변경안 (우측 열 · (신설)/(조항) 포함 시 자동 굵게)
+                    </label>
+                    <textarea
+                      rows={6}
+                      value={tplAfterText}
+                      onChange={(e) => setTplAfterText(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded p-2 font-mono text-[11px] leading-relaxed"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">주주 겸 대표이사</label>
+                    <input
+                      type="text"
+                      value={tplShareholderName}
+                      onChange={(e) => setTplShareholderName(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1 col-span-2">
+                    <label className="font-bold text-[#334155]">주주 주소</label>
+                    <input
+                      type="text"
+                      value={tplShareholderAddr}
+                      onChange={(e) => setTplShareholderAddr(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
+                    />
+                  </div>
+                </div>
+              </>
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-2">
@@ -1817,18 +2084,6 @@ ${tplAfterText}
                     />
                   </div>
                 </div>
-
-                {tplType === "RESOLUTION" && (
-                  <div className="flex flex-col gap-1">
-                    <label className="font-bold text-[#334155]">결의 안건 제목</label>
-                    <input
-                      type="text"
-                      value={tplAgendaTitle}
-                      onChange={(e) => setTplAgendaTitle(e.target.value)}
-                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
-                    />
-                  </div>
-                )}
 
                 {tplType === "COMPARE_TABLE" && (
                   <>
@@ -1930,10 +2185,12 @@ ${tplAfterText}
               <span className="font-extrabold text-xs">
                 {tplType === "SHAREHOLDER_STATEMENT"
                   ? "주주명세서 A4 정밀 양식 미리보기 (도장 제거됨)"
+                  : tplType === "RESOLUTION"
+                  ? "주주서면결의서 정밀 양식 미리보기 (간인·인감도장 제거됨)"
                   : `서식 미리보기 (${corp.corpName} 제원 자동 반영)`}
               </span>
               <div className="flex items-center gap-2">
-                {tplType !== "SHAREHOLDER_STATEMENT" && (
+                {tplType !== "SHAREHOLDER_STATEMENT" && tplType !== "RESOLUTION" && (
                   <button
                     type="button"
                     onClick={handleCopyTemplate}
@@ -1949,7 +2206,7 @@ ${tplAfterText}
                   className="px-3 py-1 rounded bg-[#6d28d9] hover:bg-[#5b21b6] text-white font-bold inline-flex items-center gap-1"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>A4 1장 인쇄 / PDF 저장</span>
+                  <span>A4 인쇄 / PDF 저장</span>
                 </button>
               </div>
             </div>
@@ -2250,6 +2507,122 @@ ${tplAfterText}
                       ))}
                     </tbody>
                   </table>
+                </div>
+              ) : tplType === "RESOLUTION" ? (
+                <div
+                  className="w-full max-w-[740px] bg-white text-black p-7 border border-slate-300 shadow-sm space-y-3 text-[13px] leading-relaxed"
+                  style={{
+                    fontFamily:
+                      "'Malgun Gothic', '맑은 고딕', 'Dotum', '돋움', sans-serif",
+                  }}
+                >
+                  <h1 className="text-center font-extrabold text-[25px] tracking-wide mb-5">
+                    주주서면결의서
+                  </h1>
+
+                  <div className="font-bold text-[14px]">{corp.corpName}</div>
+                  <p>
+                    상법 제363조의2 및 제383조에 따라, 자본금 10억 원 미만인 당 회사의 주주 전원의 동의로 주주총회의 소집 및 개최 절차에 갈음하여 다음과 같이 서면결의한다.
+                  </p>
+
+                  <div className="pt-1">
+                    <div className="font-bold mb-1">1. 결의 일자</div>
+                    <div>{tplResolutionDateKor}</div>
+                  </div>
+
+                  <div className="pt-1">
+                    <div className="font-bold mb-1">2. 주주 현황</div>
+                    <ul className="list-disc list-inside pl-2 space-y-0.5">
+                      <li>발행주식 총수: {tplShareholderShares}주</li>
+                      <li>의결권 있는 주식 총수: {tplShareholderShares}주</li>
+                      <li>
+                        결의에 동의한 주식 총수: {tplShareholderShares}주 (동의율{" "}
+                        {tplShareholderRatio}%)
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="pt-1 space-y-1.5">
+                    <div className="font-bold">3. 결의 안건</div>
+                    <div className="font-bold">{tplAgendaTitle}</div>
+                    <p>{tplAgendaBody}</p>
+                  </div>
+
+                  <div className="pt-1 space-y-1.5">
+                    <div className="font-bold">{tplCompareTableTitle}</div>
+                    <table
+                      className="w-full border-collapse text-[12.5px]"
+                      style={{ border: "1px solid #cbd5e1", tableLayout: "fixed" }}
+                    >
+                      <colgroup>
+                        <col style={{ width: "50%" }} />
+                        <col style={{ width: "50%" }} />
+                      </colgroup>
+                      <thead>
+                        <tr className="bg-slate-50">
+                          <th
+                            className="text-left font-bold py-2 px-3"
+                            style={{ border: "1px solid #cbd5e1" }}
+                          >
+                            현행 정관
+                          </th>
+                          <th
+                            className="text-left font-bold py-2 px-3"
+                            style={{ border: "1px solid #cbd5e1" }}
+                          >
+                            변경안
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td
+                            className="align-top py-2.5 px-3 space-y-1.5"
+                            style={{ border: "1px solid #cbd5e1" }}
+                          >
+                            <div className="font-bold mb-1.5">{tplArticleNo}</div>
+                            {tplBeforeText.split("\n").map((line, i) => (
+                              <div key={i}>{line}</div>
+                            ))}
+                          </td>
+                          <td
+                            className="align-top py-2.5 px-3 space-y-1.5"
+                            style={{ border: "1px solid #cbd5e1" }}
+                          >
+                            <div className="font-bold mb-1.5">{tplArticleNo}</div>
+                            {tplAfterText.split("\n").map((line, i) => {
+                              const isBold =
+                                line.includes("(신설)") || line.includes("(조항");
+                              return (
+                                <div key={i} className={isBold ? "font-bold" : ""}>
+                                  {line}
+                                </div>
+                              );
+                            })}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <p className="pt-2">
+                    위 결의를 증명하기 위하여 결의서를 작성하고, 주주 전원이 기명하고 인감도장을 날인한다.
+                  </p>
+
+                  <div className="pt-1 space-y-1.5">
+                    <div className="font-bold">{tplResolutionDateKor}</div>
+                    <div className="font-bold pt-1">{corp.corpName}</div>
+                    <div>본점: {corp.address}</div>
+                    <div className="font-bold pt-1">
+                      주주 겸 대표이사: {tplShareholderName}
+                    </div>
+                    <div>주소: {tplShareholderAddr}</div>
+                    <div>주식 수: {tplShareholderShares}주</div>
+                    <div className="pt-2">
+                      서명/날인: {tplShareholderName}{" "}
+                      <span className="inline-block w-24" />
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <pre className="w-full font-mono text-xs leading-relaxed whitespace-pre-wrap text-[#0f172a] dark:text-slate-100">

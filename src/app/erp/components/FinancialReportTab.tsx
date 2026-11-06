@@ -66,6 +66,7 @@ interface StatementsData {
       accountsReceivable: number;
       vatPrepaid: number;
       currentAssets: number;
+      leaseDeposit?: number;
       tangibleAssets: number;
       accumDepreciation: number;
       nonCurrentAssets: number;
@@ -843,6 +844,12 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                     <div className="py-1 px-2 pt-2 flex items-center justify-between font-bold text-xs text-[#1e3a8a] dark:text-blue-300 border-b border-[#d5cbb8] dark:border-slate-800 whitespace-nowrap">
                       <span>Ⅱ. 비유동자산</span>
                       <span className="font-mono tabular-nums text-right">{formatErpCurrency(statements.bs.assets.nonCurrentAssets)}</span>
+                    </div>
+                    <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
+                      <span>· 임차보증금</span>
+                      <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
+                        {formatErpCurrency(statements.bs.assets.leaseDeposit || 0)}
+                      </span>
                     </div>
                     <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
                       <span>· 유형자산 (취득가액)</span>

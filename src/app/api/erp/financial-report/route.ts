@@ -947,22 +947,45 @@ export async function GET(request: Request) {
     };
 
     // [BS: 재무상태표 (자산 = 부채 + 자본 보존 항등식)]
-    // 국세청 납부세액(taxItems)은 이미 통장에서 납부 완료된 세액(PL 비용 및 CF 유출)이므로 기말 미지급 유동부채에는 가산하지 않음
+    // 1) 비유동자산: 사무실 임차보증금 (법인 2024-07-08~09 납입 5,000,000원) + 유형자산
+    const isBeforeCorpEstablishment = endCutoff < BUSINESS_ENTITIES.CORP.openDate;
+    const leaseDeposit =
+      !isBeforeCorpEstablishment && (entityType === "CORP" || entityType === "ALL")
+        ? 5000000
+        : 0;
     const currentAssets = cashEnding + accountsReceivable;
-    const nonCurrentAssets = Math.max(0, tangibleAssets - accumDepreciation);
+    const nonCurrentAssets = leaseDeposit + Math.max(0, tangibleAssets - accumDepreciation);
     const totalAssets = currentAssets + nonCurrentAssets;
 
-    const currentLiabilities = accountsPayable;
-    const nonCurrentLiabilities = 0; // 가수금 1회 반환 완료로 0원
-    const totalLiabilities = currentLiabilities + nonCurrentLiabilities;
-
-    const isBeforeCorpEstablishment = endCutoff < BUSINESS_ENTITIES.CORP.openDate;
     const capitalStock =
       entityType === "INDIVIDUAL" || isBeforeCorpEstablishment
         ? BUSINESS_ENTITIES.INDIVIDUAL.capitalStock
         : BUSINESS_ENTITIES.CORP.capitalStock;
     const currentTermNetIncome = grandNetIncome;
-    const retainedEarningsBefore = totalAssets - totalLiabilities - capitalStock - currentTermNetIncome;
+
+    // 2) 개업 첫해(법인 2024년 / 개인 2023년) 또는 전체 누적(ALL)은 전기이월이익잉여금이 0원이어야 함
+    const isOpeningYear =
+      year === "ALL" ||
+      (entityType === "CORP" && Number(year) <= 2024) ||
+      (entityType !== "CORP" && Number(year) <= 2023);
+
+    let retainedEarningsBefore = 0;
+    let vatTaxPayable = 0;
+
+    if (isOpeningYear) {
+      retainedEarningsBefore = 0;
+      // 개업 첫해에 공급가액 기준 손익과 부가세 포함 통장 잔액 간 발생하는 부가세 예수금·가수금 정산 잔액
+      const rawBalancingDiff =
+        totalAssets - accountsPayable - capitalStock - currentTermNetIncome;
+      vatTaxPayable = Math.max(0, rawBalancingDiff);
+    } else {
+      retainedEarningsBefore =
+        totalAssets - accountsPayable - capitalStock - currentTermNetIncome;
+    }
+
+    const currentLiabilities = accountsPayable + vatTaxPayable;
+    const nonCurrentLiabilities = 0;
+    const totalLiabilities = currentLiabilities + nonCurrentLiabilities;
     const totalEquity = totalAssets - totalLiabilities;
 
     const bsStatement = {
@@ -973,6 +996,7 @@ export async function GET(request: Request) {
         accountsReceivable,
         vatPrepaid: 0, // 부가세 대급금 (초기 0)
         currentAssets,
+        leaseDeposit,
         tangibleAssets,
         accumDepreciation,
         nonCurrentAssets,
@@ -980,8 +1004,8 @@ export async function GET(request: Request) {
       },
       liabilities: {
         accountsPayable,
-        withholdingTaxPayable: 0, // 기납부 세액은 PL/CF 반영 완료 (기말 미지급 예수금 0)
-        vatTaxPayable: 0,
+        withholdingTaxPayable: 0,
+        vatTaxPayable,
         corporateTaxPayable: 0,
         taxPaymentPayable: 0,
         currentLiabilities,

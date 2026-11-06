@@ -186,20 +186,44 @@ export async function PATCH(request: Request) {
     const isApprove = action === "APPROVE";
     const nextStatus = isApprove ? "APPROVED" : "REJECTED";
 
-    // 1. Update step
+    // 1. Update step (기존 배정된 결재자(예: 부서장 장종순)가 있으면 해당 결재자 유지, 없을 때만 approverId 사용)
+    let resolvedStepApproverId = Number(approverId);
+    try {
+      const existingStepRes = await pool.query(
+        `SELECT s.approver_id, r.event_type, r.target_table
+         FROM erp_approval_steps s
+         JOIN erp_approval_requests r ON s.request_id = r.id
+         WHERE s.request_id = $1
+         ORDER BY s.step_order ASC LIMIT 1`,
+        [requestId]
+      );
+      if (existingStepRes.rows.length > 0) {
+        const stRow = existingStepRes.rows[0];
+        if (
+          stRow.approver_id &&
+          (stRow.event_type === "LEAVE_REQUEST" ||
+            stRow.event_type === "OT_REQUEST" ||
+            stRow.target_table === "erp_leave_requests" ||
+            stRow.target_table === "erp_overtimes")
+        ) {
+          resolvedStepApproverId = Number(stRow.approver_id);
+        }
+      }
+    } catch {}
+
     if (stepId) {
       await pool.query(
         `UPDATE erp_approval_steps 
          SET status = $1, comment = $2, acted_at = $3, approver_id = $4
          WHERE id = $5`,
-        [nextStatus, comment || null, now, approverId, stepId]
+        [nextStatus, comment || null, now, resolvedStepApproverId, stepId]
       );
     } else {
       await pool.query(
         `UPDATE erp_approval_steps 
          SET status = $1, comment = $2, acted_at = $3, approver_id = $4
          WHERE request_id = $5 AND status = 'PENDING'`,
-        [nextStatus, comment || null, now, approverId, requestId]
+        [nextStatus, comment || null, now, resolvedStepApproverId, requestId]
       );
     }
 
@@ -221,14 +245,14 @@ export async function PATCH(request: Request) {
             `UPDATE erp_leave_requests 
              SET status = $1, approver_id = $2, approved_at = $3, reject_reason = $4 
              WHERE id = $5`,
-            [nextStatus, approverId, now, isApprove ? null : (comment || "결재 반려"), target_id]
+            [nextStatus, resolvedStepApproverId, now, isApprove ? null : (comment || "결재 반려"), target_id]
           );
         } else if (target_table === "erp_overtimes") {
           await pool.query(
             `UPDATE erp_overtimes 
              SET status = $1, approver_id = $2, approved_at = $3, memo = $4 
              WHERE id = $5`,
-            [nextStatus, approverId, now, comment || null, target_id]
+            [nextStatus, resolvedStepApproverId, now, comment || null, target_id]
           );
         } else if (target_table === "erp_payroll_records") {
           await pool.query(

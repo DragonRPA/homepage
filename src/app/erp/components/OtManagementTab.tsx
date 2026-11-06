@@ -747,7 +747,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                 otHours: 3.0,
                 customOtPay: null,
                 reason: OT_REASONS[0],
-                autoApprove: true,
+                autoApprove: isDeptHead && !isSuperAdmin ? true : false,
               });
               setOtModalOpen(true);
             }}
@@ -934,9 +934,14 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
             onSubmit={handleSubmitOt}
             className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-lg shadow-2xl dark:bg-slate-900 dark:border-slate-800"
           >
-            <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 mb-4 pb-2 border-b border-[#b5a894] dark:border-slate-800 flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-[#1d4ed8]" />
-              <span>초과근무 신청 및 수당 자동 계산</span>
+            <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 mb-4 pb-2 border-b border-[#b5a894] dark:border-slate-800 flex items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-[#1d4ed8]" />
+                <span>초과근무 신청 및 수당 자동 계산</span>
+              </div>
+              <span className="text-[11px] font-bold text-[#1d4ed8] bg-[#dbeafe] border border-[#93c5fd] px-2 py-0.5 rounded">
+                결재권자: 부서장 (장종순)
+              </span>
             </h2>
 
             <div className="space-y-3">
@@ -1357,7 +1362,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                     className="w-4 h-4 accent-[#1d4ed8]"
                   />
                   <span className="text-xs font-bold text-[#047857]">
-                    등록 즉시 승인 완료 처리 (급여 정산 및 용역 청구에 즉시 반영)
+                    부서장(장종순) 전결 즉시 승인 완료 처리 (급여 정산 및 용역 청구에 즉시 반영)
                   </span>
                 </label>
               )}

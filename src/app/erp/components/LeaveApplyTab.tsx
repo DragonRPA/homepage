@@ -17,6 +17,7 @@ import {
   SortDirection,
   formatErpNumber,
   formatErpLeaveDays,
+  calculateAnnualLeaveEntitlement,
   LeaveTypeCode,
   LEAVE_TYPE_LIST,
   LEAVE_TYPE_MAP,
@@ -53,6 +54,7 @@ interface Employee {
   department: string;
   position: string;
   duty?: string;
+  joinDate?: string;
   status?: string;
   employmentStatus?: string;
   leaveDate?: string | null;
@@ -119,6 +121,35 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
       null
     );
   }, [employees, currentUserId, currentUser]);
+
+  // 본인 연차 집계 (입사일, 근속연수, 부여연차, 사용연차, 잔여연차, 미차감 건수, 소진율)
+  const selfLeaveSummary = useMemo(() => {
+    const joinDateStr = selfEmployee?.joinDate
+      ? String(selfEmployee.joinDate).substring(0, 10)
+      : "-";
+    const entitlement = calculateAnnualLeaveEntitlement(selfEmployee?.joinDate);
+    const tenure = entitlement.tenureYears;
+    const rawGrant = Number(selfEmployee?.grantDays ?? 15);
+    const grant =
+      tenure === 0 && (rawGrant === 15 || rawGrant === 11)
+        ? entitlement.grantDays
+        : rawGrant;
+    const used = Number(selfEmployee?.usedDays ?? 0);
+    const remain = grant - used;
+    const nonDedCount = Number(selfEmployee?.nonDeductedCount ?? 0);
+    const rate = grant > 0 ? Math.min(100, Math.round((used / grant) * 100)) : 0;
+
+    return {
+      joinDateStr,
+      tenure,
+      formulaLabel: entitlement.formulaLabel,
+      grant,
+      used,
+      remain,
+      nonDedCount,
+      rate,
+    };
+  }, [selfEmployee]);
 
   const myLeaves = useMemo(() => {
     const myEmpId = Number(selfEmployee?.id || currentUserId || 0);
@@ -300,13 +331,15 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
       )}
 
       {/* Top Header */}
-      <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
-          <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
-            연차 및 공가 신청
-          </span>
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-[#dbeafe] text-[#1e40af] border border-[#93c5fd]">
+      <div className="p-2.5 px-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 whitespace-nowrap">
+            <Calendar className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
+            <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
+              연차 및 공가 신청
+            </span>
+          </div>
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-[#dbeafe] text-[#1e40af] border border-[#93c5fd] whitespace-nowrap">
             <UserCheck className="w-3 h-3" />
             <span>
               신청자: {selfEmployee?.name || currentUser?.name} (
@@ -314,6 +347,78 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
               {selfEmployee?.position || currentUser?.position || ""})
             </span>
           </span>
+
+          {/* 상단 헤더 1줄 연차일수·사용일·소진율 집계 바 */}
+          <div className="flex flex-wrap items-center gap-2 px-2.5 py-1 rounded bg-[#f4efe4] border border-[#b5a894] text-[11px] whitespace-nowrap shadow-2xs">
+            <span className="font-mono text-[#475569]">
+              사번 <strong className="text-[#0f172a]">{selfEmployee?.employeeNo || "-"}</strong>
+            </span>
+            <span className="text-[#cbd5e1]">|</span>
+            <span className="font-mono text-[#475569]">
+              입사일 <strong className="text-[#0f172a]">{selfLeaveSummary.joinDateStr}</strong>
+            </span>
+            <span
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                selfLeaveSummary.tenure === 0
+                  ? "bg-[#eff6ff] border-[#93c5fd] text-[#1d4ed8]"
+                  : "bg-[#dcd4c4] border-[#b5a894] text-[#0f172a]"
+              }`}
+              title={selfLeaveSummary.formulaLabel}
+            >
+              {selfLeaveSummary.tenure}년차{selfLeaveSummary.tenure === 0 ? " (비례)" : ""}
+            </span>
+            <span className="text-[#cbd5e1]">|</span>
+            <span>
+              부여{" "}
+              <strong className="font-mono text-[#1d4ed8]">
+                {formatErpLeaveDays(selfLeaveSummary.grant)}일
+              </strong>
+            </span>
+            <span className="text-[#cbd5e1]">|</span>
+            <span>
+              사용{" "}
+              <strong className="font-mono text-[#b45309]">
+                {formatErpLeaveDays(selfLeaveSummary.used)}일
+              </strong>
+            </span>
+            <span className="text-[#cbd5e1]">|</span>
+            <span>
+              잔여{" "}
+              <strong className="font-mono text-[#047857]">
+                {formatErpLeaveDays(selfLeaveSummary.remain)}일
+              </strong>
+            </span>
+            <span className="text-[#cbd5e1]">|</span>
+            <span>
+              공가/특별(미차감){" "}
+              {selfLeaveSummary.nonDedCount > 0 ? (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0] font-mono">
+                  {selfLeaveSummary.nonDedCount}건 (0일차감)
+                </span>
+              ) : (
+                <strong className="font-mono text-[#64748b]">0건</strong>
+              )}
+            </span>
+            <span className="text-[#cbd5e1]">|</span>
+            <div className="inline-flex items-center gap-1.5">
+              <span className="text-[#475569] font-semibold">소진율</span>
+              <div className="w-16 bg-[#dcd4c4] rounded-full h-1.5 overflow-hidden">
+                <div
+                  className={`h-full ${
+                    selfLeaveSummary.rate > 80
+                      ? "bg-[#dc2626]"
+                      : selfLeaveSummary.rate > 50
+                      ? "bg-[#b45309]"
+                      : "bg-[#1d4ed8]"
+                  }`}
+                  style={{ width: `${selfLeaveSummary.rate}%` }}
+                />
+              </div>
+              <span className="font-mono font-bold text-[#0f172a]">
+                {formatErpNumber(selfLeaveSummary.rate)}%
+              </span>
+            </div>
+          </div>
         </div>
 
         <button
@@ -326,51 +431,153 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
         </button>
       </div>
 
+      {/* 연차관리 동일 규격 1줄 개인 연차 보유/사용/소진율 집계표 */}
+      <div className="px-4 pt-3 shrink-0">
+        <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-x-auto">
+          <table className="w-full text-xs text-left border-collapse">
+            <thead className="bg-[#dcd4c4] text-[#0f172a] font-semibold border-b border-[#b5a894] select-none">
+              <tr>
+                <th className="py-2 px-3 whitespace-nowrap">사번</th>
+                <th className="py-2 px-3 whitespace-nowrap">성명</th>
+                <th className="py-2 px-3 whitespace-nowrap">부서</th>
+                <th className="py-2 px-3 whitespace-nowrap">직급 / 직책</th>
+                <th className="py-2 px-3 whitespace-nowrap">입사일</th>
+                <th className="py-2 px-3 text-center whitespace-nowrap">근속연수</th>
+                <th className="py-2 px-3 text-right whitespace-nowrap">부여 연차</th>
+                <th className="py-2 px-3 text-right whitespace-nowrap">사용 연차</th>
+                <th className="py-2 px-3 text-right whitespace-nowrap">잔여 연차</th>
+                <th className="py-2 px-3 text-center whitespace-nowrap">공가/특별(미차감)</th>
+                <th className="py-2 px-3 text-center whitespace-nowrap">소진율</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="bg-[#f4efe4] hover:bg-[#ede6d6] transition">
+                <td className="py-2 px-3 font-mono text-[#475569] whitespace-nowrap">
+                  {selfEmployee?.employeeNo || "-"}
+                </td>
+                <td className="py-2 px-3 font-bold text-[#0f172a] whitespace-nowrap">
+                  {selfEmployee?.name || currentUser?.name || "-"}
+                </td>
+                <td className="py-2 px-3 text-[#334155] whitespace-nowrap">
+                  {selfEmployee?.department || currentUser?.department || "-"}
+                </td>
+                <td className="py-2 px-3 text-[#334155] whitespace-nowrap">
+                  {selfEmployee?.position || currentUser?.position || "-"}{" "}
+                  {selfEmployee?.duty ? `(${selfEmployee.duty})` : ""}
+                </td>
+                <td className="py-2 px-3 font-mono text-[#475569] whitespace-nowrap">
+                  {selfLeaveSummary.joinDateStr}
+                </td>
+                <td
+                  className="py-2 px-3 text-center whitespace-nowrap"
+                  title={selfLeaveSummary.formulaLabel}
+                >
+                  <span
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                      selfLeaveSummary.tenure === 0
+                        ? "bg-[#eff6ff] border-[#93c5fd] text-[#1d4ed8]"
+                        : "bg-[#dcd4c4] border-[#b5a894] text-[#0f172a]"
+                    }`}
+                  >
+                    {selfLeaveSummary.tenure}년차{selfLeaveSummary.tenure === 0 ? " (비례)" : ""}
+                  </span>
+                </td>
+                <td
+                  className="py-2 px-3 text-right font-mono font-bold text-[#1d4ed8] whitespace-nowrap"
+                  title={`규정 산출값: ${selfLeaveSummary.grant}일 (${selfLeaveSummary.formulaLabel})`}
+                >
+                  {formatErpLeaveDays(selfLeaveSummary.grant)}일
+                </td>
+                <td className="py-2 px-3 text-right font-mono font-bold text-[#b45309] whitespace-nowrap">
+                  {formatErpLeaveDays(selfLeaveSummary.used)}일
+                </td>
+                <td className="py-2 px-3 text-right font-mono font-bold text-[#047857] whitespace-nowrap">
+                  {formatErpLeaveDays(selfLeaveSummary.remain)}일
+                </td>
+                <td className="py-2 px-3 text-center font-mono whitespace-nowrap">
+                  {selfLeaveSummary.nonDedCount > 0 ? (
+                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0]">
+                      {selfLeaveSummary.nonDedCount}건 (0일차감)
+                    </span>
+                  ) : (
+                    <span className="text-[#94a3b8]">-</span>
+                  )}
+                </td>
+                <td className="py-2 px-3 text-center whitespace-nowrap">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <div className="w-16 bg-[#dcd4c4] rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className={`h-full ${
+                          selfLeaveSummary.rate > 80
+                            ? "bg-[#dc2626]"
+                            : selfLeaveSummary.rate > 50
+                            ? "bg-[#b45309]"
+                            : "bg-[#1d4ed8]"
+                        }`}
+                        style={{ width: `${selfLeaveSummary.rate}%` }}
+                      />
+                    </div>
+                    <span className="font-mono text-[10px] text-[#475569]">
+                      {formatErpNumber(selfLeaveSummary.rate)}%
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Main Content Area */}
-      <div className="flex-1 grid grid-cols-12 gap-4 p-4 overflow-hidden">
+      <div className="flex-1 grid grid-cols-12 gap-4 p-4 pt-3 overflow-hidden">
         {/* Left: Leave Balance Cards & Application Form (4 cols) */}
-        <div className="col-span-12 lg:col-span-4 flex flex-col gap-4 overflow-y-auto">
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-3 overflow-y-auto">
           {/* Leave Quota Card */}
-          <div className="bg-[#f4efe4] border border-[#b5a894] rounded p-4 shadow-xs dark:bg-slate-900 dark:border-slate-800">
-            <div className="flex items-center justify-between mb-3">
+          <div className="bg-[#f4efe4] border border-[#b5a894] rounded p-3.5 shadow-xs dark:bg-slate-900 dark:border-slate-800">
+            <div className="flex items-center justify-between mb-2.5">
               <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
                 {selfEmployee?.name || currentUser?.name} 연차 보유 현황
               </span>
-              {Number(selfEmployee?.nonDeductedCount || 0) > 0 && (
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0]">
-                  공가/예비군 {selfEmployee?.nonDeductedCount}건 (미차감)
+              <div className="flex items-center gap-1.5">
+                {Number(selfEmployee?.nonDeductedCount || 0) > 0 && (
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0]">
+                    공가/예비군 {selfEmployee?.nonDeductedCount}건 (미차감)
+                  </span>
+                )}
+                <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-[#ebe5d8] text-[#334155] border border-[#b5a894]">
+                  소진율 {formatErpNumber(selfLeaveSummary.rate)}%
                 </span>
-              )}
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-2">
-              <div className="p-3 bg-[#ebe5d8] rounded border border-[#b5a894] text-center dark:bg-slate-950 dark:border-slate-800">
-                <span className="text-[10px] text-[#475569] dark:text-slate-400 block mb-1">
+              <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] text-center dark:bg-slate-950 dark:border-slate-800">
+                <span className="text-[10px] text-[#475569] dark:text-slate-400 block mb-0.5">
                   부여 연차
                 </span>
                 <span className="text-lg font-mono font-bold text-[#1d4ed8] dark:text-blue-400">
-                  {selfEmployee ? formatErpLeaveDays(selfEmployee.grantDays) : "15"}
+                  {formatErpLeaveDays(selfLeaveSummary.grant)}
                   <span className="text-xs font-normal text-[#475569] dark:text-slate-400 ml-0.5">
                     일
                   </span>
                 </span>
               </div>
-              <div className="p-3 bg-[#ebe5d8] rounded border border-[#b5a894] text-center dark:bg-slate-950 dark:border-slate-800">
-                <span className="text-[10px] text-[#475569] dark:text-slate-400 block mb-1">
+              <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] text-center dark:bg-slate-950 dark:border-slate-800">
+                <span className="text-[10px] text-[#475569] dark:text-slate-400 block mb-0.5">
                   사용 연차
                 </span>
                 <span className="text-lg font-mono font-bold text-[#b45309] dark:text-amber-400">
-                  {selfEmployee ? formatErpLeaveDays(selfEmployee.usedDays) : "0"}
+                  {formatErpLeaveDays(selfLeaveSummary.used)}
                   <span className="text-xs font-normal text-[#475569] dark:text-slate-400 ml-0.5">
                     일
                   </span>
                 </span>
               </div>
-              <div className="p-3 bg-[#ebe5d8] rounded border border-[#b5a894] text-center dark:bg-slate-950 dark:border-slate-800">
-                <span className="text-[10px] text-[#475569] dark:text-slate-400 block mb-1">
+              <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] text-center dark:bg-slate-950 dark:border-slate-800">
+                <span className="text-[10px] text-[#475569] dark:text-slate-400 block mb-0.5">
                   잔여 연차
                 </span>
                 <span className="text-lg font-mono font-bold text-[#047857] dark:text-emerald-400">
-                  {selfEmployee ? formatErpLeaveDays(selfEmployee.remainDays) : "15"}
+                  {formatErpLeaveDays(selfLeaveSummary.remain)}
                   <span className="text-xs font-normal text-[#475569] dark:text-slate-400 ml-0.5">
                     일
                   </span>
@@ -388,8 +595,8 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
               <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200">
                 휴가 신청 작성
               </span>
-              <span className="text-[11px] font-bold text-[#475569] dark:text-slate-400">
-                결재처: 소속 부서장 (내 결재함)
+              <span className="text-[11px] font-bold text-[#1d4ed8] dark:text-blue-400">
+                전결권자: 부서장 (장종순)
               </span>
             </div>
 

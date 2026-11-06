@@ -39,41 +39,31 @@ async function resolveLeaveApprover(
     const roleCode = String(reqEmp.role_code || "").toUpperCase();
     const tierLevel = Number(reqEmp.tier_level || 0);
 
-    // 1. 신청자 본인이 부서장(팀장/부장/임원/대표이사)이거나 소속 부서의 manager_name인 경우 -> 대표이사 결재 없이 즉시 전결(자동 승인)
-    const isDeptHeadOrExec =
-      (deptManagerName && deptManagerName === reqName) ||
-      role === "MANAGER" ||
-      roleCode === "MANAGER" ||
-      role === "ADMIN" ||
-      roleCode === "ADMIN" ||
-      tierLevel >= 2 ||
-      /팀장|부서장|본부장|실장|대표/.test(duty) ||
-      /팀장|부서장|부장|이사|대표/.test(pos);
-
-    if (isDeptHeadOrExec) {
-      return { approverId: requesterEmpId, autoApprove: true };
-    }
-
-    // 2. 소속 부서에 지정된 부서장(manager_name)이 있고, 본인이 아닌 경우 해당 부서장을 결재자로 지정
-    if (deptManagerName && deptManagerName !== reqName) {
+    // 1. 소속 부서에 지정된 부서장(manager_name)이 있는 경우 우선 매칭 (대표이사가 아닌 실무 부서장 우선)
+    if (deptManagerName && !deptManagerName.includes("대표이사")) {
       const mgrByName = await pool.query(
-        `SELECT id FROM erp_employees WHERE name = $1 AND employment_status = 'ACTIVE' AND id <> $2 LIMIT 1`,
-        [deptManagerName, requesterEmpId]
+        `SELECT id FROM erp_employees WHERE name = $1 AND employment_status = 'ACTIVE' LIMIT 1`,
+        [deptManagerName]
       );
       if (mgrByName.rows.length > 0) {
-        return { approverId: Number(mgrByName.rows[0].id), autoApprove: false };
+        const mgrId = Number(mgrByName.rows[0].id);
+        return {
+          approverId: mgrId,
+          autoApprove: mgrId === requesterEmpId,
+        };
       }
     }
 
-    // 3. 동일 부서 내 직책(팀장/부서장/본부장/실장) 또는 역할(MANAGER) 보유자를 탐색 (본인 제외)
+    // 2. 동일 부서 내 직책(팀장/부서장/본부장/실장) 또는 역할(MANAGER) 보유자를 탐색 (대표이사 제외)
     if (deptId || deptName) {
       const deptHeadRes = await pool.query(
         `SELECT id FROM erp_employees
          WHERE employment_status = 'ACTIVE'
-           AND id <> $1
+           AND position NOT LIKE '%대표%'
+           AND COALESCE(duty, '') NOT LIKE '%대표%'
            AND (
-             ($2::int IS NOT NULL AND department_id = $2::int)
-             OR ($3 <> '' AND department = $3)
+             ($1::int IS NOT NULL AND department_id = $1::int)
+             OR ($2 <> '' AND department = $2)
            )
            AND (
              role = 'MANAGER' OR role_code = 'MANAGER'
@@ -82,26 +72,46 @@ async function resolveLeaveApprover(
            )
          ORDER BY tier_level DESC, id ASC
          LIMIT 1`,
-        [requesterEmpId, deptId ? Number(deptId) : null, deptName]
+        [deptId ? Number(deptId) : null, deptName]
       );
       if (deptHeadRes.rows.length > 0) {
-        return { approverId: Number(deptHeadRes.rows[0].id), autoApprove: false };
+        const mgrId = Number(deptHeadRes.rows[0].id);
+        return {
+          approverId: mgrId,
+          autoApprove: mgrId === requesterEmpId,
+        };
       }
+    }
+
+    // 3. 신청자 본인이 부서장(팀장/부장)인 경우 본인 전결
+    const isDeptHeadSelf =
+      role === "MANAGER" ||
+      roleCode === "MANAGER" ||
+      tierLevel >= 3 ||
+      /팀장|부서장|본부장|실장/.test(duty) ||
+      /팀장|부서장|부장/.test(pos);
+
+    if (isDeptHeadSelf && !pos.includes("대표") && !duty.includes("대표")) {
+      return { approverId: requesterEmpId, autoApprove: true };
     }
   }
 
-  // 4. 부서 내 팀장이 없는 경우 전사 MANAGER(부서장) 탐색 (대표이사에게 올라가지 않도록 MANAGER 우선 배정)
+  // 4. 부서 내 팀장이 없는 경우 전사 부서장(MANAGER, 예: 장종순) 탐색 (대표이사 제외)
   const fallbackMgrRes = await pool.query(
     `SELECT id FROM erp_employees
      WHERE employment_status = 'ACTIVE'
-       AND id <> $1
+       AND position NOT LIKE '%대표%'
+       AND COALESCE(duty, '') NOT LIKE '%대표%'
        AND (role = 'MANAGER' OR role_code = 'MANAGER' OR duty LIKE '%팀장%' OR position LIKE '%부장%')
      ORDER BY tier_level DESC, id ASC
-     LIMIT 1`,
-    [requesterEmpId]
+     LIMIT 1`
   );
   if (fallbackMgrRes.rows.length > 0) {
-    return { approverId: Number(fallbackMgrRes.rows[0].id), autoApprove: false };
+    const mgrId = Number(fallbackMgrRes.rows[0].id);
+    return {
+      approverId: mgrId,
+      autoApprove: mgrId === requesterEmpId,
+    };
   }
 
   return { approverId: requesterEmpId, autoApprove: true };

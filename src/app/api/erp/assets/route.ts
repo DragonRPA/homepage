@@ -1,6 +1,12 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import {
+  computeAssetAccumDeprecAsOf,
+  computeAssetDisposalLossForYm,
+  resolveUsefulLifeMonths,
+  resolveBaseMonthlyDepreciation,
+} from "@/lib/erpDepreciation";
 
 // GET: 전체 자산 대장 및 제품 모델 결합 조회
 export async function GET(request: Request) {
@@ -24,9 +30,11 @@ export async function GET(request: Request) {
         a.owner_type as "ownerType",
         a.status,
         a.acquisition_date as "acquisitionDate",
+        a.disposed_date as "disposedDate",
         a.acquisition_cost as "acquisitionCost",
         a.salvage_value as "salvageValue",
         a.useful_life_years as "usefulLifeYears",
+        a.useful_life_months as "usefulLifeMonths",
         a.depreciation_method as "depreciationMethod",
         a.accumulated_depreciation as "accumulatedDepreciation",
         a.book_value as "bookValue",
@@ -58,16 +66,22 @@ export async function GET(request: Request) {
     query += ` ORDER BY a.asset_no ASC`;
 
     const res = await pool.query(query, params);
-    const normalized = res.rows.map((r: any) => ({
-      ...r,
-      acquisitionDate: r.acquisitionDate ? String(r.acquisitionDate).slice(0, 10) : "",
-      acquisitionCost: Number(r.acquisitionCost || 0),
-      salvageValue: Number(r.salvageValue || 0),
-      usefulLifeYears: Number(r.usefulLifeYears || 5),
-      accumulatedDepreciation: Number(r.accumulatedDepreciation || 0),
-      bookValue: Number(r.bookValue || 0),
-      monthlyDepreciation: Number(r.monthlyDepreciation || 0),
-    }));
+    const normalized = res.rows.map((r: any) => {
+      const lifeYears = Number(r.usefulLifeYears || 4);
+      const lifeMonths = Number(r.usefulLifeMonths || lifeYears * 12);
+      return {
+        ...r,
+        acquisitionDate: r.acquisitionDate ? String(r.acquisitionDate).slice(0, 10) : "",
+        disposedDate: r.disposedDate ? String(r.disposedDate).slice(0, 10) : "",
+        acquisitionCost: Number(r.acquisitionCost || 0),
+        salvageValue: Number(r.salvageValue || 0),
+        usefulLifeYears: lifeYears,
+        usefulLifeMonths: lifeMonths,
+        accumulatedDepreciation: Number(r.accumulatedDepreciation || 0),
+        bookValue: Number(r.bookValue || 0),
+        monthlyDepreciation: Number(r.monthlyDepreciation || 0),
+      };
+    });
     return NextResponse.json({ success: true, assets: normalized });
   } catch (error: any) {
     console.error("GET Assets Error:", error);
@@ -81,7 +95,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { 
       assetNo, rentalProductId, serialNo, ownerType,
-      acquisitionDate, acquisitionCost, salvageValue, usefulLifeYears,
+      acquisitionDate, acquisitionCost, salvageValue, usefulLifeYears, usefulLifeMonths,
       supplier, renter, currentCustomer, currentSite, contractNo, customSpec, memo,
       qty
     } = body;
@@ -93,17 +107,27 @@ export async function POST(request: Request) {
     const batchQty = Math.min(200, Math.max(1, parseInt(String(qty || "1"), 10) || 1));
     const cost = parseFloat(acquisitionCost || "0");
     const salvage = parseFloat(salvageValue || "0");
-    const lifeYears = parseInt(usefulLifeYears || "5", 10);
+    const lifeYears = Math.max(1, parseInt(usefulLifeYears || "4", 10));
+    const lifeMonths =
+      usefulLifeMonths !== undefined && Number(usefulLifeMonths) > 0
+        ? parseInt(String(usefulLifeMonths), 10)
+        : lifeYears * 12;
     const dateStr = acquisitionDate || new Date().toISOString().split("T")[0];
 
-    // 정액법 감가상각 계산
-    const acqDateObj = new Date(dateStr);
-    const now = new Date();
-    const monthsElapsed = Math.max(0, (now.getFullYear() - acqDateObj.getFullYear()) * 12 + (now.getMonth() - acqDateObj.getMonth()));
-    const totalMonths = Math.max(1, lifeYears * 12);
-    const depreciableAmount = Math.max(0, cost - salvage);
-    const monthlyDeprec = Math.round(depreciableAmount / totalMonths);
-    const accumDeprec = Math.min(depreciableAmount, monthlyDeprec * monthsElapsed);
+    // 정액법 감가상각 계산 (취득월 포함 월할상각 표준 엔진 적용)
+    const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const currentCutoff = `${nowKst.toISOString().slice(0, 7)}-31`;
+    const tempAsset = {
+      id: 0,
+      asset_no: "",
+      acquisition_date: dateStr,
+      acquisition_cost: cost,
+      salvage_value: salvage,
+      useful_life_years: lifeYears,
+      useful_life_months: lifeMonths,
+    };
+    const monthlyDeprec = resolveBaseMonthlyDepreciation(tempAsset);
+    const accumDeprec = computeAssetAccumDeprecAsOf(tempAsset, currentCutoff);
     const bookVal = Math.max(salvage, cost - accumDeprec);
 
     const initialStatus = currentCustomer ? "RENTED" : "AVAILABLE";
@@ -174,7 +198,7 @@ export async function POST(request: Request) {
         `WITH inserted AS (
            INSERT INTO erp_rental_assets (
              asset_no, rental_product_id, serial_no, owner_type, status,
-             acquisition_date, acquisition_cost, salvage_value, useful_life_years,
+             acquisition_date, acquisition_cost, salvage_value, useful_life_years, useful_life_months,
              depreciation_method, accumulated_depreciation, book_value, monthly_depreciation,
              supplier, renter, current_customer, current_site, contract_no, custom_spec, memo
            )
@@ -188,6 +212,7 @@ export async function POST(request: Request) {
              $7::numeric,
              $8::numeric,
              $9::int,
+             $20::int,
              'STRAIGHT_LINE',
              $10::numeric,
              $11::numeric,
@@ -217,9 +242,11 @@ export async function POST(request: Request) {
            a.owner_type as "ownerType",
            a.status,
            a.acquisition_date as "acquisitionDate",
+           a.disposed_date as "disposedDate",
            a.acquisition_cost as "acquisitionCost",
            a.salvage_value as "salvageValue",
            a.useful_life_years as "usefulLifeYears",
+           a.useful_life_months as "usefulLifeMonths",
            a.depreciation_method as "depreciationMethod",
            a.accumulated_depreciation as "accumulatedDepreciation",
            a.book_value as "bookValue",
@@ -256,15 +283,18 @@ export async function POST(request: Request) {
           contractNo || null,
           customSpec || null,
           memo || null,
+          lifeMonths,
         ]
       );
 
       const createdAssets = bulkInsertRes.rows.map((r: any) => ({
         ...r,
         acquisitionDate: r.acquisitionDate ? String(r.acquisitionDate).slice(0, 10) : "",
+        disposedDate: r.disposedDate ? String(r.disposedDate).slice(0, 10) : "",
         acquisitionCost: Number(r.acquisitionCost || 0),
         salvageValue: Number(r.salvageValue || 0),
-        usefulLifeYears: Number(r.usefulLifeYears || 5),
+        usefulLifeYears: Number(r.usefulLifeYears || 4),
+        usefulLifeMonths: Number(r.usefulLifeMonths || lifeMonths),
         accumulatedDepreciation: Number(r.accumulatedDepreciation || 0),
         bookValue: Number(r.bookValue || 0),
         monthlyDepreciation: Number(r.monthlyDepreciation || 0),
@@ -337,7 +367,7 @@ export async function PUT(request: Request) {
     const body = await request.json();
     const { 
       id, assetNo, serialNo, ownerType, status,
-      acquisitionDate, acquisitionCost, salvageValue, usefulLifeYears,
+      acquisitionDate, disposedDate, acquisitionCost, salvageValue, usefulLifeYears, usefulLifeMonths,
       supplier, renter, currentCustomer, currentSite, contractNo, customSpec, memo,
       logMemo // 상태 변경 시 기록할 메모
     } = body;
@@ -354,20 +384,56 @@ export async function PUT(request: Request) {
     }
     const prevAsset = prevRes.rows[0];
 
-    // 감가상각 재계산
+    // 감가상각 재계산 (useful_life_months 보존 및 취득월 포함 월할상각 표준 엔진 적용)
     const cost = acquisitionCost !== undefined ? parseFloat(acquisitionCost) : parseFloat(prevAsset.acquisition_cost || "0");
     const salvage = salvageValue !== undefined ? parseFloat(salvageValue) : parseFloat(prevAsset.salvage_value || "0");
-    const lifeYears = usefulLifeYears !== undefined ? parseInt(usefulLifeYears, 10) : parseInt(prevAsset.useful_life_years || "5", 10);
-    const dateStr = acquisitionDate || prevAsset.acquisition_date;
+    const lifeYears =
+      usefulLifeYears !== undefined
+        ? parseInt(usefulLifeYears, 10)
+        : parseInt(prevAsset.useful_life_years || "4", 10);
+    const lifeMonths =
+      usefulLifeMonths !== undefined && Number(usefulLifeMonths) > 0
+        ? parseInt(String(usefulLifeMonths), 10)
+        : usefulLifeYears !== undefined && Number(usefulLifeYears) !== Number(prevAsset.useful_life_years)
+        ? lifeYears * 12
+        : resolveUsefulLifeMonths(prevAsset);
+    const dateStr = acquisitionDate || (prevAsset.acquisition_date ? String(prevAsset.acquisition_date).slice(0, 10) : new Date().toISOString().slice(0, 10));
+    const nextStatus = status || prevAsset.status;
+    const nextDisposedDate =
+      disposedDate !== undefined
+        ? disposedDate || null
+        : nextStatus === "DISPOSED" && !prevAsset.disposed_date
+        ? new Date().toISOString().slice(0, 10)
+        : prevAsset.disposed_date
+        ? String(prevAsset.disposed_date).slice(0, 10)
+        : null;
 
-    const acqDateObj = new Date(dateStr);
-    const now = new Date();
-    const monthsElapsed = Math.max(0, (now.getFullYear() - acqDateObj.getFullYear()) * 12 + (now.getMonth() - acqDateObj.getMonth()));
-    const totalMonths = Math.max(1, lifeYears * 12);
-    const depreciableAmount = Math.max(0, cost - salvage);
-    const monthlyDeprec = Math.round(depreciableAmount / totalMonths);
-    const accumDeprec = Math.min(depreciableAmount, monthlyDeprec * monthsElapsed);
-    const bookVal = Math.max(salvage, cost - accumDeprec);
+    const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const currentCutoff = `${nowKst.toISOString().slice(0, 7)}-31`;
+    const tempAsset = {
+      ...prevAsset,
+      acquisition_date: dateStr,
+      disposed_date: nextDisposedDate,
+      acquisition_cost: cost,
+      salvage_value: salvage,
+      useful_life_years: lifeYears,
+      useful_life_months: lifeMonths,
+      monthly_depreciation:
+        lifeMonths === resolveUsefulLifeMonths(prevAsset) && cost === Number(prevAsset.acquisition_cost || 0)
+          ? prevAsset.monthly_depreciation
+          : 0,
+    };
+    const monthlyDeprec = resolveBaseMonthlyDepreciation(tempAsset);
+    let accumDeprec = 0;
+    let bookVal = 0;
+    if (nextDisposedDate && nextDisposedDate <= currentCutoff) {
+      const lossAmt = computeAssetDisposalLossForYm(tempAsset, nextDisposedDate.slice(0, 7));
+      accumDeprec = Math.max(0, cost - lossAmt);
+      bookVal = 0;
+    } else {
+      accumDeprec = Math.min(Math.max(0, cost - salvage), computeAssetAccumDeprecAsOf(tempAsset, currentCutoff));
+      bookVal = Math.max(salvage, cost - accumDeprec);
+    }
 
     const updateQuery = `
       WITH updated AS (
@@ -381,6 +447,8 @@ export async function PUT(request: Request) {
           acquisition_cost = $6,
           salvage_value = $7,
           useful_life_years = $8,
+          useful_life_months = $20,
+          disposed_date = $21,
           accumulated_depreciation = $9,
           book_value = $10,
           monthly_depreciation = $11,
@@ -409,9 +477,11 @@ export async function PUT(request: Request) {
         a.owner_type as "ownerType",
         a.status,
         a.acquisition_date as "acquisitionDate",
+        a.disposed_date as "disposedDate",
         a.acquisition_cost as "acquisitionCost",
         a.salvage_value as "salvageValue",
         a.useful_life_years as "usefulLifeYears",
+        a.useful_life_months as "usefulLifeMonths",
         a.depreciation_method as "depreciationMethod",
         a.accumulated_depreciation as "accumulatedDepreciation",
         a.book_value as "bookValue",
@@ -448,16 +518,20 @@ export async function PUT(request: Request) {
       contractNo,
       customSpec,
       memo,
-      id
+      id,
+      lifeMonths,
+      nextDisposedDate,
     ]);
 
     const rawUpdated = res.rows[0];
     const updatedAsset = {
       ...rawUpdated,
       acquisitionDate: rawUpdated.acquisitionDate ? String(rawUpdated.acquisitionDate).slice(0, 10) : "",
+      disposedDate: rawUpdated.disposedDate ? String(rawUpdated.disposedDate).slice(0, 10) : "",
       acquisitionCost: Number(rawUpdated.acquisitionCost || 0),
       salvageValue: Number(rawUpdated.salvageValue || 0),
-      usefulLifeYears: Number(rawUpdated.usefulLifeYears || 5),
+      usefulLifeYears: Number(rawUpdated.usefulLifeYears || 4),
+      usefulLifeMonths: Number(rawUpdated.usefulLifeMonths || lifeMonths),
       accumulatedDepreciation: Number(rawUpdated.accumulatedDepreciation || 0),
       bookValue: Number(rawUpdated.bookValue || 0),
       monthlyDepreciation: Number(rawUpdated.monthlyDepreciation || 0),

@@ -9,6 +9,13 @@ import {
   decodeTextBuffer,
   parseCsvOrTsvTextToRows,
 } from "@/lib/ibkBankParser";
+import {
+  computeAssetMonthlyDeprecForYm,
+  computeAssetDisposalLossForYm,
+  computeAssetAccumDeprecAsOf,
+  resolveUsefulLifeMonths,
+  buildMonthlyAssetRollForwardSchedule,
+} from "@/lib/erpDepreciation";
 
 interface FinancialDetailItem {
   id: string;
@@ -35,21 +42,24 @@ function isCapitalizedAssetPurchaseInvoice(
 ): boolean {
   const c = (customerName || "").trim();
   const text = `${c} ${itemName || ""} ${memo || ""} ${invoiceNo || ""}`;
-  // 임대용 자산으로 자산화(Capitalization)된 매입세금계산서:
+  // 임대용 자산으로 100% 자산화(Capitalization)된 매입세금계산서:
   // 1) 주식회사 삼원아이엔지 (65인치 TV 4대, PX260309-581912)
   // 2) 주식회사 진진씨앤씨 (한글과컴퓨터 한글 ALA + 한컴어시스턴트 연간계약 7카피, PX260311-529669)
   // 3) 주식회사에이브이랜드 (EPSON EB-FH08 프로젝터 1대, PX250801-415385)
   // 4) 주식회사 키타드에스이 (55인치 TV 10대, PX241120-587365)
+  // 5) 주식회사 비엔솔루션 (NVMe 1TB SSD 7개 @ 60,000 = 420,000 + DDR5 32GB RAM 12개 @ 5,000 = 60,000 => 공급가 480,000원 전액, PX251128-f3631k)
   if (/삼원아이엔지/.test(c) && /65인치/.test(text)) return true;
   if (/진진씨앤씨/.test(c) && /한글과컴퓨터|한컴어시스턴트/.test(text)) return true;
   if (/에이브이랜드/.test(c) && /영상기기|EB-FH08/.test(text)) return true;
   if (/키타드에스이/.test(c) && /55인치/.test(text)) return true;
+  if (/비엔솔루션/.test(c) && /1TB SSD/i.test(text)) return true;
   if (
     invoiceNo &&
     (invoiceNo === "PX260309-581912" ||
       invoiceNo === "PX260311-529669" ||
       invoiceNo === "PX250801-415385" ||
-      invoiceNo === "PX241120-587365")
+      invoiceNo === "PX241120-587365" ||
+      invoiceNo === "PX251128-f3631k")
   ) {
     return true;
   }
@@ -77,13 +87,6 @@ function getPartialCapitalizedInvoiceSupply(
   ) {
     return 108000;
   }
-  // 3) 주식회사 비엔솔루션 PX251128-f3631k (총 공급가 480,000원 중 SSD-002 7개 @ 60,000원 = 420,000원 자산화)
-  if (
-    invoiceNo === "PX251128-f3631k" ||
-    (/비엔솔루션/.test(c) && /1TB SSD/i.test(itemName || "") && Number(supplyAmount || 0) === 480000)
-  ) {
-    return 420000;
-  }
   return 0;
 }
 
@@ -96,91 +99,6 @@ function isCapitalizedBankCardTx(row: any): boolean {
   // - #1015 (2026-01-26, 2,090,000원: 삼성 더 세로, TV-006)
   if (id === 1171 || id === 1727 || id === 1046 || id === 1015) return true;
   return false;
-}
-
-function computeAssetMonthlyDeprecForYm(asset: any, ym: string): number {
-  const cost = Number(asset.acquisition_cost || 0);
-  const salvage = Number(asset.salvage_value || 0);
-  const lifeYears = Math.max(1, Number(asset.useful_life_years || 4));
-  const depAmount = Math.max(0, cost - salvage);
-  if (depAmount <= 0 || !asset.acquisition_date) return 0;
-
-  const acqYm = String(asset.acquisition_date).slice(0, 7);
-  if (ym < acqYm) return 0;
-
-  // 파손/폐기(DISPOSED) 자산은 폐기월(disposed_date의 YYYY-MM)부터는 정기 감가상각을 중단하고 폐기손실로 일시 인식
-  const dispYm = asset.disposed_date ? String(asset.disposed_date).slice(0, 7) : "";
-  if (dispYm && ym >= dispYm) return 0;
-
-  const [acqY, acqM] = acqYm.split("-").map(Number);
-  const [curY, curM] = ym.split("-").map(Number);
-  const monthIdx = (curY - acqY) * 12 + (curM - acqM); // 취득월 = 0번째 상각월 (취득월 포함 월할상각)
-  const monthlyDep = Number(asset.monthly_depreciation || 0) || Math.round(depAmount / (lifeYears * 12));
-
-  // 1개월 전액 상각 자산 (monthly_depreciation >= depAmount) 처리
-  if (monthlyDep >= depAmount) {
-    return monthIdx === 0 ? depAmount : 0;
-  }
-
-  const totalMonths = lifeYears * 12;
-  if (monthIdx < 0 || monthIdx >= totalMonths) return 0;
-
-  if (monthIdx === totalMonths - 1) {
-    // 마지막 상각월에는 단수차이 보정하여 잔존가치까지 정확히 상각
-    const prevAccum = Math.min(depAmount, monthlyDep * (totalMonths - 1));
-    return Math.max(0, depAmount - prevAccum);
-  }
-  const prevAccum = Math.min(depAmount, monthlyDep * monthIdx);
-  return Math.max(0, Math.min(monthlyDep, depAmount - prevAccum));
-}
-
-function computeAssetDisposalLossForYm(asset: any, ym: string): number {
-  if (!asset.disposed_date) return 0;
-  const dispYm = String(asset.disposed_date).slice(0, 7);
-  if (dispYm !== ym) return 0;
-
-  const cost = Number(asset.acquisition_cost || 0);
-  const salvage = Number(asset.salvage_value || 0);
-  const lifeYears = Math.max(1, Number(asset.useful_life_years || 4));
-  const depAmount = Math.max(0, cost - salvage);
-  if (depAmount <= 0 || !asset.acquisition_date) return 0;
-
-  const acqYm = String(asset.acquisition_date).slice(0, 7);
-  const [acqY, acqM] = acqYm.split("-").map(Number);
-  const [dispY, dispM] = dispYm.split("-").map(Number);
-  // 취득월부터 파손 전월까지 상각 개월수
-  const monthsBeforeDisposal = Math.max(0, (dispY - acqY) * 12 + (dispM - acqM));
-  const monthlyDep = Number(asset.monthly_depreciation || 0) || Math.round(depAmount / (lifeYears * 12));
-  const accumBeforeDisposal = Math.min(depAmount, monthlyDep * monthsBeforeDisposal);
-  return Math.max(0, cost - accumBeforeDisposal);
-}
-
-function computeAssetAccumDeprecAsOf(asset: any, cutoffDate: string): number {
-  const cost = Number(asset.acquisition_cost || 0);
-  const salvage = Number(asset.salvage_value || 0);
-  const lifeYears = Math.max(1, Number(asset.useful_life_years || 4));
-  const depAmount = Math.max(0, cost - salvage);
-  if (depAmount <= 0 || !asset.acquisition_date) return 0;
-
-  const acqDateStr = String(asset.acquisition_date).slice(0, 10);
-  if (cutoffDate < acqDateStr) return 0;
-
-  // 기준일 이전에 파손/폐기된 자산은 (폐기전 상각누계 + 폐기손실 = 취득원가 전액)이 비용 반영 완료됨
-  if (asset.disposed_date && String(asset.disposed_date).slice(0, 10) <= cutoffDate) {
-    return cost;
-  }
-
-  const acqYm = acqDateStr.slice(0, 7);
-  const cutYm = cutoffDate.slice(0, 7);
-  const [acqY, acqM] = acqYm.split("-").map(Number);
-  const [cutY, cutM] = cutYm.split("-").map(Number);
-  const monthlyDep = Number(asset.monthly_depreciation || 0) || Math.round(depAmount / (lifeYears * 12));
-  if (monthlyDep >= depAmount) return depAmount;
-
-  const monthsCount = Math.min(lifeYears * 12, Math.max(0, (cutY - acqY) * 12 + (cutM - acqM) + 1));
-  const totalMonths = lifeYears * 12;
-  if (monthsCount >= totalMonths) return depAmount;
-  return Math.min(depAmount, monthlyDep * monthsCount);
 }
 
 function classifyTaxPaymentSubAccount(taxTypeRaw: string): "원천세" | "부가세" | "법인세" | "납부항목" {
@@ -786,6 +704,7 @@ export async function GET(request: Request) {
                COALESCE(a.acquisition_cost, 0)::numeric AS acquisition_cost,
                COALESCE(a.salvage_value, 0)::numeric AS salvage_value,
                COALESCE(a.useful_life_years, 4)::int AS useful_life_years,
+               a.useful_life_months,
                COALESCE(a.monthly_depreciation, 0)::numeric AS monthly_depreciation,
                a.supplier,
                a.memo
@@ -1010,10 +929,8 @@ export async function GET(request: Request) {
           cfInvestingOutflow += capPortion;
           cfPurchaseOutflow += Math.max(0, wAmt - capPortion);
         } else if (row.matched_id === "PX251128-f3631k" || row.matched_id === "120" || Number(row.id) === 171) {
-          // 비엔솔루션 2025-12-01 이체분(528,000원) 중 SSD-002(7개) 자산화분(공급가 420,000 + 부가세 42,000 = 462,000원)은 투자활동 현금유출
-          const capPortion = Math.min(wAmt, 462000);
-          cfInvestingOutflow += capPortion;
-          cfPurchaseOutflow += Math.max(0, wAmt - capPortion);
+          // 비엔솔루션 2025-12-01 이체분(528,000원): SSD-002(7개, 420,000원) + RAM-003(12개, 60,000원) = 공급가 480,000원(합계 528,000원) 전액 투자활동 현금유출
+          cfInvestingOutflow += wAmt;
         } else {
           cfPurchaseOutflow += wAmt;
         }
@@ -1130,6 +1047,7 @@ export async function GET(request: Request) {
     const months = Array.from(monthSet).sort();
 
     // 5-2. 임대용 자산 월별 감가상각비(정액법) 전표 생성 및 매출원가(임대자산 감가상각비) 반영
+    const depreciationSchedule = buildMonthlyAssetRollForwardSchedule(activeRentalAssets, months);
     for (const ym of months) {
       // 모델별로 당월 감가상각비를 묶어 전표 가독성 향상
       const modelGroup = new Map<
@@ -1140,6 +1058,7 @@ export async function GET(request: Request) {
           count: number;
           depSum: number;
           lifeYears: number;
+          lifeMonths: number;
           firstNo: string;
           lastNo: string;
         }
@@ -1156,6 +1075,7 @@ export async function GET(request: Request) {
             count: 1,
             depSum: dep,
             lifeYears: Number(ast.useful_life_years || 4),
+            lifeMonths: resolveUsefulLifeMonths(ast),
             firstNo: ast.asset_no,
             lastNo: ast.asset_no,
           });
@@ -1168,6 +1088,12 @@ export async function GET(request: Request) {
       for (const [key, grp] of modelGroup.entries()) {
         const rangeLabel =
           grp.count > 1 ? `${grp.firstNo}~${grp.lastNo} (${grp.count}대)` : `${grp.firstNo} (1대)`;
+        const lifeLabel =
+          grp.lifeMonths <= 1
+            ? "1개월 전액상각"
+            : grp.lifeMonths % 12 === 0
+            ? `내용연수 ${grp.lifeMonths / 12}년(${grp.lifeMonths}개월) 정액법 월할상각`
+            : `내용월수 ${grp.lifeMonths}개월 정액법 월할상각`;
         details.push({
           id: `DEP-${ym}-${key}`,
           source: "DEPRECIATION",
@@ -1177,7 +1103,7 @@ export async function GET(request: Request) {
           majorAccount: "COGS",
           subAccount: "임대자산 감가상각비",
           counterparty: grp.supplier,
-          description: `[감가상각] ${grp.modelName} ${rangeLabel} (내용연수 ${grp.lifeYears}년 정액법 월할상각)`,
+          description: `[감가상각] ${grp.modelName} ${rangeLabel} (${lifeLabel})`,
           supplyAmount: grp.depSum,
           vatAmount: 0,
           totalAmount: grp.depSum,
@@ -1786,6 +1712,7 @@ export async function GET(request: Request) {
           updatedAt: remarkRow.updated_at || null,
         },
       },
+      depreciationSchedule,
       details,
     });
   } catch (error: any) {

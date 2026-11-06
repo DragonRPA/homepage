@@ -228,6 +228,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
     nonOp: 0,
   });
   const [statements, setStatements] = useState<StatementsData | null>(null);
+  const [depreciationSchedule, setDepreciationSchedule] = useState<any[]>([]);
   const [details, setDetails] = useState<FinancialDetailItem[]>([]);
 
   // 연도별 주석(Remark) 및 세무 4대 항목 상태 (초기값 0)
@@ -284,6 +285,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
           setTaxCorporate(Number(data.statements.remark?.taxCorporate || 0));
           setTaxPayment(Number(data.statements.remark?.taxPayment || 0));
         }
+        setDepreciationSchedule(data.depreciationSchedule || []);
         setDetails(data.details || []);
       }
     } catch (e) {
@@ -1358,6 +1360,189 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
             </table>
           </div>
         </div>
+
+        {/* 3-1B. 월별 유형자산(임대자산) 가치 변동 및 감가상각 명세표 (BS 유형자산 · PL 감가상각비 1:1 정합) */}
+        {depreciationSchedule.length > 0 && entityFilter !== "INDIVIDUAL" && (
+          <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800">
+            <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-800 dark:border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs font-bold">
+                <Scale className="w-4 h-4 text-[#7c3aed] dark:text-purple-400 shrink-0" />
+                <span className="whitespace-nowrap">월별 유형자산(임대자산) 가치 변동 및 감가상각 명세표</span>
+              </div>
+              <div className="text-[11px] font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">
+                기초장부가 + 당월취득 - 당월상각 - 파손폐기 = 기말장부가 (BS 유형자산·누계액 100% 일치)
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead className="bg-[#dcd4c4] text-[#0f172a] font-bold border-b border-[#b5a894] dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700">
+                  <tr>
+                    <th className="py-1.5 px-3 whitespace-nowrap sticky left-0 z-10 bg-[#dcd4c4] dark:bg-slate-800 border-r border-[#b5a894] dark:border-slate-700 min-w-[180px]">
+                      유형자산 변동 구분
+                    </th>
+                    {months.map((m) => (
+                      <th key={m} className="py-1.5 px-2.5 text-right font-mono whitespace-nowrap min-w-[100px]">
+                        {year === "ALL" ? m : `${Number(m.slice(5, 7))}월`}
+                      </th>
+                    ))}
+                    <th className="py-1.5 px-3 text-right font-mono whitespace-nowrap border-l border-[#b5a894] dark:border-slate-700 min-w-[125px] bg-[#d5cbb8] dark:bg-slate-800">
+                      연간 합계 / 기말
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#d5cbb8] dark:divide-slate-800">
+                  {(() => {
+                    const byMonth = new Map<string, any>();
+                    for (const r of depreciationSchedule) byMonth.set(r.yearMonth, r);
+                    const first = depreciationSchedule[0];
+                    const last = depreciationSchedule[depreciationSchedule.length - 1];
+                    const sumAdd = depreciationSchedule.reduce((s, x) => s + (x.additionCost || 0), 0);
+                    const sumDep = depreciationSchedule.reduce((s, x) => s + (x.depreciationExpense || 0), 0);
+                    const sumLoss = depreciationSchedule.reduce((s, x) => s + (x.disposalLoss || 0), 0);
+
+                    return (
+                      <>
+                        <tr className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40">
+                          <td className="py-1.5 px-3 font-semibold whitespace-nowrap sticky left-0 z-10 bg-[#ebe5d8] dark:bg-slate-900 border-r border-[#c4b6a0] dark:border-slate-800">
+                            · 기초 순장부가액
+                          </td>
+                          {months.map((m) => {
+                            const v = byMonth.get(m)?.beginningBookValue || 0;
+                            return (
+                              <td key={m} className="py-1.5 px-2.5 text-right font-mono whitespace-nowrap">
+                                {v > 0 ? formatErpCurrency(v) : "-"}
+                              </td>
+                            );
+                          })}
+                          <td className="py-1.5 px-3 text-right font-mono font-bold whitespace-nowrap border-l border-[#c4b6a0] dark:border-slate-800">
+                            {formatErpCurrency(first?.beginningBookValue || 0)}
+                          </td>
+                        </tr>
+
+                        <tr className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40">
+                          <td className="py-1.5 px-3 font-semibold text-[#047857] dark:text-emerald-400 whitespace-nowrap sticky left-0 z-10 bg-[#ebe5d8] dark:bg-slate-900 border-r border-[#c4b6a0] dark:border-slate-800">
+                            · 당월 신규취득원가 (+)
+                          </td>
+                          {months.map((m) => {
+                            const v = byMonth.get(m)?.additionCost || 0;
+                            return (
+                              <td
+                                key={m}
+                                onClick={() => handleCellDrilldown("NON_OP", "임대자산취득(자산화)", m)}
+                                className="py-1.5 px-2.5 text-right font-mono text-[#047857] dark:text-emerald-400 font-semibold whitespace-nowrap cursor-pointer hover:underline"
+                              >
+                                {v > 0 ? `+${formatErpCurrency(v)}` : "-"}
+                              </td>
+                            );
+                          })}
+                          <td className="py-1.5 px-3 text-right font-mono font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap border-l border-[#c4b6a0] dark:border-slate-800">
+                            +{formatErpCurrency(sumAdd)}
+                          </td>
+                        </tr>
+
+                        <tr className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40">
+                          <td className="py-1.5 px-3 font-semibold text-[#dc2626] dark:text-rose-400 whitespace-nowrap sticky left-0 z-10 bg-[#ebe5d8] dark:bg-slate-900 border-r border-[#c4b6a0] dark:border-slate-800">
+                            · 당월 감가상각비 (PL 원가) (-)
+                          </td>
+                          {months.map((m) => {
+                            const v = byMonth.get(m)?.depreciationExpense || 0;
+                            return (
+                              <td
+                                key={m}
+                                onClick={() => handleCellDrilldown("COGS", "임대자산 감가상각비", m)}
+                                className="py-1.5 px-2.5 text-right font-mono text-[#dc2626] dark:text-rose-400 font-bold whitespace-nowrap cursor-pointer hover:underline"
+                              >
+                                {v > 0 ? `-${formatErpCurrency(v)}` : "-"}
+                              </td>
+                            );
+                          })}
+                          <td className="py-1.5 px-3 text-right font-mono font-bold text-[#dc2626] dark:text-rose-400 whitespace-nowrap border-l border-[#c4b6a0] dark:border-slate-800">
+                            -{formatErpCurrency(sumDep)}
+                          </td>
+                        </tr>
+
+                        {sumLoss > 0 && (
+                          <tr className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40">
+                            <td className="py-1.5 px-3 font-semibold text-[#b45309] dark:text-amber-400 whitespace-nowrap sticky left-0 z-10 bg-[#ebe5d8] dark:bg-slate-900 border-r border-[#c4b6a0] dark:border-slate-800">
+                              · 당월 파손·폐기손실 (PL 원가) (-)
+                            </td>
+                            {months.map((m) => {
+                              const v = byMonth.get(m)?.disposalLoss || 0;
+                              return (
+                                <td
+                                  key={m}
+                                  onClick={() => handleCellDrilldown("COGS", "임대자산 감가상각비", m)}
+                                  className="py-1.5 px-2.5 text-right font-mono text-[#b45309] dark:text-amber-400 font-bold whitespace-nowrap cursor-pointer hover:underline"
+                                >
+                                  {v > 0 ? `-${formatErpCurrency(v)}` : "-"}
+                                </td>
+                              );
+                            })}
+                            <td className="py-1.5 px-3 text-right font-mono font-bold text-[#b45309] dark:text-amber-400 whitespace-nowrap border-l border-[#c4b6a0] dark:border-slate-800">
+                              -{formatErpCurrency(sumLoss)}
+                            </td>
+                          </tr>
+                        )}
+
+                        <tr className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40">
+                          <td className="py-1.5 px-3 font-medium text-[#475569] dark:text-slate-400 whitespace-nowrap sticky left-0 z-10 bg-[#ebe5d8] dark:bg-slate-900 border-r border-[#c4b6a0] dark:border-slate-800">
+                            · 기말 유형자산 취득가액 (BS)
+                          </td>
+                          {months.map((m) => {
+                            const v = byMonth.get(m)?.endingGrossCost || 0;
+                            return (
+                              <td key={m} className="py-1.5 px-2.5 text-right font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">
+                                {v > 0 ? formatErpCurrency(v) : "-"}
+                              </td>
+                            );
+                          })}
+                          <td className="py-1.5 px-3 text-right font-mono font-bold whitespace-nowrap border-l border-[#c4b6a0] dark:border-slate-800">
+                            {formatErpCurrency(last?.endingGrossCost || 0)}
+                          </td>
+                        </tr>
+
+                        <tr className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40">
+                          <td className="py-1.5 px-3 font-medium text-[#64748b] dark:text-slate-400 whitespace-nowrap sticky left-0 z-10 bg-[#ebe5d8] dark:bg-slate-900 border-r border-[#c4b6a0] dark:border-slate-800">
+                            · 기말 감가상각누계액 (BS)
+                          </td>
+                          {months.map((m) => {
+                            const v = byMonth.get(m)?.endingAccumDepreciation || 0;
+                            return (
+                              <td key={m} className="py-1.5 px-2.5 text-right font-mono text-[#64748b] dark:text-slate-400 whitespace-nowrap">
+                                {v > 0 ? `-${formatErpCurrency(v)}` : "-"}
+                              </td>
+                            );
+                          })}
+                          <td className="py-1.5 px-3 text-right font-mono font-bold text-[#64748b] dark:text-slate-400 whitespace-nowrap border-l border-[#c4b6a0] dark:border-slate-800">
+                            -{formatErpCurrency(last?.endingAccumDepreciation || 0)}
+                          </td>
+                        </tr>
+
+                        <tr className="bg-[#dbeafe]/70 dark:bg-blue-950/60 font-extrabold text-[#1e3a8a] dark:text-blue-200 border-t-2 border-[#1d4ed8]">
+                          <td className="py-2 px-3 whitespace-nowrap sticky left-0 z-10 bg-[#dbeafe] dark:bg-blue-950 border-r border-[#b5a894] dark:border-slate-700">
+                            ★ 기말 유형자산 순장부가액 (BS)
+                          </td>
+                          {months.map((m) => {
+                            const v = byMonth.get(m)?.endingBookValue || 0;
+                            return (
+                              <td key={m} className="py-2 px-2.5 text-right font-mono whitespace-nowrap">
+                                {v > 0 ? formatErpCurrency(v) : "₩0"}
+                              </td>
+                            );
+                          })}
+                          <td className="py-2 px-3 text-right font-mono whitespace-nowrap border-l border-[#b5a894] dark:border-slate-700">
+                            {formatErpCurrency(last?.endingBookValue || 0)}
+                          </td>
+                        </tr>
+                      </>
+                    );
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* 3-2. 하단 계정·월별 상세 전표 내역 (세금계산서 + 통장집행 통합 조회) */}
         <div className="bg-[#ebe5d8] border border-[#b5a894] rounded shadow-xs overflow-hidden dark:bg-slate-900 dark:border-slate-800">

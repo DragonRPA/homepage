@@ -124,6 +124,14 @@ export const STANDARD_ACCOUNT_SUBJECTS: StandardAccountSubject[] = [
     sign: 1,
   },
   {
+    code: "WTH_RENT_DEPOSIT",
+    label: "임차보증금(비유동자산)",
+    direction: "WITHDRAWAL",
+    majorAccount: "NON_OP",
+    subAccount: "임차보증금지급",
+    sign: 1,
+  },
+  {
     code: "WTH_UTILITIES",
     label: "수도광열비(전기·가스·수도)",
     direction: "WITHDRAWAL",
@@ -252,6 +260,13 @@ export function resolveExplicitAccountSubject(
       majorAccount: "COGS",
       subAccount: "무증빙·카드 상품자재매입",
       sign: isDeposit ? -1 : 1,
+    };
+  }
+  if (/보증금/.test(label)) {
+    return {
+      majorAccount: "NON_OP",
+      subAccount: isDeposit ? "임차보증금회수" : "임차보증금지급",
+      sign: 1,
     };
   }
   if (/가수금|차입|대체|이체|대표자/.test(label)) {

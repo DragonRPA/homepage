@@ -669,7 +669,19 @@ export async function GET(request: Request) {
       if (isMatched && matchedType === "SALE_INVOICE") {
         cfSaleInflow += dAmt;
       } else if (isMatched && matchedType === "PURCHASE_INVOICE") {
-        cfPurchaseOutflow += wAmt;
+        // 2024-07-09 이명옥 출금 2,660,000원(#128)은 임차보증금 잔금 2,000,000원 + 1회차 선납임차료 660,000원 복합 지급건
+        if (Number(row.id) === 128 && wAmt === 2660000) {
+          cfPurchaseOutflow += 660000;
+          cfInvestingOutflow += 2000000;
+        } else {
+          cfPurchaseOutflow += wAmt;
+        }
+      } else if (
+        cls &&
+        /보증금/.test(cls.subAccount)
+      ) {
+        cfInvestingInflow += dAmt;
+        cfInvestingOutflow += wAmt;
       } else if (
         cls &&
         /자본금|가수금|대표자/.test(cls.subAccount)

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import {
-  RentalAssetForDepreciation,
+  type RentalAssetForDepreciation,
   buildMonthlyAssetRollForwardSchedule,
   buildRentalSalesSeparationAndModelRevenue,
   computeAssetMonthlyDeprecForYm,

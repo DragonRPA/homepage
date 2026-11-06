@@ -723,17 +723,6 @@ export async function GET(request: Request) {
     const activeRentalAssets =
       entityType === "INDIVIDUAL" ? [] : rentalAssetRes.rows;
 
-    let tangibleAssets = 0;
-    let accumDepreciation = 0;
-    for (const ast of activeRentalAssets) {
-      // 기준일(endCutoff) 이전에 이미 파손/폐기 완료된 자산은 기말 재무상태표(BS) 총유형자산 및 감가상각누계액에서 모두 제각(제거)
-      if (ast.disposed_date && String(ast.disposed_date).slice(0, 10) <= endCutoff) {
-        continue;
-      }
-      tangibleAssets += Number(ast.acquisition_cost || 0);
-      accumDepreciation += computeAssetAccumDeprecAsOf(ast, endCutoff);
-    }
-
     const details: FinancialDetailItem[] = [];
 
     // 채권(매출 미수금) / 채무(매입 미지급금) 집계 (BS용)
@@ -1062,6 +1051,20 @@ export async function GET(request: Request) {
       }
     }
     const months = Array.from(monthSet).sort();
+    const lastReportYm = months.length > 0 ? months[months.length - 1] : "2026-12";
+    const bsDepreciationCutoff =
+      year === "ALL" ? `${lastReportYm}-31` : endCutoff;
+
+    let tangibleAssets = 0;
+    let accumDepreciation = 0;
+    for (const ast of activeRentalAssets) {
+      // 기준일(bsDepreciationCutoff) 이전에 이미 파손/폐기 완료된 자산은 기말 재무상태표(BS) 총유형자산 및 감가상각누계액에서 모두 제각(제거)
+      if (ast.disposed_date && String(ast.disposed_date).slice(0, 7) <= bsDepreciationCutoff.slice(0, 7)) {
+        continue;
+      }
+      tangibleAssets += Number(ast.acquisition_cost || 0);
+      accumDepreciation += computeAssetAccumDeprecAsOf(ast, bsDepreciationCutoff);
+    }
 
     // 5-2. 임대용 자산 월별 감가상각비(정액법) 전표 생성 및 매출원가(임대자산 감가상각비) 반영
     const rentalSaleInvoicesForSchedule = invRes.rows.filter(

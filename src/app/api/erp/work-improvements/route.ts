@@ -41,11 +41,11 @@ async function ensureWorkImprovementsTable() {
     ALTER TABLE erp_work_improvements ENABLE ROW LEVEL SECURITY;
   `);
 
-  // 결재선 규칙(WORK_IMPROVEMENT) 자동 시딩
+  // 결재선 규칙(WORK_IMPROVEMENT) 자동 시딩 (부서장 전결)
   await pool.query(`
     INSERT INTO erp_approval_rules (event_type, event_name, category, required_tier, description)
-    VALUES ('WORK_IMPROVEMENT', '업무개선활동 보고서', '업무개선', 2, '업무개선활동 보고서 검토 및 최종 승인 결재')
-    ON CONFLICT (event_type) DO NOTHING;
+    VALUES ('WORK_IMPROVEMENT', '업무개선활동 보고서', '업무개선', 2, '소속 부서장 전결 (대표이사 결재 제외)')
+    ON CONFLICT (event_type) DO UPDATE SET description = '소속 부서장 전결 (대표이사 결재 제외)', required_tier = 2;
   `);
 }
 
@@ -335,26 +335,31 @@ export async function POST(request: Request) {
 
       let finalApproverId = approverId ? Number(approverId) : null;
       if (!finalApproverId) {
-        const adminRes = await pool.query(
-          `SELECT id FROM erp_employees WHERE employment_status = 'ACTIVE' ORDER BY tier_level DESC, id ASC LIMIT 1`
+        const deptHeadRes = await pool.query(
+          `SELECT id FROM erp_employees
+           WHERE employment_status = 'ACTIVE'
+             AND (role = 'MANAGER' OR role_code = 'MANAGER' OR duty LIKE '%팀장%' OR duty LIKE '%부서장%' OR position LIKE '%부장%')
+           ORDER BY tier_level DESC, id ASC LIMIT 1`
         );
-        finalApproverId = adminRes.rows[0]?.id || requesterEmpId;
+        finalApproverId = deptHeadRes.rows[0]?.id || (reviewerId ? Number(reviewerId) : requesterEmpId);
       }
 
-      const appStepSt =
-        stApp === "최종승인" ? "APPROVED" : stApp === "반려" ? "REJECTED" : "PENDING";
-      await pool.query(
-        `INSERT INTO erp_approval_steps (request_id, step_order, approver_id, status, comment, acted_at)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          approvalRequestId,
-          stepOrder,
-          finalApproverId,
-          appStepSt,
-          commentApprover || null,
-          appStepSt !== "PENDING" ? new Date().toISOString() : null,
-        ]
-      );
+      if (!reviewerId || Number(reviewerId) !== Number(finalApproverId)) {
+        const appStepSt =
+          stApp === "최종승인" ? "APPROVED" : stApp === "반려" ? "REJECTED" : "PENDING";
+        await pool.query(
+          `INSERT INTO erp_approval_steps (request_id, step_order, approver_id, status, comment, acted_at)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            approvalRequestId,
+            stepOrder,
+            finalApproverId,
+            appStepSt,
+            commentApprover || null,
+            appStepSt !== "PENDING" ? new Date().toISOString() : null,
+          ]
+        );
+      }
 
       const updRes = await pool.query(
         `UPDATE erp_work_improvements SET approval_request_id = $1 WHERE id = $2 RETURNING *`,

@@ -123,17 +123,41 @@ function formatFileSize(bytes: number): string {
 }
 
 function createBlankReport(currentUser: any, employees: EmployeeOption[]): WorkImprovementReport {
+  // 대표이사를 제외한 부서장(팀장/부장/과장) 후보 우선 선정 (부서장 전결 원칙)
+  const nonCeoEmployees = employees.filter(
+    (e) => !e.duty?.includes("대표") && !e.position?.includes("대표")
+  );
+  const deptHeadCandidate =
+    nonCeoEmployees.find(
+      (e) =>
+        e.department === currentUser?.department &&
+        (e.duty?.includes("팀장") ||
+          e.duty?.includes("부서장") ||
+          e.position?.includes("부장") ||
+          e.position?.includes("팀장"))
+    ) ||
+    nonCeoEmployees.find(
+      (e) =>
+        e.duty?.includes("팀장") ||
+        e.duty?.includes("부서장") ||
+        e.position?.includes("부장") ||
+        e.position?.includes("팀장")
+    ) ||
+    nonCeoEmployees[0] ||
+    employees[0];
+
   const reviewerCandidate =
-    employees.find((e) => e.duty?.includes("팀장") || e.position?.includes("팀장") || e.position?.includes("부장")) ||
-    employees[0];
-  const approverCandidate =
-    employees.find((e) => e.duty?.includes("대표") || e.position?.includes("대표") || (e.tierLevel && e.tierLevel >= 3)) ||
-    employees[0];
+    nonCeoEmployees.find(
+      (e) =>
+        e.department === currentUser?.department &&
+        e.id !== deptHeadCandidate?.id &&
+        (e.position?.includes("과장") || e.position?.includes("차장") || (e.tierLevel && e.tierLevel >= 1))
+    ) || deptHeadCandidate;
 
   return {
     summaryTarget: "",
     summaryDate: getTodayIso(),
-    department: currentUser?.department || "현장개선팀",
+    department: currentUser?.department || "렌탈운영팀",
     improveTypes: ["업무 효율화 / 자동화"],
     authorId: currentUser?.id ? Number(currentUser.id) : null,
     roleAuthor: currentUser?.duty || currentUser?.position || "담당",
@@ -144,9 +168,9 @@ function createBlankReport(currentUser: any, employees: EmployeeOption[]): WorkI
     statusReviewer: "대기중",
     dateReviewer: getTodayDot(),
     commentReviewer: "",
-    approverId: approverCandidate ? Number(approverCandidate.id) : null,
-    roleApprover: approverCandidate?.duty || approverCandidate?.position || "부서장",
-    nameApprover: approverCandidate?.name || "",
+    approverId: deptHeadCandidate ? Number(deptHeadCandidate.id) : null,
+    roleApprover: "부서장",
+    nameApprover: deptHeadCandidate?.name || "",
     statusApprover: "대기중",
     dateApprover: getTodayDot(),
     commentApprover: "",
@@ -264,14 +288,6 @@ export const WorkImprovementTab: React.FC<{
       summaryTarget: "품질관리팀 검사 성적서 전산 입력 및 부적합 통보 업무",
       summaryDate: getTodayIso(),
       improveTypes: ["업무 효율화 / 자동화", "오류 / 불량 개선", "표준화 / 규격화"],
-      statusReviewer: "검토완료",
-      dateReviewer: getTodayDot(),
-      commentReviewer:
-        "검사 성적서 전산화로 전 부서 간 공유 리드타임이 획기적으로 개선될 것으로 기대됩니다. 현장 작업자 교육 일정을 사전 수립 바랍니다.",
-      statusApprover: "최종승인",
-      dateApprover: getTodayDot(),
-      commentApprover:
-        "타 라인 및 협력사 전파 계획까지 수립하여 다음 주 운영회의 시 최종 보고 후 배포 승인합니다.",
       numberedItems: {
         currentProcGroup: [
           "완제품 검사 후 성적서 수기 날인 및 바인더 철 보관 (일평균 30건)",
@@ -681,21 +697,30 @@ export const WorkImprovementTab: React.FC<{
       ${renderNumberedHtml(form.numberedItems.budgetGroup)}
     </div>
 
-    <div class="sec-title">7. 검토 및 승인 의견 (Review & Approval Feedback)</div>
+    ${
+      form.statusReviewer === "보완요청" ||
+      form.statusReviewer === "검토완료" ||
+      form.statusApprover === "최종승인" ||
+      form.statusApprover === "반려" ||
+      Boolean(form.commentReviewer?.trim()) ||
+      Boolean(form.commentApprover?.trim())
+        ? `<div class="sec-title">7. 검토 및 승인 의견 (Review & Approval Feedback)</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
       <div class="sub-box" style="background:#f8fafc;">
         <div class="sub-title">검토자 의견 (${form.dateReviewer || "-"}) - [${
-      form.statusReviewer
-    }]</div>
+            form.statusReviewer
+          }]</div>
         <div style="font-size:13px;white-space:pre-wrap;">${form.commentReviewer || "-"}</div>
       </div>
       <div class="sub-box" style="background:#f8fafc;">
         <div class="sub-title">승인자 의견 (${form.dateApprover || "-"}) - [${
-      form.statusApprover
-    }]</div>
+            form.statusApprover
+          }]</div>
         <div style="font-size:13px;white-space:pre-wrap;">${form.commentApprover || "-"}</div>
       </div>
-    </div>
+    </div>`
+        : ""
+    }
 
     <div style="margin-top:16px;padding-top:8px;border-top:1px solid #cbd5e0;display:flex;justify-content:space-between;font-size:11px;color:#718096;">
       <span>문서양식: WIR-2026-REV3 (${form.reportNo || "신규"})</span>
@@ -1070,26 +1095,45 @@ export const WorkImprovementTab: React.FC<{
                         placeholder="검토자 성명"
                         className="w-full text-center font-bold text-xs bg-transparent focus:outline-none"
                       />
-                      <select
-                        value={form.statusReviewer}
-                        onChange={(e) =>
-                          handleQuickDecision("REVIEWER", e.target.value as any)
-                        }
-                        className={`mt-1 text-[11px] font-bold rounded px-1.5 py-0.5 border cursor-pointer focus:outline-none ${
-                          form.statusReviewer === "검토완료"
-                            ? "bg-[#ebf8ff] text-[#2b6cb0] border-[#90cdf4]"
-                            : form.statusReviewer === "보완요청"
-                            ? "bg-[#fffaf0] text-[#dd6b20] border-[#fbd38d]"
-                            : "bg-[#f7fafc] text-[#718096] border-[#cbd5e0]"
-                        }`}
-                      >
-                        <option value="검토완료">검토완료</option>
-                        <option value="보완요청">보완요청</option>
-                        <option value="대기중">대기중</option>
-                      </select>
+                      {Boolean(selectedId) &&
+                      (Number(currentUser?.id) === Number(form.reviewerId) ||
+                        String(currentUser?.role || "").toUpperCase() === "MANAGER" ||
+                        String(currentUser?.roleCode || "").toUpperCase() === "MANAGER" ||
+                        String(currentUser?.role || "").toUpperCase() === "ADMIN") &&
+                      Number(currentUser?.id) !== Number(form.authorId) ? (
+                        <select
+                          value={form.statusReviewer}
+                          onChange={(e) =>
+                            handleQuickDecision("REVIEWER", e.target.value as any)
+                          }
+                          className={`mt-1 text-[11px] font-bold rounded px-1.5 py-0.5 border cursor-pointer focus:outline-none ${
+                            form.statusReviewer === "검토완료"
+                              ? "bg-[#ebf8ff] text-[#2b6cb0] border-[#90cdf4]"
+                              : form.statusReviewer === "보완요청"
+                              ? "bg-[#fffaf0] text-[#dd6b20] border-[#fbd38d]"
+                              : "bg-[#f7fafc] text-[#718096] border-[#cbd5e0]"
+                          }`}
+                        >
+                          <option value="검토완료">검토완료</option>
+                          <option value="보완요청">보완요청</option>
+                          <option value="대기중">대기중</option>
+                        </select>
+                      ) : (
+                        <div
+                          className={`mt-1 inline-block text-[11px] font-bold rounded px-2 py-0.5 border ${
+                            form.statusReviewer === "검토완료"
+                              ? "bg-[#ebf8ff] text-[#2b6cb0] border-[#90cdf4]"
+                              : form.statusReviewer === "보완요청"
+                              ? "bg-[#fffaf0] text-[#dd6b20] border-[#fbd38d]"
+                              : "bg-[#f7fafc] text-[#718096] border-[#cbd5e0]"
+                          }`}
+                        >
+                          {form.statusReviewer}
+                        </div>
+                      )}
                     </td>
 
-                    {/* 승인자 */}
+                    {/* 승인자 (부서장 전결) */}
                     <td className="border border-[#cbd5e0] dark:border-slate-700 p-1.5 align-middle">
                       <input
                         type="text"
@@ -1102,30 +1146,48 @@ export const WorkImprovementTab: React.FC<{
                             ...form,
                             nameApprover: val,
                             approverId: matched ? matched.id : form.approverId,
-                            roleApprover:
-                              matched?.duty || matched?.position || form.roleApprover,
+                            roleApprover: "부서장",
                           });
                         }}
-                        placeholder="승인자 성명"
+                        placeholder="부서장 성명"
                         className="w-full text-center font-bold text-xs bg-transparent focus:outline-none"
                       />
-                      <select
-                        value={form.statusApprover}
-                        onChange={(e) =>
-                          handleQuickDecision("APPROVER", e.target.value as any)
-                        }
-                        className={`mt-1 text-[11px] font-bold rounded px-1.5 py-0.5 border cursor-pointer focus:outline-none ${
-                          form.statusApprover === "최종승인"
-                            ? "bg-[#f0fff4] text-[#2f855a] border-[#9ae6b4]"
-                            : form.statusApprover === "반려"
-                            ? "bg-[#fff5f5] text-[#e53e3e] border-[#feb2b2]"
-                            : "bg-[#f7fafc] text-[#718096] border-[#cbd5e0]"
-                        }`}
-                      >
-                        <option value="최종승인">최종승인</option>
-                        <option value="반려">반려</option>
-                        <option value="대기중">대기중</option>
-                      </select>
+                      {Boolean(selectedId) &&
+                      (Number(currentUser?.id) === Number(form.approverId) ||
+                        String(currentUser?.role || "").toUpperCase() === "MANAGER" ||
+                        String(currentUser?.roleCode || "").toUpperCase() === "MANAGER" ||
+                        String(currentUser?.role || "").toUpperCase() === "ADMIN") &&
+                      Number(currentUser?.id) !== Number(form.authorId) ? (
+                        <select
+                          value={form.statusApprover}
+                          onChange={(e) =>
+                            handleQuickDecision("APPROVER", e.target.value as any)
+                          }
+                          className={`mt-1 text-[11px] font-bold rounded px-1.5 py-0.5 border cursor-pointer focus:outline-none ${
+                            form.statusApprover === "최종승인"
+                              ? "bg-[#f0fff4] text-[#2f855a] border-[#9ae6b4]"
+                              : form.statusApprover === "반려"
+                              ? "bg-[#fff5f5] text-[#e53e3e] border-[#feb2b2]"
+                              : "bg-[#f7fafc] text-[#718096] border-[#cbd5e0]"
+                          }`}
+                        >
+                          <option value="최종승인">최종승인</option>
+                          <option value="반려">반려</option>
+                          <option value="대기중">대기중</option>
+                        </select>
+                      ) : (
+                        <div
+                          className={`mt-1 inline-block text-[11px] font-bold rounded px-2 py-0.5 border ${
+                            form.statusApprover === "최종승인"
+                              ? "bg-[#f0fff4] text-[#2f855a] border-[#9ae6b4]"
+                              : form.statusApprover === "반려"
+                              ? "bg-[#fff5f5] text-[#e53e3e] border-[#feb2b2]"
+                              : "bg-[#f7fafc] text-[#718096] border-[#cbd5e0]"
+                          }`}
+                        >
+                          {form.statusApprover}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 </tbody>
@@ -1535,129 +1597,170 @@ export const WorkImprovementTab: React.FC<{
               </div>
             </section>
 
-            {/* 7. 검토 및 승인 의견 (Review & Approval Feedback) */}
-            <section className="mb-3">
-              <div className="flex items-center bg-[#f8fafc] dark:bg-slate-800 border-l-4 border-[#1a365d] dark:border-blue-400 border-b border-[#cbd5e0] dark:border-slate-700 px-3 py-1.5 mb-2">
-                <span className="font-bold text-sm text-[#1a365d] dark:text-blue-300 mr-1.5">
-                  7.
-                </span>
-                <span className="font-bold text-sm text-[#1a365d] dark:text-slate-100">
-                  검토 및 승인 의견 (Review &amp; Approval Feedback)
-                </span>
-              </div>
+            {/* 7. 검토 및 승인 의견 (작성자의 작성/대기 시점에는 숨기고, 결재권자이거나 보완요청·검토완료·반려·최종승인 확정 시에만 표시) */}
+            {(() => {
+              const hasDecisionFeedback =
+                form.statusReviewer === "보완요청" ||
+                form.statusReviewer === "검토완료" ||
+                form.statusApprover === "최종승인" ||
+                form.statusApprover === "반려" ||
+                Boolean(form.commentReviewer?.trim()) ||
+                Boolean(form.commentApprover?.trim());
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* 검토자 의견 카드 */}
-                <div className="border border-[#cbd5e0] dark:border-slate-700 rounded bg-[#f8fafc] dark:bg-slate-800/60 p-3 flex flex-col">
-                  <div className="flex items-center justify-between border-b border-dashed border-[#cbd5e0] dark:border-slate-700 pb-1.5 mb-2">
-                    <span className="font-bold text-xs text-[#2c5282] dark:text-blue-300 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-[#2b6cb0]" />
-                      <span>검토자 의견 ({form.nameReviewer || "검토자"})</span>
-                    </span>
-                    <input
-                      type="text"
-                      value={form.dateReviewer}
-                      onChange={(e) =>
-                        setForm({ ...form, dateReviewer: e.target.value })
-                      }
-                      placeholder="일자"
-                      className="text-[11px] text-[#718096] text-right w-24 bg-transparent focus:outline-none"
-                    />
-                  </div>
-                  <textarea
-                    value={form.commentReviewer}
-                    onChange={(e) =>
-                      setForm({ ...form, commentReviewer: e.target.value })
-                    }
-                    rows={3}
-                    placeholder="검토 의견 또는 보완 요청 사항을 기재하세요."
-                    className="w-full text-xs leading-relaxed p-2 rounded border border-transparent focus:border-[#2c5282] bg-white/70 dark:bg-slate-900 focus:outline-none resize-y"
-                  />
-                  {/* 검토자 원클릭 결재 버튼 */}
-                  <div className="print:hidden flex items-center justify-end gap-1.5 mt-2 pt-2 border-t border-[#e2e8f0] dark:border-slate-700">
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => handleQuickDecision("REVIEWER", "보완요청")}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
-                        form.statusReviewer === "보완요청"
-                          ? "bg-[#dd6b20] text-white border-[#c05621]"
-                          : "bg-white dark:bg-slate-900 text-[#dd6b20] border-[#fbd38d] hover:bg-[#fffaf0]"
-                      }`}
-                    >
-                      보완요청 확정
-                    </button>
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => handleQuickDecision("REVIEWER", "검토완료")}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
-                        form.statusReviewer === "검토완료"
-                          ? "bg-[#2b6cb0] text-white border-[#2c5282]"
-                          : "bg-white dark:bg-slate-900 text-[#2b6cb0] border-[#90cdf4] hover:bg-[#ebf8ff]"
-                      }`}
-                    >
-                      검토완료 확정
-                    </button>
-                  </div>
-                </div>
+              const isDecisionMaker =
+                Boolean(selectedId) &&
+                (Number(currentUser?.id) === Number(form.reviewerId) ||
+                  Number(currentUser?.id) === Number(form.approverId) ||
+                  String(currentUser?.role || "").toUpperCase() === "MANAGER" ||
+                  String(currentUser?.roleCode || "").toUpperCase() === "MANAGER" ||
+                  String(currentUser?.role || "").toUpperCase() === "ADMIN") &&
+                Number(currentUser?.id) !== Number(form.authorId);
 
-                {/* 승인자 의견 카드 */}
-                <div className="border border-[#cbd5e0] dark:border-slate-700 rounded bg-[#f8fafc] dark:bg-slate-800/60 p-3 flex flex-col">
-                  <div className="flex items-center justify-between border-b border-dashed border-[#cbd5e0] dark:border-slate-700 pb-1.5 mb-2">
-                    <span className="font-bold text-xs text-[#1a365d] dark:text-emerald-300 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-[#2f855a]" />
-                      <span>승인자 의견 ({form.nameApprover || "승인자"})</span>
+              const showFeedbackSection = Boolean(selectedId) && (hasDecisionFeedback || isDecisionMaker);
+
+              if (!showFeedbackSection) return null;
+
+              return (
+                <section className="mb-3">
+                  <div className="flex items-center bg-[#f8fafc] dark:bg-slate-800 border-l-4 border-[#1a365d] dark:border-blue-400 border-b border-[#cbd5e0] dark:border-slate-700 px-3 py-1.5 mb-2">
+                    <span className="font-bold text-sm text-[#1a365d] dark:text-blue-300 mr-1.5">
+                      7.
                     </span>
-                    <input
-                      type="text"
-                      value={form.dateApprover}
-                      onChange={(e) =>
-                        setForm({ ...form, dateApprover: e.target.value })
-                      }
-                      placeholder="일자"
-                      className="text-[11px] text-[#718096] text-right w-24 bg-transparent focus:outline-none"
-                    />
+                    <span className="font-bold text-sm text-[#1a365d] dark:text-slate-100">
+                      검토 및 승인 의견 (Review &amp; Approval Feedback)
+                    </span>
                   </div>
-                  <textarea
-                    value={form.commentApprover}
-                    onChange={(e) =>
-                      setForm({ ...form, commentApprover: e.target.value })
-                    }
-                    rows={3}
-                    placeholder="최종 승인 의견 또는 당부 사항을 기재하세요."
-                    className="w-full text-xs leading-relaxed p-2 rounded border border-transparent focus:border-[#2c5282] bg-white/70 dark:bg-slate-900 focus:outline-none resize-y"
-                  />
-                  {/* 승인자 원클릭 결재 버튼 */}
-                  <div className="print:hidden flex items-center justify-end gap-1.5 mt-2 pt-2 border-t border-[#e2e8f0] dark:border-slate-700">
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => handleQuickDecision("APPROVER", "반려")}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
-                        form.statusApprover === "반려"
-                          ? "bg-[#e53e3e] text-white border-[#c53030]"
-                          : "bg-white dark:bg-slate-900 text-[#e53e3e] border-[#feb2b2] hover:bg-[#fff5f5]"
-                      }`}
-                    >
-                      반려 확정
-                    </button>
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => handleQuickDecision("APPROVER", "최종승인")}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
-                        form.statusApprover === "최종승인"
-                          ? "bg-[#2f855a] text-white border-[#276749]"
-                          : "bg-white dark:bg-slate-900 text-[#2f855a] border-[#9ae6b4] hover:bg-[#f0fff4]"
-                      }`}
-                    >
-                      최종승인 확정
-                    </button>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {/* 검토자 의견 카드 */}
+                    <div className="border border-[#cbd5e0] dark:border-slate-700 rounded bg-[#f8fafc] dark:bg-slate-800/60 p-3 flex flex-col">
+                      <div className="flex items-center justify-between border-b border-dashed border-[#cbd5e0] dark:border-slate-700 pb-1.5 mb-2">
+                        <span className="font-bold text-xs text-[#2c5282] dark:text-blue-300 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-[#2b6cb0]" />
+                          <span>검토자 의견 ({form.nameReviewer || "검토자"})</span>
+                        </span>
+                        <input
+                          type="text"
+                          value={form.dateReviewer}
+                          readOnly={!isDecisionMaker}
+                          onChange={(e) =>
+                            setForm({ ...form, dateReviewer: e.target.value })
+                          }
+                          placeholder="일자"
+                          className="text-[11px] text-[#718096] text-right w-24 bg-transparent focus:outline-none"
+                        />
+                      </div>
+                      <textarea
+                        value={form.commentReviewer}
+                        readOnly={!isDecisionMaker}
+                        onChange={(e) =>
+                          setForm({ ...form, commentReviewer: e.target.value })
+                        }
+                        rows={3}
+                        placeholder={
+                          isDecisionMaker
+                            ? "검토 의견 또는 보완 요청 사항을 기재하세요."
+                            : "등록된 검토 의견이 없습니다."
+                        }
+                        className="w-full text-xs leading-relaxed p-2 rounded border border-transparent focus:border-[#2c5282] bg-white/70 dark:bg-slate-900 focus:outline-none resize-y"
+                      />
+                      {/* 검토자 원클릭 결재 버튼 (결재권자에게만 노출) */}
+                      {isDecisionMaker && (
+                        <div className="print:hidden flex items-center justify-end gap-1.5 mt-2 pt-2 border-t border-[#e2e8f0] dark:border-slate-700">
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => handleQuickDecision("REVIEWER", "보완요청")}
+                            className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
+                              form.statusReviewer === "보완요청"
+                                ? "bg-[#dd6b20] text-white border-[#c05621]"
+                                : "bg-white dark:bg-slate-900 text-[#dd6b20] border-[#fbd38d] hover:bg-[#fffaf0]"
+                            }`}
+                          >
+                            보완요청 확정
+                          </button>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => handleQuickDecision("REVIEWER", "검토완료")}
+                            className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
+                              form.statusReviewer === "검토완료"
+                                ? "bg-[#2b6cb0] text-white border-[#2c5282]"
+                                : "bg-white dark:bg-slate-900 text-[#2b6cb0] border-[#90cdf4] hover:bg-[#ebf8ff]"
+                            }`}
+                          >
+                            검토완료 확정
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 승인자 의견 카드 */}
+                    <div className="border border-[#cbd5e0] dark:border-slate-700 rounded bg-[#f8fafc] dark:bg-slate-800/60 p-3 flex flex-col">
+                      <div className="flex items-center justify-between border-b border-dashed border-[#cbd5e0] dark:border-slate-700 pb-1.5 mb-2">
+                        <span className="font-bold text-xs text-[#1a365d] dark:text-emerald-300 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-[#2f855a]" />
+                          <span>승인자 의견 ({form.nameApprover || "승인자"})</span>
+                        </span>
+                        <input
+                          type="text"
+                          value={form.dateApprover}
+                          readOnly={!isDecisionMaker}
+                          onChange={(e) =>
+                            setForm({ ...form, dateApprover: e.target.value })
+                          }
+                          placeholder="일자"
+                          className="text-[11px] text-[#718096] text-right w-24 bg-transparent focus:outline-none"
+                        />
+                      </div>
+                      <textarea
+                        value={form.commentApprover}
+                        readOnly={!isDecisionMaker}
+                        onChange={(e) =>
+                          setForm({ ...form, commentApprover: e.target.value })
+                        }
+                        rows={3}
+                        placeholder={
+                          isDecisionMaker
+                            ? "최종 승인 의견 또는 반려 사유를 기재하세요."
+                            : "등록된 승인 의견이 없습니다."
+                        }
+                        className="w-full text-xs leading-relaxed p-2 rounded border border-transparent focus:border-[#2c5282] bg-white/70 dark:bg-slate-900 focus:outline-none resize-y"
+                      />
+                      {/* 승인자 원클릭 결재 버튼 (결재권자에게만 노출) */}
+                      {isDecisionMaker && (
+                        <div className="print:hidden flex items-center justify-end gap-1.5 mt-2 pt-2 border-t border-[#e2e8f0] dark:border-slate-700">
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => handleQuickDecision("APPROVER", "반려")}
+                            className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
+                              form.statusApprover === "반려"
+                                ? "bg-[#e53e3e] text-white border-[#c53030]"
+                                : "bg-white dark:bg-slate-900 text-[#e53e3e] border-[#feb2b2] hover:bg-[#fff5f5]"
+                            }`}
+                          >
+                            반려 확정
+                          </button>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => handleQuickDecision("APPROVER", "최종승인")}
+                            className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
+                              form.statusApprover === "최종승인"
+                                ? "bg-[#2f855a] text-white border-[#276749]"
+                                : "bg-white dark:bg-slate-900 text-[#2f855a] border-[#9ae6b4] hover:bg-[#f0fff4]"
+                            }`}
+                          >
+                            최종승인 확정
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
-            </section>
+                </section>
+              );
+            })()}
 
             {/* 푸터 */}
             <footer className="mt-4 pt-2.5 border-t border-[#cbd5e0] dark:border-slate-700 flex items-center justify-between text-[11px] text-[#718096]">

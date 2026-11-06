@@ -1088,18 +1088,58 @@ export async function GET(request: Request) {
     const currentTermNetIncome = grandNetIncome;
     const totalEquity = capitalStock + retainedEarningsBefore + currentTermNetIncome;
 
-    // 3) 공급가액 손익과 부가세 포함 통장 잔액 간 정산 차액(부가세대급금 또는 부가세예수금/가수금) 반영하여 자산 = 부채 + 자본 항등식 완성
+    // 3) 부가세(예수금/대급금)는 억지 차액(rawDiff) 수식이 아니라, 당기 2기(07~12월) 실제 매출세액 - 매입세액 - 기납부세액(예정고지)으로 정밀 산출
+    let q2SaleVat = 0;
+    let q2PurchaseVat = 0;
+    for (const row of invRes.rows) {
+      const issueDt = String(row.issue_date || "");
+      const mo = Number(issueDt.slice(5, 7));
+      if (mo >= 7) {
+        const v = Number(row.vat_amount || 0);
+        if (row.io_type === "SALE") q2SaleVat += v;
+        else q2PurchaseVat += v;
+      }
+    }
+    let q2CardDeductibleVat = 0;
+    for (const row of bankRes.rows) {
+      const transDt = String(row.trans_date || "");
+      const mo = Number(transDt.slice(5, 7));
+      if (mo < 7) continue;
+      const mType = String(row.matched_type || "");
+      if (mType === "SALE_INVOICE" || mType === "PURCHASE_INVOICE" || mType === "PAYROLL") continue;
+      const ch = String(row.tx_channel || "").trim();
+      const sr = String(row.sender_receiver || "").trim();
+      if (
+        ch === "체크" ||
+        ch === "CC" ||
+        ch === "BC" ||
+        /비씨카드|컴퓨존|옥션|G마켓|11번가|쿠팡|네이버/.test(sr)
+      ) {
+        const wAmt = Number(row.withdrawal_amount || 0);
+        const dAmt = Number(row.deposit_amount || 0);
+        q2CardDeductibleVat += Math.round((wAmt - dAmt) / 11);
+      }
+    }
+    let q2PrepaidVatTax = 0;
+    for (const row of taxPayRes.rows) {
+      const payDt = String(row.pay_date || "");
+      const mo = Number(payDt.slice(5, 7));
+      const subAcc = row.sub_account || classifyTaxPaymentSubAccount(row.tax_type);
+      // 10월~12월 중 납부한 당기 2기 예정고지/예정신고 부가세
+      if (mo >= 10 && subAcc === "부가세") {
+        q2PrepaidVatTax += Number(row.pay_amount || 0);
+      }
+    }
+
+    const netQ2Vat = q2SaleVat - q2PurchaseVat - q2CardDeductibleVat - q2PrepaidVatTax;
+    const vatPrepaid = netQ2Vat < 0 ? Math.abs(netQ2Vat) : 0;
+    const vatTaxPayable = netQ2Vat > 0 ? netQ2Vat : 0;
+
     const leaseDeposit =
       !isBeforeCorpEstablishment && (entityType === "CORP" || entityType === "ALL")
         ? 5000000
         : 0;
     const nonCurrentAssets = leaseDeposit + Math.max(0, tangibleAssets - accumDepreciation);
-    const baseAssets = cashEnding + accountsReceivable + nonCurrentAssets;
-    const rawDiff = baseAssets - accountsPayable - totalEquity;
-
-    const vatPrepaid = rawDiff < 0 ? Math.abs(rawDiff) : 0;
-    const vatTaxPayable = rawDiff > 0 ? rawDiff : 0;
-
     const currentAssets = cashEnding + accountsReceivable + vatPrepaid;
     const totalAssets = currentAssets + nonCurrentAssets;
 

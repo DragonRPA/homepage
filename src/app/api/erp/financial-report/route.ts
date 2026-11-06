@@ -38,9 +38,46 @@ function isCapitalizedAssetPurchaseInvoice(
   // 임대용 자산으로 자산화(Capitalization)된 매입세금계산서:
   // 1) 주식회사 삼원아이엔지 (65인치 TV 4대, PX260309-581912)
   // 2) 주식회사 진진씨앤씨 (한글과컴퓨터 한글 ALA + 한컴어시스턴트 연간계약 7카피, PX260311-529669)
+  // 3) 주식회사에이브이랜드 (EPSON EB-FH08 프로젝터 1대, PX250801-415385)
   if (/삼원아이엔지/.test(c) && /65인치/.test(text)) return true;
   if (/진진씨앤씨/.test(c) && /한글과컴퓨터|한컴어시스턴트/.test(text)) return true;
-  if (invoiceNo && (invoiceNo === "PX260309-581912" || invoiceNo === "PX260311-529669")) return true;
+  if (/에이브이랜드/.test(c) && /영상기기|EB-FH08/.test(text)) return true;
+  if (
+    invoiceNo &&
+    (invoiceNo === "PX260309-581912" ||
+      invoiceNo === "PX260311-529669" ||
+      invoiceNo === "PX250801-415385")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function getPartialCapitalizedInvoiceSupply(
+  customerName: string,
+  itemName: string,
+  invoiceNo?: string,
+  supplyAmount?: number
+): number {
+  const c = (customerName || "").trim();
+  // 주식회사 엠디케이팩토리 PX250904-e4wcph (총 공급가 2,640,000원 중 RAM-001 40개 @ 33,000원 = 1,320,000원 자산화)
+  if (
+    invoiceNo === "PX250904-e4wcph" ||
+    (/엠디케이팩토리/.test(c) && /컴퓨터 및 주변기기/.test(itemName || "") && Number(supplyAmount || 0) === 2640000)
+  ) {
+    return 1320000;
+  }
+  return 0;
+}
+
+function isCapitalizedBankCardTx(row: any): boolean {
+  const id = Number(row.id || 0);
+  // 임대용 TV 자산으로 자산화(Capitalization)된 쿠팡 체크카드 결제 건:
+  // - #1171 (2024-12-25, 722,590원: LG 55인치 SMART TV 55, TV-004)
+  // - #1727 (2025-12-16, 1,120,810원: LG 스탠바이미, TV-005)
+  // - #1046 (2026-01-07, 1,414,080원: LG 75인치 SMART TV 75, TV-003)
+  // - #1015 (2026-01-26, 2,090,000원: 삼성 더 세로, TV-006)
+  if (id === 1171 || id === 1727 || id === 1046 || id === 1015) return true;
   return false;
 }
 
@@ -280,6 +317,15 @@ function classifyBankTxAccount(row: any): {
   // 1. 이미 매출/매입 세금계산서와 매칭된 입출금은 세금계산서(발생주의)에서 집계하므로 이중집계 제외
   if (isMatched && (matchedType === "SALE_INVOICE" || matchedType === "PURCHASE_INVOICE")) {
     return null;
+  }
+
+  // 1-A. 임대용 자산으로 자산화(Capitalization)된 카드 결제 건 (TV-003, TV-004, TV-005, TV-006)
+  if (isCapitalizedBankCardTx(row)) {
+    return {
+      majorAccount: "NON_OP",
+      subAccount: "임대자산취득(자산화)",
+      sign: 1,
+    };
   }
 
   // 1-B. 사용자가 통장 입출금에 명시적으로 지정한 계정과목(ACCOUNT_SUBJECT)이 있으면 최우선 반영
@@ -753,6 +799,14 @@ export async function GET(request: Request) {
           row.memo || "",
           row.invoice_no || ""
         );
+        const partialCapSupply = !isCapex
+          ? getPartialCapitalizedInvoiceSupply(
+              row.customer_name || "",
+              row.item_name || "",
+              row.invoice_no || "",
+              supply
+            )
+          : 0;
         if (isCapex) {
           // 임대용 유형/무형자산 취득(CAPEX) 건은 즉시 매출원가(COGS)로 비용 처리하지 않고 BS 자산 등록 후 월별 감가상각비로 인식
           details.push({
@@ -769,6 +823,49 @@ export async function GET(request: Request) {
             vatAmount: vat,
             totalAmount: total,
             status: "자산화(감가상각대상)",
+            refNo: row.invoice_no || `INV-${row.id}`,
+          });
+        } else if (partialCapSupply > 0 && partialCapSupply < supply) {
+          const capVat = Math.round(partialCapSupply * 0.1);
+          const capTotal = partialCapSupply + capVat;
+          const remSupply = supply - partialCapSupply;
+          const remVat = vat - capVat;
+          const remTotal = total - capTotal;
+          const cls = classifyPurchaseInvoiceSubAccount(
+            row.customer_name || "",
+            row.item_name || "",
+            row.memo || ""
+          );
+          details.push({
+            id: `INV-${row.id}-CAPEX`,
+            source: "TAX_INVOICE",
+            entityType: ent,
+            yearMonth: ym,
+            date: row.issue_date,
+            majorAccount: "NON_OP",
+            subAccount: "임대자산취득(자산화)",
+            counterparty: row.customer_name || "-",
+            description: `${row.item_name || row.memo || "매입 세금계산서"} (RAM-001 40개 자산화분) [임대자산 자산화 → 월별 감가상각 반영]`,
+            supplyAmount: partialCapSupply,
+            vatAmount: capVat,
+            totalAmount: capTotal,
+            status: "자산화(감가상각대상)",
+            refNo: row.invoice_no || `INV-${row.id}`,
+          });
+          details.push({
+            id: `INV-${row.id}`,
+            source: "TAX_INVOICE",
+            entityType: ent,
+            yearMonth: ym,
+            date: row.issue_date,
+            majorAccount: cls.majorAccount,
+            subAccount: cls.subAccount,
+            counterparty: row.customer_name || "-",
+            description: `${row.item_name || row.memo || "매입 세금계산서"} (자산화 외 잔여분)`,
+            supplyAmount: remSupply,
+            vatAmount: remVat,
+            totalAmount: remTotal,
+            status: row.settlement_status === "PAID" ? "지급완료" : "지급예정(정상가정)",
             refNo: row.invoice_no || `INV-${row.id}`,
           });
         } else {
@@ -829,20 +926,27 @@ export async function GET(request: Request) {
           cfPurchaseOutflow += 660000;
           cfInvestingOutflow += 2000000;
         } else if (
-          /삼원아이엔지|진진씨앤씨/.test(combined) ||
+          /삼원아이엔지|진진씨앤씨|에이브이랜드/.test(combined) ||
           row.matched_id === "PX260309-581912" ||
           row.matched_id === "PX260311-529669" ||
+          row.matched_id === "PX250801-415385" ||
           row.matched_id === "101" ||
-          row.matched_id === "99"
+          row.matched_id === "99" ||
+          row.matched_id === "151"
         ) {
-          // 임대용 자산 취득(65인치 TV, 한글 라이선스) 대금 지급은 투자활동 현금유출로 분류
+          // 임대용 자산 취득(65인치 TV, 한글 라이선스, EB-FH08 프로젝터) 대금 지급은 투자활동 현금유출로 분류
           cfInvestingOutflow += wAmt;
+        } else if (row.matched_id === "PX250904-e4wcph" || row.matched_id === "137" || Number(row.id) === 259) {
+          // 엠디케이팩토리 2025-09-08 이체분 중 RAM-001 40개 자산화분(공급가 1,320,000 + 부가세 132,000 = 1,452,000원)은 투자활동 현금유출
+          const capPortion = Math.min(wAmt, 1452000);
+          cfInvestingOutflow += capPortion;
+          cfPurchaseOutflow += Math.max(0, wAmt - capPortion);
         } else {
           cfPurchaseOutflow += wAmt;
         }
       } else if (
         cls &&
-        /보증금/.test(cls.subAccount)
+        (/보증금/.test(cls.subAccount) || cls.subAccount === "임대자산취득(자산화)")
       ) {
         cfInvestingInflow += dAmt;
         cfInvestingOutflow += wAmt;
@@ -1322,13 +1426,23 @@ export async function GET(request: Request) {
           ) {
             continue;
           }
+          const partialCapSupply = getPartialCapitalizedInvoiceSupply(
+            r.customer_name || "",
+            r.item_name || "",
+            "",
+            supply
+          );
+          const adjVal =
+            partialCapSupply > 0
+              ? Math.max(0, val - (useTotal ? Math.round(partialCapSupply * 1.1) : partialCapSupply))
+              : val;
           const cls = classifyPurchaseInvoiceSubAccount(
             r.customer_name || "",
             r.item_name || "",
             r.memo || ""
           );
-          if (cls.majorAccount === "COGS") priorCogs += val;
-          else if (cls.majorAccount === "OPEX") priorOpex += val;
+          if (cls.majorAccount === "COGS") priorCogs += adjVal;
+          else if (cls.majorAccount === "OPEX") priorOpex += adjVal;
         }
       }
 

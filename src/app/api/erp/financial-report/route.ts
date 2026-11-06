@@ -466,14 +466,15 @@ export async function GET(request: Request) {
     let taxPayWhere = `WHERE 1=1`;
     if (year !== "ALL") {
       taxPayParams.push(`${year}-%`);
-      taxPayWhere += ` AND pay_date::text LIKE $${taxPayParams.length}`;
+      taxPayParams.push(String(year));
+      taxPayWhere += ` AND (pay_date::text LIKE $${taxPayParams.length - 1} OR COALESCE(attribution_year, SUBSTRING(pay_date::text, 1, 4)) = $${taxPayParams.length})`;
     }
     if (entityType !== "ALL") {
       taxPayParams.push(entityType);
       taxPayWhere += ` AND COALESCE(entity_type, 'CORP') = $${taxPayParams.length}`;
     }
 
-    const taxPayRes = await pool.query(
+    const allTaxPayRes = await pool.query(
       `SELECT id,
               COALESCE(entity_type, 'CORP') AS entity_type,
               pay_date::text AS pay_date,
@@ -489,6 +490,19 @@ export async function GET(request: Request) {
        ${taxPayWhere}
        ORDER BY pay_date ASC, id ASC`,
       taxPayParams
+    );
+
+    // 실제 해당 연도에 통장에서 납부된 세무 내역 (CF 현금흐름표 및 2기 예정고지 납부액용)
+    const taxPayRes = {
+      rows: allTaxPayRes.rows.filter((r: any) =>
+        year === "ALL" ? true : String(r.pay_date || "").startsWith(`${year}-`)
+      ),
+    };
+    // 귀속연도(attribution_year) 기준 세무 내역 (PL 손익계산서 및 월별 집계용)
+    const attrTaxPayRows = allTaxPayRes.rows.filter((r: any) =>
+      year === "ALL"
+        ? true
+        : String(r.attribution_year || String(r.pay_date || "").slice(0, 4)) === String(year)
     );
 
     // 1. 세금계산서 조회 (매출 + 매입)
@@ -760,9 +774,16 @@ export async function GET(request: Request) {
       });
     }
 
-    // 4-2. 국세청 납부세액(erp_tax_payments) 전표 적재
-    for (const row of taxPayRes.rows) {
-      const ym = String(row.pay_date).slice(0, 7);
+    // 4-2. 국세청 납부세액(erp_tax_payments) 전표 적재 (귀속연도 기준 매칭)
+    let interimPrepaidCorpTax = 0;
+    for (const row of attrTaxPayRows) {
+      const payYr = String(row.pay_date).slice(0, 4);
+      const attrYr = String(row.attribution_year || payYr);
+      // 다음 해 초(1~4월)에 확정 납부된 전년도 귀속 세액은 해당 귀속연도의 12월 결산월에 귀속 표시
+      const ym =
+        year !== "ALL" && payYr !== String(year) && attrYr === String(year)
+          ? `${year}-12`
+          : String(row.pay_date).slice(0, 7);
       const amt = Number(row.pay_amount || 0);
       const ent = (row.entity_type === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP") as "CORP" | "INDIVIDUAL";
       const subAcc = (row.sub_account || classifyTaxPaymentSubAccount(row.tax_type)) as
@@ -770,6 +791,13 @@ export async function GET(request: Request) {
         | "부가세"
         | "법인세"
         | "납부항목";
+
+      const isInterimCorpTax =
+        subAcc === "법인세" &&
+        (/중간예납/.test(String(row.tax_type || "")) || String(row.pay_date).slice(5, 7) === "08");
+      if (isInterimCorpTax) {
+        interimPrepaidCorpTax += amt;
+      }
 
       details.push({
         id: `TAXPAY-${row.id}`,
@@ -780,11 +808,11 @@ export async function GET(request: Request) {
         majorAccount: "TAX_DUES",
         subAccount: subAcc,
         counterparty: row.tax_office ? `국세청 (${row.tax_office})` : "국세청",
-        description: `${row.tax_type}${row.attribution_year ? ` [귀속:${row.attribution_year}년]` : ""}${row.electronic_pay_no ? ` (${row.electronic_pay_no})` : ""}`,
+        description: `${row.tax_type}${row.attribution_year ? ` [귀속:${row.attribution_year}년]` : ""}${payYr !== attrYr ? ` (실납부:${row.pay_date})` : ""}${row.electronic_pay_no ? ` (${row.electronic_pay_no})` : ""}`,
         supplyAmount: amt,
         vatAmount: 0,
         totalAmount: amt,
-        status: "납부완료",
+        status: isInterimCorpTax ? "선급법인세(중간예납)" : "납부완료",
         refNo: row.electronic_pay_no || `TAX-${row.id}`,
       });
     }
@@ -934,20 +962,52 @@ export async function GET(request: Request) {
       taxItems.vatTax +
       taxItems.corporateTax +
       taxItems.taxPayment;
-    cfTaxOutflow = grandTaxDues;
-    // 공급가액 기준(K-GAAP)에서는 부가세 및 원천세 납부액은 예수금(부채) 정산이므로 손익계산서 비용에서 제외하고 법인세 및 납부항목(세금과공과)만 차감
+
+    // CF(현금흐름표) 세무 유출은 실제 해당 연도 통장 납부일(pay_date) 기준 집계
+    let cfWthOutflow = 0;
+    let cfVatOutflow = 0;
+    let cfCorpOutflow = 0;
+    let cfPayOutflow = 0;
+    if (taxPayRes.rows.length > 0) {
+      for (const r of taxPayRes.rows) {
+        const sub = r.sub_account || classifyTaxPaymentSubAccount(r.tax_type);
+        const amt = Number(r.pay_amount || 0);
+        if (sub === "원천세") cfWthOutflow += amt;
+        else if (sub === "부가세") cfVatOutflow += amt;
+        else if (sub === "법인세") cfCorpOutflow += amt;
+        else cfPayOutflow += amt;
+      }
+    } else {
+      cfWthOutflow = taxItems.withholdingTax;
+      cfVatOutflow = taxItems.vatTax;
+      cfCorpOutflow = taxItems.corporateTax;
+      cfPayOutflow = taxItems.taxPayment;
+    }
+    cfTaxOutflow = cfWthOutflow + cfVatOutflow + cfCorpOutflow + cfPayOutflow;
+
+    // 공급가액 기준(K-GAAP) 손익계산서 차감 세액:
+    // 1) 부가세: 예수금/대급금 정산이므로 차감 제외
+    // 2) 원천세: 통장 실수령액 기준 인건비에서 빠진 근로·퇴직소득세 원천징수분이므로 귀속연도 손익에서 차감하여 세전 총인건비와 일치
+    // 3) 법인세: 귀속연도 확정 법인세만 차감하며, 기중 납부한 법인세 중간예납(interimPrepaidCorpTax)은 선급법인세(자산)이므로 손익 차감에서 제외
+    // 4) 납부항목(주민세 사업소분 등): 세금과공과 비용으로 차감
+    const deductibleCorpTax = Math.max(0, taxItems.corporateTax - interimPrepaidCorpTax);
     const plDeductibleTaxTotal = useTotal
-      ? grandTaxDues
-      : taxItems.corporateTax + taxItems.taxPayment;
+      ? grandTaxDues - interimPrepaidCorpTax
+      : taxItems.withholdingTax + deductibleCorpTax + taxItems.taxPayment;
     let grandNonOp = 0;
 
     for (const m of months) {
       const mt = monthlyTotals[m];
       mt.grossProfit = mt.revenue - mt.cogs;
       mt.operatingProfit = mt.grossProfit - mt.payroll - mt.opex;
-      const mCorpTax = rCorp.monthly[m] || 0;
+      const mWthTax = rWth.monthly[m] || 0;
+      // 8월 중간예납 법인세는 선급법인세(자산)이므로 월별 순손익 차감에서 제외
+      const mRawCorpTax = rCorp.monthly[m] || 0;
+      const mCorpTax = m.endsWith("-08") && interimPrepaidCorpTax > 0 ? Math.max(0, mRawCorpTax - interimPrepaidCorpTax) : mRawCorpTax;
       const mPayTax = rPay.monthly[m] || 0;
-      const mDeductibleTax = useTotal ? mt.taxDues : mCorpTax + mPayTax;
+      const mDeductibleTax = useTotal
+        ? (rVat.monthly[m] || 0) + mWthTax + mCorpTax + mPayTax
+        : mWthTax + mCorpTax + mPayTax;
       mt.netOperatingCash = mt.operatingProfit - mDeductibleTax;
 
       grandRevenue += mt.revenue;
@@ -1036,13 +1096,16 @@ export async function GET(request: Request) {
           priorParams
         ),
         pool.query(
-          `SELECT SUBSTRING(pay_date::text, 1, 4) AS pyear,
+          `SELECT COALESCE(attribution_year, SUBSTRING(pay_date::text, 1, 4)) AS pyear,
+                  pay_date::text AS pay_date,
                   sub_account,
                   tax_type,
                   COALESCE(pay_amount, 0)::numeric AS pay_amount
            FROM erp_tax_payments
-           WHERE pay_date <= $1::date ${priorTaxEntitySql}`,
-          priorParams
+           WHERE COALESCE(attribution_year, SUBSTRING(pay_date::text, 1, 4))::int < $1::int ${
+             entityType !== "ALL" ? `AND COALESCE(entity_type, 'CORP') = $2` : ""
+           }`,
+          entityType !== "ALL" ? [Number(year), entityType] : [Number(year)]
         ),
         pool.query(
           `SELECT year,
@@ -1113,7 +1176,15 @@ export async function GET(request: Request) {
         const vat = cntSub("부가세") > 0 ? sumSub("부가세") : Number(rem?.tax_vat || 0);
         const corp = cntSub("법인세") > 0 ? sumSub("법인세") : Number(rem?.tax_corporate || 0);
         const pay = cntSub("납부항목") > 0 ? sumSub("납부항목") : Number(rem?.tax_payment || 0);
-        priorTaxTotal += useTotal ? wth + vat + corp + pay : corp + pay;
+        const interimCorp = yPays
+          .filter(
+            (x: any) =>
+              (x.sub_account || classifyTaxPaymentSubAccount(x.tax_type)) === "법인세" &&
+              (/중간예납/.test(String(x.tax_type || "")) || String(x.pay_date || "").slice(5, 7) === "08")
+          )
+          .reduce((acc: number, cur: any) => acc + Number(cur.pay_amount || 0), 0);
+        const dedCorp = Math.max(0, corp - interimCorp);
+        priorTaxTotal += useTotal ? wth + vat + dedCorp + pay : wth + dedCorp + pay;
       }
 
       retainedEarningsBefore = priorRev - priorCogs - priorPayroll - priorOpex - priorTaxTotal;
@@ -1171,8 +1242,24 @@ export async function GET(request: Request) {
     }
 
     const netQ2Vat = q2SaleVat - q2PurchaseVat - q2CardDeductibleVat - q2PrepaidVatTax;
-    const vatPrepaid = netQ2Vat < 0 ? Math.abs(netQ2Vat) : 0;
+    const vatPrepaid = (netQ2Vat < 0 ? Math.abs(netQ2Vat) : 0) + interimPrepaidCorpTax;
     const vatTaxPayable = netQ2Vat > 0 ? netQ2Vat : 0;
+
+    // 기말 시점 미납 확정 세액 (예: 2024년 말 기준 2025년 1~4월에 납부된 2024년 귀속 원천세/법인세 미지급금)
+    let endWthTaxPayable = 0;
+    let endCorpTaxPayable = 0;
+    if (year !== "ALL") {
+      for (const row of attrTaxPayRows) {
+        const payYr = String(row.pay_date || "").slice(0, 4);
+        const attrYr = String(row.attribution_year || payYr);
+        if (attrYr === String(year) && Number(payYr) > Number(year)) {
+          const subAcc = row.sub_account || classifyTaxPaymentSubAccount(row.tax_type);
+          const amt = Number(row.pay_amount || 0);
+          if (subAcc === "원천세") endWthTaxPayable += amt;
+          else if (subAcc === "법인세") endCorpTaxPayable += amt;
+        }
+      }
+    }
 
     const leaseDeposit =
       !isBeforeCorpEstablishment && (entityType === "CORP" || entityType === "ALL")
@@ -1182,7 +1269,7 @@ export async function GET(request: Request) {
     const currentAssets = cashEnding + accountsReceivable + vatPrepaid;
     const totalAssets = currentAssets + nonCurrentAssets;
 
-    const currentLiabilities = accountsPayable + vatTaxPayable;
+    const currentLiabilities = accountsPayable + endWthTaxPayable + vatTaxPayable + endCorpTaxPayable;
     const nonCurrentLiabilities = 0;
     const totalLiabilities = currentLiabilities + nonCurrentLiabilities;
 
@@ -1202,9 +1289,9 @@ export async function GET(request: Request) {
       },
       liabilities: {
         accountsPayable,
-        withholdingTaxPayable: 0,
+        withholdingTaxPayable: endWthTaxPayable,
         vatTaxPayable,
-        corporateTaxPayable: 0,
+        corporateTaxPayable: endCorpTaxPayable,
         taxPaymentPayable: 0,
         currentLiabilities,
         nonCurrentLiabilities,
@@ -1238,10 +1325,10 @@ export async function GET(request: Request) {
         purchaseOutflow: cfPurchaseOutflow,
         payrollOutflow: cfPayrollOutflow,
         opexOutflow: cfOpexOutflow,
-        withholdingTaxOutflow: taxItems.withholdingTax,
-        vatTaxOutflow: taxItems.vatTax,
-        corporateTaxOutflow: taxItems.corporateTax,
-        taxPaymentOutflow: taxItems.taxPayment,
+        withholdingTaxOutflow: cfWthOutflow,
+        vatTaxOutflow: cfVatOutflow,
+        corporateTaxOutflow: cfCorpOutflow,
+        taxPaymentOutflow: cfPayOutflow,
         netOperatingCashFlow: operatingCashFlow,
       },
       investing: {

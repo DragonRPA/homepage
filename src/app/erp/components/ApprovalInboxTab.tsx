@@ -38,7 +38,10 @@ interface ApprovalRequest {
   steps: ApprovalStep[];
 }
 
-export const ApprovalInboxTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
+export const ApprovalInboxTab: React.FC<{
+  currentUser: any;
+  onOpenWorkImprovement?: (reportId: number) => void;
+}> = ({ currentUser, onOpenWorkImprovement }) => {
   const isAdmin = currentUser?.role === "ADMIN" || currentUser?.loginId === "admin";
   const currentUserId = currentUser?.id;
 
@@ -346,10 +349,25 @@ export const ApprovalInboxTab: React.FC<{ currentUser: any }> = ({ currentUser }
 
                 {/* 2. 결재 상세 내용 (Payload) */}
                 <div className="bg-[#f4efe4] p-3.5 rounded border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800">
-                  <h4 className="text-xs font-bold text-[#0f172a] dark:text-slate-300 mb-2 flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400" />
-                    <span>신청 상세 내역</span>
-                  </h4>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-bold text-[#0f172a] dark:text-slate-300 flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400" />
+                      <span>신청 상세 내역</span>
+                    </h4>
+                    {selectedRequest.targetTable === "erp_work_improvements" &&
+                      selectedRequest.targetId &&
+                      onOpenWorkImprovement && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenWorkImprovement(Number(selectedRequest.targetId))}
+                          className="px-2.5 py-1 rounded bg-[#1e3a8a] hover:bg-[#1e40af] text-white text-[11px] font-bold flex items-center gap-1 shadow-xs"
+                        >
+                          <FileText className="w-3 h-3" />
+                          <span>업무개선 보고서 원문 열기</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </button>
+                      )}
+                  </div>
                   <div className="space-y-2 text-xs">
                     {selectedRequest.payload ? (
                       Object.entries(selectedRequest.payload)

@@ -44,6 +44,7 @@ const MENU_DEFS: Array<{ key: string; name: string; category: string; hasBilling
   { key: "expense_receipt", name: "개인경비 영수증 등록", category: "근태" },
   { key: "work_rules", name: "취업규칙 (표준안)", category: "인사" },
   { key: "approval_inbox", name: "내 결재함", category: "결재" },
+  { key: "work_improvement", name: "업무개선 보고서", category: "결재" },
   { key: "approval_rules", name: "결재선 규칙 설정", category: "결재" },
   { key: "bank_matching", name: "은행 입출금 대장", category: "회계" },
   { key: "payroll", name: "급여 정산", category: "회계" },

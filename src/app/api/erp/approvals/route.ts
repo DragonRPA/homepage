@@ -236,6 +236,30 @@ export async function PATCH(request: Request) {
              WHERE id = $3`,
             [nextStatus, now, target_id]
           );
+        } else if (target_table === "erp_work_improvements") {
+          const d = new Date();
+          const dateFmt = `${d.getFullYear()}. ${String(d.getMonth() + 1).padStart(2, "0")}. ${String(d.getDate()).padStart(2, "0")}`;
+          const statusApprover = isApprove ? "최종승인" : "반려";
+          const statusReviewer = isApprove ? "검토완료" : "보완요청";
+          await pool.query(
+            `UPDATE erp_work_improvements
+             SET overall_status = $1,
+                 status_approver = $2,
+                 date_approver = $3,
+                 comment_approver = COALESCE($4, comment_approver),
+                 status_reviewer = CASE WHEN status_reviewer = '대기중' THEN $5 ELSE status_reviewer END,
+                 updated_at = $6
+             WHERE id = $7`,
+            [
+              nextStatus,
+              statusApprover,
+              dateFmt,
+              comment || null,
+              statusReviewer,
+              now,
+              target_id,
+            ]
+          );
         }
       }
     }

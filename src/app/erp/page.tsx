@@ -18,6 +18,7 @@ import { OrganizationTab } from "./components/OrganizationTab";
 import { PermissionsTab } from "./components/PermissionsTab";
 import { ApprovalInboxTab } from "./components/ApprovalInboxTab";
 import { ApprovalRulesTab } from "./components/ApprovalRulesTab";
+import { WorkImprovementTab } from "./components/WorkImprovementTab";
 import { LeaveApplyTab } from "./components/LeaveApplyTab";
 import { LeaveManageTab } from "./components/LeaveManageTab";
 import { OtManagementTab } from "./components/OtManagementTab";
@@ -59,6 +60,7 @@ export type ErpMenuKey =
   | "WORK_RULES"
   | "RETIREMENT_PENSION_GUIDE"
   | "APPROVAL_INBOX"
+  | "WORK_IMPROVEMENT"
   | "APPROVAL_RULES"
   | "FINANCIAL_REPORT"
   | "BANK_MATCHING"
@@ -111,6 +113,7 @@ const CATEGORIES: CategoryConfig[] = [
     icon: CheckSquare,
     items: [
       { key: "APPROVAL_INBOX", label: "내 결재함", icon: CheckSquare },
+      { key: "WORK_IMPROVEMENT", label: "업무개선 보고서", icon: FileText },
       { key: "APPROVAL_RULES", label: "결재선 규칙 설정", icon: Settings },
     ],
   },
@@ -176,6 +179,7 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   WORK_RULES: "work_rules",
   RETIREMENT_PENSION_GUIDE: "work_rules",
   APPROVAL_INBOX: "approval_inbox",
+  WORK_IMPROVEMENT: "work_improvement",
   APPROVAL_RULES: "approval_rules",
   FINANCIAL_REPORT: "bank_matching",
   BANK_MATCHING: "bank_matching",
@@ -198,6 +202,7 @@ export default function ErpMainPage() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [activeCategory, setActiveCategory] = useState<ErpCategoryKey>("FINANCE");
   const [activeMenu, setActiveMenu] = useState<ErpMenuKey>("FINANCIAL_REPORT");
+  const [targetWorkImprovementId, setTargetWorkImprovementId] = useState<number | null>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [theme, setTheme] = useState<ErpThemeMode>("light");
@@ -682,7 +687,22 @@ export default function ErpMainPage() {
                 {activeMenu === "RETIREMENT_PENSION_GUIDE" && (
                   <RetirementPensionGuideTab currentUser={enrichedUser} />
                 )}
-                {activeMenu === "APPROVAL_INBOX" && <ApprovalInboxTab currentUser={enrichedUser} />}
+                {activeMenu === "APPROVAL_INBOX" && (
+                  <ApprovalInboxTab
+                    currentUser={enrichedUser}
+                    onOpenWorkImprovement={(reportId) => {
+                      setTargetWorkImprovementId(reportId);
+                      setActiveCategory("APPROVAL");
+                      setActiveMenu("WORK_IMPROVEMENT");
+                    }}
+                  />
+                )}
+                {activeMenu === "WORK_IMPROVEMENT" && (
+                  <WorkImprovementTab
+                    currentUser={enrichedUser}
+                    initialReportId={targetWorkImprovementId}
+                  />
+                )}
                 {activeMenu === "APPROVAL_RULES" && <ApprovalRulesTab currentUser={enrichedUser} />}
                 {activeMenu === "FINANCIAL_REPORT" && (
                   <FinancialReportTab currentUser={enrichedUser} selectedEntity={selectedEntity} />

@@ -21,6 +21,12 @@ export async function GET() {
       FROM erp_custom_roles
       ON CONFLICT (role_code, menu_key) DO NOTHING
     `);
+    await pool.query(`
+      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
+      SELECT role_code, 'work_improvement', true, true, false
+      FROM erp_custom_roles
+      ON CONFLICT (role_code, menu_key) DO NOTHING
+    `);
 
     // 1. 역할 목록
     const rolesRes = await pool.query(`
@@ -126,6 +132,12 @@ export async function PUT(request: Request) {
     await pool.query(`
       INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
       SELECT role_code, 'cloud_share', true, true, false
+      FROM erp_custom_roles
+      ON CONFLICT (role_code, menu_key) DO NOTHING
+    `);
+    await pool.query(`
+      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
+      SELECT role_code, 'work_improvement', true, true, false
       FROM erp_custom_roles
       ON CONFLICT (role_code, menu_key) DO NOTHING
     `);

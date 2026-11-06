@@ -223,7 +223,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   const sortedProducts = useMemo(() => {
     return sortErpItems(
       products,
-      sortKey === "id" ? "sku_code" : sortKey,
+      sortKey === "id" ? "name" : sortKey,
       sortKey === "id" ? "asc" : sortDir
     );
   }, [products, sortKey, sortDir]);
@@ -323,8 +323,8 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   // Handle Add Product
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!skuCode || !prodName) {
-      showToast("SKU 코드와 상품명은 필수입니다.", "error");
+    if (!prodName.trim()) {
+      showToast("상품명은 필수입니다.", "error");
       return;
     }
     try {
@@ -332,15 +332,12 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          skuCode,
-          name: prodName,
+          name: prodName.trim(),
           category: prodCategory,
           spec: prodSpec,
           unit: prodUnit,
           standardCost: cleanErpNumber(prodStandardCost),
           standardPrice: cleanErpNumber(prodStandardPrice),
-          safetyStock: cleanErpNumber(prodSafetyStock),
-          initialStock: cleanErpNumber(prodInitialStock),
         }),
       });
       const data = await res.json();
@@ -348,8 +345,10 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
 
       showToast(`상품 [${prodName}] 등록 완료`);
       setShowAddProductModal(false);
-      setSkuCode("");
       setProdName("");
+      setProdSpec("");
+      setProdStandardCost("0");
+      setProdStandardPrice("0");
       await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -1050,23 +1049,20 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
-                {renderSortTh("SKU 코드", "sku_code")}
                 {renderSortTh("상품명", "name")}
                 {renderSortTh("분류", "category")}
-                {renderSortTh("규격", "spec")}
+                {renderSortTh("규격 / 버전", "spec")}
                 {renderSortTh("단위", "unit", "center")}
                 {renderSortTh("기준매입단가", "standard_cost", "right")}
                 {renderSortTh("기준판매단가", "standard_price", "right")}
                 {renderSortTh("예상마진", "margin", "right")}
-                {renderSortTh("안전재고", "safety_stock", "right")}
-                {renderSortTh("현재재고", "current_stock", "right")}
                 <th className="py-2.5 px-3 text-center">상태</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-8 text-center text-slate-500">
+                  <td colSpan={8} className="py-8 text-center text-slate-500">
                     등록된 판매 상품이 없습니다.
                   </td>
                 </tr>
@@ -1078,7 +1074,6 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                   const marginRate = price > 0 ? ((margin / price) * 100).toFixed(1) : "0.0";
                   return (
                     <tr key={p.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
-                      <td className="py-2 px-3 font-mono text-blue-400 font-semibold">{p.sku_code}</td>
                       <td className="py-2 px-3 font-bold text-slate-100">{p.name}</td>
                       <td className="py-2 px-3 text-slate-300">{p.category}</td>
                       <td className="py-2 px-3 text-slate-400">{p.spec || "-"}</td>
@@ -1087,12 +1082,6 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                       <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(price)}</td>
                       <td className="py-2 px-3 text-right font-mono text-emerald-400">
                         {formatErpCurrency(margin)} ({marginRate}%)
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono text-slate-400">{formatErpQty(p.safety_stock, p.unit)}</td>
-                      <td className="py-2 px-3 text-right font-mono font-bold">
-                        <span className={p.current_stock < p.safety_stock ? "text-rose-400" : "text-emerald-400"}>
-                          {formatErpQty(p.current_stock, p.unit)}
-                        </span>
                       </td>
                       <td className="py-2 px-3 text-center">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -1136,7 +1125,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     <td className="py-2 px-3 font-mono text-blue-400">{pu.purchaseNo}</td>
                     <td className="py-2 px-3 font-mono text-slate-300">{pu.purchaseDate}</td>
                     <td className="py-2 px-3 font-bold text-slate-100">{pu.vendorName}</td>
-                    <td className="py-2 px-3 text-slate-200">[{pu.skuCode}] {pu.productName}</td>
+                    <td className="py-2 px-3 text-slate-200">{pu.productName}</td>
                     <td className="py-2 px-3 text-right font-mono text-slate-200">{formatErpQty(pu.qty, pu.unit)}</td>
                     <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(pu.unitCost)}</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-amber-400">{formatErpCurrency(pu.totalAmount)}</td>
@@ -1263,7 +1252,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                       </td>
                       <td className="py-2 px-3 text-slate-200">
                         <div className="flex items-center gap-1.5">
-                          <span>{s.skuCode ? `[${s.skuCode}] ` : ""}{firstItemName}</span>
+                          <span>{firstItemName}</span>
                           {itemCount > 1 && (
                             <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-[10px] font-bold">
                               외 {itemCount - 1}종 (총 {itemCount}종)
@@ -1543,30 +1532,6 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
             </div>
 
             <form onSubmit={handleAddProduct} className="mt-4 flex flex-col gap-3 text-xs">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">SKU 코드 (필수)</label>
-                  <input
-                    type="text"
-                    value={skuCode}
-                    onChange={(e) => setSkuCode(e.target.value)}
-                    placeholder="예: SKU001"
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">분류</label>
-                  <input
-                    type="text"
-                    value={prodCategory}
-                    onChange={(e) => setProdCategory(e.target.value)}
-                    placeholder="예: 완제품 / 라이선스"
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  />
-                </div>
-              </div>
-
               <div className="flex flex-col gap-1">
                 <label className="text-slate-400">상품명 (필수)</label>
                 <input
@@ -1579,7 +1544,17 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-slate-400">분류</label>
+                  <input
+                    type="text"
+                    value={prodCategory}
+                    onChange={(e) => setProdCategory(e.target.value)}
+                    placeholder="예: 완제품 / 라이선스"
+                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                  />
+                </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-slate-400">규격 / 버전</label>
                   <input
@@ -1621,27 +1596,6 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                     onChange={(e) => setProdStandardPrice(formatErpInputNumber(e.target.value))}
                     className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                     placeholder="예: 0"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">안전재고 기준</label>
-                  <input
-                    type="number"
-                    value={prodSafetyStock}
-                    onChange={(e) => setProdSafetyStock(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">초기 보유재고</label>
-                  <input
-                    type="number"
-                    value={prodInitialStock}
-                    onChange={(e) => setProdInitialStock(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                   />
                 </div>
               </div>
@@ -1718,7 +1672,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                 >
                   <option value="">선택하십시오</option>
                   {products.map(p => (
-                    <option key={p.id} value={p.id}>[{p.sku_code}] {p.name}</option>
+                    <option key={p.id} value={p.id}>{p.name}{p.spec ? ` (${p.spec})` : ""}</option>
                   ))}
                 </select>
               </div>
@@ -1967,7 +1921,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
                             <option value="">-- 출고 제품 선택 --</option>
                             {products.map((p) => (
                               <option key={p.id} value={p.id}>
-                                [{p.sku_code}] {p.name} (현재고: {formatErpQty(p.current_stock, p.unit)})
+                                {p.name}{p.spec ? ` (${p.spec})` : ""}
                               </option>
                             ))}
                           </select>

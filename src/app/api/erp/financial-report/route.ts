@@ -77,6 +77,13 @@ function getPartialCapitalizedInvoiceSupply(
   ) {
     return 108000;
   }
+  // 3) 주식회사 비엔솔루션 PX251128-f3631k (총 공급가 480,000원 중 SSD-002 7개 @ 60,000원 = 420,000원 자산화)
+  if (
+    invoiceNo === "PX251128-f3631k" ||
+    (/비엔솔루션/.test(c) && /1TB SSD/i.test(itemName || "") && Number(supplyAmount || 0) === 480000)
+  ) {
+    return 420000;
+  }
   return 0;
 }
 
@@ -1000,6 +1007,11 @@ export async function GET(request: Request) {
         } else if (row.matched_id === "PX250904-jt555a" || row.matched_id === "138" || Number(row.id) === 247) {
           // 엠디케이팩토리 2025-09-10 이체분 중 SSD-001(3개) 자산화분(공급가 108,000 + 부가세 10,800 = 118,800원)은 투자활동 현금유출
           const capPortion = Math.min(wAmt, 118800);
+          cfInvestingOutflow += capPortion;
+          cfPurchaseOutflow += Math.max(0, wAmt - capPortion);
+        } else if (row.matched_id === "PX251128-f3631k" || row.matched_id === "120" || Number(row.id) === 171) {
+          // 비엔솔루션 2025-12-01 이체분(528,000원) 중 SSD-002(7개) 자산화분(공급가 420,000 + 부가세 42,000 = 462,000원)은 투자활동 현금유출
+          const capPortion = Math.min(wAmt, 462000);
           cfInvestingOutflow += capPortion;
           cfPurchaseOutflow += Math.max(0, wAmt - capPortion);
         } else {

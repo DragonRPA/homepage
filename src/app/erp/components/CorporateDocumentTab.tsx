@@ -106,9 +106,21 @@ export const CorporateDocumentTab: React.FC<CorporateDocumentTabProps> = ({
   const [submitting, setSubmitting] = useState(false);
 
   // [서식 작성·출력 스튜디오] 상태
-  const [tplType, setTplType] = useState<"RESOLUTION" | "COMPARE_TABLE" | "SHAREHOLDER_LIST">(
-    "RESOLUTION"
-  );
+  const [tplType, setTplType] = useState<
+    "SHAREHOLDER_STATEMENT" | "RESOLUTION" | "COMPARE_TABLE" | "SHAREHOLDER_LIST"
+  >("SHAREHOLDER_STATEMENT");
+  const [tplBaseDateText, setTplBaseDateText] = useState<string>("2026년 09월 13일 현재");
+  const [tplShareholderName, setTplShareholderName] = useState<string>("이정용");
+  const [tplShareholderRegNo, setTplShareholderRegNo] = useState<string>("770617-1019515");
+  const [tplShareholderZip, setTplShareholderZip] = useState<string>("01863");
+  const [tplShareholderPhone, setTplShareholderPhone] = useState<string>("010-9224-4097");
+  const [tplShareholderShares, setTplShareholderShares] = useState<string>("10,000");
+  const [tplShareholderParValue, setTplShareholderParValue] = useState<string>("500원");
+  const [tplShareholderAmount, setTplShareholderAmount] = useState<string>("5,000,000원");
+  const [tplShareholderRatio, setTplShareholderRatio] = useState<string>("100");
+  const [tplShareholderRel, setTplShareholderRel] = useState<string>("본인");
+  const [tplShareholderNote, setTplShareholderNote] = useState<string>("");
+  const [tplBlankRowsCount, setTplBlankRowsCount] = useState<number>(7);
   const [tplResolutionDate, setTplResolutionDate] = useState<string>(
     new Date().toISOString().slice(0, 10)
   );
@@ -125,7 +137,7 @@ export const CorporateDocumentTab: React.FC<CorporateDocumentTabProps> = ({
   );
   const [tplReasonText, setTplReasonText] = useState<string>("사업 다각화 및 신규 사업 목적 추가");
   const [tplShareholderAddr, setTplShareholderAddr] = useState<string>(
-    "서울 노원구 섬밭로 196 장미아파트 610동 302호"
+    "서울 노원구 섬밭로 196, 610동 302호(하계동, 장미아파트)"
   );
 
   // 상단 헤더의 selectedEntity 변경 시 연동
@@ -403,8 +415,139 @@ ${tplAfterText}
   };
 
   const handlePrintTemplate = () => {
-    const win = window.open("", "_blank", "width=900,height=800");
+    const win = window.open("", "_blank", "width=900,height=850");
     if (!win) return;
+
+    if (tplType === "SHAREHOLDER_STATEMENT") {
+      const phoneFormatted = tplShareholderPhone.includes("-")
+        ? `${tplShareholderPhone.split("-").slice(0, 2).join("-")}<br/>-${tplShareholderPhone.split("-")[2]}`
+        : tplShareholderPhone;
+
+      const emptyRowsHtml = Array.from({ length: tplBlankRowsCount })
+        .map(
+          () => `
+          <tr style="height: 26px;">
+            <td style="border: 1px solid #000;">&nbsp;</td>
+            <td style="border: 1px solid #000;">&nbsp;</td>
+            <td rowspan="2" style="border: 1px solid #000;">&nbsp;</td>
+            <td rowspan="2" style="border: 1px solid #000;">&nbsp;</td>
+            <td rowspan="2" style="border: 1px solid #000;">&nbsp;</td>
+            <td rowspan="2" style="border: 1px solid #000;">&nbsp;</td>
+            <td rowspan="2" style="border: 1px solid #000;">&nbsp;</td>
+            <td rowspan="2" style="border: 1px solid #000;">&nbsp;</td>
+            <td rowspan="2" style="border: 1px solid #000;">&nbsp;</td>
+          </tr>
+          <tr style="height: 38px;">
+            <td colspan="2" style="border: 1px solid #000;">&nbsp;</td>
+          </tr>`
+        )
+        .join("");
+
+      win.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>주주명세서 - ${corp.corpName}</title>
+            <style>
+              @page { size: A4 portrait; margin: 12mm 12mm 12mm 12mm; }
+              body {
+                font-family: 'Malgun Gothic', '맑은 고딕', 'Dotum', sans-serif;
+                color: #000;
+                background: #fff;
+                margin: 0;
+                padding: 0;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+              th, td { box-sizing: border-box; font-size: 11.5px; color: #000; }
+            </style>
+          </head>
+          <body>
+            <table style="border: 1.5px solid #000; margin-bottom: 6px;">
+              <tr>
+                <td style="width: 28%; border: 1.5px solid #000; text-align: center; font-weight: 700; font-size: 13px; padding: 10px 4px;">
+                  ${tplBaseDateText}
+                </td>
+                <td style="width: 44%; border: 1.5px solid #000; text-align: center; font-weight: 800; font-size: 24px; letter-spacing: 12px; text-indent: 12px; padding: 10px 0;">
+                  주주명세서
+                </td>
+                <td style="width: 28%; border: 1.5px solid #000; padding: 0;">
+                  <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                      <td style="border-bottom: 1px solid #000; text-align: center; font-weight: 700; font-size: 11.5px; padding: 4px 0;">
+                        회 사 명
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="text-align: center; font-weight: 700; font-size: 13px; padding: 6px 2px;">
+                        ${corp.corpName}
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+
+            <table style="border: 1.5px solid #000;">
+              <colgroup>
+                <col style="width: 12%;" />
+                <col style="width: 19%;" />
+                <col style="width: 14%;" />
+                <col style="width: 10%;" />
+                <col style="width: 10%;" />
+                <col style="width: 15%;" />
+                <col style="width: 8%;" />
+                <col style="width: 8%;" />
+                <col style="width: 4%;" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th style="border: 1px solid #000; padding: 5px 2px; font-weight: 600; font-size: 10.5px;">①성 명<br/>(회사명)</th>
+                  <th style="border: 1px solid #000; padding: 5px 2px; font-weight: 600; font-size: 10.5px;">②주민등록번호<br/>(법인등록번호)</th>
+                  <th rowspan="2" style="border: 1px solid #000; padding: 5px 2px; font-weight: 600; font-size: 10.5px;">④전화번호<br/>(휴대전화)</th>
+                  <th colspan="4" style="border: 1px solid #000; padding: 4px 2px; font-weight: 600; font-size: 10.5px;">지분 또는 출자관계</th>
+                  <th rowspan="2" style="border: 1px solid #000; padding: 4px 2px; font-weight: 600; font-size: 10px; line-height: 1.25;">⑨<br/>대주주<br/>와의<br/>관계</th>
+                  <th rowspan="2" style="border: 1px solid #000; padding: 4px 2px; font-weight: 600; font-size: 10.5px;">비<br/>고</th>
+                </tr>
+                <tr>
+                  <th colspan="2" style="border: 1px solid #000; padding: 4px 2px; font-weight: 600; font-size: 10.5px;">③주 소</th>
+                  <th style="border: 1px solid #000; padding: 4px 2px; font-weight: 600; font-size: 10.5px;">⑤ 주식수</th>
+                  <th style="border: 1px solid #000; padding: 4px 2px; font-weight: 600; font-size: 10px; line-height: 1.2;">⑥ 주당<br/>액면가액</th>
+                  <th style="border: 1px solid #000; padding: 4px 2px; font-weight: 600; font-size: 10.5px;">⑦ 금 액</th>
+                  <th style="border: 1px solid #000; padding: 4px 2px; font-weight: 600; font-size: 10px; line-height: 1.2;">⑧지분율<br/>(%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="height: 26px;">
+                  <td style="border: 1px solid #000; text-align: center; font-weight: 600;">${tplShareholderName}</td>
+                  <td style="border: 1px solid #000; text-align: center; font-family: monospace; font-size: 11.5px;">${tplShareholderRegNo}</td>
+                  <td rowspan="2" style="border: 1px solid #000; text-align: center; font-family: monospace; font-size: 11.5px; line-height: 1.3;">${phoneFormatted}</td>
+                  <td rowspan="2" style="border: 1px solid #000; text-align: right; padding-right: 6px; font-family: monospace; font-size: 11.5px;">${tplShareholderShares}</td>
+                  <td rowspan="2" style="border: 1px solid #000; text-align: right; padding-right: 6px; font-size: 11.5px;">${tplShareholderParValue}</td>
+                  <td rowspan="2" style="border: 1px solid #000; text-align: right; padding-right: 6px; font-family: monospace; font-size: 11.5px;">${tplShareholderAmount}</td>
+                  <td rowspan="2" style="border: 1px solid #000; text-align: center; font-family: monospace; font-size: 11.5px;">${tplShareholderRatio}</td>
+                  <td rowspan="2" style="border: 1px solid #000; text-align: center; font-size: 11.5px;">${tplShareholderRel}</td>
+                  <td rowspan="2" style="border: 1px solid #000; text-align: center; font-size: 11px;">${tplShareholderNote}</td>
+                </tr>
+                <tr style="height: 40px;">
+                  <td colspan="2" style="border: 1px solid #000; padding: 3px 6px; vertical-align: top; font-size: 10.5px; line-height: 1.35;">
+                    ${tplShareholderZip ? `<div style="font-family: monospace; font-size: 10px;">${tplShareholderZip}</div>` : ""}
+                    <div>${tplShareholderAddr}</div>
+                  </td>
+                </tr>
+                ${emptyRowsHtml}
+              </tbody>
+            </table>
+            <script>window.onload = () => { window.print(); };</script>
+          </body>
+        </html>
+      `);
+      win.document.close();
+      return;
+    }
+
     win.document.write(`
       <html>
         <head>
@@ -1438,149 +1581,328 @@ ${tplAfterText}
           <div className="lg:col-span-5 bg-[#f4efe4] border border-[#b5a894] rounded p-3.5 flex flex-col gap-3 overflow-y-auto dark:bg-slate-900 dark:border-slate-800">
             <div className="flex items-center justify-between border-b border-[#c4b6a0] pb-2">
               <span className="font-extrabold text-sm text-[#6d28d9] dark:text-purple-400">
-                1인 법인 정관변경·등기신청 표준 서식 생성기
+                주주명세서 및 1인 법인 정관변경·등기 서식 생성기
               </span>
               <span className="text-[11px] font-mono text-[#475569]">
-                법인 제원 자동 연동됨
+                도장 제거 (출력 후 날인)
               </span>
             </div>
 
-            {/* 서식 종류 선택 */}
+            {/* 서식 종류 선택 (4종) */}
             <div className="flex flex-col gap-1">
               <label className="font-bold text-[#334155]">생성할 표준 서식 선택</label>
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setTplType("SHAREHOLDER_STATEMENT")}
+                  className={`py-2 px-2 rounded border font-bold text-center whitespace-nowrap transition ${
+                    tplType === "SHAREHOLDER_STATEMENT"
+                      ? "bg-[#6d28d9] text-white border-[#5b21b6]"
+                      : "bg-[#ebe5d8] text-[#0f172a] border-[#b5a894]"
+                  }`}
+                >
+                  ① 주주명세서 (표준표)
+                </button>
                 <button
                   type="button"
                   onClick={() => setTplType("RESOLUTION")}
-                  className={`py-2 px-2 rounded border font-bold text-center transition ${
+                  className={`py-2 px-2 rounded border font-bold text-center whitespace-nowrap transition ${
                     tplType === "RESOLUTION"
                       ? "bg-[#6d28d9] text-white border-[#5b21b6]"
                       : "bg-[#ebe5d8] text-[#0f172a] border-[#b5a894]"
                   }`}
                 >
-                  ① 주주서면결의서
+                  ② 주주서면결의서
                 </button>
                 <button
                   type="button"
                   onClick={() => setTplType("COMPARE_TABLE")}
-                  className={`py-2 px-2 rounded border font-bold text-center transition ${
+                  className={`py-2 px-2 rounded border font-bold text-center whitespace-nowrap transition ${
                     tplType === "COMPARE_TABLE"
                       ? "bg-[#6d28d9] text-white border-[#5b21b6]"
                       : "bg-[#ebe5d8] text-[#0f172a] border-[#b5a894]"
                   }`}
                 >
-                  ② 신·구조문대비표
+                  ③ 신·구조문대비표
                 </button>
                 <button
                   type="button"
                   onClick={() => setTplType("SHAREHOLDER_LIST")}
-                  className={`py-2 px-2 rounded border font-bold text-center transition ${
+                  className={`py-2 px-2 rounded border font-bold text-center whitespace-nowrap transition ${
                     tplType === "SHAREHOLDER_LIST"
                       ? "bg-[#6d28d9] text-white border-[#5b21b6]"
                       : "bg-[#ebe5d8] text-[#0f172a] border-[#b5a894]"
                   }`}
                 >
-                  ③ 등기용 주주명부
+                  ④ 등기용 주주명부
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">결의(기준) 일자</label>
-                <input
-                  type="date"
-                  value={tplResolutionDate}
-                  onChange={(e) => setTplResolutionDate(e.target.value)}
-                  className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-mono"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">개정 정관 시행일 (부칙)</label>
-                <input
-                  type="date"
-                  value={tplEffectiveDate}
-                  onChange={(e) => setTplEffectiveDate(e.target.value)}
-                  className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-mono"
-                />
-              </div>
-            </div>
-
-            {tplType === "RESOLUTION" && (
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">결의 안건 제목</label>
-                <input
-                  type="text"
-                  value={tplAgendaTitle}
-                  onChange={(e) => setTplAgendaTitle(e.target.value)}
-                  className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
-                />
-              </div>
-            )}
-
-            {tplType === "COMPARE_TABLE" && (
+            {tplType === "SHAREHOLDER_STATEMENT" ? (
               <>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="flex flex-col gap-1">
-                    <label className="font-bold text-[#334155]">변경 조항</label>
+                    <label className="font-bold text-[#334155]">기준일자 표기 (좌상단)</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        value={tplBaseDateText}
+                        onChange={(e) => setTplBaseDateText(e.target.value)}
+                        placeholder="2026년 09월 13일 현재"
+                        className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold w-full"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const now = new Date();
+                          const y = now.getFullYear();
+                          const m = String(now.getMonth() + 1).padStart(2, "0");
+                          const d = String(now.getDate()).padStart(2, "0");
+                          setTplBaseDateText(`${y}년 ${m}월 ${d}일 현재`);
+                        }}
+                        className="px-2 py-1.5 rounded bg-[#334155] text-white font-bold whitespace-nowrap shrink-0"
+                      >
+                        오늘
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">하단 공란 행 수 (A4 1장 맞춤)</label>
+                    <select
+                      value={tplBlankRowsCount}
+                      onChange={(e) => setTplBlankRowsCount(Number(e.target.value))}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
+                    >
+                      <option value={5}>공란 5행</option>
+                      <option value={6}>공란 6행</option>
+                      <option value={7}>공란 7행 (원본 PDF 동일 규격)</option>
+                      <option value={8}>공란 8행</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">① 성명 (회사명)</label>
                     <input
                       type="text"
-                      value={tplArticleNo}
-                      onChange={(e) => setTplArticleNo(e.target.value)}
+                      value={tplShareholderName}
+                      onChange={(e) => setTplShareholderName(e.target.value)}
                       className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
                     />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="font-bold text-[#334155]">개정 사유</label>
+                    <label className="font-bold text-[#334155]">② 주민등록번호</label>
                     <input
                       type="text"
-                      value={tplReasonText}
-                      onChange={(e) => setTplReasonText(e.target.value)}
-                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5"
+                      value={tplShareholderRegNo}
+                      onChange={(e) => setTplShareholderRegNo(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">③ 우편번호</label>
+                    <input
+                      type="text"
+                      value={tplShareholderZip}
+                      onChange={(e) => setTplShareholderZip(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-mono"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1 col-span-2">
+                    <label className="font-bold text-[#334155]">④ 전화번호 (휴대전화)</label>
+                    <input
+                      type="text"
+                      value={tplShareholderPhone}
+                      onChange={(e) => setTplShareholderPhone(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-mono"
                     />
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#334155]">현행 정관 (변경 전)</label>
-                  <textarea
-                    rows={5}
-                    value={tplBeforeText}
-                    onChange={(e) => setTplBeforeText(e.target.value)}
-                    className="bg-[#ebe5d8] border border-[#b5a894] rounded p-2 font-mono text-[11px]"
+                  <label className="font-bold text-[#334155]">③ 주소 (도로명 및 동·호수)</label>
+                  <input
+                    type="text"
+                    value={tplShareholderAddr}
+                    onChange={(e) => setTplShareholderAddr(e.target.value)}
+                    className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
                   />
                 </div>
 
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#334155]">개정 정관 (변경 후)</label>
-                  <textarea
-                    rows={5}
-                    value={tplAfterText}
-                    onChange={(e) => setTplAfterText(e.target.value)}
-                    className="bg-[#ebe5d8] border border-[#b5a894] rounded p-2 font-mono text-[11px]"
-                  />
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">⑤ 주식수</label>
+                    <input
+                      type="text"
+                      value={tplShareholderShares}
+                      onChange={(e) => setTplShareholderShares(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2 py-1.5 font-mono"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">⑥ 주당 액면가</label>
+                    <input
+                      type="text"
+                      value={tplShareholderParValue}
+                      onChange={(e) => setTplShareholderParValue(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2 py-1.5 font-mono"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">⑦ 금액</label>
+                    <input
+                      type="text"
+                      value={tplShareholderAmount}
+                      onChange={(e) => setTplShareholderAmount(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2 py-1.5 font-mono"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">⑧ 지분율(%)</label>
+                    <input
+                      type="text"
+                      value={tplShareholderRatio}
+                      onChange={(e) => setTplShareholderRatio(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2 py-1.5 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">⑨ 대주주와의 관계</label>
+                    <input
+                      type="text"
+                      value={tplShareholderRel}
+                      onChange={(e) => setTplShareholderRel(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">비고 (도장 제거 공란)</label>
+                    <input
+                      type="text"
+                      value={tplShareholderNote}
+                      onChange={(e) => setTplShareholderNote(e.target.value)}
+                      placeholder="공란 유지 (출력 후 실물 인감 날인)"
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5"
+                    />
+                  </div>
                 </div>
               </>
-            )}
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">결의(기준) 일자</label>
+                    <input
+                      type="date"
+                      value={tplResolutionDate}
+                      onChange={(e) => setTplResolutionDate(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-mono"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">개정 정관 시행일 (부칙)</label>
+                    <input
+                      type="date"
+                      value={tplEffectiveDate}
+                      onChange={(e) => setTplEffectiveDate(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-mono"
+                    />
+                  </div>
+                </div>
 
-            {tplType === "SHAREHOLDER_LIST" && (
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">1인 주주(이정용) 주소</label>
-                <input
-                  type="text"
-                  value={tplShareholderAddr}
-                  onChange={(e) => setTplShareholderAddr(e.target.value)}
-                  className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
-                />
-              </div>
+                {tplType === "RESOLUTION" && (
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">결의 안건 제목</label>
+                    <input
+                      type="text"
+                      value={tplAgendaTitle}
+                      onChange={(e) => setTplAgendaTitle(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
+                    />
+                  </div>
+                )}
+
+                {tplType === "COMPARE_TABLE" && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex flex-col gap-1">
+                        <label className="font-bold text-[#334155]">변경 조항</label>
+                        <input
+                          type="text"
+                          value={tplArticleNo}
+                          onChange={(e) => setTplArticleNo(e.target.value)}
+                          className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="font-bold text-[#334155]">개정 사유</label>
+                        <input
+                          type="text"
+                          value={tplReasonText}
+                          onChange={(e) => setTplReasonText(e.target.value)}
+                          className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="font-bold text-[#334155]">현행 정관 (변경 전)</label>
+                      <textarea
+                        rows={5}
+                        value={tplBeforeText}
+                        onChange={(e) => setTplBeforeText(e.target.value)}
+                        className="bg-[#ebe5d8] border border-[#b5a894] rounded p-2 font-mono text-[11px]"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="font-bold text-[#334155]">개정 정관 (변경 후)</label>
+                      <textarea
+                        rows={5}
+                        value={tplAfterText}
+                        onChange={(e) => setTplAfterText(e.target.value)}
+                        className="bg-[#ebe5d8] border border-[#b5a894] rounded p-2 font-mono text-[11px]"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {tplType === "SHAREHOLDER_LIST" && (
+                  <div className="flex flex-col gap-1">
+                    <label className="font-bold text-[#334155]">1인 주주(이정용) 주소</label>
+                    <input
+                      type="text"
+                      value={tplShareholderAddr}
+                      onChange={(e) => setTplShareholderAddr(e.target.value)}
+                      className="bg-[#ebe5d8] border border-[#b5a894] rounded px-2.5 py-1.5 font-semibold"
+                    />
+                  </div>
+                )}
+              </>
             )}
 
             <div className="p-2.5 rounded bg-[#ebe5d8] border border-[#b5a894] space-y-1 text-[11px] text-[#334155]">
               <div className="font-bold text-[#0f172a]">인쇄·날인 후 보관함 등록 안내</div>
               <p>
-                우측 미리보기에서 <strong>[인쇄 / PDF 저장]</strong>을 클릭하여 출력 후 인감 날인(서면결의서: 개인인감 / 주주명부·정관: 법인인감)하고, 스캔본을 아래 버튼으로 즉시 버전 히스토리에 등록하십시오.
+                도장 이미지는 모두 제거되어 공란으로 출력됩니다. 우측 상단 <strong>[A4 1장 인쇄 / PDF 저장]</strong>을 클릭하여 출력 후 실물 인감을 날인하고, 스캔본을 아래 버튼으로 버전 히스토리에 등록하십시오.
               </p>
               <div className="pt-1 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => jumpToDocumentByCode("CORP-DOC-SHAREHOLDER-LIST", true)}
+                  className="px-2 py-1 rounded bg-[#047857] text-white font-bold inline-flex items-center gap-1"
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>주주명세서(주주명부) 버전 등록</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => jumpToDocumentByCode("CORP-DOC-SHAREHOLDER-RES", true)}
@@ -1589,14 +1911,15 @@ ${tplAfterText}
                   <Upload className="w-3 h-3" />
                   <span>주주서면결의서 버전 등록</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => jumpToDocumentByCode("CORP-DOC-SHAREHOLDER-LIST", true)}
-                  className="px-2 py-1 rounded bg-[#047857] text-white font-bold inline-flex items-center gap-1"
+                <a
+                  href="/shareholder-registry"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2 py-1 rounded bg-[#334155] text-white font-bold inline-flex items-center gap-1"
                 >
-                  <Upload className="w-3 h-3" />
-                  <span>주주명부 버전 등록</span>
-                </button>
+                  <ExternalLink className="w-3 h-3" />
+                  <span>전용 풀스크린 발급기 열기 ↗</span>
+                </a>
               </div>
             </div>
           </div>
@@ -1605,32 +1928,334 @@ ${tplAfterText}
           <div className="lg:col-span-7 bg-[#ebe5d8] border border-[#b5a894] rounded flex flex-col overflow-hidden dark:bg-slate-900 dark:border-slate-800">
             <div className="px-3 py-2 bg-[#e2dbcd] border-b border-[#b5a894] flex items-center justify-between">
               <span className="font-extrabold text-xs">
-                서식 미리보기 ({corp.corpName} 제원 자동 반영)
+                {tplType === "SHAREHOLDER_STATEMENT"
+                  ? "주주명세서 A4 정밀 양식 미리보기 (도장 제거됨)"
+                  : `서식 미리보기 (${corp.corpName} 제원 자동 반영)`}
               </span>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleCopyTemplate}
-                  className="px-2.5 py-1 rounded bg-[#334155] hover:bg-[#1e293b] text-white font-bold inline-flex items-center gap-1"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>텍스트 복사</span>
-                </button>
+                {tplType !== "SHAREHOLDER_STATEMENT" && (
+                  <button
+                    type="button"
+                    onClick={handleCopyTemplate}
+                    className="px-2.5 py-1 rounded bg-[#334155] hover:bg-[#1e293b] text-white font-bold inline-flex items-center gap-1"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>텍스트 복사</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handlePrintTemplate}
                   className="px-3 py-1 rounded bg-[#6d28d9] hover:bg-[#5b21b6] text-white font-bold inline-flex items-center gap-1"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>인쇄 / PDF 저장</span>
+                  <span>A4 1장 인쇄 / PDF 저장</span>
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 p-4 bg-[#faf7f0] dark:bg-slate-950 overflow-auto">
-              <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap text-[#0f172a] dark:text-slate-100">
-                {generatedTemplateText}
-              </pre>
+            <div className="flex-1 p-4 bg-[#faf7f0] dark:bg-slate-950 overflow-auto flex justify-center">
+              {tplType === "SHAREHOLDER_STATEMENT" ? (
+                <div
+                  className="w-full max-w-[740px] bg-white text-black p-5 border border-slate-300 shadow-sm"
+                  style={{
+                    fontFamily:
+                      "'Malgun Gothic', '맑은 고딕', 'Dotum', '돋움', sans-serif",
+                  }}
+                >
+                  {/* 상단 타이틀 테이블 */}
+                  <table
+                    className="w-full border-collapse mb-1.5"
+                    style={{ border: "1.5px solid #000", tableLayout: "fixed" }}
+                  >
+                    <tbody>
+                      <tr>
+                        <td
+                          className="text-center font-bold text-[12px] align-middle"
+                          style={{
+                            width: "28%",
+                            padding: "8px 4px",
+                            border: "1.5px solid #000",
+                          }}
+                        >
+                          {tplBaseDateText}
+                        </td>
+                        <td
+                          className="text-center font-extrabold text-[22px] align-middle"
+                          style={{
+                            width: "44%",
+                            padding: "8px 0",
+                            letterSpacing: "10px",
+                            textIndent: "10px",
+                            border: "1.5px solid #000",
+                          }}
+                        >
+                          주주명세서
+                        </td>
+                        <td
+                          className="p-0"
+                          style={{ width: "28%", border: "1.5px solid #000" }}
+                        >
+                          <table
+                            className="w-full border-collapse"
+                            style={{ tableLayout: "fixed" }}
+                          >
+                            <tbody>
+                              <tr>
+                                <td
+                                  className="text-center font-bold text-[11px] py-1"
+                                  style={{ borderBottom: "1px solid #000" }}
+                                >
+                                  회 사 명
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="text-center font-bold text-[12px] py-1.5">
+                                  {corp.corpName}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  {/* 본문 주주명세서 테이블 */}
+                  <table
+                    className="w-full border-collapse text-[11px]"
+                    style={{ border: "1.5px solid #000", tableLayout: "fixed" }}
+                  >
+                    <colgroup>
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "19%" }} />
+                      <col style={{ width: "14%" }} />
+                      <col style={{ width: "10%" }} />
+                      <col style={{ width: "10%" }} />
+                      <col style={{ width: "15%" }} />
+                      <col style={{ width: "8%" }} />
+                      <col style={{ width: "8%" }} />
+                      <col style={{ width: "4%" }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th
+                          className="text-center font-semibold py-1"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          ①성 명
+                          <br />
+                          (회사명)
+                        </th>
+                        <th
+                          className="text-center font-semibold py-1"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          ②주민등록번호
+                          <br />
+                          (법인등록번호)
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="text-center font-semibold py-1 align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          ④전화번호
+                          <br />
+                          (휴대전화)
+                        </th>
+                        <th
+                          colSpan={4}
+                          className="text-center font-semibold py-0.5"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          지분 또는 출자관계
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="text-center font-semibold py-1 align-middle leading-tight text-[10px]"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          ⑨
+                          <br />
+                          대주주
+                          <br />
+                          와의
+                          <br />
+                          관계
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="text-center font-semibold py-1 align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          비
+                          <br />고
+                        </th>
+                      </tr>
+                      <tr>
+                        <th
+                          colSpan={2}
+                          className="text-center font-semibold py-0.5"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          ③주 소
+                        </th>
+                        <th
+                          className="text-center font-semibold py-0.5"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          ⑤ 주식수
+                        </th>
+                        <th
+                          className="text-center font-semibold py-0.5 leading-tight text-[10px]"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          ⑥ 주당
+                          <br />
+                          액면가액
+                        </th>
+                        <th
+                          className="text-center font-semibold py-0.5"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          ⑦ 금 액
+                        </th>
+                        <th
+                          className="text-center font-semibold py-0.5 leading-tight text-[10px]"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          ⑧지분율
+                          <br />
+                          (%)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style={{ height: "24px" }}>
+                        <td
+                          className="text-center font-medium"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderName}
+                        </td>
+                        <td
+                          className="text-center font-mono"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderRegNo}
+                        </td>
+                        <td
+                          rowSpan={2}
+                          className="text-center font-mono align-middle leading-tight"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderPhone.includes("-") ? (
+                            <>
+                              {tplShareholderPhone.split("-").slice(0, 2).join("-")}
+                              <br />-{tplShareholderPhone.split("-")[2]}
+                            </>
+                          ) : (
+                            tplShareholderPhone
+                          )}
+                        </td>
+                        <td
+                          rowSpan={2}
+                          className="text-right pr-1.5 font-mono align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderShares}
+                        </td>
+                        <td
+                          rowSpan={2}
+                          className="text-right pr-1.5 align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderParValue}
+                        </td>
+                        <td
+                          rowSpan={2}
+                          className="text-right pr-1.5 font-mono align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderAmount}
+                        </td>
+                        <td
+                          rowSpan={2}
+                          className="text-center font-mono align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderRatio}
+                        </td>
+                        <td
+                          rowSpan={2}
+                          className="text-center align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderRel}
+                        </td>
+                        <td
+                          rowSpan={2}
+                          className="text-center align-middle"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderNote}
+                        </td>
+                      </tr>
+                      <tr style={{ height: "38px" }}>
+                        <td
+                          colSpan={2}
+                          className="px-1.5 py-0.5 align-top text-[10.5px] leading-tight"
+                          style={{ border: "1px solid #000" }}
+                        >
+                          {tplShareholderZip && (
+                            <div className="font-mono text-[10px]">{tplShareholderZip}</div>
+                          )}
+                          <div>{tplShareholderAddr}</div>
+                        </td>
+                      </tr>
+                      {Array.from({ length: tplBlankRowsCount }).map((_, idx) => (
+                        <React.Fragment key={idx}>
+                          <tr style={{ height: "22px" }}>
+                            <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                            <td style={{ border: "1px solid #000" }}>&nbsp;</td>
+                            <td rowSpan={2} style={{ border: "1px solid #000" }}>
+                              &nbsp;
+                            </td>
+                            <td rowSpan={2} style={{ border: "1px solid #000" }}>
+                              &nbsp;
+                            </td>
+                            <td rowSpan={2} style={{ border: "1px solid #000" }}>
+                              &nbsp;
+                            </td>
+                            <td rowSpan={2} style={{ border: "1px solid #000" }}>
+                              &nbsp;
+                            </td>
+                            <td rowSpan={2} style={{ border: "1px solid #000" }}>
+                              &nbsp;
+                            </td>
+                            <td rowSpan={2} style={{ border: "1px solid #000" }}>
+                              &nbsp;
+                            </td>
+                            <td rowSpan={2} style={{ border: "1px solid #000" }}>
+                              &nbsp;
+                            </td>
+                          </tr>
+                          <tr style={{ height: "32px" }}>
+                            <td colSpan={2} style={{ border: "1px solid #000" }}>
+                              &nbsp;
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <pre className="w-full font-mono text-xs leading-relaxed whitespace-pre-wrap text-[#0f172a] dark:text-slate-100">
+                  {generatedTemplateText}
+                </pre>
+              )}
             </div>
           </div>
         </div>

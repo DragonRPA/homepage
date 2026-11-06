@@ -37,15 +37,15 @@ export interface Shareholder {
   note: string;
 }
 
-const STORAGE_KEY = "DRAGON_SHAREHOLDER_REGISTRY_V2";
+const STORAGE_KEY = "DRAGON_SHAREHOLDER_REGISTRY_V3";
 
 const INITIAL_SHAREHOLDERS: Shareholder[] = [
   {
     id: "1",
     name: "이정용",
     residentNo: "770617-1019515",
-    zipCode: "058-27",
-    address: "서울특별시 송파구 동남로11길 26-11 102호(가락동)",
+    zipCode: "01863",
+    address: "서울 노원구 섬밭로 196, 610동 302호(하계동, 장미아파트)",
     phone: "010-9224-4097",
     shares: "10,000",
     parValue: "500원",
@@ -60,7 +60,7 @@ export default function ShareholderRegistryClient() {
   const [baseDate, setBaseDate] = useState("2026년 09월 13일 현재");
   const [companyName, setCompanyName] = useState("주식회사 드래곤알피에이");
   const [shareholders, setShareholders] = useState<Shareholder[]>(INITIAL_SHAREHOLDERS);
-  const [totalRows, setTotalRows] = useState(7);
+  const [totalRows, setTotalRows] = useState(8);
   const [toast, setToast] = useState<string | null>(null);
 
   // Load from LocalStorage on mount
@@ -176,7 +176,7 @@ export default function ShareholderRegistryClient() {
       setBaseDate("2026년 09월 13일 현재");
       setCompanyName("주식회사 드래곤알피에이");
       setShareholders(INITIAL_SHAREHOLDERS);
-      setTotalRows(7);
+      setTotalRows(8);
       localStorage.removeItem(STORAGE_KEY);
       showToastMessage("초기 기본값으로 복원되었습니다.");
     }
@@ -543,14 +543,7 @@ export default function ShareholderRegistryClient() {
                         </tr>
                         <tr>
                           <td className="text-center font-bold text-[12.5px] py-1.5">
-                            <span className="inline-flex items-center justify-center gap-1.5">
-                              <img
-                                src="/ci-dragonrpa.png"
-                                alt="CI"
-                                className="w-5 h-5 object-contain inline-block"
-                              />
-                              <span>{companyName}</span>
-                            </span>
+                            <span>{companyName}</span>
                           </td>
                         </tr>
                       </tbody>

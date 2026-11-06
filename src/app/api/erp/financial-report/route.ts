@@ -12,7 +12,7 @@ import {
 
 interface FinancialDetailItem {
   id: string;
-  source: "TAX_INVOICE" | "BANK_TX" | "TAX_PAYMENT";
+  source: "TAX_INVOICE" | "BANK_TX" | "TAX_PAYMENT" | "DEPRECIATION";
   entityType: "CORP" | "INDIVIDUAL";
   yearMonth: string;
   date: string;
@@ -25,6 +25,70 @@ interface FinancialDetailItem {
   totalAmount: number;
   status: string;
   refNo: string;
+}
+
+function isCapitalizedAssetPurchaseInvoice(
+  customerName: string,
+  itemName: string,
+  memo: string,
+  invoiceNo?: string
+): boolean {
+  const c = (customerName || "").trim();
+  const text = `${c} ${itemName || ""} ${memo || ""} ${invoiceNo || ""}`;
+  // 임대용 자산으로 자산화(Capitalization)된 매입세금계산서:
+  // 1) 주식회사 삼원아이엔지 (65인치 TV 4대, PX260309-581912)
+  // 2) 주식회사 진진씨앤씨 (한글과컴퓨터 한글 ALA + 한컴어시스턴트 연간계약 7카피, PX260311-529669)
+  if (/삼원아이엔지/.test(c) && /65인치/.test(text)) return true;
+  if (/진진씨앤씨/.test(c) && /한글과컴퓨터|한컴어시스턴트/.test(text)) return true;
+  if (invoiceNo && (invoiceNo === "PX260309-581912" || invoiceNo === "PX260311-529669")) return true;
+  return false;
+}
+
+function computeAssetMonthlyDeprecForYm(asset: any, ym: string): number {
+  const cost = Number(asset.acquisition_cost || 0);
+  const salvage = Number(asset.salvage_value || 0);
+  const lifeYears = Math.max(1, Number(asset.useful_life_years || 4));
+  const depAmount = Math.max(0, cost - salvage);
+  if (depAmount <= 0 || !asset.acquisition_date) return 0;
+
+  const acqYm = String(asset.acquisition_date).slice(0, 7);
+  if (ym < acqYm) return 0;
+
+  const [acqY, acqM] = acqYm.split("-").map(Number);
+  const [curY, curM] = ym.split("-").map(Number);
+  const monthIdx = (curY - acqY) * 12 + (curM - acqM); // 취득월 = 0번째 상각월 (취득월 포함 월할상각)
+  const totalMonths = lifeYears * 12;
+  if (monthIdx < 0 || monthIdx >= totalMonths) return 0;
+
+  const monthlyDep = Number(asset.monthly_depreciation || 0) || Math.round(depAmount / totalMonths);
+  if (monthIdx === totalMonths - 1) {
+    // 마지막 상각월에는 단수차이 보정하여 잔존가치까지 정확히 상각
+    const prevAccum = Math.min(depAmount, monthlyDep * (totalMonths - 1));
+    return Math.max(0, depAmount - prevAccum);
+  }
+  const prevAccum = Math.min(depAmount, monthlyDep * monthIdx);
+  return Math.max(0, Math.min(monthlyDep, depAmount - prevAccum));
+}
+
+function computeAssetAccumDeprecAsOf(asset: any, cutoffDate: string): number {
+  const cost = Number(asset.acquisition_cost || 0);
+  const salvage = Number(asset.salvage_value || 0);
+  const lifeYears = Math.max(1, Number(asset.useful_life_years || 4));
+  const depAmount = Math.max(0, cost - salvage);
+  if (depAmount <= 0 || !asset.acquisition_date) return 0;
+
+  const acqDateStr = String(asset.acquisition_date).slice(0, 10);
+  if (cutoffDate < acqDateStr) return 0;
+
+  const acqYm = acqDateStr.slice(0, 7);
+  const cutYm = cutoffDate.slice(0, 7);
+  const [acqY, acqM] = acqYm.split("-").map(Number);
+  const [cutY, cutM] = cutYm.split("-").map(Number);
+  const monthsCount = Math.min(lifeYears * 12, Math.max(0, (cutY - acqY) * 12 + (cutM - acqM) + 1));
+  const totalMonths = lifeYears * 12;
+  if (monthsCount >= totalMonths) return depAmount;
+  const monthlyDep = Number(asset.monthly_depreciation || 0) || Math.round(depAmount / totalMonths);
+  return Math.min(depAmount, monthlyDep * monthsCount);
 }
 
 function classifyTaxPaymentSubAccount(taxTypeRaw: string): "원천세" | "부가세" | "법인세" | "납부항목" {
@@ -606,21 +670,41 @@ export async function GET(request: Request) {
       cashBeginning += Number(r.balance_after || 0);
     }
 
-    // 2-3. 유형자산(렌탈자산) 조회 (BS 비유동자산용, 기준일 이전 취득분)
+    // 2-3. 유형자산(렌탈자산) 조회 (BS 비유동자산 및 월별 감가상각비용, 기준일 이전 취득분)
     const rentalAssetRes = await pool
       .query(
         `
-        SELECT COALESCE(SUM(acquisition_cost), 0)::numeric AS rental_assets,
-               COALESCE(SUM(accumulated_depreciation), 0)::numeric AS accum_dep
-        FROM erp_rental_assets
-        WHERE acquisition_date <= $1::date
+        SELECT a.id,
+               a.asset_no,
+               a.rental_product_id,
+               rp.model_code,
+               rp.model_name,
+               a.acquisition_date::text AS acquisition_date,
+               COALESCE(a.acquisition_cost, 0)::numeric AS acquisition_cost,
+               COALESCE(a.salvage_value, 0)::numeric AS salvage_value,
+               COALESCE(a.useful_life_years, 4)::int AS useful_life_years,
+               COALESCE(a.monthly_depreciation, 0)::numeric AS monthly_depreciation,
+               a.supplier,
+               a.memo
+        FROM erp_rental_assets a
+        LEFT JOIN erp_rental_products rp ON a.rental_product_id = rp.id
+        WHERE a.acquisition_date <= $1::date
+          AND COALESCE(a.acquisition_cost, 0) > 0
+        ORDER BY a.acquisition_date ASC, a.id ASC
       `,
         [endCutoff]
       )
-      .catch(() => ({ rows: [{ rental_assets: 0, accum_dep: 0 }] }));
+      .catch(() => ({ rows: [] as any[] }));
 
-    const tangibleAssets = Number(rentalAssetRes.rows[0]?.rental_assets || 0);
-    const accumDepreciation = Number(rentalAssetRes.rows[0]?.accum_dep || 0);
+    const activeRentalAssets =
+      entityType === "INDIVIDUAL" ? [] : rentalAssetRes.rows;
+
+    let tangibleAssets = 0;
+    let accumDepreciation = 0;
+    for (const ast of activeRentalAssets) {
+      tangibleAssets += Number(ast.acquisition_cost || 0);
+      accumDepreciation += computeAssetAccumDeprecAsOf(ast, endCutoff);
+    }
 
     const details: FinancialDetailItem[] = [];
 
@@ -663,27 +747,53 @@ export async function GET(request: Request) {
         });
       } else {
         accountsPayable += remain;
-        const cls = classifyPurchaseInvoiceSubAccount(
+        const isCapex = isCapitalizedAssetPurchaseInvoice(
           row.customer_name || "",
           row.item_name || "",
-          row.memo || ""
+          row.memo || "",
+          row.invoice_no || ""
         );
-        details.push({
-          id: `INV-${row.id}`,
-          source: "TAX_INVOICE",
-          entityType: ent,
-          yearMonth: ym,
-          date: row.issue_date,
-          majorAccount: cls.majorAccount,
-          subAccount: cls.subAccount,
-          counterparty: row.customer_name || "-",
-          description: row.item_name || row.memo || "매입 세금계산서",
-          supplyAmount: supply,
-          vatAmount: vat,
-          totalAmount: total,
-          status: row.settlement_status === "PAID" ? "지급완료" : "지급예정(정상가정)",
-          refNo: row.invoice_no || `INV-${row.id}`,
-        });
+        if (isCapex) {
+          // 임대용 유형/무형자산 취득(CAPEX) 건은 즉시 매출원가(COGS)로 비용 처리하지 않고 BS 자산 등록 후 월별 감가상각비로 인식
+          details.push({
+            id: `INV-${row.id}`,
+            source: "TAX_INVOICE",
+            entityType: ent,
+            yearMonth: ym,
+            date: row.issue_date,
+            majorAccount: "NON_OP",
+            subAccount: "임대자산취득(자산화)",
+            counterparty: row.customer_name || "-",
+            description: `${row.item_name || row.memo || "매입 세금계산서"} [임대자산 자산화 → 월별 감가상각 반영]`,
+            supplyAmount: supply,
+            vatAmount: vat,
+            totalAmount: total,
+            status: "자산화(감가상각대상)",
+            refNo: row.invoice_no || `INV-${row.id}`,
+          });
+        } else {
+          const cls = classifyPurchaseInvoiceSubAccount(
+            row.customer_name || "",
+            row.item_name || "",
+            row.memo || ""
+          );
+          details.push({
+            id: `INV-${row.id}`,
+            source: "TAX_INVOICE",
+            entityType: ent,
+            yearMonth: ym,
+            date: row.issue_date,
+            majorAccount: cls.majorAccount,
+            subAccount: cls.subAccount,
+            counterparty: row.customer_name || "-",
+            description: row.item_name || row.memo || "매입 세금계산서",
+            supplyAmount: supply,
+            vatAmount: vat,
+            totalAmount: total,
+            status: row.settlement_status === "PAID" ? "지급완료" : "지급예정(정상가정)",
+            refNo: row.invoice_no || `INV-${row.id}`,
+          });
+        }
       }
     }
 
@@ -718,6 +828,15 @@ export async function GET(request: Request) {
         if (Number(row.id) === 128 && wAmt === 2660000) {
           cfPurchaseOutflow += 660000;
           cfInvestingOutflow += 2000000;
+        } else if (
+          /삼원아이엔지|진진씨앤씨/.test(combined) ||
+          row.matched_id === "PX260309-581912" ||
+          row.matched_id === "PX260311-529669" ||
+          row.matched_id === "101" ||
+          row.matched_id === "99"
+        ) {
+          // 임대용 자산 취득(65인치 TV, 한글 라이선스) 대금 지급은 투자활동 현금유출로 분류
+          cfInvestingOutflow += wAmt;
         } else {
           cfPurchaseOutflow += wAmt;
         }
@@ -827,8 +946,69 @@ export async function GET(request: Request) {
       for (const d of details) {
         if (d.yearMonth) monthSet.add(d.yearMonth);
       }
+      for (const ast of activeRentalAssets) {
+        if (ast.acquisition_date) monthSet.add(String(ast.acquisition_date).slice(0, 7));
+      }
     }
     const months = Array.from(monthSet).sort();
+
+    // 5-2. 임대용 자산 월별 감가상각비(정액법) 전표 생성 및 매출원가(임대자산 감가상각비) 반영
+    for (const ym of months) {
+      // 모델별로 당월 감가상각비를 묶어 전표 가독성 향상
+      const modelGroup = new Map<
+        string,
+        {
+          modelName: string;
+          supplier: string;
+          count: number;
+          depSum: number;
+          lifeYears: number;
+          firstNo: string;
+          lastNo: string;
+        }
+      >();
+      for (const ast of activeRentalAssets) {
+        const dep = computeAssetMonthlyDeprecForYm(ast, ym);
+        if (dep <= 0) continue;
+        const key = `${ast.rental_product_id || ast.model_code || ast.model_name}`;
+        const cur = modelGroup.get(key);
+        if (!cur) {
+          modelGroup.set(key, {
+            modelName: ast.model_name || ast.model_code || "임대자산",
+            supplier: ast.supplier || "자사보유",
+            count: 1,
+            depSum: dep,
+            lifeYears: Number(ast.useful_life_years || 4),
+            firstNo: ast.asset_no,
+            lastNo: ast.asset_no,
+          });
+        } else {
+          cur.count += 1;
+          cur.depSum += dep;
+          cur.lastNo = ast.asset_no;
+        }
+      }
+      for (const [key, grp] of modelGroup.entries()) {
+        const rangeLabel =
+          grp.count > 1 ? `${grp.firstNo}~${grp.lastNo} (${grp.count}대)` : `${grp.firstNo} (1대)`;
+        details.push({
+          id: `DEP-${ym}-${key}`,
+          source: "DEPRECIATION",
+          entityType: "CORP",
+          yearMonth: ym,
+          date: `${ym}-28`,
+          majorAccount: "COGS",
+          subAccount: "임대자산 감가상각비",
+          counterparty: grp.supplier,
+          description: `[감가상각] ${grp.modelName} ${rangeLabel} (내용연수 ${grp.lifeYears}년 정액법 월할상각)`,
+          supplyAmount: grp.depSum,
+          vatAmount: 0,
+          totalAmount: grp.depSum,
+          status: "상각계상(비현금)",
+          refNo: grp.firstNo,
+        });
+      }
+    }
 
     // 6. 계정과목별 월별 매트릭스 집계
     const useTotal = amountBasis === "TOTAL";
@@ -865,6 +1045,7 @@ export async function GET(request: Request) {
       ["COGS", "관계사 매입·용역원가"],
       ["COGS", "외주용역·전대임차원가"],
       ["COGS", "상품·장비·자재매입원가"],
+      ["COGS", "임대자산 감가상각비"],
       ["COGS", "무증빙·카드 상품자재매입"],
       ["PAYROLL", "임직원급여·수당"],
       ["PAYROLL", "퇴직급여·정산"],
@@ -1132,6 +1313,15 @@ export async function GET(request: Request) {
         if (r.io_type === "SALE") {
           priorRev += val;
         } else {
+          if (
+            isCapitalizedAssetPurchaseInvoice(
+              r.customer_name || "",
+              r.item_name || "",
+              r.memo || ""
+            )
+          ) {
+            continue;
+          }
           const cls = classifyPurchaseInvoiceSubAccount(
             r.customer_name || "",
             r.item_name || "",
@@ -1140,6 +1330,11 @@ export async function GET(request: Request) {
           if (cls.majorAccount === "COGS") priorCogs += val;
           else if (cls.majorAccount === "OPEX") priorOpex += val;
         }
+      }
+
+      // 이전 연도 말(priorCutoff)까지의 누적 감가상각비 반영
+      for (const ast of activeRentalAssets) {
+        priorCogs += computeAssetAccumDeprecAsOf(ast, priorCutoff);
       }
 
       for (const r of priorBankRes.rows) {

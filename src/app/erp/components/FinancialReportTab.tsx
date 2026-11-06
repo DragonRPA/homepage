@@ -22,7 +22,7 @@ import { formatErpCurrency, formatErpInputNumber, cleanErpNumber } from "@/lib/e
 
 interface FinancialDetailItem {
   id: string;
-  source: "TAX_INVOICE" | "BANK_TX" | "TAX_PAYMENT";
+  source: "TAX_INVOICE" | "BANK_TX" | "TAX_PAYMENT" | "DEPRECIATION";
   entityType: "CORP" | "INDIVIDUAL";
   yearMonth: string;
   date: string;
@@ -1453,6 +1453,8 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                           ? "세금계산서"
                           : d.source === "TAX_PAYMENT"
                           ? "국세청납부"
+                          : d.source === "DEPRECIATION"
+                          ? "감가상각"
                           : "통장입출금"}
                       </span>
                     </div>
@@ -1536,6 +1538,11 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#475569] dark:text-slate-300">
                               <Scale className="w-3 h-3" />
                               국세청납부
+                            </span>
+                          ) : d.source === "DEPRECIATION" ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#7c3aed] dark:text-purple-400">
+                              <TrendingUp className="w-3 h-3" />
+                              감가상각
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#047857] dark:text-emerald-400">

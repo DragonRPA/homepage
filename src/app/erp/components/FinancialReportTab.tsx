@@ -994,13 +994,13 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                       </span>
                     </div>
                     <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
-                      <span>· 원천세</span>
+                      <span>· 원천세 {amountBasis === "SUPPLY" ? "(예수금정산)" : ""}</span>
                       <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
                         {formatErpCurrency(statements.pl.taxItems.withholdingTax)}
                       </span>
                     </div>
                     <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
-                      <span>· 부가세</span>
+                      <span>· 부가세 {amountBasis === "SUPPLY" ? "(예수금정산)" : ""}</span>
                       <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
                         {formatErpCurrency(statements.pl.taxItems.vatTax)}
                       </span>
@@ -1326,7 +1326,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                 {/* 당기순이익 / 세후 영업수지 */}
                 <tr className="bg-[#e2dbcd] dark:bg-slate-800 font-extrabold text-[#0f172a] dark:text-white border-b border-[#b5a894]">
                   <td className="py-2 px-3 whitespace-nowrap sticky left-0 z-10 bg-[#e2dbcd] dark:bg-slate-800 border-r border-[#b5a894] dark:border-slate-700">
-                    ★★★ 당기순이익 / 세후 순영업수지 (영업이익 - Ⅴ)
+                    ★★★ {amountBasis === "SUPPLY" ? "당기순이익 (영업이익 - 법인세)" : "당기순이익 / 세후 순영업수지 (영업이익 - Ⅴ)"}
                   </td>
                   {months.map((m) => {
                     const nc = monthlyTotals[m]?.netOperatingCash || 0;

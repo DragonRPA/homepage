@@ -358,6 +358,31 @@ function classifyBankTxAccount(row: any): {
   return { majorAccount: "OPEX", subAccount: "기타지급수수료·경비", sign: 1 };
 }
 
+function isVatInclusiveBankExpense(
+  row: any,
+  cls: { majorAccount: string; subAccount: string }
+): boolean {
+  if (cls.majorAccount !== "COGS" && cls.majorAccount !== "OPEX") return false;
+  if (cls.subAccount === "무증빙·카드 상품자재매입") return true;
+  if (cls.subAccount === "임차료·관리비" || cls.subAccount === "임차료·관리비·공과금(이체)") return true;
+  const txChannel = String(row.tx_channel || "").trim();
+  const sr = String(row.sender_receiver || "").trim();
+  const holder = String(row.counterparty_holder || "").trim();
+  const memo = String(row.memo || "").trim();
+  const combined = `${sr} ${holder} ${memo}`;
+  if (
+    txChannel === "체크" ||
+    txChannel === "CC" ||
+    txChannel === "BC" ||
+    txChannel === "취소" ||
+    txChannel === "정정" ||
+    /비씨카드|BC체크|컴퓨존|옥션|G마켓|11번가|쿠팡|네이버|카카오/.test(combined)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -713,6 +738,10 @@ export async function GET(request: Request) {
       const signedAmt = rawAmt * cls.sign;
       const ent = (row.entity_type === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP") as "CORP" | "INDIVIDUAL";
 
+      const isVatInc = isVatInclusiveBankExpense(row, cls);
+      const bankVat = isVatInc ? Math.round(signedAmt / 11) : 0;
+      const bankSupply = signedAmt - bankVat;
+
       details.push({
         id: `BANK-${row.id}`,
         source: "BANK_TX",
@@ -723,8 +752,8 @@ export async function GET(request: Request) {
         subAccount: cls.subAccount,
         counterparty: row.counterparty_holder || row.sender_receiver || "-",
         description: `${row.sender_receiver}${row.memo ? ` (${row.memo})` : ""}`,
-        supplyAmount: signedAmt,
-        vatAmount: 0,
+        supplyAmount: bankSupply,
+        vatAmount: bankVat,
         totalAmount: signedAmt,
         status: row.is_matched ? `매칭완료 (${row.matched_id || row.matched_type})` : "통장집행",
         refNo: row.matched_id || `${row.tx_channel || "통장"}-${row.id}`,
@@ -906,13 +935,20 @@ export async function GET(request: Request) {
       taxItems.corporateTax +
       taxItems.taxPayment;
     cfTaxOutflow = grandTaxDues;
+    // 공급가액 기준(K-GAAP)에서는 부가세 및 원천세 납부액은 예수금(부채) 정산이므로 손익계산서 비용에서 제외하고 법인세 및 납부항목(세금과공과)만 차감
+    const plDeductibleTaxTotal = useTotal
+      ? grandTaxDues
+      : taxItems.corporateTax + taxItems.taxPayment;
     let grandNonOp = 0;
 
     for (const m of months) {
       const mt = monthlyTotals[m];
       mt.grossProfit = mt.revenue - mt.cogs;
       mt.operatingProfit = mt.grossProfit - mt.payroll - mt.opex;
-      mt.netOperatingCash = mt.operatingProfit - mt.taxDues;
+      const mCorpTax = rCorp.monthly[m] || 0;
+      const mPayTax = rPay.monthly[m] || 0;
+      const mDeductibleTax = useTotal ? mt.taxDues : mCorpTax + mPayTax;
+      mt.netOperatingCash = mt.operatingProfit - mDeductibleTax;
 
       grandRevenue += mt.revenue;
       grandCogs += mt.cogs;
@@ -923,7 +959,7 @@ export async function GET(request: Request) {
 
     const grandGrossProfit = grandRevenue - grandCogs;
     const grandOperatingProfit = grandGrossProfit - grandPayroll - grandOpex;
-    const grandNetIncome = grandOperatingProfit - grandTaxDues;
+    const grandNetIncome = grandOperatingProfit - plDeductibleTaxTotal;
 
     // 7. 재무제표 (BS / PL / CF / Remark) 구조 생성
     // [PL: 손익계산서]
@@ -1050,10 +1086,13 @@ export async function GET(request: Request) {
         const dAmt = Number(r.deposit_amount || 0);
         const rawAmt = wAmt > 0 ? wAmt : dAmt;
         const signedAmt = rawAmt * cls.sign;
-        if (cls.majorAccount === "REVENUE") priorRev += signedAmt;
-        else if (cls.majorAccount === "COGS") priorCogs += signedAmt;
-        else if (cls.majorAccount === "PAYROLL") priorPayroll += signedAmt;
-        else if (cls.majorAccount === "OPEX") priorOpex += signedAmt;
+        const isVatInc = isVatInclusiveBankExpense(r, cls);
+        const bankVat = isVatInc ? Math.round(signedAmt / 11) : 0;
+        const val = useTotal ? signedAmt : signedAmt - bankVat;
+        if (cls.majorAccount === "REVENUE") priorRev += val;
+        else if (cls.majorAccount === "COGS") priorCogs += val;
+        else if (cls.majorAccount === "PAYROLL") priorPayroll += val;
+        else if (cls.majorAccount === "OPEX") priorOpex += val;
       }
 
       // 연도별 세무 항목 합산 (erp_tax_payments가 있는 항목은 실납부액, 없으면 remark 저장값)
@@ -1074,7 +1113,7 @@ export async function GET(request: Request) {
         const vat = cntSub("부가세") > 0 ? sumSub("부가세") : Number(rem?.tax_vat || 0);
         const corp = cntSub("법인세") > 0 ? sumSub("법인세") : Number(rem?.tax_corporate || 0);
         const pay = cntSub("납부항목") > 0 ? sumSub("납부항목") : Number(rem?.tax_payment || 0);
-        priorTaxTotal += wth + vat + corp + pay;
+        priorTaxTotal += useTotal ? wth + vat + corp + pay : corp + pay;
       }
 
       retainedEarningsBefore = priorRev - priorCogs - priorPayroll - priorOpex - priorTaxTotal;

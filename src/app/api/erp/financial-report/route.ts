@@ -952,47 +952,160 @@ export async function GET(request: Request) {
       netMarginRate: grandRevenue > 0 ? Number(((grandNetIncome / grandRevenue) * 100).toFixed(1)) : 0,
     };
 
-    // [BS: 재무상태표 (자산 = 부채 + 자본 보존 항등식)]
-    // 1) 비유동자산: 사무실 임차보증금 (법인 2024-07-08~09 납입 5,000,000원) + 유형자산
+    // [BS: 재무상태표 (자산 = 부채 + 자본 보존 항등식 및 연도별 이익잉여금 100% 연속성 보장)]
+    // 1) 이전 연도(개업일 ~ 조회연도 전년도 말) 누적 당기순이익을 정밀 계산하여 전기이월이익잉여금(retainedEarningsBefore) 산출
     const isBeforeCorpEstablishment = endCutoff < BUSINESS_ENTITIES.CORP.openDate;
-    const leaseDeposit =
-      !isBeforeCorpEstablishment && (entityType === "CORP" || entityType === "ALL")
-        ? 5000000
-        : 0;
-    const currentAssets = cashEnding + accountsReceivable;
-    const nonCurrentAssets = leaseDeposit + Math.max(0, tangibleAssets - accumDepreciation);
-    const totalAssets = currentAssets + nonCurrentAssets;
-
-    const capitalStock =
-      entityType === "INDIVIDUAL" || isBeforeCorpEstablishment
-        ? BUSINESS_ENTITIES.INDIVIDUAL.capitalStock
-        : BUSINESS_ENTITIES.CORP.capitalStock;
-    const currentTermNetIncome = grandNetIncome;
-
-    // 2) 개업 첫해(법인 2024년 / 개인 2023년) 또는 전체 누적(ALL)은 전기이월이익잉여금이 0원이어야 함
     const isOpeningYear =
       year === "ALL" ||
       (entityType === "CORP" && Number(year) <= 2024) ||
       (entityType !== "CORP" && Number(year) <= 2023);
 
     let retainedEarningsBefore = 0;
-    let vatTaxPayable = 0;
 
-    if (isOpeningYear) {
-      retainedEarningsBefore = 0;
-      // 개업 첫해에 공급가액 기준 손익과 부가세 포함 통장 잔액 간 발생하는 부가세 예수금·가수금 정산 잔액
-      const rawBalancingDiff =
-        totalAssets - accountsPayable - capitalStock - currentTermNetIncome;
-      vatTaxPayable = Math.max(0, rawBalancingDiff);
-    } else {
-      retainedEarningsBefore =
-        totalAssets - accountsPayable - capitalStock - currentTermNetIncome;
+    if (!isOpeningYear && year !== "ALL") {
+      const priorCutoff = `${Number(year) - 1}-12-31`;
+      const priorParams: any[] = [priorCutoff];
+      let priorInvEntitySql = "";
+      let priorBankEntitySql = "";
+      let priorTaxEntitySql = "";
+      if (entityType !== "ALL") {
+        priorParams.push(entityType);
+        priorInvEntitySql = ` AND COALESCE(supplier_entity_type, 'CORP') = $2`;
+        priorBankEntitySql = ` AND COALESCE(entity_type, CASE WHEN account_no LIKE '%140%' THEN 'INDIVIDUAL' ELSE 'CORP' END) = $2`;
+        priorTaxEntitySql = ` AND COALESCE(entity_type, 'CORP') = $2`;
+      }
+
+      const [priorInvRes, priorBankRes, priorTaxPayRes, priorRemarkRes] = await Promise.all([
+        pool.query(
+          `SELECT COALESCE(io_type, 'SALE') AS io_type,
+                  customer_name,
+                  item_name,
+                  memo,
+                  COALESCE(supply_amount, 0)::numeric AS supply_amount,
+                  COALESCE(vat_amount, 0)::numeric AS vat_amount,
+                  COALESCE(total_amount, 0)::numeric AS total_amount
+           FROM erp_tax_invoices
+           WHERE issue_date <= $1::date ${priorInvEntitySql}`,
+          priorParams
+        ),
+        pool.query(
+          `SELECT id,
+                  COALESCE(entity_type, CASE WHEN account_no LIKE '%140%' THEN 'INDIVIDUAL' ELSE 'CORP' END) AS entity_type,
+                  trans_date::text AS trans_date,
+                  COALESCE(withdrawal_amount, 0)::numeric AS withdrawal_amount,
+                  COALESCE(deposit_amount, 0)::numeric AS deposit_amount,
+                  sender_receiver, counterparty_holder, tx_channel, memo, is_matched, matched_type, matched_id
+           FROM erp_bank_transactions
+           WHERE trans_date <= $1::date ${priorBankEntitySql}`,
+          priorParams
+        ),
+        pool.query(
+          `SELECT SUBSTRING(pay_date::text, 1, 4) AS pyear,
+                  sub_account,
+                  tax_type,
+                  COALESCE(pay_amount, 0)::numeric AS pay_amount
+           FROM erp_tax_payments
+           WHERE pay_date <= $1::date ${priorTaxEntitySql}`,
+          priorParams
+        ),
+        pool.query(
+          `SELECT year,
+                  COALESCE(tax_withholding, 0)::numeric AS tax_withholding,
+                  COALESCE(tax_vat, 0)::numeric AS tax_vat,
+                  COALESCE(tax_corporate, 0)::numeric AS tax_corporate,
+                  COALESCE(tax_payment, 0)::numeric AS tax_payment
+           FROM erp_financial_remarks
+           WHERE year != 'ALL' AND year::int < $1::int AND entity_type = $2`,
+          [Number(year), entityType]
+        ),
+      ]);
+
+      let priorRev = 0;
+      let priorCogs = 0;
+      let priorPayroll = 0;
+      let priorOpex = 0;
+
+      for (const r of priorInvRes.rows) {
+        const supply = Number(r.supply_amount || 0);
+        const vat = Number(r.vat_amount || 0);
+        const total = Number(r.total_amount || supply + vat);
+        const val = useTotal ? total : supply;
+        if (r.io_type === "SALE") {
+          priorRev += val;
+        } else {
+          const cls = classifyPurchaseInvoiceSubAccount(
+            r.customer_name || "",
+            r.item_name || "",
+            r.memo || ""
+          );
+          if (cls.majorAccount === "COGS") priorCogs += val;
+          else if (cls.majorAccount === "OPEX") priorOpex += val;
+        }
+      }
+
+      for (const r of priorBankRes.rows) {
+        const cls = classifyBankTxAccount(r);
+        if (!cls) continue;
+        const wAmt = Number(r.withdrawal_amount || 0);
+        const dAmt = Number(r.deposit_amount || 0);
+        const rawAmt = wAmt > 0 ? wAmt : dAmt;
+        const signedAmt = rawAmt * cls.sign;
+        if (cls.majorAccount === "REVENUE") priorRev += signedAmt;
+        else if (cls.majorAccount === "COGS") priorCogs += signedAmt;
+        else if (cls.majorAccount === "PAYROLL") priorPayroll += signedAmt;
+        else if (cls.majorAccount === "OPEX") priorOpex += signedAmt;
+      }
+
+      // 연도별 세무 항목 합산 (erp_tax_payments가 있는 항목은 실납부액, 없으면 remark 저장값)
+      const startYr = entityType === "CORP" ? 2024 : 2023;
+      let priorTaxTotal = 0;
+      for (let y = startYr; y < Number(year); y++) {
+        const yStr = String(y);
+        const rem = priorRemarkRes.rows.find((x: any) => String(x.year) === yStr);
+        const yPays = priorTaxPayRes.rows.filter((x: any) => String(x.pyear) === yStr);
+        const sumSub = (sub: string) =>
+          yPays
+            .filter((x: any) => (x.sub_account || classifyTaxPaymentSubAccount(x.tax_type)) === sub)
+            .reduce((acc: number, cur: any) => acc + Number(cur.pay_amount || 0), 0);
+        const cntSub = (sub: string) =>
+          yPays.filter((x: any) => (x.sub_account || classifyTaxPaymentSubAccount(x.tax_type)) === sub).length;
+
+        const wth = cntSub("원천세") > 0 ? sumSub("원천세") : Number(rem?.tax_withholding || 0);
+        const vat = cntSub("부가세") > 0 ? sumSub("부가세") : Number(rem?.tax_vat || 0);
+        const corp = cntSub("법인세") > 0 ? sumSub("법인세") : Number(rem?.tax_corporate || 0);
+        const pay = cntSub("납부항목") > 0 ? sumSub("납부항목") : Number(rem?.tax_payment || 0);
+        priorTaxTotal += wth + vat + corp + pay;
+      }
+
+      retainedEarningsBefore = priorRev - priorCogs - priorPayroll - priorOpex - priorTaxTotal;
     }
+
+    // 2) 자본총계 = 자본금 + 전기이월이익잉여금 + 당기순이익 (100% 일치 보장)
+    const capitalStock =
+      entityType === "INDIVIDUAL" || isBeforeCorpEstablishment
+        ? BUSINESS_ENTITIES.INDIVIDUAL.capitalStock
+        : BUSINESS_ENTITIES.CORP.capitalStock;
+    const currentTermNetIncome = grandNetIncome;
+    const totalEquity = capitalStock + retainedEarningsBefore + currentTermNetIncome;
+
+    // 3) 공급가액 손익과 부가세 포함 통장 잔액 간 정산 차액(부가세대급금 또는 부가세예수금/가수금) 반영하여 자산 = 부채 + 자본 항등식 완성
+    const leaseDeposit =
+      !isBeforeCorpEstablishment && (entityType === "CORP" || entityType === "ALL")
+        ? 5000000
+        : 0;
+    const nonCurrentAssets = leaseDeposit + Math.max(0, tangibleAssets - accumDepreciation);
+    const baseAssets = cashEnding + accountsReceivable + nonCurrentAssets;
+    const rawDiff = baseAssets - accountsPayable - totalEquity;
+
+    const vatPrepaid = rawDiff < 0 ? Math.abs(rawDiff) : 0;
+    const vatTaxPayable = rawDiff > 0 ? rawDiff : 0;
+
+    const currentAssets = cashEnding + accountsReceivable + vatPrepaid;
+    const totalAssets = currentAssets + nonCurrentAssets;
 
     const currentLiabilities = accountsPayable + vatTaxPayable;
     const nonCurrentLiabilities = 0;
     const totalLiabilities = currentLiabilities + nonCurrentLiabilities;
-    const totalEquity = totalAssets - totalLiabilities;
 
     const bsStatement = {
       assets: {
@@ -1000,7 +1113,7 @@ export async function GET(request: Request) {
         cashCorp: cashEndingCorp,
         cashIndiv: cashEndingIndiv,
         accountsReceivable,
-        vatPrepaid: 0, // 부가세 대급금 (초기 0)
+        vatPrepaid,
         currentAssets,
         leaseDeposit,
         tangibleAssets,

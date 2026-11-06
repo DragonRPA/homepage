@@ -39,6 +39,8 @@ export async function GET(request: Request) {
         a.accumulated_depreciation as "accumulatedDepreciation",
         a.book_value as "bookValue",
         a.monthly_depreciation as "monthlyDepreciation",
+        COALESCE(a.cumulative_revenue, 0) as "cumulativeRevenue",
+        COALESCE(a.cumulative_net_profit, 0) as "cumulativeNetProfit",
         a.supplier,
         a.renter,
         a.current_customer as "currentCustomer",
@@ -80,6 +82,8 @@ export async function GET(request: Request) {
         accumulatedDepreciation: Number(r.accumulatedDepreciation || 0),
         bookValue: Number(r.bookValue || 0),
         monthlyDepreciation: Number(r.monthlyDepreciation || 0),
+        cumulativeRevenue: Number(r.cumulativeRevenue || 0),
+        cumulativeNetProfit: Number(r.cumulativeNetProfit || 0),
       };
     });
     return NextResponse.json({ success: true, assets: normalized });
@@ -486,6 +490,8 @@ export async function PUT(request: Request) {
         a.accumulated_depreciation as "accumulatedDepreciation",
         a.book_value as "bookValue",
         a.monthly_depreciation as "monthlyDepreciation",
+        COALESCE(a.cumulative_revenue, 0) as "cumulativeRevenue",
+        COALESCE(a.cumulative_net_profit, 0) as "cumulativeNetProfit",
         a.supplier,
         a.renter,
         a.current_customer as "currentCustomer",

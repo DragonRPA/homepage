@@ -1398,8 +1398,10 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                     const first = depreciationSchedule[0];
                     const last = depreciationSchedule[depreciationSchedule.length - 1];
                     const sumAdd = depreciationSchedule.reduce((s, x) => s + (x.additionCost || 0), 0);
+                    const sumRev = depreciationSchedule.reduce((s, x) => s + (x.monthlyRevenue || 0), 0);
                     const sumDep = depreciationSchedule.reduce((s, x) => s + (x.depreciationExpense || 0), 0);
                     const sumLoss = depreciationSchedule.reduce((s, x) => s + (x.disposalLoss || 0), 0);
+                    const sumProfit = depreciationSchedule.reduce((s, x) => s + (x.monthlyNetProfit || 0), 0);
 
                     return (
                       <>
@@ -1438,6 +1440,27 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                           })}
                           <td className="py-1.5 px-3 text-right font-mono font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap border-l border-[#c4b6a0] dark:border-slate-800">
                             +{formatErpCurrency(sumAdd)}
+                          </td>
+                        </tr>
+
+                        <tr className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40">
+                          <td className="py-1.5 px-3 font-semibold text-[#047857] dark:text-emerald-400 whitespace-nowrap sticky left-0 z-10 bg-[#ebe5d8] dark:bg-slate-900 border-r border-[#c4b6a0] dark:border-slate-800">
+                            · 당월 자사 렌탈자산 임대매출 (PL) (+)
+                          </td>
+                          {months.map((m) => {
+                            const v = byMonth.get(m)?.monthlyRevenue || 0;
+                            return (
+                              <td
+                                key={m}
+                                onClick={() => handleCellDrilldown("REVENUE", "자사 렌탈자산 임대매출", m)}
+                                className="py-1.5 px-2.5 text-right font-mono text-[#047857] dark:text-emerald-400 font-bold whitespace-nowrap cursor-pointer hover:underline"
+                              >
+                                {v > 0 ? `+${formatErpCurrency(v)}` : "-"}
+                              </td>
+                            );
+                          })}
+                          <td className="py-1.5 px-3 text-right font-mono font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap border-l border-[#c4b6a0] dark:border-slate-800">
+                            +{formatErpCurrency(sumRev)}
                           </td>
                         </tr>
 
@@ -1484,6 +1507,32 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                             </td>
                           </tr>
                         )}
+
+                        <tr className="bg-[#ecfdf5]/70 dark:bg-emerald-950/40 font-bold text-[#065f46] dark:text-emerald-300">
+                          <td className="py-1.5 px-3 whitespace-nowrap sticky left-0 z-10 bg-[#ecfdf5] dark:bg-emerald-950 border-r border-[#c4b6a0] dark:border-slate-800">
+                            ★ 당월 렌탈자산 순수익 (매출-상각)
+                          </td>
+                          {months.map((m) => {
+                            const v = byMonth.get(m)?.monthlyNetProfit || 0;
+                            return (
+                              <td
+                                key={m}
+                                className={`py-1.5 px-2.5 text-right font-mono whitespace-nowrap ${
+                                  v > 0 ? "text-[#047857] dark:text-emerald-300" : v < 0 ? "text-[#dc2626] dark:text-rose-400" : "opacity-50"
+                                }`}
+                              >
+                                {v > 0 ? `+${formatErpCurrency(v)}` : v < 0 ? formatErpCurrency(v) : "₩0"}
+                              </td>
+                            );
+                          })}
+                          <td
+                            className={`py-1.5 px-3 text-right font-mono font-extrabold whitespace-nowrap border-l border-[#c4b6a0] dark:border-slate-800 ${
+                              sumProfit >= 0 ? "text-[#047857] dark:text-emerald-300" : "text-[#dc2626] dark:text-rose-400"
+                            }`}
+                          >
+                            {sumProfit >= 0 ? `+${formatErpCurrency(sumProfit)}` : formatErpCurrency(sumProfit)}
+                          </td>
+                        </tr>
 
                         <tr className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40">
                           <td className="py-1.5 px-3 font-medium text-[#475569] dark:text-slate-400 whitespace-nowrap sticky left-0 z-10 bg-[#ebe5d8] dark:bg-slate-900 border-r border-[#c4b6a0] dark:border-slate-800">

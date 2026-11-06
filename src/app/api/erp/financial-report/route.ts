@@ -15,6 +15,8 @@ import {
   computeAssetAccumDeprecAsOf,
   resolveUsefulLifeMonths,
   buildMonthlyAssetRollForwardSchedule,
+  classifyRentalSalesInvoice,
+  buildRentalSalesSeparationAndModelRevenue,
 } from "@/lib/erpDepreciation";
 
 interface FinancialDetailItem {
@@ -751,8 +753,23 @@ export async function GET(request: Request) {
       if (row.io_type === "SALE") {
         accountsReceivable += remain;
         let subAccount = "운영·유지보수 용역매출";
-        if (row.domain_type === "RENTAL") subAccount = "렌탈·임대 매출";
-        else if (row.domain_type === "TRADE_SALE") subAccount = "상품·장비 판매매출";
+        let rentalTypeBadge = "";
+        if (row.domain_type === "RENTAL") {
+          const rentalCls = classifyRentalSalesInvoice(row);
+          if (rentalCls.categoryCode === "OWNED_ASSET_RENTAL") {
+            subAccount = "자사 렌탈자산 임대매출";
+            const modelSummary = rentalCls.modelAttributions
+              .map((a) => `${a.modelCode}(₩${a.amount.toLocaleString()})`)
+              .join(", ");
+            rentalTypeBadge = modelSummary ? ` [귀속모델: ${modelSummary}]` : "";
+          } else if (rentalCls.categoryCode === "SUBLEASE_RENTAL") {
+            subAccount = "전대·외부임차 임대매출";
+          } else if (rentalCls.categoryCode === "RENTAL_OP_SERVICE") {
+            subAccount = "렌탈 단기용역·작업비 매출";
+          } else {
+            subAccount = "렌탈 부대 상품·장비 판매매출";
+          }
+        } else if (row.domain_type === "TRADE_SALE") subAccount = "상품·장비 판매매출";
         else if (row.domain_type === "DEV_SERVICE") subAccount = "SI·개발 용역매출";
 
         details.push({
@@ -764,7 +781,7 @@ export async function GET(request: Request) {
           majorAccount: "REVENUE",
           subAccount,
           counterparty: row.customer_name || "-",
-          description: row.item_name || row.memo || "매출 세금계산서",
+          description: `${row.item_name || row.memo || "매출 세금계산서"}${rentalTypeBadge}`,
           supplyAmount: supply,
           vatAmount: vat,
           totalAmount: total,
@@ -1047,7 +1064,17 @@ export async function GET(request: Request) {
     const months = Array.from(monthSet).sort();
 
     // 5-2. 임대용 자산 월별 감가상각비(정액법) 전표 생성 및 매출원가(임대자산 감가상각비) 반영
-    const depreciationSchedule = buildMonthlyAssetRollForwardSchedule(activeRentalAssets, months);
+    const rentalSaleInvoicesForSchedule = invRes.rows.filter(
+      (r: any) => r.io_type === "SALE" && r.domain_type === "RENTAL"
+    );
+    const { monthTotalOwnedRevenueMap } = buildRentalSalesSeparationAndModelRevenue(
+      rentalSaleInvoicesForSchedule
+    );
+    const depreciationSchedule = buildMonthlyAssetRollForwardSchedule(
+      activeRentalAssets,
+      months,
+      monthTotalOwnedRevenueMap
+    );
     for (const ym of months) {
       // 모델별로 당월 감가상각비를 묶어 전표 가독성 향상
       const modelGroup = new Map<
@@ -1165,7 +1192,10 @@ export async function GET(request: Request) {
     const defaultSubAccounts: Array<[AccountRow["majorAccount"], string]> = [
       ["REVENUE", "운영·유지보수 용역매출"],
       ["REVENUE", "상품·장비 판매매출"],
-      ["REVENUE", "렌탈·임대 매출"],
+      ["REVENUE", "자사 렌탈자산 임대매출"],
+      ["REVENUE", "전대·외부임차 임대매출"],
+      ["REVENUE", "렌탈 단기용역·작업비 매출"],
+      ["REVENUE", "렌탈 부대 상품·장비 판매매출"],
       ["REVENUE", "SI·개발 용역매출"],
       ["COGS", "관계사 매입·용역원가"],
       ["COGS", "외주용역·전대임차원가"],

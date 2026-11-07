@@ -49,6 +49,7 @@ import { OutboundRegTab } from "./components/OutboundRegTab";
 import { InboundRegTab } from "./components/InboundRegTab";
 import { CloudShareTab } from "./components/CloudShareTab";
 import { GovSupportIntelTab } from "./components/GovSupportIntelTab";
+import { ObsidianVaultTab } from "./components/ObsidianVaultTab";
 import "./erp-theme.css";
 
 export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "PARTNER" | "ASSET" | "INOUT" | "BUSINESS";
@@ -83,7 +84,8 @@ export type ErpMenuKey =
   | "RENTAL"
   | "SERVICES"
   | "CLOUD_SHARE"
-  | "GOV_SUPPORT";
+  | "GOV_SUPPORT"
+  | "OBSIDIAN_VAULT";
 
 interface MenuItem {
   key: ErpMenuKey;
@@ -176,6 +178,7 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "TAX", label: "매입·매출 세금계산서", icon: FileText },
       { key: "CLOUD_SHARE", label: "클라우드 자료실", icon: Database },
       { key: "GOV_SUPPORT", label: "정부지원·뉴스·트렌드", icon: Compass },
+      { key: "OBSIDIAN_VAULT", label: "옵시디언 노트 (PC·폰 연동)", icon: BookOpen },
     ],
   },
 ];
@@ -211,6 +214,7 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   SERVICES: "service",
   CLOUD_SHARE: "cloud_share",
   GOV_SUPPORT: "gov_support",
+  OBSIDIAN_VAULT: "obsidian_vault",
 };
 
 export default function ErpMainPage() {
@@ -812,6 +816,9 @@ export default function ErpMainPage() {
                 {activeMenu === "GOV_SUPPORT" && (
                   <GovSupportIntelTab currentUser={enrichedUser} />
                 )}
+                {activeMenu === "OBSIDIAN_VAULT" && (
+                  <ObsidianVaultTab currentUser={enrichedUser} />
+                )}
               </>
             )}
           </div>
@@ -828,10 +835,10 @@ export default function ErpMainPage() {
             icon: BarChart3,
           },
           {
-            key: "TAX" as ErpMenuKey,
+            key: "OBSIDIAN_VAULT" as ErpMenuKey,
             cat: "BUSINESS" as ErpCategoryKey,
-            label: "채권·채무",
-            icon: FileText,
+            label: "옵시디언",
+            icon: BookOpen,
           },
           {
             key: "BANK_MATCHING" as ErpMenuKey,

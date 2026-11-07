@@ -110,7 +110,7 @@ const QUICK_TOPICS = [
   { label: "B2B 렌탈·RPA·AI ERP 트렌드", query: "B2B 렌탈 구독경제 RPA 업무자동화 AI 에이전트 ERP 산업 트렌드" },
 ];
 
-export const GovSupportIntelTab: React.FC<{ currentUser: any }> = () => {
+export const GovSupportIntelTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const [items, setItems] = useState<GovSupportItem[]>([]);
   const [settings, setSettings] = useState<AiIntelSettings>({
     hasApiKey: false,
@@ -529,6 +529,73 @@ ${item.originalContent || item.summary || "-"}
       if (data.id) setSelectedItemId(Number(data.id));
     } catch (err: any) {
       showToast(err.message, "error");
+    }
+  };
+
+  const handleSaveToObsidian = async (item: GovSupportItem) => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const safeTitle = item.title.replace(/[\\/:*?"<>|]/g, " ").trim();
+      const catLabel = (CATEGORY_META[item.category] || CATEGORY_META.SUPPORT).label;
+      const mdContent = [
+        `---`,
+        `title: "${safeTitle}"`,
+        `tags: [정부지원사업, ${catLabel.replace(/[·\s]/g, "_")}, 드래곤알피에이]`,
+        `agency: "${item.agency || "-"}"`,
+        `source_url: "${item.sourceUrl || ""}"`,
+        `created: ${today}`,
+        `---`,
+        ``,
+        `# ${item.title}`,
+        ``,
+        `- **분류**: ${catLabel}`,
+        `- **주관기관 / 출처**: ${item.agency || "-"}`,
+        `- **지원규모 / 핵심지표**: ${item.supportAmount || "-"}`,
+        `- **접수기간 / 마감일**: ${item.startDate || "-"} ~ ${item.endDate || item.ddayLabel || "-"}`,
+        `- **당사 적합도**: ${item.fitScore}%`,
+        item.sourceUrl ? `- **원문 링크**: [원문 바로가기](${item.sourceUrl})` : "",
+        ``,
+        `## 1. 핵심 요약`,
+        item.summary || "-",
+        ``,
+        `## 2. 신청 자격 및 우대 요건`,
+        item.eligibilityDetail || "-",
+        ``,
+        `## 3. 권장 실행 플랜`,
+        item.actionPlan || "-",
+        ``,
+        `## 4. 수집 원문 전문`,
+        "```text",
+        item.originalContent && item.originalContent.trim()
+          ? item.originalContent.trim()
+          : item.summary || "-",
+        "```",
+        ``,
+        `- 상위 전략 노트: [[2026년 정부지원사업 및 R&D 핵심 전략]]`,
+      ]
+        .filter((line) => line !== undefined)
+        .join("\n");
+
+      const res = await fetch("/api/erp/obsidian", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "SAVE_NOTE",
+          folderPath: "01_정부지원_전략",
+          title: safeTitle,
+          content: mdContent,
+          tags: ["정부지원사업", catLabel.replace(/[·\s]/g, "_"), "드래곤알피에이"],
+          sourceType: "GOV_SUPPORT_CLIP",
+          authorName: currentUser?.name || "이정용 대표이사",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "옵시디언 노트 저장 실패");
+      }
+      showToast("선택한 공고/원문이 [옵시디언 노트 > 01_정부지원_전략] 폴더에 마크다운(.md)으로 저장되었습니다.");
+    } catch (err: any) {
+      showToast(err.message || "옵시디언 노트 저장 실패", "error");
     }
   };
 
@@ -1024,7 +1091,17 @@ ${item.originalContent || item.summary || "-"}
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveToObsidian(selectedItem)}
+                      className="px-2.5 py-1 rounded bg-violet-700 hover:bg-violet-800 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs whitespace-nowrap transition"
+                      title="이 공고 및 원문을 옵시디언 노트(.md) 보관소로 즉시 저장합니다"
+                    >
+                      <BookOpen className="w-3 h-3" />
+                      <span>옵시디언 노트 저장</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => handleOpenOriginalModal(selectedItem)}

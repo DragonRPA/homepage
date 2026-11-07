@@ -16,12 +16,13 @@ import {
   UserPlus,
   Sparkles,
   CheckCircle2,
-  AlertCircle,
   X,
   Trash2,
   ShieldCheck,
   Edit3,
   Save,
+  Check,
+  Globe,
 } from "lucide-react";
 
 export interface RentalBizRecord {
@@ -43,6 +44,8 @@ export interface RentalBizRecord {
   salesStatus: string;
   memo: string;
   isBookmarked: boolean;
+  isRegisteredCustomer?: boolean;
+  isRegisteredVendor?: boolean;
   updatedAt: string;
   createdAt: string;
 }
@@ -61,7 +64,7 @@ const SECTOR_META: Record<
     label: "AWP (고소작업대 판매·임대업)",
     shortLabel: "AWP 고소작업대",
     badgeClass: "bg-blue-100 text-blue-900 border-blue-400",
-    ksic: "KSIC 71201 / KOSHA 안전검사",
+    ksic: "KSIC 71201 / 한국고소작업대임대업협동조합",
   },
   OA_PC: {
     label: "PC · 노트북 · 복합기(OA) 임대업",
@@ -74,49 +77,52 @@ const SECTOR_META: Record<
 const SALES_STATUS_META: Record<string, { label: string; badgeClass: string }> = {
   TARGET: { label: "발굴완료(타깃)", badgeClass: "bg-[#e2dbcd] text-[#334155] border-[#b8ae99]" },
   CONTACTED: { label: "접촉/제안중", badgeClass: "bg-blue-100 text-blue-900 border-blue-300" },
-  PARTNER: { label: "협력/매입처등록", badgeClass: "bg-violet-100 text-violet-900 border-violet-300" },
-  CUSTOMER: { label: "당사 고객사등록", badgeClass: "bg-emerald-100 text-emerald-900 border-emerald-400" },
+  PARTNER: { label: "매입처등록됨", badgeClass: "bg-violet-100 text-violet-900 border-violet-300" },
+  CUSTOMER: { label: "매출처등록됨", badgeClass: "bg-emerald-100 text-emerald-900 border-emerald-400" },
   HOLD: { label: "보류", badgeClass: "bg-slate-200 text-slate-600 border-slate-300" },
 };
 
 const OFFICIAL_PORTAL_LINKS = [
   {
-    name: "조달청 나라장터 종합쇼핑몰 (MAS 임대사업자)",
-    desc: "사무기기임대(복합기)·컴퓨터임대·지게차·고소작업대 등록 공급사 조회",
+    name: "한국고소작업대임대업협동조합 (klra.or.kr)",
+    desc: "중소벤처기업부 인가 고소작업대(리프트) 공식 협동조합 — 전국 지회별(서울·경기·충청·호남·부울경) 100여 개 정회원사 명부",
+    url: "https://www.klra.or.kr",
+  },
+  {
+    name: "공공데이터포털 (data.go.kr - 건설기계대여업)",
+    desc: "전국 시·군·구청 『건설기계대여업 등록 현황』 엑셀(CSV) 및 Open API 원천 데이터 (지게차 FL 정식 대여업체 명단)",
+    url: "https://www.data.go.kr",
+  },
+  {
+    name: "조달청 나라장터 종합쇼핑몰 (shopping.g2b.go.kr)",
+    desc: "다수공급자계약(MAS) 『사무기기임대(복합기)』·『컴퓨터임대』·『지게차』·『고소작업대』 계약 공급사 조회",
     url: "https://shopping.g2b.go.kr",
   },
   {
-    name: "대한건설기계협회 (건설기계대여업 등록현황)",
-    desc: "전국 시·군·구 건설기계대여업(지게차 등) 정식 등록 사업자 확인",
-    url: "https://www.kcea.or.kr",
+    name: "NICE평가정보 (nicebizinfo.com) & 산군 (sankun.com)",
+    desc: "(주)기연리프트 등 세무서 일반 임대/서비스업으로 등록된 전국 중소 리프트·지게차·OA 법인 사업자번호·대표자·주소 조회",
+    url: "https://www.nicebizinfo.com",
   },
   {
-    name: "금융감독원 전자공시시스템 (DART)",
-    desc: "KSIC 71201(건설·물류장비 임대) / 71202(사무용기계·PC 임대) 외감법인 조회",
-    url: "https://dart.fss.or.kr",
+    name: "우리동네지게차 (udj.kr) & 퍼펙트82 (perfect82.com)",
+    desc: "전국 시·군·구 산업단지 밀착 지게차(FL) 신차 대리점·중고매매·장단기 렌탈·정비 사업자 통합 지도/리스트",
+    url: "https://www.udj.kr",
   },
   {
-    name: "다아라 기계장터 (산업장비 B2B 디렉토리)",
-    desc: "전국 고소작업대(AWP)·지게차(FL) 매매 및 렌탈 입점 회원사 원부",
+    name: "다아라 기계장터 (daara.co.kr) & 대한건설기계협회",
+    desc: "전국 국가산단 입주 고소작업대(AWP)·물류장비 임대 및 매매 회원사 디렉토리",
     url: "https://www.daara.co.kr",
-  },
-  {
-    name: "HD현대사이트솔루션 전국 판매대리점",
-    desc: "현대지게차 전국 권역별 공식 판매·렌탈 대리점 및 정비망 조회",
-    url: "https://www.hyundai-ce.com",
-  },
-  {
-    name: "신도리코 / 캐논코리아 공식 대리점망",
-    desc: "전국 OA 복합기·프린터 공식 임대 파트너 및 서비스 지정점 확인",
-    url: "https://www.sindoh.com",
   },
 ];
 
 export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const [items, setItems] = useState<RentalBizRecord[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [checkedIds, setCheckedIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [discovering, setDiscovering] = useState(false);
+  const [registeringId, setRegisteringId] = useState<number | null>(null);
+  const [bulkRegistering, setBulkRegistering] = useState(false);
 
   // 필터 상태
   const [sectorFilter, setSectorFilter] = useState<"ALL" | "FL" | "AWP" | "OA_PC">("ALL");
@@ -126,8 +132,8 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
   const [searchQuery, setSearchQuery] = useState("");
 
   // AI + 공식경로 추가 발굴 입력 상태
-  const [discoverSector, setDiscoverSector] = useState<"FL" | "AWP" | "OA_PC">("FL");
-  const [discoverRegion, setDiscoverRegion] = useState("경기·수도권");
+  const [discoverSector, setDiscoverSector] = useState<"FL" | "AWP" | "OA_PC">("AWP");
+  const [discoverRegion, setDiscoverRegion] = useState("경기 (용인·화성·평택·이천)");
   const [discoverKeyword, setDiscoverKeyword] = useState("");
 
   // 우측 상세 메모 편집
@@ -160,7 +166,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
 
   const showToast = (text: string, type: "success" | "error" = "success") => {
     setToast({ type, text });
-    setTimeout(() => setToast(null), 3500);
+    setTimeout(() => setToast(null), 3800);
   };
 
   const fetchAll = useCallback(async () => {
@@ -204,6 +210,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
       fl: items.filter((x) => x.sector === "FL").length,
       awp: items.filter((x) => x.sector === "AWP").length,
       oaPc: items.filter((x) => x.sector === "OA_PC").length,
+      customers: items.filter((x) => x.isRegisteredCustomer).length,
     };
   }, [items]);
 
@@ -211,8 +218,16 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
   const filteredItems = useMemo(() => {
     return items.filter((it) => {
       if (sectorFilter !== "ALL" && it.sector !== sectorFilter) return false;
-      if (regionFilter !== "ALL" && !it.region.includes(regionFilter)) return false;
-      if (statusFilter !== "ALL" && it.salesStatus !== statusFilter) return false;
+      if (regionFilter !== "ALL" && !it.region.includes(regionFilter) && !it.address.includes(regionFilter)) {
+        return false;
+      }
+      if (statusFilter !== "ALL") {
+        if (statusFilter === "CUSTOMER" && !it.isRegisteredCustomer && it.salesStatus !== "CUSTOMER") {
+          return false;
+        } else if (statusFilter !== "CUSTOMER" && it.salesStatus !== statusFilter) {
+          return false;
+        }
+      }
       if (bookmarkOnly && !it.isBookmarked) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
@@ -235,6 +250,24 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
     });
   }, [items, sectorFilter, regionFilter, statusFilter, bookmarkOnly, searchQuery]);
 
+  // 체크박스 핸들러
+  const toggleCheck = (id: number) => {
+    setCheckedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleCheckAllFiltered = () => {
+    const allFilteredIds = filteredItems.map((x) => x.id);
+    const allChecked =
+      allFilteredIds.length > 0 && allFilteredIds.every((id) => checkedIds.includes(id));
+    if (allChecked) {
+      setCheckedIds((prev) => prev.filter((id) => !allFilteredIds.includes(id)));
+    } else {
+      setCheckedIds((prev) => Array.from(new Set([...prev, ...allFilteredIds])));
+    }
+  };
+
   // 빠른 상태/북마크/메모 변경 (화면 즉시 반영)
   const handleQuickUpdate = async (
     id: number,
@@ -252,7 +285,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "변경 실패");
-      setItems((prev) => prev.map((it) => (it.id === id ? data.item : it)));
+      setItems(data.items || []);
       if (patch.memo !== undefined) {
         showToast("영업 메모가 저장되었습니다.");
       }
@@ -261,38 +294,12 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
     }
   };
 
-  // AI + 공식경로 사업자 추가 발굴
-  const handleDiscoverBusinesses = async () => {
-    setDiscovering(true);
-    try {
-      const res = await fetch("/api/erp/rental-directory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "DISCOVER_OFFICIAL_BIZ",
-          sector: discoverSector,
-          region: discoverRegion,
-          customKeyword: discoverKeyword,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "사업자 발굴 실패");
-      }
-      setItems(data.items || []);
-      setSectorFilter(discoverSector);
-      showToast(
-        `[${SECTOR_META[discoverSector].shortLabel} - ${discoverRegion}] 공식 경로 확인 사업자 ${data.discoveredCount}건이 디렉토리에 반영되었습니다.`
-      );
-    } catch (err: any) {
-      showToast(err.message, "error");
-    } finally {
-      setDiscovering(false);
-    }
-  };
-
-  // ERP 거래처(고객 관리 / 매입거래처 관리)로 1클릭 등록
-  const handleRegisterToPartner = async (item: RentalBizRecord, partnerType: "CUSTOMER" | "VENDOR") => {
+  // 단건 바로 매출처(고객) 또는 매입처 등록
+  const handleRegisterToPartner = async (
+    item: RentalBizRecord,
+    partnerType: "CUSTOMER" | "VENDOR"
+  ) => {
+    setRegisteringId(item.id);
     try {
       const res = await fetch("/api/erp/rental-directory", {
         method: "POST",
@@ -307,15 +314,82 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
       if (!res.ok || !data.success) {
         throw new Error(data.error || "거래처 등록 실패");
       }
-      setItems((prev) => prev.map((it) => (it.id === item.id ? data.item : it)));
+      setItems(data.items || []);
       const label = partnerType === "CUSTOMER" ? "고객 관리(매출처)" : "매입거래처 관리";
       showToast(
-        data.alreadyExisted
-          ? `[${item.companyName}] 사업자는 이미 ERP ${label}에 등록되어 있어 상태를 동기화했습니다.`
-          : `[${item.companyName}] 사업자가 ERP [${label}] 대장에 즉시 등록되었습니다.`
+        data.alreadyExistedCount > 0 && data.newlyCreatedCount === 0
+          ? `[${item.companyName}] 사업자는 이미 ERP [${label}]에 등록되어 있어 등록 상태를 즉시 연동했습니다.`
+          : `[${item.companyName}] 사업자가 ERP [${label}]에 즉시 등록되었습니다.`
       );
     } catch (err: any) {
       showToast(err.message, "error");
+    } finally {
+      setRegisteringId(null);
+    }
+  };
+
+  // 체크된 사업자들 일괄 매출처 등록
+  const handleBulkRegisterCustomers = async () => {
+    if (checkedIds.length === 0) {
+      showToast("먼저 좌측 체크박스에서 매출처로 등록할 사업자를 선택해 주십시오.", "error");
+      return;
+    }
+    setBulkRegistering(true);
+    try {
+      const res = await fetch("/api/erp/rental-directory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "REGISTER_TO_PARTNER",
+          ids: checkedIds,
+          partnerType: "CUSTOMER",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "일괄 매출처 등록 실패");
+      }
+      setItems(data.items || []);
+      setCheckedIds([]);
+      showToast(
+        `선택한 ${checkedIds.length}개 사업자 중 신규 ${data.newlyCreatedCount}건 등록, 기존 ${data.alreadyExistedCount}건 연동 완료되었습니다.`
+      );
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setBulkRegistering(false);
+    }
+  };
+
+  // AI + 외부 공식 기업DB(NICE·협동조합·나라장터·산군) 실시간 조회 및 추가
+  const handleDiscoverBusinesses = async (overrideKeyword?: string) => {
+    const targetKeyword = overrideKeyword !== undefined ? overrideKeyword : discoverKeyword;
+    setDiscovering(true);
+    try {
+      const res = await fetch("/api/erp/rental-directory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "DISCOVER_OFFICIAL_BIZ",
+          sector: sectorFilter !== "ALL" ? sectorFilter : discoverSector,
+          region: discoverRegion,
+          customKeyword: targetKeyword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "사업자 발굴 실패");
+      }
+      setItems(data.items || []);
+      showToast(
+        targetKeyword
+          ? `외부 공식 기업DB(NICE·협동조합·나라장터)에서 '${targetKeyword}' 관련 사업자 ${data.discoveredCount}건을 찾아 목록에 추가했습니다.`
+          : `[${discoverRegion}] 공식 경로 확인 사업자 ${data.discoveredCount}건이 디렉토리에 반영되었습니다.`
+      );
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setDiscovering(false);
     }
   };
 
@@ -337,7 +411,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
           (it, idx) =>
             `| ${idx + 1} | ${SECTOR_META[it.sector].shortLabel} | **${it.companyName}** | ${
               it.businessNo || "-"
-            } | ${it.region} | ${it.bizScope} | ${it.mainBrands || "-"} | ${
+            } | ${it.ceoName || "-"} | ${it.region} | ${it.mainBrands || "-"} | ${
               it.officialSource
             } | ${it.phone || "-"} |`
         )
@@ -353,10 +427,10 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
         ``,
         `# ${sectorTitle} (총 ${filteredItems.length}개사)`,
         ``,
-        `> 공식 확인 경로: 조달청 나라장터(G2B) MAS, 금융감독원 DART, 건설기계대여업 등록, 제조사 공식 대리점, 다아라 기계장터`,
+        `> 공식 확인 경로: 한국고소작업대임대업협동조합(klra.or.kr), 조달청 나라장터(G2B) MAS, NICE평가정보/산군 기업DB, 건설기계대여업 등록, 제조사 공식 대리점`,
         ``,
-        `| No | 분류 | 상호(법인명) | 사업자번호 | 권역/지역 | 영업형태 | 주요 취급브랜드 | 공식 확인 경로 | 대표전화 |`,
-        `|---:|:---:|:---|:---:|:---|:---|:---|:---|:---:|`,
+        `| No | 분류 | 상호(법인명) | 사업자번호 | 대표자 | 권역/지역 | 주요 취급브랜드 | 공식 확인 경로 | 대표전화 |`,
+        `|---:|:---:|:---|:---:|:---:|:---|:---|:---|:---:|`,
         tableRows,
         ``,
         `## 상위 연결 문서`,
@@ -381,7 +455,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
         throw new Error(data.error || "옵시디언 노트 저장 실패");
       }
       showToast(
-        `현재 조회된 사업자 ${filteredItems.length}개사 목록이 [옵시디언 노트 > 03_렌탈사업자_디렉토리]에 마크다운 표로 저장되었습니다.`
+        `조회된 사업자 ${filteredItems.length}개사 목록이 [옵시디언 노트 > 03_렌탈사업자_디렉토리]에 저장되었습니다.`
       );
     } catch (err: any) {
       showToast(err.message, "error");
@@ -405,7 +479,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
       "대표전화",
       "웹사이트",
       "규모및특징",
-      "영업상태",
+      "ERP매출처등록여부",
     ];
     const rows = filteredItems.map((it) => [
       SECTOR_META[it.sector]?.shortLabel || it.sector,
@@ -422,7 +496,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
       `"${(it.phone || "").replace(/"/g, '""')}"`,
       `"${(it.websiteUrl || "").replace(/"/g, '""')}"`,
       `"${(it.scaleNote || "").replace(/"/g, '""')}"`,
-      SALES_STATUS_META[it.salesStatus]?.label || it.salesStatus,
+      it.isRegisteredCustomer ? "매출처 등록됨" : "미등록",
     ]);
 
     const csv =
@@ -440,7 +514,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
   const openCreateModal = () => {
     setFormData({
       id: 0,
-      sector: sectorFilter === "ALL" ? "FL" : sectorFilter,
+      sector: sectorFilter === "ALL" ? "AWP" : sectorFilter,
       companyName: "",
       businessNo: "",
       ceoName: "",
@@ -449,7 +523,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
       bizScope: "신차·중고 판매 및 임대",
       mainBrands: "",
       mainProducts: "",
-      officialSource: "제조사 공식 대리점 / 건설기계대여업 등록",
+      officialSource: "한국고소작업대임대업협동조합 / NICE기업DB",
       ksicCode: sectorFilter === "OA_PC" ? "71202 (사무용기계·PC 임대업)" : "71201 (건설·물류장비 임대업)",
       phone: "",
       websiteUrl: "",
@@ -498,14 +572,9 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "저장 실패");
-      const saved: RentalBizRecord = data.item;
-      setItems((prev) => {
-        const exists = prev.some((x) => x.id === saved.id);
-        return exists ? prev.map((x) => (x.id === saved.id ? saved : x)) : [saved, ...prev];
-      });
-      setSelectedId(saved.id);
+      setItems(data.items || []);
       setShowFormModal(false);
-      showToast(`[${saved.companyName}] 사업자 정보가 즉시 반영되었습니다.`);
+      showToast(`[${formData.companyName}] 사업자 정보가 즉시 반영되었습니다.`);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -606,13 +675,29 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
 
         {/* 우측 유틸리티 버튼군 */}
         <div className="flex flex-wrap items-center gap-1.5">
+          {checkedIds.length > 0 && (
+            <button
+              type="button"
+              onClick={handleBulkRegisterCustomers}
+              disabled={bulkRegistering}
+              className="px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-800 text-white text-xs font-extrabold flex items-center gap-1 whitespace-nowrap shadow-sm"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>
+                {bulkRegistering
+                  ? "일괄 등록 중..."
+                  : `선택 사업자 일괄 매출처 등록 (${checkedIds.length}건)`}
+              </span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => setShowPortalGuideModal(true)}
             className="px-2.5 py-1.5 rounded bg-[#f4efe4] hover:bg-[#d8d0c0] text-[#0f172a] border border-[#b8ae99] text-xs font-bold flex items-center gap-1 whitespace-nowrap"
           >
             <ShieldCheck className="w-3.5 h-3.5 text-blue-700" />
-            <span>공식 원천 데이터 포털 안내</span>
+            <span>공식 조합·원천 데이터 출처 안내</span>
           </button>
 
           <button
@@ -636,7 +721,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
           <button
             type="button"
             onClick={openCreateModal}
-            className="px-2.5 py-1.5 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold flex items-center gap-1 whitespace-nowrap shadow-xs"
+            className="px-2.5 py-1.5 rounded bg-[#0f172a] hover:bg-[#1e293b] text-white text-xs font-bold flex items-center gap-1 whitespace-nowrap shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>사업자 수동 등록</span>
@@ -653,9 +738,9 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
         </div>
       </div>
 
-      {/* 2. 필터링 & AI 공식경로 실시간 사업자 추가 수집 바 */}
+      {/* 2. 필터링 & 외부 공식 기업DB(NICE·협동조합·나라장터) 실시간 조회 바 */}
       <div className="shrink-0 px-3 py-2 bg-[#e9e3d5] border-b border-[#b8ae99] flex flex-wrap items-center justify-between gap-2">
-        {/* 좌측: 지역/상태/키워드 검색 */}
+        {/* 좌측: 지역/상태/키워드 검색 + 미등록 업체 실시간 외부검색 */}
         <div className="flex flex-wrap items-center gap-1.5">
           <select
             value={regionFilter}
@@ -665,10 +750,13 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
             <option value="ALL">전국 모든 권역</option>
             <option value="전국">전국망 대형사</option>
             <option value="서울">서울</option>
-            <option value="경기">경기</option>
+            <option value="경기">경기 전체</option>
+            <option value="용인">경기 용인</option>
+            <option value="화성">경기 화성</option>
+            <option value="평택">경기 평택</option>
+            <option value="시흥">경기 시흥·안산</option>
             <option value="인천">인천</option>
             <option value="부산">부산·경남·울산</option>
-            <option value="경남">경남·창원·김해</option>
             <option value="충청">충청·대전·천안</option>
             <option value="전북">전북·광주·전남</option>
           </select>
@@ -678,11 +766,11 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
             onChange={(e) => setStatusFilter(e.target.value)}
             className="px-2 py-1 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs font-bold text-[#0f172a]"
           >
-            <option value="ALL">전체 영업상태</option>
-            <option value="TARGET">발굴완료(타깃)</option>
+            <option value="ALL">전체 등록상태</option>
+            <option value="CUSTOMER">당사 매출처(고객) 등록됨 ({counts.customers})</option>
+            <option value="TARGET">발굴완료(미등록 타깃)</option>
             <option value="CONTACTED">접촉/제안중</option>
-            <option value="PARTNER">협력/매입처등록</option>
-            <option value="CUSTOMER">당사 고객사등록</option>
+            <option value="PARTNER">매입처 등록됨</option>
           </select>
 
           <button
@@ -698,31 +786,48 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
             <span>관심업체만</span>
           </button>
 
-          <div className="relative w-56 sm:w-64">
+          <div className="relative w-60 sm:w-72">
             <Search className="w-3.5 h-3.5 text-[#64748b] absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="상호, 사업자번호, 브랜드(두산/지니/신도), 지역 검색..."
-              className="w-full pl-8 pr-2 py-1 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs font-semibold text-[#0f172a]"
+              placeholder="상호(예: 기연리프트), 사업자번호, 지역, 브랜드..."
+              className="w-full pl-8 pr-2 py-1 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs font-bold text-[#0f172a]"
             />
           </div>
+
+          {searchQuery.trim() && (
+            <button
+              type="button"
+              onClick={() => handleDiscoverBusinesses(searchQuery.trim())}
+              disabled={discovering}
+              className="px-2.5 py-1 rounded bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-1 whitespace-nowrap shadow-xs"
+              title="NICE평가정보, 산군, 한국고소작업대임대업협동조합, 나라장터에서 해당 상호를 실시간 검색하여 목록에 추가합니다"
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>
+                {discovering
+                  ? "외부 공식DB 조회 중..."
+                  : `'${searchQuery.trim()}' 외부 기업DB 실시간 조회·추가`}
+              </span>
+            </button>
+          )}
         </div>
 
-        {/* 우측: Google AI Ultra + 공식 등록경로 기반 지역별 사업자 추가 발굴 */}
+        {/* 우측: 권역·조합별 공식 사업자 대량 추가 발굴 */}
         <div className="flex flex-wrap items-center gap-1.5 bg-[#e2dbcd] px-2 py-1 rounded border border-[#b8ae99]">
           <span className="text-[11px] font-extrabold text-[#1e3a8a] flex items-center gap-1 whitespace-nowrap">
             <Sparkles className="w-3.5 h-3.5 text-blue-700" />
-            <span>공식경로 사업자 추가 발굴:</span>
+            <span>권역·조합별 사업자 추가 발굴:</span>
           </span>
           <select
             value={discoverSector}
             onChange={(e) => setDiscoverSector(e.target.value as any)}
             className="px-2 py-0.5 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs font-bold"
           >
+            <option value="AWP">AWP (고소작업대·리프트 임대)</option>
             <option value="FL">FL (지게차 판매·임대)</option>
-            <option value="AWP">AWP (고소작업대 판매·임대)</option>
             <option value="OA_PC">PC·복합기(OA) 임대</option>
           </select>
           <select
@@ -730,28 +835,29 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
             onChange={(e) => setDiscoverRegion(e.target.value)}
             className="px-2 py-0.5 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs font-bold"
           >
-            <option value="경기·수도권">경기·수도권</option>
+            <option value="경기 (용인·화성·평택·이천)">경기 남부 (용인·화성·평택·이천)</option>
+            <option value="경기 서북부 (시흥·안산·김포·고양)">경기 서북부 (시흥·안산·김포·고양)</option>
+            <option value="한국고소작업대임대업협동조합 회원사">한국고소작업대임대업협동조합 회원사</option>
             <option value="서울·인천">서울·인천</option>
             <option value="부산·경남·울산">부산·경남·울산</option>
-            <option value="충청·대전·세종">충청·대전·세종</option>
-            <option value="대구·경북">대구·경북</option>
+            <option value="충청·대전·천안·아산">충청·대전·천안·아산</option>
             <option value="광주·전남·전북">광주·전남·전북</option>
-            <option value="전국 조달청 나라장터(MAS)">조달청 나라장터(MAS)</option>
+            <option value="조달청 나라장터(MAS) 임대 등록사">조달청 나라장터(MAS) 등록사</option>
           </select>
           <input
             type="text"
             value={discoverKeyword}
             onChange={(e) => setDiscoverKeyword(e.target.value)}
-            placeholder="세부 키워드 (예: 현대지게차 대리점)"
-            className="w-40 px-2 py-0.5 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs"
+            placeholder="특정 상호 또는 키워드"
+            className="w-36 px-2 py-0.5 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs"
           />
           <button
             type="button"
-            onClick={handleDiscoverBusinesses}
+            onClick={() => handleDiscoverBusinesses()}
             disabled={discovering}
             className="px-2.5 py-0.5 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold whitespace-nowrap"
           >
-            {discovering ? "공식경로 탐색 중..." : "+ 지역 사업자 자동수집"}
+            {discovering ? "공식DB 탐색 중..." : "+ 사업자 자동수집"}
           </button>
         </div>
       </div>
@@ -761,9 +867,11 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
         {/* 좌측 테이블 (7 cols) */}
         <div className="col-span-12 lg:col-span-7 bg-[#f4efe4] border border-[#b8ae99] rounded flex flex-col min-h-0 overflow-hidden">
           <div className="px-3 py-1.5 bg-[#e2dbcd] border-b border-[#b8ae99] flex items-center justify-between text-xs font-bold">
-            <span>조회된 공식 사업자 목록 ({filteredItems.length}개사)</span>
-            <span className="text-[11px] text-[#475569]">
-              행 클릭 시 우측에서 상세 제원 확인 및 ERP 거래처(고객/매입처) 1클릭 등록 가능
+            <span>
+              조회된 공식 사업자 목록 ({filteredItems.length}개사 / 당사 매출처 연동 {counts.customers}개사)
+            </span>
+            <span className="text-[11px] text-[#1e3a8a] font-extrabold">
+              각 행 우측의 [+ 매출처 등록] 클릭 시 ERP 고객 관리(매출처)로 즉시 등록됩니다
             </span>
           </div>
 
@@ -771,40 +879,81 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
             <table className="w-full text-left border-collapse text-xs">
               <thead className="sticky top-0 z-10 bg-[#e2dbcd] text-[#0f172a] border-b border-[#b8ae99]">
                 <tr>
-                  <th className="py-2 px-2 text-center font-extrabold whitespace-nowrap w-9">관심</th>
+                  <th className="py-2 px-2 text-center w-8">
+                    <input
+                      type="checkbox"
+                      checked={
+                        filteredItems.length > 0 &&
+                        filteredItems.every((it) => checkedIds.includes(it.id))
+                      }
+                      onChange={toggleCheckAllFiltered}
+                      className="accent-blue-700"
+                    />
+                  </th>
+                  <th className="py-2 px-1.5 text-center font-extrabold whitespace-nowrap w-8">관심</th>
                   <th className="py-2 px-2 font-extrabold whitespace-nowrap">업종구분</th>
-                  <th className="py-2 px-2.5 font-extrabold whitespace-nowrap">상호 (법인명)</th>
+                  <th className="py-2 px-2 font-extrabold whitespace-nowrap">상호 (법인명)</th>
                   <th className="py-2 px-2 font-extrabold whitespace-nowrap">사업자번호</th>
                   <th className="py-2 px-2 font-extrabold whitespace-nowrap">권역/지역</th>
-                  <th className="py-2 px-2 font-extrabold whitespace-nowrap">취급 브랜드 / 기종</th>
                   <th className="py-2 px-2 font-extrabold whitespace-nowrap">공식 확인 경로</th>
-                  <th className="py-2 px-2 text-center font-extrabold whitespace-nowrap">상태</th>
+                  <th className="py-2 px-2 text-center font-extrabold whitespace-nowrap">
+                    매출처(고객) 등록
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#d5ccb8]">
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-10 text-center text-[#64748b] font-semibold">
-                      조건에 해당하는 사업자가 없습니다.
+                    <td colSpan={8} className="py-10 text-center space-y-2">
+                      <div className="text-[#475569] font-bold">
+                        현재 로컬 디렉토리에서 &apos;{searchQuery}&apos; 조건과 일치하는 사업자가 없습니다.
+                      </div>
+                      {searchQuery.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => handleDiscoverBusinesses(searchQuery.trim())}
+                          disabled={discovering}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-800 text-white text-xs font-extrabold shadow-sm"
+                        >
+                          <Globe className="w-3.5 h-3.5" />
+                          <span>
+                            {discovering
+                              ? "외부 기업DB(NICE·협동조합·나라장터) 검색 중..."
+                              : `외부 기업DB(NICE·협동조합·나라장터)에서 '${searchQuery.trim()}' 실시간 조회 및 등록하기`}
+                          </span>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ) : (
                   filteredItems.map((item) => {
                     const isSelected = item.id === selectedId;
                     const secMeta = SECTOR_META[item.sector] || SECTOR_META.FL;
-                    const stMeta = SALES_STATUS_META[item.salesStatus] || SALES_STATUS_META.TARGET;
+                    const isCustomer =
+                      Boolean(item.isRegisteredCustomer) || item.salesStatus === "CUSTOMER";
                     return (
                       <tr
                         key={item.id}
                         onClick={() => setSelectedId(item.id)}
                         className={`cursor-pointer transition-colors ${
                           isSelected
-                            ? "bg-[#dbeafe]/70 font-bold"
+                            ? "bg-[#dbeafe]/80 font-bold"
                             : "hover:bg-[#ebe5d8]"
                         }`}
                       >
                         <td
                           className="py-1.5 px-2 text-center whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checkedIds.includes(item.id)}
+                            onChange={() => toggleCheck(item.id)}
+                            className="accent-blue-700"
+                          />
+                        </td>
+                        <td
+                          className="py-1.5 px-1.5 text-center whitespace-nowrap"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleQuickUpdate(item.id, { isBookmarked: !item.isBookmarked });
@@ -826,7 +975,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
                           </span>
                         </td>
                         <td
-                          className="py-1.5 px-2.5 font-extrabold text-[#0f172a] max-w-[190px] truncate whitespace-nowrap"
+                          className="py-1.5 px-2 font-extrabold text-[#0f172a] max-w-[180px] truncate whitespace-nowrap"
                           title={item.companyName}
                         >
                           {item.companyName}
@@ -835,29 +984,39 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
                           {item.businessNo || "-"}
                         </td>
                         <td
-                          className="py-1.5 px-2 text-[#1e293b] max-w-[120px] truncate whitespace-nowrap"
-                          title={item.region}
+                          className="py-1.5 px-2 text-[#1e293b] max-w-[125px] truncate whitespace-nowrap"
+                          title={`${item.region} ${item.address}`}
                         >
                           {item.region}
                         </td>
                         <td
-                          className="py-1.5 px-2 text-[#334155] max-w-[170px] truncate whitespace-nowrap"
-                          title={`${item.mainBrands} | ${item.mainProducts}`}
-                        >
-                          {item.mainBrands || item.mainProducts || "-"}
-                        </td>
-                        <td
-                          className="py-1.5 px-2 text-[11px] text-[#1d4ed8] font-semibold max-w-[160px] truncate whitespace-nowrap"
+                          className="py-1.5 px-2 text-[11px] text-[#1d4ed8] font-semibold max-w-[165px] truncate whitespace-nowrap"
                           title={item.officialSource}
                         >
                           {item.officialSource}
                         </td>
-                        <td className="py-1.5 px-2 text-center whitespace-nowrap">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${stMeta.badgeClass}`}
-                          >
-                            {stMeta.label}
-                          </span>
+                        <td
+                          className="py-1.5 px-2 text-center whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {isCustomer ? (
+                            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded bg-emerald-100 border border-emerald-400 text-emerald-900 text-[10.5px] font-extrabold">
+                              <Check className="w-3 h-3" />
+                              <span>매출처 등록됨</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={registeringId === item.id}
+                              onClick={() => handleRegisterToPartner(item, "CUSTOMER")}
+                              className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-[10.5px] font-extrabold shadow-2xs transition"
+                            >
+                              <UserPlus className="w-3 h-3" />
+                              <span>
+                                {registeringId === item.id ? "등록 중..." : "+ 매출처 등록"}
+                              </span>
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -921,30 +1080,43 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
                   >
                     <option value="TARGET">발굴완료(타깃)</option>
                     <option value="CONTACTED">접촉/제안중</option>
-                    <option value="PARTNER">협력/매입처등록</option>
-                    <option value="CUSTOMER">당사 고객사등록</option>
+                    <option value="PARTNER">매입처 등록됨</option>
+                    <option value="CUSTOMER">매출처 등록됨</option>
                     <option value="HOLD">보류</option>
                   </select>
                 </div>
 
                 {/* ERP 거래처 1클릭 연동 버튼 */}
                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => handleRegisterToPartner(selectedItem, "CUSTOMER")}
-                    className="px-2.5 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-[11px] font-bold flex items-center gap-1 whitespace-nowrap shadow-xs"
-                  >
-                    <UserPlus className="w-3 h-3" />
-                    <span>ERP 고객사(매출처)로 즉시 등록</span>
-                  </button>
+                  {selectedItem.isRegisteredCustomer ? (
+                    <span className="px-2.5 py-1 rounded bg-emerald-100 border border-emerald-500 text-emerald-950 text-[11px] font-extrabold flex items-center gap-1 whitespace-nowrap">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>ERP 고객 관리(매출처) 등록 완료</span>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleRegisterToPartner(selectedItem, "CUSTOMER")}
+                      className="px-2.5 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-[11px] font-bold flex items-center gap-1 whitespace-nowrap shadow-xs"
+                    >
+                      <UserPlus className="w-3 h-3" />
+                      <span>ERP 고객사(매출처)로 즉시 등록</span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => handleRegisterToPartner(selectedItem, "VENDOR")}
                     className="px-2.5 py-1 rounded bg-violet-700 hover:bg-violet-800 text-white text-[11px] font-bold flex items-center gap-1 whitespace-nowrap shadow-xs"
                   >
                     <Truck className="w-3 h-3" />
-                    <span>ERP 매입거래처(장비수급처)로 등록</span>
+                    <span>
+                      {selectedItem.isRegisteredVendor
+                        ? "매입거래처 등록됨"
+                        : "ERP 매입거래처로 등록"}
+                    </span>
                   </button>
+
                   {selectedItem.websiteUrl && (
                     <a
                       href={selectedItem.websiteUrl}
@@ -952,7 +1124,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
                       rel="noreferrer"
                       className="px-2.5 py-1 rounded bg-[#f4efe4] hover:bg-[#d8d0c0] border border-[#b8ae99] text-[#1d4ed8] text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap"
                     >
-                      <span>공식 홈페이지</span>
+                      <span>공식 사이트</span>
                       <ExternalLink className="w-3 h-3" />
                     </a>
                   )}
@@ -1051,26 +1223,26 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
             <div className="px-4 py-3 bg-[#e2dbcd] border-b border-[#b8ae99] flex items-center justify-between">
               <div className="flex items-center gap-2 font-extrabold text-sm text-[#0f172a]">
                 <ShieldCheck className="w-4 h-4 text-blue-700" />
-                <span>FL · AWP · PC/복합기 임대업 전국 공식 확인 경로 및 원천 포털</span>
+                <span>왜 일부 리프트 업체는 정부 건설기계 대장에 없을까? & 전국 6대 원천 DB 안내</span>
               </div>
               <button onClick={() => setShowPortalGuideModal(false)}>
                 <X className="w-4 h-4 text-[#475569]" />
               </button>
             </div>
             <div className="p-4 overflow-y-auto space-y-3 text-xs">
-              <div className="p-3 rounded bg-[#ebe5d8] border border-[#b8ae99] space-y-1">
+              <div className="p-3 rounded bg-[#ebe5d8] border border-[#b8ae99] space-y-1.5">
                 <div className="font-extrabold text-[#0f172a]">
-                  업종별 법정 등록 코드 및 공식 확인 기준
+                  핵심 원인: 지게차(FL)와 고소작업대(AWP 리프트)의 법적 인허가 체계 차이
                 </div>
-                <ul className="list-disc list-inside space-y-1 text-[#334155]">
+                <ul className="list-disc list-inside space-y-1 text-[#334155] leading-relaxed">
                   <li>
-                    <strong>FL (지게차 판매·임대업)</strong>: 지게차는 『건설기계관리법』상 법정 건설기계이므로 관할 시·군·구청에 <strong>건설기계대여업(일반/개별)</strong>으로 등록된 사업자 및 <strong>HD현대·두산밥캣·클라크·토요타 공식 대리점</strong>을 통해 100% 공식 확인됩니다. (표준산업분류 <code>KSIC 71201</code> / <code>46592</code>)
+                    <strong>지게차 (FL)</strong>는 『건설기계관리법』상 27종 법정 건설기계이므로 시·군·구청 <strong>건설기계대여업 등록 명부(공공데이터포털 data.go.kr)</strong>에 의무 등재됩니다.
                   </li>
                   <li>
-                    <strong>AWP (고소작업대 판매·임대업)</strong>: 고소작업대(시저리프트·붐리프트)는 『산업안전보건법』상 안전인증·정기안전검사(KOSHA) 대상 장비로, <strong>한국렌탈협회, 조달청 나라장터, 다아라 기계장터 공인 회원사</strong>를 통해 확인됩니다. (표준산업분류 <code>KSIC 71201</code>)
+                    반면 <strong>고소작업대 (AWP 시저스/붐 리프트)</strong>는 번호판이 붙는 건설기계가 아니라 『산업안전보건법』상 위험기계·기구로 분류되어, 세무서에 일반 사업자등록(예: <code>주식회사 기연리프트</code>처럼 <code>사업지원 및 임대서비스업 / 도소매업</code>)만 내고 영업합니다.
                   </li>
                   <li>
-                    <strong>PC · 노트북 · 복합기(OA) 임대업</strong>: 공공기관 납품을 위한 <strong>조달청 나라장터 종합쇼핑몰 다수공급자계약(MAS - 사무기기임대/컴퓨터임대)</strong> 계약업체 및 <strong>신도리코·캐논·후지필름·교세라 공식 파트너 법인</strong>으로 확인됩니다. (표준산업분류 <code>KSIC 71202</code>)
+                    따라서 전국 리프트·지게차·OA 임대 사업자를 빠짐없이 확보하려면 <strong>① 한국고소작업대임대업협동조합(klra.or.kr) 회원사 명부, ② NICE평가정보·산군(sankun.com) 기업신용 DB, ③ 공공데이터포털 지자체 건설기계대여업 원부, ④ 조달청 나라장터(MAS)</strong>를 통합 조회해야 합니다.
                   </li>
                 </ul>
               </div>
@@ -1176,7 +1348,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
                   type="text"
                   value={formData.region}
                   onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                  placeholder="예: 경기 (화성·평택)"
+                  placeholder="예: 경기 (용인 처인구)"
                   className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99]"
                 />
               </div>

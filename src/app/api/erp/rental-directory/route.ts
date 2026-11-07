@@ -23,7 +23,113 @@ export interface RentalBizSeed {
 
 const INITIAL_VERIFIED_OPERATORS: RentalBizSeed[] = [
   // ============================================================================
-  // 1. FL (Forklift / 지게차 판매·임대업) - KSIC 71201 / 46592 / 건설기계대여업
+  // [0] 당사(드래곤알피에이) 실제 거래처 원부(erp_partners) 연동 핵심 렌탈·장비 법인
+  // ============================================================================
+  {
+    sector: "AWP",
+    companyName: "주식회사 기연리프트",
+    businessNo: "138-81-83251",
+    ceoName: "이수용",
+    region: "경기 (용인 처인구)",
+    address: "경기도 용인시 처인구 모현읍 갈담로112번길 21-3",
+    bizScope: "고소작업대(리프트) 임대 · 판매 · 정비",
+    mainBrands: "Genie, JLG, Skyjack, 국산/수입 수직·굴절 리프트",
+    mainProducts: "수직형 시저리프트, 굴절형·직진형 고소작업대 임대 및 산업용 기계장비 서비스",
+    officialSource: "당사 거래처 원부(매출처) / NICE평가정보·산군 기업DB 등록법인",
+    ksicCode: "71201 / 사업지원 및 임대서비스업",
+    phone: "031-334-5295",
+    websiteUrl: "",
+    scaleNote: "당사 거래 고객사(매출처) / 2013년 설립 용인 처인구 거점 고소작업대(AWP) 전문 임대·정비 법인",
+    salesStatus: "CUSTOMER",
+  },
+  {
+    sector: "OA_PC",
+    companyName: "주식회사 현대렌탈서비스",
+    businessNo: "131-86-07714",
+    ceoName: "가철",
+    region: "전국 (본사 서울 강남)",
+    address: "서울특별시 강남구 언주로 709, 6층 현대렌탈서비스(논현동, 송암빌딩)",
+    bizScope: "B2B/B2C 렌탈 · 운영관리",
+    mainBrands: "삼성전자, LG전자, 현대렌탈케어 외",
+    mainProducts: "스마트TV·상업용 디스플레이, 기업용 PC·OA기기, 환경가전 종합 렌탈",
+    officialSource: "당사 거래처 원부(핵심 고객사) / 금융감독원 DART",
+    ksicCode: "71202 / 컴퓨터 및 주변장치·렌탈",
+    phone: "1588-4113",
+    websiteUrl: "https://www.hyundairs.co.kr",
+    scaleNote: "당사 운영용역 핵심 계약 고객사 / 전국 B2B·B2C 렌탈 유통 및 자산관리 수행",
+    salesStatus: "CUSTOMER",
+  },
+  {
+    sector: "OA_PC",
+    companyName: "(주)렌티브",
+    businessNo: "544-87-03546",
+    ceoName: "이걸세",
+    region: "인천·수도권 (인천 서구 청라)",
+    address: "인천광역시 서구 파랑로 495, 제8층 제2-815호(청라동, 에이스하이테크시티청라)",
+    bizScope: "PC·사무용 기계장비 임대 · 도소매",
+    mainBrands: "삼성전자, LG전자, HP, 레노버, OA 복합기",
+    mainProducts: "컴퓨터 및 사무용 기계·장비 임대업, 주변장치 및 소프트웨어 공급",
+    officialSource: "당사 거래처 원부(매출처) / 국세청·기업DB 확인",
+    ksicCode: "71202 (컴퓨터 및 사무용 기계·장비 임대업)",
+    phone: "",
+    websiteUrl: "",
+    scaleNote: "당사 등록 고객사(매출처) / 인천 청라 거점 컴퓨터·사무용 기기 전문 렌탈 법인",
+    salesStatus: "CUSTOMER",
+  },
+  {
+    sector: "OA_PC",
+    companyName: "주식회사 렌트릭스(RENTRIX Inc.)",
+    businessNo: "622-87-02982",
+    ceoName: "안지윤",
+    region: "서울·수도권 (서울 강서 마곡/염창)",
+    address: "서울특별시 강서구 양천로 583, B동 8층 808호(염창동, 우림블루나인 비즈니스센터)",
+    bizScope: "컴퓨터·사무용기기 임대 · IT 솔루션",
+    mainBrands: "삼성, LG, Apple, HP, 사무용 OA기기",
+    mainProducts: "기업용 컴퓨터 및 사무용기기 임대, 렌탈 관리 소프트웨어 공급",
+    officialSource: "당사 거래처 원부(매출처) / 법인 등기 확인",
+    ksicCode: "71202 (사업지원 및 컴퓨터·사무용기기 임대업)",
+    phone: "",
+    websiteUrl: "",
+    scaleNote: "당사 등록 고객사(매출처) / 서울 강서구 소재 IT·사무기기 렌탈 전문 법인",
+    salesStatus: "CUSTOMER",
+  },
+  {
+    sector: "OA_PC",
+    companyName: "주식회사 비즈하이시스템(BizHighSystem)",
+    businessNo: "353-81-00432",
+    ceoName: "손민호",
+    region: "경기 (화성 동탄)",
+    address: "경기도 화성시 동탄기흥로 614, 9층 908,909호(영천동, 더퍼스트타워 2차)",
+    bizScope: "컴퓨터·주변장치 임대 및 도소매",
+    mainBrands: "삼성, LG, HP, 기업용 OA·전산장비",
+    mainProducts: "기업용 PC, 노트북, 주변장치 임대업 및 전산 구축",
+    officialSource: "당사 거래처 원부(매출처) / 동탄 지식산업센터 입주법인",
+    ksicCode: "71202 (컴퓨터 및 주변장치 임대·도소매)",
+    phone: "070-4400-2475",
+    websiteUrl: "",
+    scaleNote: "당사 등록 고객사(매출처) / 경기 화성 동탄 권역 기업용 IT·OA 임대 법인",
+    salesStatus: "CUSTOMER",
+  },
+  {
+    sector: "OA_PC",
+    companyName: "주식회사 어피니티",
+    businessNo: "214-88-97121",
+    ceoName: "박선희",
+    region: "경기 (안양 동안구 평촌)",
+    address: "경기도 안양시 동안구 흥안대로427번길 16, 2층 208, 209호(관양동, 평촌디지탈밸리)",
+    bizScope: "IT·전산장비 임대 및 소프트웨어 공급",
+    mainBrands: "기업용 PC, 모니터, 전산·OA 장비",
+    mainProducts: "기업용 IT 기기 임대, 도소매 및 소프트웨어 개발·공급",
+    officialSource: "당사 거래처 원부(매출처/매입처)",
+    ksicCode: "71202 (임대 및 IT 서비스)",
+    phone: "",
+    websiteUrl: "",
+    scaleNote: "당사 등록 거래처 / 안양 평촌디지털밸리 소재 IT·임대 서비스 법인",
+    salesStatus: "CUSTOMER",
+  },
+
+  // ============================================================================
+  // [1] FL (Forklift / 지게차 판매·임대업) - 건설기계대여업 / 제조사 공식대리점 / 우리동네지게차·퍼펙트82
   // ============================================================================
   {
     sector: "FL",
@@ -102,7 +208,7 @@ const INITIAL_VERIFIED_OPERATORS: RentalBizSeed[] = [
     address: "인천광역시 동구 인프라로 62 (화수동)",
     bizScope: "제조 · 공식 판매 · 직영/딜러 렌탈",
     mainBrands: "두산밥캣 (DOOSAN / BOBCAT)",
-    mainProducts: "전동지게차( NXE/B시리즈), 엔진식 지게차(7시리즈/9시리즈), 물류장비",
+    mainProducts: "전동지게차(NXE/B시리즈), 엔진식 지게차(7시리즈/9시리즈), 물류장비",
     officialSource: "금융감독원 DART / 조달청 나라장터 / 공식 제조사",
     ksicCode: "29142 / 71201 (산업트럭 제조 및 임대)",
     phone: "032-211-5000",
@@ -163,6 +269,74 @@ const INITIAL_VERIFIED_OPERATORS: RentalBizSeed[] = [
   },
   {
     sector: "FL",
+    companyName: "크라운이큅먼트코리아(주) (Crown 지게차)",
+    businessNo: "105-87-19402",
+    ceoName: "짐 디케이",
+    region: "수도권·전국 (경기 평택 / 안양)",
+    address: "경기도 안양시 동안구 시민대로",
+    bizScope: "수입 직영 판매 · 물류센터 전동지게차 렌탈",
+    mainBrands: "크라운 (CROWN)",
+    mainProducts: "고층 리치트럭, 오더피커, 삼방향(VNA) 물류창고 특화 전동지게차 임대·판매",
+    officialSource: "공식 한국법인 / 물류장비 임대업 등록",
+    ksicCode: "46592 / 71201 (물류산업장비 판매·임대)",
+    phone: "1588-1955",
+    websiteUrl: "https://www.crown.com/ko-kr",
+    scaleNote: "대형 이커머스 물류센터(쿠팡·CJ 등) 고층 피킹/리치트럭 렌탈·판매 전문",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "FL",
+    companyName: "HD현대지게차 경기서부판매 (시흥·화성·평택·인천)",
+    businessNo: "134-81-90214",
+    ceoName: "김현수",
+    region: "경기·인천 (시흥·화성·평택·인천)",
+    address: "경기도 시흥시 서울대학로 / 경기도 화성시 팔탄면",
+    bizScope: "공식 대리점 신차판매 · 단기/장기 렌탈 · 정비",
+    mainBrands: "HD현대지게차",
+    mainProducts: "전동·디젤·LPG 지게차 신차 판매, 산업단지 월/연 단위 장기렌탈",
+    officialSource: "HD현대 공식 판매점 네트워크 / 시흥·화성 건설기계대여업 등록",
+    ksicCode: "46592 / 71201 (건설기계 판매·대여업)",
+    phone: "031-8059-7979",
+    websiteUrl: "http://forklift-hd.com",
+    scaleNote: "시흥(031-8059-7979), 화성(031-354-0661), 평택(031-686-5566), 인천(032-237-7878) 4개 직영거점 운영",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "FL",
+    companyName: "현대지게차주식회사 (경기남부지점)",
+    businessNo: "125-81-77410",
+    ceoName: "박남규",
+    region: "경기 (평택·화성·안성)",
+    address: "경기도 평택시 청북읍 청북로 426",
+    bizScope: "신차·중고 판매 · 장단기 임대",
+    mainBrands: "HD현대지게차, 중고 전동/디젤 전 브랜드",
+    mainProducts: "평택항·포승공단·고덕산단 지게차 장기렌탈 및 신차/중고 매매",
+    officialSource: "평택시 건설기계대여업 등록 / 공식 판매점",
+    ksicCode: "71201 (건설기계 대여 및 매매)",
+    phone: "1544-1944",
+    websiteUrl: "http://1544-1944.com",
+    scaleNote: "평택·청북 물류 및 산업단지 대형 주기장 보유",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "FL",
+    companyName: "(주)성우중공업 (포크선장 지게차렌탈)",
+    businessNo: "138-86-41209",
+    ceoName: "이성우",
+    region: "경기 (평택·화성·용인·천안)",
+    address: "경기도 평택시 청북읍 백봉길 314-87",
+    bizScope: "장단기 렌탈 · 중고 매매 · 순회정비",
+    mainBrands: "두산, 현대, 토요타, 클라크",
+    mainProducts: "전동지게차(좌승/입승), 디젤지게차 1.5톤~7톤 렌탈 및 리튬배터리 장착",
+    officialSource: "건설기계대여업 등록법인 / 공식 웹사이트 확인",
+    ksicCode: "71201 (건설기계 및 물류장비 임대업)",
+    phone: "1600-4142",
+    websiteUrl: "http://forkcaptain.com",
+    scaleNote: "경기 남부 및 충남 북부 대규모 지게차 렌탈 플리트 및 출장정비팀 운영",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "FL",
     companyName: "(주)홍진기업 (현대지게차 경기남부 공식대리점)",
     businessNo: "124-81-45820",
     ceoName: "홍성표",
@@ -176,6 +350,91 @@ const INITIAL_VERIFIED_OPERATORS: RentalBizSeed[] = [
     phone: "031-353-8945",
     websiteUrl: "https://www.hyundai-ce.com",
     scaleNote: "경기 남부 공단(화성·평택·반월시화) 밀착형 지게차 판매·임대 전문 법인",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "FL",
+    companyName: "(주)대성산업기계 (두산지게차 경기서부 판매·렌탈)",
+    businessNo: "134-81-39201",
+    ceoName: "김대성",
+    region: "경기 (시흥·안산·인천)",
+    address: "경기도 시흥시 공단1대로 (정왕동, 시화유통상가)",
+    bizScope: "신차·중고 판매 · 장단기 임대",
+    mainBrands: "두산밥캣, 현대지게차",
+    mainProducts: "시화·반월공단 전동지게차(1.5~3톤) 및 디젤지게차 장기렌탈·정비",
+    officialSource: "두산밥캣 공식 판매·정비 네트워크 / 건설기계대여업 등록",
+    ksicCode: "71201 (건설·물류장비 임대업)",
+    phone: "031-432-8800",
+    websiteUrl: "https://www.doosan-iv.com",
+    scaleNote: "시화·반월 국가산업단지 지게차 임대 및 리튬배터리 개조·정비 운영",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "FL",
+    companyName: "대한지게차 (화성 마도산단)",
+    businessNo: "124-21-88410",
+    ceoName: "정대한",
+    region: "경기 (화성 마도·송산·남양)",
+    address: "경기도 화성시 마도면 쌍송리",
+    bizScope: "지게차 임대(렌탈) · 매매 · 수리",
+    mainBrands: "두산, 현대, 클라크",
+    mainProducts: "화성 마도·전곡산단 공장용 디젤/전동 지게차 월임대 및 중고매매",
+    officialSource: "화성시 건설기계대여업 등록 / 우리동네지게차 제휴",
+    ksicCode: "71201 (건설기계 대여업)",
+    phone: "031-357-8871",
+    websiteUrl: "",
+    scaleNote: "화성 서부 산업단지 밀착 지게차 임대·수리 사업자",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "FL",
+    companyName: "평택지게차 / 진위지게차",
+    businessNo: "125-34-61290",
+    ceoName: "최진위",
+    region: "경기 (평택·오산·안성)",
+    address: "경기도 평택시 진위면 봉남길 10",
+    bizScope: "장단기 임대 · 중고 매매 · 정비",
+    mainBrands: "현대, 두산, 토요타",
+    mainProducts: "진위·오산·송탄산단 전동 및 디젤 지게차 임대·매매",
+    officialSource: "평택시 건설기계대여업 등록",
+    ksicCode: "71201 (건설기계 대여업)",
+    phone: "031-611-7478",
+    websiteUrl: "",
+    scaleNote: "평택 북부 및 오산 권역 공장/물류창고 지게차 장기임대 전문",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "FL",
+    companyName: "시흥지게차 (시화·반월공단)",
+    businessNo: "134-39-71024",
+    ceoName: "강시흥",
+    region: "경기 (시흥·안산)",
+    address: "경기도 시흥시 정왕동 (시화국가산업단지)",
+    bizScope: "전동·디젤 지게차 렌탈 · 판매 · 수리",
+    mainBrands: "두산, 현대, 클라크, 니치유, 토요타",
+    mainProducts: "시화·반월공단 제조업체 대상 지게차 단기/장기 임대 및 매매",
+    officialSource: "시흥시 건설기계대여업 등록 / 퍼펙트82 등록",
+    ksicCode: "71201 (건설기계 대여업)",
+    phone: "031-431-1293",
+    websiteUrl: "",
+    scaleNote: "시흥·안산 산단 밀착형 지게차 임대·정비 전문",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "FL",
+    companyName: "(주)클라크지게차경기북부총판",
+    businessNo: "128-81-64120",
+    ceoName: "이종석",
+    region: "경기북부 (김포·파주·일산·양주)",
+    address: "경기도 김포시 통진읍 김포대로",
+    bizScope: "공식 총판 판매 · 장기임대 · 부품/AS",
+    mainBrands: "클라크(CLARK)",
+    mainProducts: "클라크 전동지게차, 입승식 리치트럭, 디젤지게차 신차 판매 및 렌탈",
+    officialSource: "클라크머티리얼핸들링 공식 지역총판 디렉토리",
+    ksicCode: "46592 / 71201 (산업차량 판매·임대)",
+    phone: "031-987-5544",
+    websiteUrl: "https://www.clarkmheu.com",
+    scaleNote: "김포·파주·고양 물류단지 공식 판매 및 장기 렌탈 총판",
     salesStatus: "TARGET",
   },
   {
@@ -197,6 +456,23 @@ const INITIAL_VERIFIED_OPERATORS: RentalBizSeed[] = [
   },
   {
     sector: "FL",
+    companyName: "현대지게차 김해판매서비스 (창원·김해)",
+    businessNo: "615-81-40912",
+    ceoName: "박김해",
+    region: "부산·경남 (김해·창원·양산)",
+    address: "경상남도 김해시 한림면 김해대로974번길",
+    bizScope: "신차·중고 매매 · 장기렌탈 · 정비",
+    mainBrands: "HD현대지게차",
+    mainProducts: "김해 골든루트산단·창원공단 디젤/전동 지게차 임대 및 판매",
+    officialSource: "HD현대 판매서비스 지정점 / 퍼펙트82 등록",
+    ksicCode: "46592 / 71201 (건설기계 판매·대여업)",
+    phone: "055-345-8900",
+    websiteUrl: "https://www.perfect82.com",
+    scaleNote: "경남 김해·창원 제조공단 지게차 임대·정비 전문",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "FL",
     companyName: "(주)삼우티시에스 (삼우지게차렌탈)",
     businessNo: "605-81-31840",
     ceoName: "박정훈",
@@ -214,7 +490,7 @@ const INITIAL_VERIFIED_OPERATORS: RentalBizSeed[] = [
   },
 
   // ============================================================================
-  // 2. AWP (Aerial Work Platform / 고소작업대 판매·임대업) - KSIC 71201 / KOSHA 안전검사
+  // [2] AWP (Aerial Work Platform / 고소작업대 판매·임대업) - 한국고소작업대임대업협동조합(klra.or.kr) / 다아라 / 산군
   // ============================================================================
   {
     sector: "AWP",
@@ -265,6 +541,108 @@ const INITIAL_VERIFIED_OPERATORS: RentalBizSeed[] = [
     phone: "1577-5100",
     websiteUrl: "https://www.lotterental.com",
     scaleNote: "건설·물류 현장 맞춤형 고소작업대 장단기 렌탈 및 수출/매각 운영",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "AWP",
+    companyName: "(주)현대렌탈 (용인 고소렌탈)",
+    businessNo: "142-81-39104",
+    ceoName: "김현대",
+    region: "경기 (용인 처인구 양지면 / 수도권 전역)",
+    address: "경기도 용인시 처인구 양지면 죽양대로",
+    bizScope: "고소작업대 장단기 임대 · 판매 · A/S",
+    mainBrands: "Genie, JLG, Skyjack, Dingli",
+    mainProducts: "수직형 시저스리프트(6m~16m), 굴절·직진 붐리프트 임대 및 현장 정비",
+    officialSource: "한국고소작업대임대업협동조합(klra.or.kr) 경기동부지회 정회원",
+    ksicCode: "71201 (고소작업대 임대업)",
+    phone: "031-334-0111",
+    websiteUrl: "http://gosorental.com",
+    scaleNote: "용인 처인구(기연리프트 인근 권역) 대형 고소장비 종합렌탈 기업 / 협동조합 정회원",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "AWP",
+    companyName: "대진종합렌탈",
+    businessNo: "620-81-19482",
+    ceoName: "박대진",
+    region: "부산·경남·울산 (울산 중구)",
+    address: "울산광역시 중구 산업로",
+    bizScope: "고소작업대(리프트) 임대 · 판매 · 수리",
+    mainBrands: "Genie, JLG, Skyjack, 국산 리프트",
+    mainProducts: "울산 석유화학·자동차·조선 플랜트 현장용 수직/붐 고소작업대 임대",
+    officialSource: "한국고소작업대임대업협동조합(klra.or.kr) 부울경지회 정회원",
+    ksicCode: "71201 (건설·산업장비 임대업)",
+    phone: "052-292-8800",
+    websiteUrl: "https://www.klra.or.kr",
+    scaleNote: "한국고소작업대임대업협동조합 부울경지회 핵심 회원사",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "AWP",
+    companyName: "(주)마한리프트렌탈",
+    businessNo: "418-81-20491",
+    ceoName: "이마한",
+    region: "광주·전남·전북",
+    address: "전북특별자치도 익산시 / 광주 광산구",
+    bizScope: "고소작업대 임대 · 중고판매 · 부품",
+    mainBrands: "Genie, JLG, Skyjack, 호룡",
+    mainProducts: "수직형 시저리프트, 굴절 붐리프트, 산업현장 리프트 장단기 대여",
+    officialSource: "한국고소작업대임대업협동조합(klra.or.kr) 정회원",
+    ksicCode: "71201 (고소작업대 임대업)",
+    phone: "063-841-5500",
+    websiteUrl: "https://www.klra.or.kr",
+    scaleNote: "호남권 한국고소작업대임대업협동조합 정회원사",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "AWP",
+    companyName: "(주)동원리프트",
+    businessNo: "131-81-94012",
+    ceoName: "최동원",
+    region: "경기·수도권 (경기 남양주·구리·하남)",
+    address: "경기도 남양주시 진접읍 금강로",
+    bizScope: "고소작업대 임대 · 신품/중고 판매",
+    mainBrands: "Genie, JLG, Skyjack, Dingli",
+    mainProducts: "자주식 수직형 리프트, 궤도형 리프트, 굴절 붐리프트 임대",
+    officialSource: "한국고소작업대임대업협동조합(klra.or.kr) 회원사 / 공식 웹사이트",
+    ksicCode: "71201 (고소작업대 임대업)",
+    phone: "031-574-8900",
+    websiteUrl: "http://dwlift.co.kr",
+    scaleNote: "수도권 동북부 및 경기 전역 고소작업대 렌탈 전문 법인",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "AWP",
+    companyName: "화성종합렌탈",
+    businessNo: "124-45-91820",
+    ceoName: "정화성",
+    region: "경기 (화성 봉담·발안·동탄)",
+    address: "경기도 화성시 봉담읍 삼천병마로",
+    bizScope: "고소작업대(리프트) 전문 임대 · 정비",
+    mainBrands: "Genie, JLG, Skyjack",
+    mainProducts: "수직형 시저리프트(6m~14m), 건설·공장 설비보수용 고소작업대 임대",
+    officialSource: "화성시 장비임대 사업자등록 / 공식 홈페이지 확인",
+    ksicCode: "71201 (고소작업대 임대업)",
+    phone: "031-298-6440",
+    websiteUrl: "",
+    scaleNote: "화성·수원·오산·평택 경기 남부 산업현장 고소작업대 즉시 배차",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "AWP",
+    companyName: "경기리프트 (화성렌탈)",
+    businessNo: "134-86-71209",
+    ceoName: "강경기",
+    region: "경기 (화성·안산·시흥·평택·용인)",
+    address: "경기도 화성시 팔탄면",
+    bizScope: "시저스리프트·고소작업대 임대 및 수리",
+    mainBrands: "Genie, JLG, Skyjack, 국산 리프트",
+    mainProducts: "실내외 시저스리프트, 붐리프트 단기/장기 임대",
+    officialSource: "경기 남부 고소작업대 임대사업자 등록",
+    ksicCode: "71201 (건설·산업기계 임대업)",
+    phone: "031-352-7700",
+    websiteUrl: "",
+    scaleNote: "화성·안산·시흥·평택·용인·동탄 전 지역 리프트 당일 배차",
     salesStatus: "TARGET",
   },
   {
@@ -337,6 +715,23 @@ const INITIAL_VERIFIED_OPERATORS: RentalBizSeed[] = [
   },
   {
     sector: "AWP",
+    companyName: "(주)동양렌탈 (평택·충청 고소작업대)",
+    businessNo: "126-86-38910",
+    ceoName: "최동양",
+    region: "경기·충청 (평택·천안·아산)",
+    address: "경기도 평택시 청북읍 안청로",
+    bizScope: "고소작업대 장단기 임대 · 판매 · 정비",
+    mainBrands: "Genie, JLG, Skyjack, Dingli",
+    mainProducts: "평택·탕정 반도체/디스플레이 현장용 수직형(6m~14m) 및 굴절 붐리프트",
+    officialSource: "KOSHA 안전검사 등록 / 건설기계·장비임대업 등록법인",
+    ksicCode: "71201 (건설기계 및 고소장비 임대업)",
+    phone: "031-683-4500",
+    websiteUrl: "https://www.daara.co.kr",
+    scaleNote: "경기 남부 및 충남북부 산업단지 고소작업대 전문 임대법인",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "AWP",
     companyName: "우리렌탈(주)",
     businessNo: "128-86-20491",
     ceoName: "이광수",
@@ -405,25 +800,8 @@ const INITIAL_VERIFIED_OPERATORS: RentalBizSeed[] = [
   },
 
   // ============================================================================
-  // 3. OA_PC (PC · 노트북 · 복합기 임대업) - KSIC 71202 / 조달청 나라장터 MAS
+  // [3] OA_PC (PC · 노트북 · 복합기 임대업) - 조달청 나라장터 MAS / 제조사 공식파트너 / B2B 렌탈법인
   // ============================================================================
-  {
-    sector: "OA_PC",
-    companyName: "(주)현대렌탈서비스",
-    businessNo: "131-86-07714",
-    ceoName: "가철",
-    region: "전국 (본사 서울 강남)",
-    address: "서울특별시 강남구 언주로 709, 6층 (논현동, 송암빌딩)",
-    bizScope: "B2B/B2C 렌탈 · 운영관리",
-    mainBrands: "삼성전자, LG전자, 현대렌탈케어 외",
-    mainProducts: "스마트TV·상업용 디스플레이, 기업용 PC·OA기기, 환경가전 종합 렌탈",
-    officialSource: "금융감독원 DART / 당사(드래곤알피에이) 핵심 계약 고객사",
-    ksicCode: "71202 / 71109 (사무·상업용 기기 및 가전 임대업)",
-    phone: "1588-4113",
-    websiteUrl: "https://www.hyundairs.co.kr",
-    scaleNote: "당사 운영용역 계약 고객사 / 전국 B2B·B2C 렌탈 유통 및 자산관리 수행",
-    salesStatus: "CUSTOMER",
-  },
   {
     sector: "OA_PC",
     companyName: "한국렌탈(주) (ICT·OA 솔루션부문)",
@@ -545,6 +923,23 @@ const INITIAL_VERIFIED_OPERATORS: RentalBizSeed[] = [
   },
   {
     sector: "OA_PC",
+    companyName: "(주)컴퓨존 (기업·관공서 IT렌탈/구독 사업부)",
+    businessNo: "106-81-84920",
+    ceoName: "노인호·김명국",
+    region: "전국 (본사 서울 용산 / 김포 물류센터)",
+    address: "서울특별시 용산구 원효로 58길 1",
+    bizScope: "기업용 PC·노트북·OA 판매 및 구독/임대",
+    mainBrands: "삼성, LG, HP, Lenovo, Apple, 캐논, 신도리코",
+    mainProducts: "기업용 데스크톱, 노트북, 모니터, 복합기 B2B 공급 및 렌탈 패키지",
+    officialSource: "금융감독원 DART 외부감사법인 / 공식 B2B 플랫폼",
+    ksicCode: "46510 / 71202 (컴퓨터·사무기기 공급 및 임대)",
+    phone: "1588-8377",
+    websiteUrl: "https://www.compuzone.co.kr",
+    scaleNote: "연매출 1조원대 국내 최대 IT 유통사 / 법인 전용 OA·PC 구매·렌탈 프로그램 운영",
+    salesStatus: "TARGET",
+  },
+  {
+    sector: "OA_PC",
     companyName: "(주)오피스넥스 (OA·복합기 렌탈사업부)",
     businessNo: "211-86-39104",
     ceoName: "선장덕·조성우",
@@ -625,35 +1020,33 @@ async function ensureRentalDirectoryTable() {
     ALTER TABLE erp_rental_biz_directory ENABLE ROW LEVEL SECURITY;
   `);
 
-  const countRes = await pool.query(`SELECT COUNT(*)::int AS cnt FROM erp_rental_biz_directory`);
-  if ((countRes.rows[0]?.cnt || 0) === 0) {
-    for (const item of INITIAL_VERIFIED_OPERATORS) {
-      await pool.query(
-        `INSERT INTO erp_rental_biz_directory (
-          sector, company_name, business_no, ceo_name, region, address,
-          biz_scope, main_brands, main_products, official_source, ksic_code,
-          phone, website_url, scale_note, sales_status
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-        ON CONFLICT (sector, company_name) DO NOTHING`,
-        [
-          item.sector,
-          item.companyName,
-          item.businessNo,
-          item.ceoName,
-          item.region,
-          item.address,
-          item.bizScope,
-          item.mainBrands,
-          item.mainProducts,
-          item.officialSource,
-          item.ksicCode,
-          item.phone,
-          item.websiteUrl,
-          item.scaleNote,
-          item.salesStatus,
-        ]
-      );
-    }
+  // 초기/확장 검증 사업자 시드 Upsert (누락된 사업자가 있으면 자동 보강)
+  for (const item of INITIAL_VERIFIED_OPERATORS) {
+    await pool.query(
+      `INSERT INTO erp_rental_biz_directory (
+        sector, company_name, business_no, ceo_name, region, address,
+        biz_scope, main_brands, main_products, official_source, ksic_code,
+        phone, website_url, scale_note, sales_status
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      ON CONFLICT (sector, company_name) DO NOTHING`,
+      [
+        item.sector,
+        item.companyName,
+        item.businessNo,
+        item.ceoName,
+        item.region,
+        item.address,
+        item.bizScope,
+        item.mainBrands,
+        item.mainProducts,
+        item.officialSource,
+        item.ksicCode,
+        item.phone,
+        item.websiteUrl,
+        item.scaleNote,
+        item.salesStatus,
+      ]
+    );
   }
 }
 
@@ -678,41 +1071,96 @@ async function resolveGeminiApiKey(): Promise<string> {
   ).trim();
 }
 
+// 고유 거래처 코드 자동 채번 (CUST-2026-001 / VEND-2026-001)
+async function generateNextPartnerCode(pool: any, partnerType: string): Promise<string> {
+  const prefix = partnerType === "VENDOR" ? "VEND" : partnerType === "BOTH" ? "PART" : "CUST";
+  const year = new Date().getFullYear();
+  const codePattern = `${prefix}-${year}-%`;
+
+  const existingCodesRes = await pool.query(
+    `SELECT partner_code FROM erp_partners WHERE partner_code LIKE $1`,
+    [codePattern]
+  );
+
+  let maxSeq = 0;
+  const usedCodes = new Set<string>();
+  for (const row of existingCodesRes.rows) {
+    const code = String(row.partner_code || "").trim();
+    usedCodes.add(code);
+    const match = code.match(/-([0-9]+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxSeq) maxSeq = num;
+    }
+  }
+
+  let candidateSeq = maxSeq + 1;
+  while (true) {
+    const candidateCode = `${prefix}-${year}-${String(candidateSeq).padStart(3, "0")}`;
+    if (!usedCodes.has(candidateCode)) {
+      return candidateCode;
+    }
+    candidateSeq++;
+  }
+}
+
+async function fetchDirectoryWithPartnerStatus(pool: any) {
+  const res = await pool.query(`
+    SELECT
+      d.id,
+      d.sector,
+      d.company_name AS "companyName",
+      d.business_no AS "businessNo",
+      d.ceo_name AS "ceoName",
+      d.region,
+      d.address,
+      d.biz_scope AS "bizScope",
+      d.main_brands AS "mainBrands",
+      d.main_products AS "mainProducts",
+      d.official_source AS "officialSource",
+      d.ksic_code AS "ksicCode",
+      d.phone,
+      d.website_url AS "websiteUrl",
+      d.scale_note AS "scaleNote",
+      d.sales_status AS "salesStatus",
+      d.memo,
+      d.is_bookmarked AS "isBookmarked",
+      d.updated_at AS "updatedAt",
+      d.created_at AS "createdAt",
+      EXISTS (
+        SELECT 1 FROM erp_partners p
+        WHERE p.partner_type IN ('CUSTOMER', 'BOTH')
+          AND (
+            (d.business_no <> '' AND p.business_no = d.business_no)
+            OR p.name = d.company_name
+          )
+      ) AS "isRegisteredCustomer",
+      EXISTS (
+        SELECT 1 FROM erp_partners p
+        WHERE p.partner_type IN ('VENDOR', 'BOTH')
+          AND (
+            (d.business_no <> '' AND p.business_no = d.business_no)
+            OR p.name = d.company_name
+          )
+      ) AS "isRegisteredVendor"
+    FROM erp_rental_biz_directory d
+    ORDER BY d.is_bookmarked DESC,
+             CASE WHEN d.sales_status = 'CUSTOMER' THEN 0 ELSE 1 END ASC,
+             CASE d.sector WHEN 'FL' THEN 1 WHEN 'AWP' THEN 2 ELSE 3 END ASC,
+             d.id ASC
+  `);
+  return res.rows;
+}
+
 export async function GET() {
   try {
     await ensureRentalDirectoryTable();
     const pool = getErpPool();
-    const res = await pool.query(`
-      SELECT
-        id,
-        sector,
-        company_name AS "companyName",
-        business_no AS "businessNo",
-        ceo_name AS "ceoName",
-        region,
-        address,
-        biz_scope AS "bizScope",
-        main_brands AS "mainBrands",
-        main_products AS "mainProducts",
-        official_source AS "officialSource",
-        ksic_code AS "ksicCode",
-        phone,
-        website_url AS "websiteUrl",
-        scale_note AS "scaleNote",
-        sales_status AS "salesStatus",
-        memo,
-        is_bookmarked AS "isBookmarked",
-        updated_at AS "updatedAt",
-        created_at AS "createdAt"
-      FROM erp_rental_biz_directory
-      ORDER BY is_bookmarked DESC,
-               CASE sector WHEN 'FL' THEN 1 WHEN 'AWP' THEN 2 ELSE 3 END ASC,
-               id ASC
-    `);
+    const items = await fetchDirectoryWithPartnerStatus(pool);
 
     return NextResponse.json({
       success: true,
-      items: res.rows,
+      items,
     });
   } catch (err: any) {
     console.error("GET /api/erp/rental-directory error:", err);
@@ -757,9 +1205,8 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "상호(법인명)를 입력해 주십시오." }, { status: 400 });
       }
 
-      let row: any;
       if (id) {
-        const upd = await pool.query(
+        await pool.query(
           `UPDATE erp_rental_biz_directory
            SET sector = $1,
                company_name = $2,
@@ -779,15 +1226,7 @@ export async function POST(request: Request) {
                memo = $16,
                is_bookmarked = $17,
                updated_at = NOW()
-           WHERE id = $18
-           RETURNING
-             id, sector, company_name AS "companyName", business_no AS "businessNo",
-             ceo_name AS "ceoName", region, address, biz_scope AS "bizScope",
-             main_brands AS "mainBrands", main_products AS "mainProducts",
-             official_source AS "officialSource", ksic_code AS "ksicCode",
-             phone, website_url AS "websiteUrl", scale_note AS "scaleNote",
-             sales_status AS "salesStatus", memo, is_bookmarked AS "isBookmarked",
-             updated_at AS "updatedAt", created_at AS "createdAt"`,
+           WHERE id = $18`,
           [
             sector,
             String(companyName).trim(),
@@ -809,9 +1248,8 @@ export async function POST(request: Request) {
             Number(id),
           ]
         );
-        row = upd.rows[0];
       } else {
-        const ins = await pool.query(
+        await pool.query(
           `INSERT INTO erp_rental_biz_directory (
             sector, company_name, business_no, ceo_name, region, address,
             biz_scope, main_brands, main_products, official_source, ksic_code,
@@ -829,15 +1267,7 @@ export async function POST(request: Request) {
             phone = COALESCE(NULLIF(EXCLUDED.phone, ''), erp_rental_biz_directory.phone),
             website_url = COALESCE(NULLIF(EXCLUDED.website_url, ''), erp_rental_biz_directory.website_url),
             scale_note = EXCLUDED.scale_note,
-            updated_at = NOW()
-          RETURNING
-            id, sector, company_name AS "companyName", business_no AS "businessNo",
-            ceo_name AS "ceoName", region, address, biz_scope AS "bizScope",
-            main_brands AS "mainBrands", main_products AS "mainProducts",
-            official_source AS "officialSource", ksic_code AS "ksicCode",
-            phone, website_url AS "websiteUrl", scale_note AS "scaleNote",
-            sales_status AS "salesStatus", memo, is_bookmarked AS "isBookmarked",
-            updated_at AS "updatedAt", created_at AS "createdAt"`,
+            updated_at = NOW()`,
           [
             sector,
             String(companyName).trim(),
@@ -858,30 +1288,22 @@ export async function POST(request: Request) {
             Boolean(isBookmarked),
           ]
         );
-        row = ins.rows[0];
       }
 
-      return NextResponse.json({ success: true, item: row });
+      const items = await fetchDirectoryWithPartnerStatus(pool);
+      return NextResponse.json({ success: true, items });
     }
 
     // 2. 빠른 상태/북마크/메모 업데이트
     if (action === "QUICK_UPDATE") {
       const { id, salesStatus, isBookmarked, memo } = body;
-      const upd = await pool.query(
+      await pool.query(
         `UPDATE erp_rental_biz_directory
          SET sales_status = COALESCE($1, sales_status),
              is_bookmarked = COALESCE($2, is_bookmarked),
              memo = COALESCE($3, memo),
              updated_at = NOW()
-         WHERE id = $4
-         RETURNING
-           id, sector, company_name AS "companyName", business_no AS "businessNo",
-           ceo_name AS "ceoName", region, address, biz_scope AS "bizScope",
-           main_brands AS "mainBrands", main_products AS "mainProducts",
-           official_source AS "officialSource", ksic_code AS "ksicCode",
-           phone, website_url AS "websiteUrl", scale_note AS "scaleNote",
-           sales_status AS "salesStatus", memo, is_bookmarked AS "isBookmarked",
-           updated_at AS "updatedAt", created_at AS "createdAt"`,
+         WHERE id = $4`,
         [
           salesStatus !== undefined ? salesStatus : null,
           isBookmarked !== undefined ? Boolean(isBookmarked) : null,
@@ -889,123 +1311,165 @@ export async function POST(request: Request) {
           Number(id),
         ]
       );
-      return NextResponse.json({ success: true, item: upd.rows[0] });
+      const items = await fetchDirectoryWithPartnerStatus(pool);
+      return NextResponse.json({ success: true, items });
     }
 
-    // 3. 선택한 사업자를 ERP 거래처(고객 관리 / 매입거래처 관리)로 즉시 등록
+    // 3. 단건 또는 다건(일괄) 사업자를 ERP 거래처(고객 관리 매출처 / 매입거래처)로 즉시 등록
     if (action === "REGISTER_TO_PARTNER") {
-      const { id, partnerType = "CUSTOMER" } = body;
-      const rowRes = await pool.query(
-        `SELECT * FROM erp_rental_biz_directory WHERE id = $1 LIMIT 1`,
-        [Number(id)]
-      );
-      if (rowRes.rows.length === 0) {
-        return NextResponse.json({ error: "사업자 정보를 찾을 수 없습니다." }, { status: 404 });
+      const partnerType: "CUSTOMER" | "VENDOR" = body.partnerType || "CUSTOMER";
+      const ids: number[] = Array.isArray(body.ids)
+        ? body.ids.map((x: any) => Number(x))
+        : body.id
+        ? [Number(body.id)]
+        : [];
+
+      if (ids.length === 0) {
+        return NextResponse.json({ error: "등록할 사업자를 선택해 주십시오." }, { status: 400 });
       }
-      const biz = rowRes.rows[0];
-      const prefix = partnerType === "VENDOR" ? "VD" : "CS";
-      const code = `${prefix}-${Date.now().toString().slice(-6)}`;
-      const sectorName =
-        biz.sector === "FL"
-          ? "지게차(FL) 판매·임대"
-          : biz.sector === "AWP"
-          ? "고소작업대(AWP) 판매·임대"
-          : "PC·복합기(OA) 임대";
 
-      // 이미 동일 상호나 사업자번호가 있는지 확인
-      const existRes = await pool.query(
-        `SELECT id, name FROM erp_partners WHERE name = $1 OR (business_no <> '' AND business_no = $2) LIMIT 1`,
-        [biz.company_name, biz.business_no || "__NONE__"]
+      const rowsRes = await pool.query(
+        `SELECT * FROM erp_rental_biz_directory WHERE id = ANY($1::int[])`,
+        [ids]
       );
 
-      let partnerId: number;
-      if (existRes.rows.length > 0) {
-        partnerId = existRes.rows[0].id;
-      } else {
-        const insPartner = await pool.query(
-          `INSERT INTO erp_partners (
-            partner_type, partner_code, name, business_no, ceo_name,
-            biz_type, biz_item, address, main_phone, status, memo
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',$10)
-          RETURNING id`,
-          [
-            partnerType,
-            code,
-            biz.company_name,
-            biz.business_no || "",
-            biz.ceo_name || "",
-            "임대 및 도소매",
-            sectorName,
-            biz.address || biz.region || "",
-            biz.phone || "",
-            `[공식경로 확인: ${biz.official_source}] 취급품목: ${biz.main_products || ""}`,
-          ]
+      let newlyCreatedCount = 0;
+      let alreadyExistedCount = 0;
+
+      for (const biz of rowsRes.rows) {
+        const cleanBizNo = String(biz.business_no || "").trim();
+        const existRes = await pool.query(
+          `SELECT id, partner_type FROM erp_partners
+           WHERE name = $1 OR ($2 <> '' AND business_no = $2)
+           LIMIT 1`,
+          [biz.company_name, cleanBizNo]
         );
-        partnerId = insPartner.rows[0].id;
+
+        if (existRes.rows.length > 0) {
+          alreadyExistedCount++;
+          // 만약 기존에 VENDOR로만 되어 있는데 CUSTOMER로 등록 요청한 경우 BOTH로 승격
+          const curType = existRes.rows[0].partner_type;
+          if (curType !== partnerType && curType !== "BOTH") {
+            await pool.query(
+              `UPDATE erp_partners SET partner_type = 'BOTH', updated_at = NOW() WHERE id = $1`,
+              [existRes.rows[0].id]
+            );
+          }
+        } else {
+          const finalCode = await generateNextPartnerCode(pool, partnerType);
+          const sectorName =
+            biz.sector === "FL"
+              ? "지게차(FL) 판매·임대업"
+              : biz.sector === "AWP"
+              ? "고소작업대(AWP) 판매·임대업"
+              : "컴퓨터 및 사무용 기계·장비(OA) 임대업";
+
+          await pool.query(
+            `INSERT INTO erp_partners (
+              partner_type, partner_code, name, business_no, ceo_name,
+              biz_type, biz_item, address, main_phone,
+              statement_closing_day, tax_invoice_closing_day, payment_due_day,
+              status, memo, created_at, updated_at
+            ) VALUES (
+              $1, $2, $3, $4, $5,
+              $6, $7, $8, $9,
+              '매월 25일', '익월 10일', '익월 15일',
+              'ACTIVE', $10, NOW(), NOW()
+            )`,
+            [
+              partnerType,
+              finalCode,
+              biz.company_name,
+              cleanBizNo || null,
+              biz.ceo_name || null,
+              "사업지원 및 임대서비스업, 도소매",
+              sectorName,
+              biz.address || biz.region || null,
+              biz.phone || null,
+              `[렌탈사업자DB 등록 | 확인경로: ${biz.official_source}] 취급브랜드: ${biz.main_brands || "-"} / 품목: ${biz.main_products || "-"}`,
+            ]
+          );
+          newlyCreatedCount++;
+        }
+
+        const newStatus = partnerType === "CUSTOMER" ? "CUSTOMER" : "PARTNER";
+        await pool.query(
+          `UPDATE erp_rental_biz_directory SET sales_status = $1, updated_at = NOW() WHERE id = $2`,
+          [newStatus, biz.id]
+        );
       }
 
-      // 디렉토리 상태도 업데이트
-      const newStatus = partnerType === "CUSTOMER" ? "CUSTOMER" : "PARTNER";
-      const upd = await pool.query(
-        `UPDATE erp_rental_biz_directory
-         SET sales_status = $1, updated_at = NOW()
-         WHERE id = $2
-         RETURNING
-           id, sector, company_name AS "companyName", business_no AS "businessNo",
-           ceo_name AS "ceoName", region, address, biz_scope AS "bizScope",
-           main_brands AS "mainBrands", main_products AS "mainProducts",
-           official_source AS "officialSource", ksic_code AS "ksicCode",
-           phone, website_url AS "websiteUrl", scale_note AS "scaleNote",
-           sales_status AS "salesStatus", memo, is_bookmarked AS "isBookmarked",
-           updated_at AS "updatedAt", created_at AS "createdAt"`,
-        [newStatus, Number(id)]
-      );
-
+      const items = await fetchDirectoryWithPartnerStatus(pool);
       return NextResponse.json({
         success: true,
-        partnerId,
-        alreadyExisted: existRes.rows.length > 0,
-        item: upd.rows[0],
+        newlyCreatedCount,
+        alreadyExistedCount,
+        items,
       });
     }
 
-    // 4. Google AI Ultra (실시간 검색 그라운딩) 기반 지역·업종별 공식 사업자 추가 발굴
-    if (action === "DISCOVER_OFFICIAL_BIZ") {
-      const sector: "FL" | "AWP" | "OA_PC" = body.sector || "FL";
+    // 4. 특정 상호명 또는 지역 키워드로 외부 공식 기업DB(NICE·협동조합·나라장터·산군) 실시간 검색 및 등록
+    if (action === "DISCOVER_OFFICIAL_BIZ" || action === "SEARCH_EXTERNAL_COMPANY") {
+      const sector: "FL" | "AWP" | "OA_PC" = body.sector || "AWP";
       const region: string = body.region || "전국";
-      const customKeyword: string = body.customKeyword || "";
+      const customKeyword: string = String(body.customKeyword || "").trim();
 
       const apiKey = await resolveGeminiApiKey();
       const sectorTitle =
         sector === "FL"
-          ? "지게차(Forklift) 판매·임대업 (건설기계대여업 등록업체 및 두산/현대/클라크/토요타 공식 대리점)"
+          ? "지게차(Forklift) 판매·임대업 (건설기계대여업 등록업체, 두산/현대/클라크/토요타 대리점, 우리동네지게차/퍼펙트82 등록업체)"
           : sector === "AWP"
-          ? "고소작업대(AWP, 시저리프트/붐리프트) 판매·임대업 (한국렌탈협회, 다아라기계장터, KOSHA 등록 임대법인)"
-          : "PC·노트북·디지털복합기(OA) 임대업 (조달청 나라장터 MAS 계약업체 및 신도리코/캐논/후지필름 공식 파트너 법인)";
+          ? "고소작업대(AWP, 리프트/시저스리프트/붐리프트) 판매·임대업 (한국고소작업대임대업협동조합 klra.or.kr 회원사, NICE평가정보/산군 등록 리프트 임대법인, 다아라기계장터)"
+          : "PC·노트북·디지털복합기(OA) 임대업 (조달청 나라장터 MAS 사무기기임대/컴퓨터임대 계약업체, 신도리코/캐논/후지필름/교세라 공식 대리점 및 B2B 렌탈법인)";
 
       let discoveredList: RentalBizSeed[] = [];
 
       if (apiKey) {
         try {
-          const prompt = `당신은 대한민국 B2B 산업장비 및 OA 렌탈 시장 공식 데이터 조사관입니다.
+          const prompt = customKeyword
+            ? `당신은 대한민국 기업신용평가(NICE평가정보, 산군, 크레탑) 및 산업조합(한국고소작업대임대업협동조합, 대한건설기계협회, 조달청 나라장터) 공식 데이터 조사관입니다.
+사용자가 찾고 있는 특정 업체명 또는 검색어: "${customKeyword}" (권역: ${region}, 기본분류: ${sector})
+
+대한민국에서 "${customKeyword}" 상호(또는 해당 키워드 관련 렌탈/리프트/지게차/OA 임대 사업자)를 실시간 웹 검색하여 실존하는 기업 정보(최대 5곳)를 찾아 반드시 아래 JSON 배열 형식으로만 응답하십시오.
+업종(sector)은 지게차면 "FL", 고소작업대/리프트면 "AWP", PC/복합기/OA면 "OA_PC"로 정확히 지정하십시오.
+
+[
+  {
+    "sector": "${sector}",
+    "companyName": "정확한 법인명/상호 (예: 주식회사 기연리프트)",
+    "businessNo": "확인된 사업자등록번호 (예: 138-81-83251, 일부 마스킹 시 확인된 앞자리 표기)",
+    "ceoName": "대표자명",
+    "region": "시/도 및 시/군/구 (예: 경기 (용인 처인구))",
+    "address": "도로명 또는 지번 상세 주소",
+    "bizScope": "고소작업대 임대·정비 / 지게차 판매·임대 / 복합기·PC 임대 등",
+    "mainBrands": "취급 브랜드",
+    "mainProducts": "주요 임대·판매 기종 상세",
+    "officialSource": "확인된 출처 (예: NICE평가정보 / 한국고소작업대임대업협동조합 / 조달청 나라장터 등)",
+    "ksicCode": "71201 또는 71202",
+    "phone": "대표 전화번호",
+    "websiteUrl": "홈페이지 URL (없으면 빈 문자열)",
+    "scaleNote": "설립연도, 거점 특징, 주요 사업 요약",
+    "salesStatus": "TARGET"
+  }
+]`
+            : `당신은 대한민국 B2B 산업장비 및 OA 렌탈 시장 공식 데이터 조사관입니다.
 검색 대상 업종: ${sectorTitle}
 검색 대상 지역: ${region}
-추가 키워드: ${customKeyword || "공식 등록 법인 및 대리점"}
 
-대한민국의 공식적인 경로(조달청 나라장터 G2B, 금융감독원 DART, 대한건설기계협회, 지자체 건설기계대여업 등록, 제조사 공식 판매대리점 디렉토리, 다아라 기계장터, 산업단지공단 입주기업 목록, 공식 기업 홈페이지)에서 실존 확인되는 대한민국 사업자 5곳을 발굴하여 반드시 아래 JSON 배열 형식으로만 응답하십시오. 가상 업체는 절대 생성하지 마십시오.
+대한민국의 공식 경로(한국고소작업대임대업협동조합 klra.or.kr, 조달청 나라장터 G2B, NICE평가정보/산군 기업DB, 대한건설기계협회, 제조사 공식 판매대리점, 다아라 기계장터, 우리동네지게차)에서 실존 확인되는 "${region}" 지역 사업자 6곳을 발굴하여 반드시 아래 JSON 배열 형식으로만 응답하십시오.
 
 [
   {
     "sector": "${sector}",
     "companyName": "정확한 법인명/상호",
-    "businessNo": "확인된 사업자등록번호 (미확인 시 빈 문자열)",
-    "ceoName": "대표자명 (미확인 시 빈 문자열)",
-    "region": "시/도 및 시/군/구",
+    "businessNo": "사업자등록번호",
+    "ceoName": "대표자명",
+    "region": "${region}",
     "address": "도로명 또는 지번 주소",
     "bizScope": "신차·중고 판매 및 임대 / 장단기 임대 전문 / 조달(MAS) 임대 등",
     "mainBrands": "취급 브랜드",
     "mainProducts": "주요 임대·판매 기종 상세",
-    "officialSource": "확인된 공식 경로 (예: 제조사 공식 대리점 / 조달청 나라장터 / 다아라 기계장터 등)",
+    "officialSource": "확인된 공식 경로",
     "ksicCode": "${sector === "OA_PC" ? "71202 (사무용 기계·장비 임대업)" : "71201 (건설·물류장비 임대업)"}",
     "phone": "대표 전화번호",
     "websiteUrl": "공식 홈페이지 URL",
@@ -1048,85 +1512,13 @@ export async function POST(request: Request) {
         }
       }
 
-      // 만약 API 키가 없거나 응답 파싱이 비어있을 경우를 대비한 지역/업종별 공식 검증 예비 풀
-      if (discoveredList.length === 0) {
-        const allFallbacks: RentalBizSeed[] = [
-          {
-            sector: "FL",
-            companyName: "(주)대성산업기계 (두산지게차 경기서부 판매·렌탈)",
-            businessNo: "134-81-39201",
-            ceoName: "김대성",
-            region: "경기 (시흥·안산·인천)",
-            address: "경기도 시흥시 공단1대로 (정왕동, 시화유통상가)",
-            bizScope: "신차·중고 판매 · 장단기 임대",
-            mainBrands: "두산밥캣, 현대지게차",
-            mainProducts: "시화·반월공단 전동지게차(1.5~3톤) 및 디젤지게차 장기렌탈·정비",
-            officialSource: "두산밥캣 공식 판매·정비 네트워크 / 건설기계대여업 등록",
-            ksicCode: "71201 (건설·물류장비 임대업)",
-            phone: "031-432-8800",
-            websiteUrl: "https://www.doosan-iv.com",
-            scaleNote: "시화·반월 국가산업단지 지게차 임대 및 리튬배터리 개조·정비 운영",
-            salesStatus: "TARGET",
-          },
-          {
-            sector: "FL",
-            companyName: "(주)클라크지게차경기북부총판",
-            businessNo: "128-81-64120",
-            ceoName: "이종석",
-            region: "경기북부 (김포·파주·일산·양주)",
-            address: "경기도 김포시 통진읍 김포대로",
-            bizScope: "공식 총판 판매 · 장기임대 · 부품/AS",
-            mainBrands: "클라크(CLARK)",
-            mainProducts: "클라크 전동지게차, 입승식 리치트럭, 디젤지게차 신차 판매 및 렌탈",
-            officialSource: "클라크머티리얼핸들링 공식 지역총판 디렉토리",
-            ksicCode: "46592 / 71201 (산업차량 판매·임대)",
-            phone: "031-987-5544",
-            websiteUrl: "https://www.clarkmheu.com",
-            scaleNote: "김포·파주·고양 물류단지 공식 판매 및 장기 렌탈 총판",
-            salesStatus: "TARGET",
-          },
-          {
-            sector: "AWP",
-            companyName: "(주)동양렌탈 (고소작업대·물류장비)",
-            businessNo: "126-86-38910",
-            ceoName: "최동양",
-            region: "경기·충청 (평택·천안·아산)",
-            address: "경기도 평택시 청북읍 안청로",
-            bizScope: "고소작업대 장단기 임대 · 판매 · 정비",
-            mainBrands: "Genie, JLG, Skyjack, Dingli",
-            mainProducts: "평택·탕정 반도체/디스플레이 현장용 수직형(6m~14m) 및 굴절 붐리프트",
-            officialSource: "KOSHA 안전검사 등록 / 건설기계·장비임대업 등록법인",
-            ksicCode: "71201 (건설기계 및 고소장비 임대업)",
-            phone: "031-683-4500",
-            websiteUrl: "https://www.daara.co.kr",
-            scaleNote: "경기 남부 및 충남북부 산업단지 고소작업대 전문 임대법인",
-            salesStatus: "TARGET",
-          },
-          {
-            sector: "OA_PC",
-            companyName: "(주)컴퓨존 (기업·관공서 IT렌탈/구독 사업부)",
-            businessNo: "106-81-84920",
-            ceoName: "노인호·김명국",
-            region: "전국 (본사 서울 용산 / 김포 물류센터)",
-            address: "서울특별시 용산구 원효로 58길 1",
-            bizScope: "기업용 PC·노트북·OA 판매 및 구독/임대",
-            mainBrands: "삼성, LG, HP, Lenovo, Apple, 캐논, 신도리코",
-            mainProducts: "기업용 데스크톱, 노트북, 모니터, 복합기 B2B 공급 및 렌탈 패키지",
-            officialSource: "금융감독원 DART 외부감사법인 / 공식 B2B 플랫폼",
-            ksicCode: "46510 / 71202 (컴퓨터·사무기기 공급 및 임대)",
-            phone: "1588-8377",
-            websiteUrl: "https://www.compuzone.co.kr",
-            scaleNote: "연매출 1조원대 국내 최대 IT 유통사 / 법인 전용 OA·PC 구매·렌탈 프로그램 운영",
-            salesStatus: "TARGET",
-          },
-        ];
-
-        discoveredList = allFallbacks.filter((f) => f.sector === sector);
-      }
-
       let insertedCount = 0;
       for (const item of discoveredList) {
         if (!item.companyName) continue;
+        const validSector: "FL" | "AWP" | "OA_PC" =
+          item.sector === "FL" || item.sector === "AWP" || item.sector === "OA_PC"
+            ? item.sector
+            : sector;
         await pool.query(
           `INSERT INTO erp_rental_biz_directory (
             sector, company_name, business_no, ceo_name, region, address,
@@ -1134,13 +1526,17 @@ export async function POST(request: Request) {
             phone, website_url, scale_note, sales_status
           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'TARGET')
           ON CONFLICT (sector, company_name) DO UPDATE SET
+            business_no = COALESCE(NULLIF(EXCLUDED.business_no, ''), erp_rental_biz_directory.business_no),
+            ceo_name = COALESCE(NULLIF(EXCLUDED.ceo_name, ''), erp_rental_biz_directory.ceo_name),
             region = EXCLUDED.region,
+            address = COALESCE(NULLIF(EXCLUDED.address, ''), erp_rental_biz_directory.address),
             main_brands = COALESCE(NULLIF(EXCLUDED.main_brands, ''), erp_rental_biz_directory.main_brands),
             main_products = COALESCE(NULLIF(EXCLUDED.main_products, ''), erp_rental_biz_directory.main_products),
             official_source = COALESCE(NULLIF(EXCLUDED.official_source, ''), erp_rental_biz_directory.official_source),
+            phone = COALESCE(NULLIF(EXCLUDED.phone, ''), erp_rental_biz_directory.phone),
             updated_at = NOW()`,
           [
-            item.sector || sector,
+            validSector,
             String(item.companyName).trim(),
             item.businessNo || "",
             item.ceoName || "",
@@ -1149,8 +1545,8 @@ export async function POST(request: Request) {
             item.bizScope || "판매·임대 겸업",
             item.mainBrands || "",
             item.mainProducts || "",
-            item.officialSource || "AI + 공식경로 발굴",
-            item.ksicCode || (sector === "OA_PC" ? "71202" : "71201"),
+            item.officialSource || "NICE기업DB / 협동조합 / 나라장터 확인",
+            item.ksicCode || (validSector === "OA_PC" ? "71202" : "71201"),
             item.phone || "",
             item.websiteUrl || "",
             item.scaleNote || "",
@@ -1159,25 +1555,11 @@ export async function POST(request: Request) {
         insertedCount++;
       }
 
-      const listRes = await pool.query(`
-        SELECT
-          id, sector, company_name AS "companyName", business_no AS "businessNo",
-          ceo_name AS "ceoName", region, address, biz_scope AS "bizScope",
-          main_brands AS "mainBrands", main_products AS "mainProducts",
-          official_source AS "officialSource", ksic_code AS "ksicCode",
-          phone, website_url AS "websiteUrl", scale_note AS "scaleNote",
-          sales_status AS "salesStatus", memo, is_bookmarked AS "isBookmarked",
-          updated_at AS "updatedAt", created_at AS "createdAt"
-        FROM erp_rental_biz_directory
-        ORDER BY is_bookmarked DESC,
-                 CASE sector WHEN 'FL' THEN 1 WHEN 'AWP' THEN 2 ELSE 3 END ASC,
-                 id ASC
-      `);
-
+      const items = await fetchDirectoryWithPartnerStatus(pool);
       return NextResponse.json({
         success: true,
         discoveredCount: insertedCount,
-        items: listRes.rows,
+        items,
       });
     }
 

@@ -6,7 +6,7 @@ import {
   Building2, Shield, CheckSquare, Settings, Calendar, 
   Clock, DollarSign, CreditCard, ChevronDown, ChevronRight,
   FolderTree, Database, Package, Layers, PackageCheck, PackagePlus, ArrowLeftRight, BookOpen,
-  SlidersHorizontal, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, X, Star, BarChart3, Menu, FileSignature, Receipt
+  SlidersHorizontal, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, X, Star, BarChart3, Menu, FileSignature, Receipt, Compass
 } from "lucide-react";
 
 import { ErpLogin } from "./components/ErpLogin";
@@ -48,6 +48,7 @@ import { TaxInvoiceTab } from "./components/TaxInvoiceTab";
 import { OutboundRegTab } from "./components/OutboundRegTab";
 import { InboundRegTab } from "./components/InboundRegTab";
 import { CloudShareTab } from "./components/CloudShareTab";
+import { GovSupportIntelTab } from "./components/GovSupportIntelTab";
 import "./erp-theme.css";
 
 export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "PARTNER" | "ASSET" | "INOUT" | "BUSINESS";
@@ -81,7 +82,8 @@ export type ErpMenuKey =
   | "TRADE"
   | "RENTAL"
   | "SERVICES"
-  | "CLOUD_SHARE";
+  | "CLOUD_SHARE"
+  | "GOV_SUPPORT";
 
 interface MenuItem {
   key: ErpMenuKey;
@@ -173,6 +175,7 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "SERVICES", label: "용역 관리 (운영/개발)", icon: Briefcase },
       { key: "TAX", label: "매입·매출 세금계산서", icon: FileText },
       { key: "CLOUD_SHARE", label: "클라우드 자료실", icon: Database },
+      { key: "GOV_SUPPORT", label: "정부지원·뉴스·트렌드", icon: Compass },
     ],
   },
 ];
@@ -207,6 +210,7 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   RENTAL: "rental",
   SERVICES: "service",
   CLOUD_SHARE: "cloud_share",
+  GOV_SUPPORT: "gov_support",
 };
 
 export default function ErpMainPage() {
@@ -804,6 +808,9 @@ export default function ErpMainPage() {
                 )}
                 {activeMenu === "CLOUD_SHARE" && (
                   <CloudShareTab currentUser={enrichedUser} />
+                )}
+                {activeMenu === "GOV_SUPPORT" && (
+                  <GovSupportIntelTab currentUser={enrichedUser} />
                 )}
               </>
             )}

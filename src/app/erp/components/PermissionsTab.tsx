@@ -59,6 +59,7 @@ const MENU_DEFS: Array<{ key: string; name: string; category: string; hasBilling
   { key: "service", name: "용역 관리 (운영/개발)", category: "영업", hasBilling: true },
   { key: "tax_invoice", name: "매입·매출 세금계산서", category: "영업" },
   { key: "cloud_share", name: "클라우드 자료실", category: "영업" },
+  { key: "gov_support", name: "정부지원·뉴스·트렌드", category: "영업" },
 ];
 
 export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?: () => void }> = ({ currentUser, onPermissionsChanged }) => {

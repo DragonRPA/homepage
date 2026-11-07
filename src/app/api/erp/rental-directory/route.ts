@@ -1025,10 +1025,7 @@ async function ensureRentalDirectoryTable() {
   const existingCount = Number(countRes.rows[0]?.cnt || 0);
 
   if (existingCount < 850) {
-    const allSeeds: RentalBizSeed[] = [
-      ...INITIAL_VERIFIED_OPERATORS,
-      ...(officialCrawledSeeds as RentalBizSeed[]),
-    ];
+    const allSeeds: RentalBizSeed[] = officialCrawledSeeds as RentalBizSeed[];
     const batchSize = 100;
     for (let i = 0; i < allSeeds.length; i += batchSize) {
       const batch = allSeeds.slice(i, i + batchSize);
@@ -1348,41 +1345,138 @@ async function crawlOfficialBoardsLive(pool: any, targetSector: "FL" | "AWP" | "
     }
   }
 
-  let upsertedCount = 0;
-  for (const item of crawled) {
-    if (!item.companyName) continue;
-    await pool.query(
-      `INSERT INTO erp_rental_biz_directory (
-        sector, company_name, business_no, ceo_name, region, address,
-        biz_scope, main_brands, main_products, official_source, ksic_code,
-        phone, website_url, scale_note, sales_status
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-      ON CONFLICT (sector, company_name) DO UPDATE SET
-        region = EXCLUDED.region,
-        address = COALESCE(NULLIF(EXCLUDED.address, ''), erp_rental_biz_directory.address),
-        phone = COALESCE(NULLIF(EXCLUDED.phone, ''), erp_rental_biz_directory.phone),
-        website_url = COALESCE(NULLIF(EXCLUDED.website_url, ''), erp_rental_biz_directory.website_url),
-        updated_at = NOW()`,
-      [
-        item.sector,
-        item.companyName,
-        item.businessNo,
-        item.ceoName,
-        item.region,
-        item.address,
-        item.bizScope,
-        item.mainBrands,
-        item.mainProducts,
-        item.officialSource,
-        item.ksicCode,
-        item.phone,
-        item.websiteUrl,
-        item.scaleNote,
-        item.salesStatus,
-      ]
-    );
-    upsertedCount++;
+  return upsertDeduplicatedSeeds(pool, crawled);
+}
+
+function getCanonicalBaseName(name: string): string {
+  if (!name) return "";
+  let s = String(name)
+    .replace(/주식회사|\(주\)|㈜|유한회사|\(유\)|합자회사|\(합\)/g, "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/[\s\-–—_.,·•/]+/g, "")
+    .toLowerCase()
+    .trim();
+  if (s === "병쳔지게차") s = "병천지게차";
+  if (s === "갱주프로지게차") s = "경주프로지게차";
+  if (s === "원삼스마일중기") s = "스마일중기";
+  if (s === "두산지게차서울판매중부지사") s = "두산지게차서울중부판매";
+  if (s === "두산지게차인천판매북부지사") s = "두산지게차인천북부판매";
+  if (s === "두산지게차경북판매포항지사") s = "두산지게차포항판매";
+  if (s === "두산지게차경북판매구미지사") s = "두산지게차경북판매";
+  if (s === "두산지게차경남동부판매울산지사") s = "두산지게차울산판매";
+  if (s === "두산지게차경남동부판매부산지사") s = "두산지게차부산판매";
+  if (s === "두산충남지게차판매천안영업소") s = "두산지게차충남판매";
+  if (s === "두산중장비제주판매") s = "두산지게차제주판매";
+  if (s === "클라크지게차대구경북총판") s = "클라크지게차";
+  if (s === "클라크지게차영남총판") s = "클라크지게차부산";
+  return s;
+}
+
+function normalizePhoneDigits(phone: string): string {
+  const d = String(phone || "").replace(/\D/g, "");
+  return d.length >= 8 ? d : "";
+}
+
+function normalizeBizNoDigits(bizNo: string): string {
+  const d = String(bizNo || "").replace(/\D/g, "");
+  return d.length >= 5 ? d : "";
+}
+
+async function upsertDeduplicatedSeeds(pool: any, items: RentalBizSeed[]): Promise<number> {
+  if (!items || items.length === 0) return 0;
+
+  const existingRes = await pool.query(
+    `SELECT id, sector, company_name, business_no, phone FROM erp_rental_biz_directory`
+  );
+  const byBaseName = new Map<string, number>();
+  const byPhone = new Map<string, number>();
+  const byBizNo = new Map<string, number>();
+
+  for (const r of existingRes.rows) {
+    const base = getCanonicalBaseName(r.company_name);
+    const phone = normalizePhoneDigits(r.phone);
+    const bizNo = normalizeBizNoDigits(r.business_no);
+    if (base) byBaseName.set(`${r.sector}__${base}`, r.id);
+    if (phone) byPhone.set(`${r.sector}__${phone}`, r.id);
+    if (bizNo) byBizNo.set(`${r.sector}__${bizNo}`, r.id);
   }
+
+  let upsertedCount = 0;
+  for (const item of items) {
+    const cname = String(item.companyName || "").trim();
+    if (!cname) continue;
+    const base = getCanonicalBaseName(cname);
+    const phone = normalizePhoneDigits(item.phone);
+    const bizNo = normalizeBizNoDigits(item.businessNo);
+
+    const matchedId =
+      (bizNo ? byBizNo.get(`${item.sector}__${bizNo}`) : undefined) ||
+      (phone ? byPhone.get(`${item.sector}__${phone}`) : undefined) ||
+      (base ? byBaseName.get(`${item.sector}__${base}`) : undefined);
+
+    if (matchedId) {
+      await pool.query(
+        `UPDATE erp_rental_biz_directory
+         SET business_no = COALESCE(NULLIF($1, ''), business_no),
+             ceo_name = COALESCE(NULLIF($2, ''), ceo_name),
+             address = CASE WHEN (address IS NULL OR address = '' OR address = '전국') AND $3 <> '' THEN $3 ELSE address END,
+             phone = COALESCE(NULLIF($4, ''), phone),
+             website_url = COALESCE(NULLIF($5, ''), website_url),
+             updated_at = NOW()
+         WHERE id = $6`,
+        [
+          item.businessNo || "",
+          item.ceoName || "",
+          item.address || "",
+          item.phone || "",
+          item.websiteUrl || "",
+          matchedId,
+        ]
+      );
+      upsertedCount++;
+    } else {
+      const insRes = await pool.query(
+        `INSERT INTO erp_rental_biz_directory (
+          sector, company_name, business_no, ceo_name, region, address,
+          biz_scope, main_brands, main_products, official_source, ksic_code,
+          phone, website_url, scale_note, sales_status
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        ON CONFLICT (sector, company_name) DO UPDATE SET
+          business_no = COALESCE(NULLIF(EXCLUDED.business_no, ''), erp_rental_biz_directory.business_no),
+          ceo_name = COALESCE(NULLIF(EXCLUDED.ceo_name, ''), erp_rental_biz_directory.ceo_name),
+          address = COALESCE(NULLIF(EXCLUDED.address, ''), erp_rental_biz_directory.address),
+          phone = COALESCE(NULLIF(EXCLUDED.phone, ''), erp_rental_biz_directory.phone),
+          website_url = COALESCE(NULLIF(EXCLUDED.website_url, ''), erp_rental_biz_directory.website_url),
+          updated_at = NOW()
+        RETURNING id`,
+        [
+          item.sector,
+          cname,
+          item.businessNo || "",
+          item.ceoName || "",
+          item.region || "전국",
+          item.address || "",
+          item.bizScope || "판매·임대 겸업",
+          item.mainBrands || "",
+          item.mainProducts || "",
+          item.officialSource || "공식 등록 확인",
+          item.ksicCode || (item.sector === "OA_PC" ? "71202" : "71201"),
+          item.phone || "",
+          item.websiteUrl || "",
+          item.scaleNote || "",
+          item.salesStatus || "TARGET",
+        ]
+      );
+      const newId = insRes.rows[0]?.id;
+      if (newId) {
+        if (base) byBaseName.set(`${item.sector}__${base}`, newId);
+        if (phone) byPhone.set(`${item.sector}__${phone}`, newId);
+        if (bizNo) byBizNo.set(`${item.sector}__${bizNo}`, newId);
+      }
+      upsertedCount++;
+    }
+  }
+
   return upsertedCount;
 }
 
@@ -1860,48 +1954,33 @@ export async function POST(request: Request) {
         }
       }
 
-      let insertedCount = 0;
-      for (const item of discoveredList) {
-        if (!item.companyName) continue;
-        const validSector: "FL" | "AWP" | "OA_PC" =
-          item.sector === "FL" || item.sector === "AWP" || item.sector === "OA_PC"
-            ? item.sector
-            : sector;
-        await pool.query(
-          `INSERT INTO erp_rental_biz_directory (
-            sector, company_name, business_no, ceo_name, region, address,
-            biz_scope, main_brands, main_products, official_source, ksic_code,
-            phone, website_url, scale_note, sales_status
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'TARGET')
-          ON CONFLICT (sector, company_name) DO UPDATE SET
-            business_no = COALESCE(NULLIF(EXCLUDED.business_no, ''), erp_rental_biz_directory.business_no),
-            ceo_name = COALESCE(NULLIF(EXCLUDED.ceo_name, ''), erp_rental_biz_directory.ceo_name),
-            region = EXCLUDED.region,
-            address = COALESCE(NULLIF(EXCLUDED.address, ''), erp_rental_biz_directory.address),
-            main_brands = COALESCE(NULLIF(EXCLUDED.main_brands, ''), erp_rental_biz_directory.main_brands),
-            main_products = COALESCE(NULLIF(EXCLUDED.main_products, ''), erp_rental_biz_directory.main_products),
-            official_source = COALESCE(NULLIF(EXCLUDED.official_source, ''), erp_rental_biz_directory.official_source),
-            phone = COALESCE(NULLIF(EXCLUDED.phone, ''), erp_rental_biz_directory.phone),
-            updated_at = NOW()`,
-          [
-            validSector,
-            String(item.companyName).trim(),
-            item.businessNo || "",
-            item.ceoName || "",
-            item.region || region,
-            item.address || "",
-            item.bizScope || "판매·임대 겸업",
-            item.mainBrands || "",
-            item.mainProducts || "",
-            item.officialSource || "NICE기업DB / 협동조합 / 나라장터 확인",
-            item.ksicCode || (validSector === "OA_PC" ? "71202" : "71201"),
-            item.phone || "",
-            item.websiteUrl || "",
-            item.scaleNote || "",
-          ]
-        );
-        insertedCount++;
-      }
+      const normalizedDiscovered: RentalBizSeed[] = discoveredList
+        .filter((item) => Boolean(item?.companyName))
+        .map((item) => {
+          const validSector: "FL" | "AWP" | "OA_PC" =
+            item.sector === "FL" || item.sector === "AWP" || item.sector === "OA_PC"
+              ? item.sector
+              : sector;
+          return {
+            sector: validSector,
+            companyName: String(item.companyName).trim(),
+            businessNo: item.businessNo || "",
+            ceoName: item.ceoName || "",
+            region: item.region || region,
+            address: item.address || "",
+            bizScope: item.bizScope || "판매·임대 겸업",
+            mainBrands: item.mainBrands || "",
+            mainProducts: item.mainProducts || "",
+            officialSource: item.officialSource || "NICE기업DB / 협동조합 / 나라장터 확인",
+            ksicCode: item.ksicCode || (validSector === "OA_PC" ? "71202" : "71201"),
+            phone: item.phone || "",
+            websiteUrl: item.websiteUrl || "",
+            scaleNote: item.scaleNote || "",
+            salesStatus: "TARGET",
+          };
+        });
+
+      const insertedCount = await upsertDeduplicatedSeeds(pool, normalizedDiscovered);
 
       const items = await fetchDirectoryWithPartnerStatus(pool);
       return NextResponse.json({

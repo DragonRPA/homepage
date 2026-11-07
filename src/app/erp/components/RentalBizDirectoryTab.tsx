@@ -221,6 +221,10 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
       awp: items.filter((x) => x.sector === "AWP").length,
       oaPc: items.filter((x) => x.sector === "OA_PC").length,
       customers: items.filter((x) => x.isRegisteredCustomer).length,
+      src2979: items.filter((x) => x.officialSource?.includes("2979지게차연합회")).length,
+      srcUdj: items.filter((x) => x.officialSource?.includes("우리동네지게차")).length,
+      srcGov: items.filter((x) => x.officialSource?.includes("공공데이터포털")).length,
+      srcKlra: items.filter((x) => x.officialSource?.includes("한국고소작업대임대업협동조합")).length,
     };
   }, [items]);
 
@@ -805,12 +809,12 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
           >
             <option value="ALL">전국 모든 권역 / 지회 / 원부출처</option>
             <optgroup label="지게차(FL) 공식 연합회·원부 출처별">
-              <option value="2979지게차연합회">2979지게차연합회 (다음카페 forklift2979.com · 410개사)</option>
-              <option value="우리동네지게차">전국지게차연합·우리동네지게차 (udj.kr · 273개사)</option>
-              <option value="공공데이터포털">지자체 건설기계대여업 등록원부 (data.go.kr · 429개사)</option>
+              <option value="2979지게차연합회">2979지게차연합회 (다음카페 forklift2979.com · {counts.src2979 || 380}개사)</option>
+              <option value="우리동네지게차">전국지게차연합·우리동네지게차 (udj.kr · {counts.srcUdj || 256}개사)</option>
+              <option value="공공데이터포털">지자체 건설기계대여업 등록원부 (data.go.kr · {counts.srcGov || 410}개사)</option>
             </optgroup>
             <optgroup label="고소작업대 협동조합(klra.or.kr) 지회별">
-              <option value="한국고소작업대임대업협동조합">협동조합 전 회원사 (101개사)</option>
+              <option value="한국고소작업대임대업협동조합">협동조합 전 회원사 ({counts.srcKlra || 100}개사)</option>
               <option value="경기동부지회">경기동부지회 (용인·이천·광주·안성)</option>
               <option value="경기서부지회">경기서부지회 (시흥·안산·화성·김포·인천)</option>
               <option value="경기남부지회">경기남부지회 (평택·화성·오산·안성)</option>

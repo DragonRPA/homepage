@@ -128,7 +128,6 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "FINANCIAL_REPORT", label: "경영지표 보고서", icon: BarChart3 },
       { key: "BANK_MATCHING", label: "은행 입출금 대장", icon: DollarSign },
       { key: "PAYROLL", label: "급여 정산", icon: CreditCard },
-      { key: "TAX", label: "매입·매출 세금계산서", icon: FileText },
     ],
   },
   {
@@ -166,6 +165,7 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "TRADE", label: "판매용 (커머스)", icon: ShoppingCart },
       { key: "RENTAL", label: "임대 계약/청구", icon: Truck },
       { key: "SERVICES", label: "용역 관리 (운영/개발)", icon: Briefcase },
+      { key: "TAX", label: "매입·매출 세금계산서", icon: FileText },
       { key: "CLOUD_SHARE", label: "클라우드 자료실", icon: Database },
     ],
   },
@@ -474,9 +474,9 @@ export default function ErpMainPage() {
   };
 
   const navigateToTax = () => {
-    setActiveCategory("FINANCE");
+    setActiveCategory("BUSINESS");
     setActiveMenu("TAX");
-    setExpandedGroups((prev) => ({ ...prev, FINANCE: true }));
+    setExpandedGroups((prev) => ({ ...prev, BUSINESS: true }));
   };
 
   if (!isInitialized || (currentUser && !permsLoaded && effectiveRoleCode !== "ADMIN")) {
@@ -804,7 +804,7 @@ export default function ErpMainPage() {
           },
           {
             key: "TAX" as ErpMenuKey,
-            cat: "FINANCE" as ErpCategoryKey,
+            cat: "BUSINESS" as ErpCategoryKey,
             label: "채권·채무",
             icon: FileText,
           },

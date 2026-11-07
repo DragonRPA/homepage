@@ -48,7 +48,6 @@ const MENU_DEFS: Array<{ key: string; name: string; category: string; hasBilling
   { key: "approval_rules", name: "결재선 규칙 설정", category: "결재" },
   { key: "bank_matching", name: "은행 입출금 대장", category: "회계" },
   { key: "payroll", name: "급여 정산", category: "회계" },
-  { key: "tax_invoice", name: "세금계산서 발행", category: "회계" },
   { key: "customer", name: "고객 관리 (매출처)", category: "거래처" },
   { key: "vendor", name: "매입거래처 관리", category: "거래처" },
   { key: "product", name: "제품 관리", category: "자산관리" },
@@ -58,6 +57,7 @@ const MENU_DEFS: Array<{ key: string; name: string; category: string; hasBilling
   { key: "trade", name: "판매용 (커머스)", category: "영업", hasBilling: true },
   { key: "rental", name: "임대 계약/청구", category: "영업", hasBilling: true },
   { key: "service", name: "용역 관리 (운영/개발)", category: "영업", hasBilling: true },
+  { key: "tax_invoice", name: "매입·매출 세금계산서", category: "영업" },
   { key: "cloud_share", name: "클라우드 자료실", category: "영업" },
 ];
 

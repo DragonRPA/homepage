@@ -31,6 +31,7 @@ import { BankMatchingTab } from "./components/BankMatchingTab";
 import { PayrollTab } from "./components/PayrollTab";
 import { FinancialReportTab } from "./components/FinancialReportTab";
 import AccountingStandardsTab from "./components/AccountingStandardsTab";
+import GeneralAccountingStandardsTab from "./components/GeneralAccountingStandardsTab";
 
 // ebro_it 제품관리 및 자산관리
 import { ProductManagementTab } from "./components/ProductManagementTab";
@@ -69,6 +70,7 @@ export type ErpMenuKey =
   | "BANK_MATCHING"
   | "PAYROLL"
   | "ACCOUNTING_STANDARD"
+  | "GENERAL_ACCOUNTING_STANDARD"
   | "TAX"
   | "CUSTOMER"
   | "VENDOR"
@@ -131,6 +133,7 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "BANK_MATCHING", label: "은행 입출금 대장", icon: DollarSign },
       { key: "PAYROLL", label: "급여 정산", icon: CreditCard },
       { key: "ACCOUNTING_STANDARD", label: "중소기업회계기준", icon: BookOpen },
+      { key: "GENERAL_ACCOUNTING_STANDARD", label: "일반기업회계기준", icon: BookOpen },
     ],
   },
   {
@@ -192,6 +195,7 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   BANK_MATCHING: "bank_matching",
   PAYROLL: "payroll",
   ACCOUNTING_STANDARD: "bank_matching",
+  GENERAL_ACCOUNTING_STANDARD: "bank_matching",
   TAX: "tax_invoice",
   CUSTOMER: "customer",
   VENDOR: "vendor",
@@ -725,6 +729,11 @@ export default function ErpMainPage() {
                 {activeMenu === "ACCOUNTING_STANDARD" && (
                   <div className="p-4">
                     <AccountingStandardsTab />
+                  </div>
+                )}
+                {activeMenu === "GENERAL_ACCOUNTING_STANDARD" && (
+                  <div className="p-4">
+                    <GeneralAccountingStandardsTab />
                   </div>
                 )}
                 {activeMenu === "TAX" && (

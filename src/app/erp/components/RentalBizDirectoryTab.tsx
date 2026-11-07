@@ -75,6 +75,50 @@ const SECTOR_META: Record<
   },
 };
 
+export type OaSupplyType = "OA" | "MFP" | "BOTH";
+
+const OA_SUPPLY_META: Record<
+  OaSupplyType,
+  { label: string; shortLabel: string; badgeClass: string }
+> = {
+  OA: {
+    label: "공급: OA 전문 (PC·노트북·전산·사무기기)",
+    shortLabel: "OA 전문",
+    badgeClass: "bg-sky-100 text-sky-900 border-sky-400",
+  },
+  MFP: {
+    label: "공급: 복합기 전문 (디지털복합기·프린터·복사기)",
+    shortLabel: "복합기 전문",
+    badgeClass: "bg-fuchsia-100 text-fuchsia-900 border-fuchsia-400",
+  },
+  BOTH: {
+    label: "공급: 둘다 (OA + 복합기 통합)",
+    shortLabel: "둘다(OA+복합기)",
+    badgeClass: "bg-teal-100 text-teal-900 border-teal-400",
+  },
+};
+
+function resolveOaSupplyType(item: RentalBizRecord): OaSupplyType {
+  const scope = String(item.bizScope || "");
+  if (scope.includes("[공급: OA]")) return "OA";
+  if (scope.includes("[공급: 복합기]")) return "MFP";
+  if (scope.includes("[공급: 둘다")) return "BOTH";
+
+  const cname = String(item.companyName || "").trim();
+  const hasSindohOrMfpWord = /신도|리코|리소|복사기|프린팅|프린터|컬러|잉크|인쇄|제록스|캐논|교세라/.test(cname);
+  const hasServiceCenter = /서비스\s*센터|서비스센타/.test(cname);
+  const hasOaOrOfficeWord = /OA|O\.A|오에이|오\.에이|사무기|오피스|문구|문방/.test(cname);
+  const hasPcOrItWord = /컴퓨터|컴|피씨|PC|전산|정보|아이티|IT|네트웍|네트워크|시스|테크|솔루션|데이타|데이터|소프트|뱅크|씨앤씨|C&C/.test(cname);
+
+  if (hasServiceCenter || (hasSindohOrMfpWord && !hasOaOrOfficeWord && !hasPcOrItWord) || /프린팅|복사기|리소|컬러에이지/.test(cname)) {
+    return "MFP";
+  }
+  if (!hasSindohOrMfpWord && (hasPcOrItWord || /문방사우|오에이디포|OA DEPOT|오피스웨이브|플러스오피스|현대렌탈서비스|렌티브|렌트릭스|비즈하이시스템|어피니티/.test(cname))) {
+    return "OA";
+  }
+  return "BOTH";
+}
+
 const SALES_STATUS_META: Record<string, { label: string; badgeClass: string }> = {
   TARGET: { label: "발굴완료(타깃)", badgeClass: "bg-[#e2dbcd] text-[#334155] border-[#b8ae99]" },
   CONTACTED: { label: "접촉/제안중", badgeClass: "bg-blue-100 text-blue-900 border-blue-300" },
@@ -133,6 +177,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
 
   // 필터 상태
   const [sectorFilter, setSectorFilter] = useState<"ALL" | "FL" | "AWP" | "OA_PC">("ALL");
+  const [oaSupplyFilter, setOaSupplyFilter] = useState<"ALL" | OaSupplyType>("ALL");
   const [regionFilter, setRegionFilter] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [bookmarkOnly, setBookmarkOnly] = useState(false);
@@ -215,11 +260,15 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
 
   // 업종별 건수 집계
   const counts = useMemo(() => {
+    const oaItems = items.filter((x) => x.sector === "OA_PC");
     return {
       total: items.length,
       fl: items.filter((x) => x.sector === "FL").length,
       awp: items.filter((x) => x.sector === "AWP").length,
-      oaPc: items.filter((x) => x.sector === "OA_PC").length,
+      oaPc: oaItems.length,
+      oaOnly: oaItems.filter((x) => resolveOaSupplyType(x) === "OA").length,
+      mfpOnly: oaItems.filter((x) => resolveOaSupplyType(x) === "MFP").length,
+      oaBoth: oaItems.filter((x) => resolveOaSupplyType(x) === "BOTH").length,
       customers: items.filter((x) => x.isRegisteredCustomer).length,
       src2979: items.filter((x) => x.officialSource?.includes("2979지게차연합회")).length,
       srcUdj: items.filter((x) => x.officialSource?.includes("우리동네지게차")).length,
@@ -232,6 +281,10 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
   const filteredItems = useMemo(() => {
     return items.filter((it) => {
       if (sectorFilter !== "ALL" && it.sector !== sectorFilter) return false;
+      if (oaSupplyFilter !== "ALL") {
+        if (it.sector !== "OA_PC") return false;
+        if (resolveOaSupplyType(it) !== oaSupplyFilter) return false;
+      }
       if (
         regionFilter !== "ALL" &&
         !it.region.includes(regionFilter) &&
@@ -257,6 +310,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
           it.region,
           it.address,
           it.phone,
+          it.bizScope,
           it.mainBrands,
           it.mainProducts,
           it.officialSource,
@@ -268,7 +322,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
       }
       return true;
     });
-  }, [items, sectorFilter, regionFilter, statusFilter, bookmarkOnly, searchQuery]);
+  }, [items, sectorFilter, oaSupplyFilter, regionFilter, statusFilter, bookmarkOnly, searchQuery]);
 
   // 체크박스 핸들러
   const toggleCheck = (id: number) => {
@@ -672,7 +726,10 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
           <div className="flex items-center gap-1 bg-[#ebe5d8] p-0.5 rounded border border-[#b8ae99]">
             <button
               type="button"
-              onClick={() => setSectorFilter("ALL")}
+              onClick={() => {
+                setSectorFilter("ALL");
+                setOaSupplyFilter("ALL");
+              }}
               className={`px-2.5 py-1 rounded text-xs font-extrabold whitespace-nowrap transition ${
                 sectorFilter === "ALL"
                   ? "bg-[#1d4ed8] text-white"
@@ -683,7 +740,10 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
             </button>
             <button
               type="button"
-              onClick={() => setSectorFilter("FL")}
+              onClick={() => {
+                setSectorFilter("FL");
+                setOaSupplyFilter("ALL");
+              }}
               className={`px-2.5 py-1 rounded text-xs font-extrabold flex items-center gap-1 whitespace-nowrap transition ${
                 sectorFilter === "FL"
                   ? "bg-amber-700 text-white"
@@ -695,7 +755,10 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
             </button>
             <button
               type="button"
-              onClick={() => setSectorFilter("AWP")}
+              onClick={() => {
+                setSectorFilter("AWP");
+                setOaSupplyFilter("ALL");
+              }}
               className={`px-2.5 py-1 rounded text-xs font-extrabold flex items-center gap-1 whitespace-nowrap transition ${
                 sectorFilter === "AWP"
                   ? "bg-blue-700 text-white"
@@ -716,6 +779,72 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
             >
               <Monitor className="w-3.5 h-3.5" />
               <span>PC · 복합기(OA) 임대 ({counts.oaPc})</span>
+            </button>
+          </div>
+
+          {/* OA / 복합기 / 둘다 공급품목 세부 구분 필터 */}
+          <div className="flex items-center gap-1 bg-[#ebe5d8] p-0.5 rounded border border-[#b8ae99]">
+            <span className="px-1.5 text-[11px] font-extrabold text-[#0f172a] whitespace-nowrap">
+              OA·복합기 공급품목:
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setSectorFilter("OA_PC");
+                setOaSupplyFilter("ALL");
+              }}
+              className={`px-2 py-0.5 rounded text-[11px] font-extrabold whitespace-nowrap transition ${
+                sectorFilter === "OA_PC" && oaSupplyFilter === "ALL"
+                  ? "bg-emerald-700 text-white"
+                  : "text-[#334155] hover:bg-[#d8d0c0]"
+              }`}
+            >
+              전체 ({counts.oaPc})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSectorFilter("OA_PC");
+                setOaSupplyFilter("OA");
+              }}
+              className={`px-2 py-0.5 rounded text-[11px] font-extrabold whitespace-nowrap transition ${
+                oaSupplyFilter === "OA"
+                  ? "bg-sky-700 text-white"
+                  : "bg-sky-50 text-sky-900 border border-sky-300 hover:bg-sky-100"
+              }`}
+              title="PC, 노트북, 모니터, 문서세단기, 전산·사무용 OA기기 주력 공급 사업자"
+            >
+              OA 전문 ({counts.oaOnly})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSectorFilter("OA_PC");
+                setOaSupplyFilter("MFP");
+              }}
+              className={`px-2 py-0.5 rounded text-[11px] font-extrabold whitespace-nowrap transition ${
+                oaSupplyFilter === "MFP"
+                  ? "bg-fuchsia-700 text-white"
+                  : "bg-fuchsia-50 text-fuchsia-900 border border-fuchsia-300 hover:bg-fuchsia-100"
+              }`}
+              title="컬러/흑백 디지털 복합기, 레이저 프린터, 복사기, 인쇄기 전문 공급·정비 사업자"
+            >
+              복합기 전문 ({counts.mfpOnly})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSectorFilter("OA_PC");
+                setOaSupplyFilter("BOTH");
+              }}
+              className={`px-2 py-0.5 rounded text-[11px] font-extrabold whitespace-nowrap transition ${
+                oaSupplyFilter === "BOTH"
+                  ? "bg-teal-700 text-white"
+                  : "bg-teal-50 text-teal-900 border border-teal-300 hover:bg-teal-100"
+              }`}
+              title="사무용 OA기기(PC·세단기·전산장비)와 디지털 복합기·프린터를 함께 공급·임대하는 종합 사업자"
+            >
+              둘다 (OA+복합기) ({counts.oaBoth})
             </button>
           </div>
         </div>
@@ -1058,11 +1187,23 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
                           />
                         </td>
                         <td className="py-1.5 px-2 whitespace-nowrap">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10.5px] font-extrabold border ${secMeta.badgeClass}`}
-                          >
-                            {secMeta.shortLabel}
-                          </span>
+                          <div className="inline-flex items-center gap-1">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10.5px] font-extrabold border ${secMeta.badgeClass}`}
+                            >
+                              {secMeta.shortLabel}
+                            </span>
+                            {item.sector === "OA_PC" && (() => {
+                              const supMeta = OA_SUPPLY_META[resolveOaSupplyType(item)];
+                              return (
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold border ${supMeta.badgeClass}`}
+                                >
+                                  {supMeta.shortLabel}
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </td>
                         <td
                           className="py-1.5 px-2 font-extrabold text-[#0f172a] max-w-[165px] truncate whitespace-nowrap"
@@ -1138,6 +1279,16 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
                     >
                       {(SECTOR_META[selectedItem.sector] || SECTOR_META.FL).label}
                     </span>
+                    {selectedItem.sector === "OA_PC" && (() => {
+                      const supMeta = OA_SUPPLY_META[resolveOaSupplyType(selectedItem)];
+                      return (
+                        <span
+                          className={`px-2 py-0.5 rounded text-[11px] font-extrabold border ${supMeta.badgeClass}`}
+                        >
+                          {supMeta.label}
+                        </span>
+                      );
+                    })()}
                     <span className="px-2 py-0.5 rounded bg-[#f4efe4] border border-[#b8ae99] text-[10.5px] font-mono font-bold text-[#334155]">
                       {selectedItem.ksicCode}
                     </span>

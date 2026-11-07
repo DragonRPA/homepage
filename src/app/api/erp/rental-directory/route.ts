@@ -1321,6 +1321,39 @@ async function crawlOfficialBoardsLive(pool: any, targetSector: "FL" | "AWP" | "
           const phone = String(p.phone || "").trim();
           const grade = String(p.service_partner_grade || "서비스 파트너").trim();
           const region = formatCrawlRegion(String(p.city_province || ""), address);
+          const hasSindohOrMfpWord = /신도|리코|리소|복사기|프린팅|프린터|컬러|잉크|인쇄|제록스|캐논|교세라/.test(companyName);
+          const hasServiceCenter = /서비스\s*센터|서비스센타/.test(companyName);
+          const hasOaOrOfficeWord = /OA|O\.A|오에이|오\.에이|사무기|오피스|문구|문방/.test(companyName);
+          const hasPcOrItWord = /컴퓨터|컴|피씨|PC|전산|정보|아이티|IT|네트웍|네트워크|시스|테크|솔루션|데이타|데이터|소프트|뱅크|씨앤씨|C&C/.test(companyName);
+
+          let supplyType: "OA" | "MFP" | "BOTH" = "MFP";
+          if (hasServiceCenter || (hasSindohOrMfpWord && !hasOaOrOfficeWord && !hasPcOrItWord) || /프린팅|복사기|리소|컬러에이지/.test(companyName)) {
+            supplyType = "MFP";
+          } else if (!hasSindohOrMfpWord && (hasPcOrItWord || /문방사우|오에이디포|OA DEPOT|오피스웨이브|플러스오피스/.test(companyName))) {
+            supplyType = "OA";
+          } else if (hasOaOrOfficeWord || (hasSindohOrMfpWord && hasPcOrItWord)) {
+            supplyType = "BOTH";
+          }
+
+          const bizScope =
+            supplyType === "OA"
+              ? `[공급: OA] PC·전산·사무용 OA기기 임대·판매 (${grade})`
+              : supplyType === "MFP"
+              ? `[공급: 복합기] 디지털 복합기·프린터 전문 임대·정비 (${grade})`
+              : `[공급: 둘다(OA+복합기)] 디지털 복합기 및 사무용 OA기기 통합 임대 (${grade})`;
+          const mainBrands =
+            supplyType === "OA"
+              ? "삼성, LG, HP, 사무용 PC·노트북·모니터·세단기·전산 OA 장비 (신도리코 협력)"
+              : supplyType === "MFP"
+              ? "신도리코(Sindoh D450/N610), A3/A4 디지털 복합기·레이저 프린터·문서솔루션"
+              : "신도리코(Sindoh) 디지털 복합기·프린터, 사무용 PC·노트북·세단기·종합 OA기기";
+          const mainProducts =
+            supplyType === "OA"
+              ? "기업·관공서 데스크톱 PC, 노트북, 모니터, 문서세단기, 전산·사무자동화(OA) 기기 임대 및 유지보수"
+              : supplyType === "MFP"
+              ? "컬러/흑백 디지털 복합기, 고속 레이저 프린터, 복사기 장단기 임대(렌탈) 및 소모품·유지보수"
+              : "컬러/흑백 디지털 복합기·프린터 임대 및 사무용 PC·문서세단기·제본기 등 종합 OA기기 통합 공급·유지보수";
+
           crawled.push({
             sector: "OA_PC",
             companyName,
@@ -1328,9 +1361,9 @@ async function crawlOfficialBoardsLive(pool: any, targetSector: "FL" | "AWP" | "
             ceoName: "",
             region,
             address,
-            bizScope: `복합기·프린터·OA기기 임대·판매 (${grade})`,
-            mainBrands: "신도리코(Sindoh), 복합기·프린터·문서솔루션, 사무용 PC·OA",
-            mainProducts: "컬러/흑백 디지털 복합기, 프린터, 사무용 OA·PC 장단기 임대 및 유지보수",
+            bizScope,
+            mainBrands,
+            mainProducts,
             officialSource: `신도리코 전국 공식 파트너·지정점 원부 (${grade})`,
             ksicCode: "71202 (사무용 기계·장비 임대업)",
             phone,

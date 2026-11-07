@@ -471,7 +471,8 @@ function isVatInclusiveBankExpense(
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const year = searchParams.get("year") || "2026"; // '2026' | '2025' | '2024' | '2023' | 'ALL'
+    const currentYearStr = String(new Date().getFullYear());
+    const year = searchParams.get("year") || currentYearStr; // 당기 기본값 ('2026', '2027', ... | 'ALL')
     const entityType = searchParams.get("entityType") || "ALL"; // 'ALL' | 'CORP' | 'INDIVIDUAL'
     const amountBasis = searchParams.get("amountBasis") || "SUPPLY"; // 'SUPPLY' | 'TOTAL'
 
@@ -1051,7 +1052,7 @@ export async function GET(request: Request) {
       }
     }
     const months = Array.from(monthSet).sort();
-    const lastReportYm = months.length > 0 ? months[months.length - 1] : "2026-12";
+    const lastReportYm = months.length > 0 ? months[months.length - 1] : `${currentYearStr}-12`;
     const bsDepreciationCutoff =
       year === "ALL" ? `${lastReportYm}-31` : endCutoff;
 
@@ -1977,7 +1978,7 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const {
-      year = "2026",
+      year = String(new Date().getFullYear()),
       entityType = "ALL",
       remarkText = "",
       taxWithholding = 0,

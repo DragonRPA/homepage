@@ -7,6 +7,7 @@ import {
   Upload,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   Search,
   BarChart3,
   FileText,
@@ -202,11 +203,43 @@ const MAJOR_LABELS: Record<
   },
 };
 
+const CORP_FOUNDING_YEAR = 2024; // 법인 설립연도(제1기 = 2024년)
+const EARLIEST_DATA_YEAR = 2023; // 개인사업자 포함 최초 데이터 연도
+
+function formatFiscalTermLabel(yrStr: string): string {
+  if (yrStr === "ALL") return "전체 연도";
+  const yNum = Number(yrStr);
+  if (isNaN(yNum)) return yrStr;
+  const termNo = yNum - CORP_FOUNDING_YEAR + 1;
+  if (termNo >= 1) {
+    return `제${termNo}기(${yNum}년)`;
+  }
+  return `개인(${yNum}년)`;
+}
+
 export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
   currentUser,
   selectedEntity = "ALL",
 }) => {
-  const [year, setYear] = useState<string>("2026");
+  const currentYearNum = useMemo(() => new Date().getFullYear(), []);
+  const currentYearStr = String(currentYearNum);
+
+  // 당기(현재 연도)부터 역순으로 회계기수 버튼 목록 동적 생성 (연도가 바뀌어도 코드 수정 불필요)
+  const fiscalYearList = useMemo(() => {
+    const list: Array<{ key: string; label: string; termNo: number }> = [];
+    const maxYr = Math.max(currentYearNum, 2026);
+    for (let y = maxYr; y >= EARLIEST_DATA_YEAR; y--) {
+      const termNo = y - CORP_FOUNDING_YEAR + 1;
+      list.push({
+        key: String(y),
+        label: formatFiscalTermLabel(String(y)),
+        termNo,
+      });
+    }
+    return list;
+  }, [currentYearNum]);
+
+  const [year, setYear] = useState<string>(() => String(new Date().getFullYear()));
   const [entityFilter, setEntityFilter] = useState<"ALL" | "CORP" | "INDIVIDUAL">(selectedEntity);
   const [amountBasis, setAmountBasis] = useState<"SUPPLY" | "TOTAL">("SUPPLY");
   const [loading, setLoading] = useState(false);
@@ -574,26 +607,72 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
     );
   };
 
-  const yearLabel = year === "ALL" ? "전체 연도 누적" : `${year}년도`;
+  const yearLabel = year === "ALL" ? "전체 연도 누적" : formatFiscalTermLabel(year);
+
+  // 1기 단위 좌우 이동 핸들러
+  // 버튼 배열이 [당기(최신) ➔ 전기 ➔ 전전기 ... ➔ 2023년] 순서이므로:
+  // ◀(좌측 버튼): 상위/최신 기수로 1기 이동 (예: 제2기 ➔ 제3기)
+  // ▶(우측 버튼): 이전/과거 기수로 1기 이동 (예: 제3기 ➔ 제2기 ➔ 제1기)
+  const currentYearIdx = useMemo(
+    () => fiscalYearList.findIndex((item) => item.key === year),
+    [fiscalYearList, year]
+  );
+
+  const canStepNewer = year === "ALL" ? true : currentYearIdx > 0;
+  const canStepOlder =
+    year === "ALL"
+      ? fiscalYearList.length > 0
+      : currentYearIdx >= 0 && currentYearIdx < fiscalYearList.length - 1;
+
+  const handleStepNewerTerm = () => {
+    setSelectedMonth("ALL");
+    if (year === "ALL") {
+      setYear(currentYearStr);
+      return;
+    }
+    if (currentYearIdx > 0) {
+      setYear(fiscalYearList[currentYearIdx - 1].key);
+    }
+  };
+
+  const handleStepOlderTerm = () => {
+    setSelectedMonth("ALL");
+    if (year === "ALL") {
+      if (fiscalYearList.length > 1) {
+        setYear(fiscalYearList[1].key);
+      } else if (fiscalYearList.length === 1) {
+        setYear(fiscalYearList[0].key);
+      }
+      return;
+    }
+    if (currentYearIdx >= 0 && currentYearIdx < fiscalYearList.length - 1) {
+      setYear(fiscalYearList[currentYearIdx + 1].key);
+    }
+  };
 
   return (
     <div className="flex flex-col min-h-full md:h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 md:overflow-hidden font-sans">
       {/* 1. 상단 조회 조건 & 파이프라인 바 (헌장 3.4, 3.5 준수) */}
       <div className="p-2.5 md:p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-end justify-between gap-2.5 shrink-0">
         <div className="flex flex-wrap items-end gap-2 w-full sm:w-auto">
-          {/* 조회 연도 */}
+          {/* 조회 회계기수 (연도) */}
           <div className="flex flex-col gap-1 w-full sm:w-auto">
             <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400 whitespace-nowrap">
-              조회 연도
+              조회 회계기수 (연도)
             </label>
             <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
-              {[
-                { key: "2026", label: "2026년" },
-                { key: "2025", label: "2025년" },
-                { key: "2024", label: "2024년" },
-                { key: "2023", label: "2023년" },
-                { key: "ALL", label: "전체 연도" },
-              ].map((y) => (
+              {/* ◀ 1기 최신(당기 방향) 이동 버튼 */}
+              <button
+                type="button"
+                onClick={handleStepNewerTerm}
+                disabled={!canStepNewer}
+                title="다음 기수(최신 기수 방향)로 1기 이동"
+                className="px-1.5 py-1.5 text-xs font-bold rounded border bg-[#f4efe4] text-[#0f172a] border-[#b5a894] hover:bg-[#dcd4c4] disabled:opacity-40 disabled:pointer-events-none shrink-0 transition dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+
+              {fiscalYearList.map((y) => (
                 <button
                   key={y.key}
                   type="button"
@@ -601,7 +680,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                     setYear(y.key);
                     setSelectedMonth("ALL");
                   }}
-                  className={`px-2 py-1.5 text-xs font-bold rounded border whitespace-nowrap shrink-0 transition ${
+                  className={`px-2.5 py-1.5 text-xs font-bold rounded border whitespace-nowrap shrink-0 transition ${
                     year === y.key
                       ? "bg-[#1d4ed8] text-white border-[#1e40af]"
                       : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894] hover:bg-[#dcd4c4] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
@@ -610,6 +689,33 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                   {y.label}
                 </button>
               ))}
+
+              {/* ▶ 1기 과거(전기 방향) 이동 버튼 */}
+              <button
+                type="button"
+                onClick={handleStepOlderTerm}
+                disabled={!canStepOlder}
+                title="이전 기수(전기 방향)로 1기 이동"
+                className="px-1.5 py-1.5 text-xs font-bold rounded border bg-[#f4efe4] text-[#0f172a] border-[#b5a894] hover:bg-[#dcd4c4] disabled:opacity-40 disabled:pointer-events-none shrink-0 transition dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+
+              {/* 전체 연도 버튼 유지 */}
+              <button
+                type="button"
+                onClick={() => {
+                  setYear("ALL");
+                  setSelectedMonth("ALL");
+                }}
+                className={`px-2.5 py-1.5 text-xs font-bold rounded border whitespace-nowrap shrink-0 transition ${
+                  year === "ALL"
+                    ? "bg-[#1d4ed8] text-white border-[#1e40af]"
+                    : "bg-[#f4efe4] text-[#0f172a] border-[#b5a894] hover:bg-[#dcd4c4] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                }`}
+              >
+                전체 연도
+              </button>
             </div>
           </div>
 
@@ -1008,7 +1114,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
                       </span>
                     </div>
                     <div className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap">
-                      <span>· 법인세 {year === "2026" ? "(중간예납 선급제외)" : ""}</span>
+                      <span>· 법인세 {year !== "ALL" && Number(year) >= 2026 ? "(중간예납 선급제외)" : ""}</span>
                       <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
                         {formatErpCurrency(statements.pl.taxItems.corporateTax)}
                       </span>

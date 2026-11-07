@@ -1206,6 +1206,86 @@ async function crawlOfficialBoardsLive(pool: any, targetSector: "FL" | "AWP" | "
         // ignore timeout
       }
     }
+
+    // 2-B) FL: 다음카페 2979지게차연합회 (m.cafe.daum.net/forklift2979.com) 최신 게시글 실시간 파싱
+    const cafeBoards = [
+      { fldid: "kmCN", name: "후원금내역" },
+      { fldid: "jESV", name: "홍보물신청" },
+      { fldid: "jzMy", name: "찬조금·운영기금" },
+      { fldid: "jQdv", name: "1577-6644콜회원" },
+    ];
+    for (const cb of cafeBoards) {
+      try {
+        const cafeUrl = `https://m.cafe.daum.net/forklift2979.com/${cb.fldid}`;
+        const res = await fetch(cafeUrl, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+          },
+          signal: AbortSignal.timeout(6000),
+        });
+        if (!res.ok) continue;
+        const html = await res.text();
+        const pushes = Array.from(html.matchAll(/articles\.push\(\{([\s\S]*?)\}\);/g));
+        for (const m of pushes) {
+          const block = m[1];
+          const dataid = block.match(/dataid:\s*(\d+)/)?.[1] || "";
+          const title = (block.match(/title:\s*"([^"]*)"/)?.[1] || "")
+            .replace(/&#39;/g, "'")
+            .replace(/&quot;/g, '"')
+            .replace(/&amp;/g, "&");
+          const writer = (block.match(/writerNickname:\s*"([^"]*)"/)?.[1] || "")
+            .replace(/&#39;/g, "'")
+            .replace(/&quot;/g, '"')
+            .replace(/&amp;/g, "&");
+          const combined = `${title} ${writer}`;
+          const bizMatch = combined.match(
+            /((?:\(주\)|주식회사\s*)?[가-힣A-Za-z0-9]{2,12}(?:지게차|중기|건기|건설기계|중장비))(?!연합회|협의회|협회)/
+          );
+          if (!bizMatch) continue;
+          const companyName = bizMatch[1].trim();
+          if (
+            /^(2979지게차|전국지게차|콜지게차|불법지게차|영업용지게차|두산지게차|현대지게차)$/.test(
+              companyName
+            ) ||
+            /\d+톤/.test(companyName)
+          ) {
+            continue;
+          }
+          const ceoMatch = combined.match(/([가-힣]{2,4})\s*(?:대표|회장|사장)/);
+          const ceoName =
+            ceoMatch && ceoMatch[1] !== "강성조" && ceoMatch[1] !== "사무국"
+              ? ceoMatch[1]
+              : "";
+          const phoneMatch = combined.match(
+            /(01[016789][-\s.]*\d{3,4}[-\s.]*\d{4}|0\d{1,2}[-\s.)]*\d{3,4}[-\s.]*\d{4})/
+          );
+          const phone = phoneMatch ? phoneMatch[1].replace(/[.)\s]+/g, "-") : "";
+          const region = formatCrawlRegion("", title);
+          crawled.push({
+            sector: "FL",
+            companyName,
+            businessNo: "",
+            ceoName,
+            region,
+            address: region,
+            bizScope: "지게차 임대 · 매매 · 배차",
+            mainBrands: "두산밥캣, HD현대, 클라크, 토요타 디젤·전동지게차",
+            mainProducts: "영업용 지게차 장단기 임대 및 현장 중량물 하역·배차",
+            officialSource: `2979지게차연합회 · ${cb.name} (cafe.daum.net/forklift2979.com)`,
+            ksicCode: "71201 (건설·물류장비 임대업)",
+            phone,
+            websiteUrl: dataid
+              ? `https://cafe.daum.net/forklift2979.com/${cb.fldid}/${dataid}`
+              : "https://cafe.daum.net/forklift2979.com",
+            scaleNote: `2979지게차연합회(전국지게차연합회) 확인 사업자 · ${cb.name}`,
+            salesStatus: "TARGET",
+          });
+        }
+      } catch {
+        // ignore timeout
+      }
+    }
   }
 
   // 3) OA_PC: 신도리코(sindoh.com) 전국 공식 파트너·지정점 원부 실시간 크롤링

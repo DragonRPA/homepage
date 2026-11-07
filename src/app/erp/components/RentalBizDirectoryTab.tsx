@@ -105,6 +105,11 @@ const OFFICIAL_PORTAL_LINKS = [
     url: "https://www.nicebizinfo.com",
   },
   {
+    name: "2979지게차연합회 다음카페 (cafe.daum.net/forklift2979.com)",
+    desc: "전국 영업용 지게차 임대사업자 최대 커뮤니티(회원 17,701명) — 매물등록(kP0N)·지입광고(dsRM)·구인구직(YTcR)·렌탈(YTd3)·영업소(YUHn)·후원내역(kmCN) 등 410개 지게차 사업자 추출 연동",
+    url: "https://cafe.daum.net/forklift2979.com",
+  },
+  {
     name: "우리동네지게차 (udj.kr) & 퍼펙트82 (perfect82.com)",
     desc: "전국 시·군·구 산업단지 밀착 지게차(FL) 신차 대리점·중고매매·장단기 렌탈·정비 사업자 통합 지도/리스트",
     url: "https://www.udj.kr",
@@ -798,8 +803,13 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
             onChange={(e) => setRegionFilter(e.target.value)}
             className="px-2 py-1 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs font-bold text-[#0f172a]"
           >
-            <option value="ALL">전국 모든 권역 / 지회</option>
-            <optgroup label="협동조합(klra.or.kr) 지회별">
+            <option value="ALL">전국 모든 권역 / 지회 / 원부출처</option>
+            <optgroup label="지게차(FL) 공식 연합회·원부 출처별">
+              <option value="2979지게차연합회">2979지게차연합회 (다음카페 forklift2979.com · 410개사)</option>
+              <option value="우리동네지게차">전국지게차연합·우리동네지게차 (udj.kr · 273개사)</option>
+              <option value="공공데이터포털">지자체 건설기계대여업 등록원부 (data.go.kr · 429개사)</option>
+            </optgroup>
+            <optgroup label="고소작업대 협동조합(klra.or.kr) 지회별">
               <option value="한국고소작업대임대업협동조합">협동조합 전 회원사 (101개사)</option>
               <option value="경기동부지회">경기동부지회 (용인·이천·광주·안성)</option>
               <option value="경기서부지회">경기서부지회 (시흥·안산·화성·김포·인천)</option>

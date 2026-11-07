@@ -16,16 +16,23 @@ import {
   Calculator,
 } from "lucide-react";
 import {
-  GENERAL_ACCOUNTING_STANDARDS_META,
   GENERAL_STANDARD_CHAPTERS,
   GENERAL_STANDARD_ARTICLES,
   GENERAL_GUIDANCE_SECTIONS,
-  GeneralStandardParagraph,
+  GeneralStandardArticle,
   GeneralGuidanceSection,
 } from "../data/generalAccountingStandardsData";
 
+const GENERAL_ACCOUNTING_STANDARDS_META = {
+  standardEnacted: "한국회계기준원 회계기준위원회 의결 (2009. 11. 27. 제정 · 2023. 12. 26. 개정 반영)",
+  legalBasis: "「주식회사 등의 외부감사에 관한 법률」 제5조제1항제2호",
+  smeSpecialPdfUrl: "/docs/accounting/kgaap/제31장_중소기업_회계처리_특례.pdf",
+};
+
 const QUICK_KEYWORDS = [
   "중소기업 회계처리 특례",
+  "보고기간후사건",
+  "최초채택",
   "유형자산",
   "운용리스",
   "금융리스",
@@ -33,10 +40,8 @@ const QUICK_KEYWORDS = [
   "대손충당금",
   "지분법",
   "무형자산",
-  "개발비",
   "퇴직급여충당부채",
   "이연법인세",
-  "충당부채",
 ];
 
 function escapeRegExp(str: string): string {
@@ -74,7 +79,7 @@ function HighlightedText({
   );
 }
 
-function matchesArticle(article: GeneralStandardParagraph, query: string): boolean {
+function matchesArticle(article: GeneralStandardArticle, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return false;
   if (article.chapterNo.toLowerCase().includes(q)) return true;
@@ -90,38 +95,25 @@ function matchesGuidance(section: GeneralGuidanceSection, query: string): boolea
   const q = query.trim().toLowerCase();
   if (!q) return false;
   if (section.chapterNo.toLowerCase().includes(q)) return true;
-  if (section.chapterTitle.toLowerCase().includes(q)) return true;
   if (section.sectionNo.toLowerCase().includes(q)) return true;
   if (section.sectionTitle.toLowerCase().includes(q)) return true;
-  if (section.summaryTable && section.summaryTable.toLowerCase().includes(q)) return true;
+  if (section.summaryTable) {
+    if (section.summaryTable.title.toLowerCase().includes(q)) return true;
+    if (section.summaryTable.rows.some((r) => r.toLowerCase().includes(q))) return true;
+  }
   if (section.keywords.some((k) => k.toLowerCase().includes(q))) return true;
-  if (section.quotedParagraphs.some((a) => a.toLowerCase().includes(q))) return true;
   if (
-    section.explanations &&
-    section.explanations.some(
-      (e) =>
-        e.heading.toLowerCase().includes(q) || e.body.toLowerCase().includes(q)
+    section.blocks.some(
+      (b) =>
+        b.subtitle.toLowerCase().includes(q) ||
+        b.content.some((line) => line.toLowerCase().includes(q)) ||
+        (b.exampleBox &&
+          (b.exampleBox.title.toLowerCase().includes(q) ||
+            b.exampleBox.lines.some((l) => l.toLowerCase().includes(q))))
     )
-  )
+  ) {
     return true;
-  if (
-    section.cases &&
-    section.cases.some(
-      (c) =>
-        c.caseNo.toLowerCase().includes(q) ||
-        c.title.toLowerCase().includes(q) ||
-        c.body.toLowerCase().includes(q)
-    )
-  )
-    return true;
-  if (
-    section.references &&
-    section.references.some(
-      (r) =>
-        r.title.toLowerCase().includes(q) || r.body.toLowerCase().includes(q)
-    )
-  )
-    return true;
+  }
   return false;
 }
 
@@ -131,7 +123,7 @@ export default function GeneralAccountingStandardsTab() {
   const [leftQuery, setLeftQuery] = useState("");
   const [rightQuery, setRightQuery] = useState("");
 
-  // 장별 필터 상태
+  // 장별 필터 상태 ("ALL" 또는 정확한 chapterNo 예: "제24장", "제30장")
   const [leftChapterFilter, setLeftChapterFilter] = useState("ALL");
   const [rightChapterFilter, setRightChapterFilter] = useState("ALL");
 
@@ -145,8 +137,12 @@ export default function GeneralAccountingStandardsTab() {
   const [rightFilterOnlyMatched, setRightFilterOnlyMatched] = useState(false);
 
   // 현재 포커스된 항목 ID 및 매칭 인덱스
-  const [focusedLeftId, setFocusedLeftId] = useState<string>("kgaap-1-1");
-  const [focusedRightId, setFocusedRightId] = useState<string>("kgaap-guide-1");
+  const [focusedLeftId, setFocusedLeftId] = useState<string>(
+    GENERAL_STANDARD_ARTICLES[0]?.id || "kgaap-art-00-01"
+  );
+  const [focusedRightId, setFocusedRightId] = useState<string>(
+    GENERAL_GUIDANCE_SECTIONS[0]?.id || "kgaap-sec-00-01"
+  );
   const [leftMatchIndex, setLeftMatchIndex] = useState<number>(0);
   const [rightMatchIndex, setRightMatchIndex] = useState<number>(0);
 
@@ -154,23 +150,17 @@ export default function GeneralAccountingStandardsTab() {
   const leftScrollRef = useRef<HTMLDivElement | null>(null);
   const rightScrollRef = useRef<HTMLDivElement | null>(null);
 
-  // 우측 부록 장별 필터 목록
-  const guidanceChapters = useMemo(() => {
-    const seen = new Set<string>();
-    const list: Array<{ no: string; title: string }> = [];
-    GENERAL_GUIDANCE_SECTIONS.forEach((sec) => {
-      if (!seen.has(sec.chapterNo)) {
-        seen.add(sec.chapterNo);
-        list.push({ no: sec.chapterNo, title: sec.chapterTitle });
-      }
-    });
-    return list;
+  // 장 번호 -> 장 제목 매핑
+  const chapterTitleMap = useMemo(() => {
+    const map = new Map<string, string>();
+    GENERAL_STANDARD_CHAPTERS.forEach((ch) => map.set(ch.no, ch.title));
+    return map;
   }, []);
 
-  // 장별 필터가 적용된 좌측 기준서 목록
+  // 장별 필터가 적용된 좌측 기준서 목록 (정확히 일치하는 장만 필터링)
   const visibleLeftArticles = useMemo(() => {
     return GENERAL_STANDARD_ARTICLES.filter((art) => {
-      if (leftChapterFilter !== "ALL" && !art.chapterNo.includes(leftChapterFilter)) {
+      if (leftChapterFilter !== "ALL" && art.chapterNo !== leftChapterFilter) {
         return false;
       }
       if (leftFilterOnlyMatched && leftQuery.trim()) {
@@ -180,7 +170,7 @@ export default function GeneralAccountingStandardsTab() {
     });
   }, [leftChapterFilter, leftFilterOnlyMatched, leftQuery]);
 
-  // 장별 필터가 적용된 우측 부록·해설 목록
+  // 장별 필터가 적용된 우측 부록·해설 목록 (정확히 일치하는 장만 필터링)
   const visibleRightSections = useMemo(() => {
     return GENERAL_GUIDANCE_SECTIONS.filter((sec) => {
       if (rightChapterFilter !== "ALL" && sec.chapterNo !== rightChapterFilter) {
@@ -215,7 +205,7 @@ export default function GeneralAccountingStandardsTab() {
         const containerRect = container.getBoundingClientRect();
         const targetRect = target.getBoundingClientRect();
         const offsetTop =
-          targetRect.top - containerRect.top + container.scrollTop - 24;
+          targetRect.top - containerRect.top + container.scrollTop - 16;
         container.scrollTo({
           top: Math.max(0, offsetTop),
           behavior: "smooth",
@@ -234,7 +224,7 @@ export default function GeneralAccountingStandardsTab() {
         const containerRect = container.getBoundingClientRect();
         const targetRect = target.getBoundingClientRect();
         const offsetTop =
-          targetRect.top - containerRect.top + container.scrollTop - 24;
+          targetRect.top - containerRect.top + container.scrollTop - 16;
         container.scrollTo({
           top: Math.max(0, offsetTop),
           behavior: "smooth",
@@ -242,6 +232,47 @@ export default function GeneralAccountingStandardsTab() {
       }
     });
   }, []);
+
+  // 좌측 장 선택 시: 좌·우 장 필터 및 상단 PDF 선택기 동시 동기화 + 스크롤 최상단 이동
+  const handleSelectLeftChapter = (chNo: string) => {
+    setLeftChapterFilter(chNo);
+    setRightChapterFilter(chNo);
+    if (chNo !== "ALL") {
+      const foundCh = GENERAL_STANDARD_CHAPTERS.find((c) => c.no === chNo);
+      if (foundCh) {
+        setSelectedPdfUrl(foundCh.pdfUrl);
+      }
+      const firstArt = GENERAL_STANDARD_ARTICLES.find((a) => a.chapterNo === chNo);
+      if (firstArt) setFocusedLeftId(firstArt.id);
+      const firstSec = GENERAL_GUIDANCE_SECTIONS.find((s) => s.chapterNo === chNo);
+      if (firstSec) setFocusedRightId(firstSec.id);
+    }
+    requestAnimationFrame(() => {
+      leftScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      rightScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  };
+
+  // 우측 장 선택 시: 우측 장 필터 변경 및 우측 스크롤 최상단 이동
+  const handleSelectRightChapter = (chNo: string) => {
+    setRightChapterFilter(chNo);
+    if (chNo !== "ALL") {
+      const firstSec = GENERAL_GUIDANCE_SECTIONS.find((s) => s.chapterNo === chNo);
+      if (firstSec) setFocusedRightId(firstSec.id);
+    }
+    requestAnimationFrame(() => {
+      rightScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  };
+
+  // 상단 PDF 드롭다운 변경 시: 해당 장으로 좌·우 화면도 함께 이동
+  const handleSelectPdfDropdown = (pdfUrl: string) => {
+    setSelectedPdfUrl(pdfUrl);
+    const foundCh = GENERAL_STANDARD_CHAPTERS.find((c) => c.pdfUrl === pdfUrl);
+    if (foundCh) {
+      handleSelectLeftChapter(foundCh.no);
+    }
+  };
 
   // 좌측 검색어가 변경될 때 첫 번째 매칭 문단으로 자동 포커스 이동
   useEffect(() => {
@@ -301,13 +332,19 @@ export default function GeneralAccountingStandardsTab() {
     setRightChapterFilter("ALL");
     setLeftFilterOnlyMatched(false);
     setRightFilterOnlyMatched(false);
-    scrollToLeftArticle("kgaap-1-1");
-    scrollToRightSection("kgaap-guide-1");
+    if (GENERAL_STANDARD_ARTICLES[0]) {
+      scrollToLeftArticle(GENERAL_STANDARD_ARTICLES[0].id);
+    }
+    if (GENERAL_GUIDANCE_SECTIONS[0]) {
+      scrollToRightSection(GENERAL_GUIDANCE_SECTIONS[0].id);
+    }
   };
 
   // 좌측 본문에서 우측 연계 부록·해설로 점프
-  const handleCrossJumpToRight = (guidanceId: string) => {
-    setRightChapterFilter("ALL");
+  const handleCrossJumpToRight = (guidanceId: string, chapterNo: string) => {
+    if (rightChapterFilter !== "ALL" && rightChapterFilter !== chapterNo) {
+      setRightChapterFilter(chapterNo);
+    }
     setRightFilterOnlyMatched(false);
     setTimeout(() => {
       scrollToRightSection(guidanceId);
@@ -315,8 +352,10 @@ export default function GeneralAccountingStandardsTab() {
   };
 
   // 우측 부록·해설에서 좌측 연계 기준서 본문으로 점프
-  const handleCrossJumpToLeft = (articleId: string) => {
-    setLeftChapterFilter("ALL");
+  const handleCrossJumpToLeft = (articleId: string, chapterNo: string) => {
+    if (leftChapterFilter !== "ALL" && leftChapterFilter !== chapterNo) {
+      setLeftChapterFilter(chapterNo);
+    }
     setLeftFilterOnlyMatched(false);
     setTimeout(() => {
       scrollToLeftArticle(articleId);
@@ -325,7 +364,7 @@ export default function GeneralAccountingStandardsTab() {
 
   // ID로 기준서 문단 조회 헬퍼
   const articleMap = useMemo(() => {
-    const map = new Map<string, GeneralStandardParagraph>();
+    const map = new Map<string, GeneralStandardArticle>();
     GENERAL_STANDARD_ARTICLES.forEach((a) => map.set(a.id, a));
     return map;
   }, []);
@@ -336,6 +375,66 @@ export default function GeneralAccountingStandardsTab() {
     GENERAL_GUIDANCE_SECTIONS.forEach((g) => map.set(g.id, g));
     return map;
   }, []);
+
+  // 원문 문단 라인 렌더링 헬퍼 (소제목 ■, 용어정의 •, 표 | 구분 렌더링)
+  const renderVerbatimLine = (line: string, query: string, idx: number, accent: "blue" | "emerald") => {
+    if (line.startsWith("■ ")) {
+      const headingText = line.slice(2).trim();
+      return (
+        <div
+          key={idx}
+          className={`mt-2.5 mb-1 px-2.5 py-1 rounded font-bold text-xs text-slate-900 border-l-3 ${
+            accent === "blue"
+              ? "bg-slate-100/90 border-blue-600"
+              : "bg-emerald-50/80 border-emerald-600"
+          }`}
+        >
+          <HighlightedText text={headingText} query={query} />
+        </div>
+      );
+    }
+
+    if (line.startsWith("• ") && line.includes(":")) {
+      const colonIdx = line.indexOf(":");
+      const termPart = line.slice(0, colonIdx + 1);
+      const defPart = line.slice(colonIdx + 1);
+      return (
+        <p
+          key={idx}
+          className="pl-2 py-0.5 border-l-2 border-blue-300 bg-slate-50/70 rounded-r text-xs leading-relaxed"
+        >
+          <span className="font-bold text-slate-900">
+            <HighlightedText text={termPart} query={query} />
+          </span>
+          <span className="text-slate-800">
+            <HighlightedText text={defPart} query={query} />
+          </span>
+        </p>
+      );
+    }
+
+    if (line.includes(" | ")) {
+      return (
+        <div
+          key={idx}
+          className="px-2.5 py-1 rounded bg-slate-50 border border-slate-200 font-mono text-[11px] text-slate-800 overflow-x-auto whitespace-nowrap"
+        >
+          <HighlightedText text={line} query={query} />
+        </div>
+      );
+    }
+
+    return (
+      <p
+        key={idx}
+        className={`whitespace-pre-line pl-2 border-l-2 text-xs leading-relaxed text-slate-800 ${
+          accent === "blue" ? "border-slate-200" : "border-emerald-200"
+        }`}
+      >
+        <HighlightedText text={line} query={query} />
+      </p>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-3 w-full">
@@ -349,7 +448,7 @@ export default function GeneralAccountingStandardsTab() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base font-bold text-slate-900 whitespace-nowrap">
-                  일반기업회계기준 및 해설
+                  일반기업회계기준 및 해설 (전 35개 장 원문 수록)
                 </h2>
                 <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 whitespace-nowrap">
                   {GENERAL_ACCOUNTING_STANDARDS_META.standardEnacted}
@@ -359,7 +458,7 @@ export default function GeneralAccountingStandardsTab() {
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                좌측: 일반기업회계기준 본문(개념체계, 제1장~제33장, 제31장 중소기업 회계처리 특례 전문) · 우측: 일반기업회계기준 부록·해설(결론도출근거, 실무지침, 적용사례, 중소기업회계기준 비교)
+                좌측: 일반기업회계기준 본문 원문(개념체계, 제1장~제33장, 부록A 적용보충기준, 용어의 정의, 경과규정 전문) · 우측: 부록 원문(결론도출근거, 실무지침, 적용사례 전문 + 보조 핵심요약)
               </p>
             </div>
           </div>
@@ -368,7 +467,7 @@ export default function GeneralAccountingStandardsTab() {
             <div className="flex items-center gap-1">
               <select
                 value={selectedPdfUrl}
-                onChange={(e) => setSelectedPdfUrl(e.target.value)}
+                onChange={(e) => handleSelectPdfDropdown(e.target.value)}
                 aria-label="일반기업회계기준 장별 원문 PDF 선택"
                 className="px-2 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-md text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
               >
@@ -422,7 +521,7 @@ export default function GeneralAccountingStandardsTab() {
                 type="text"
                 value={unifiedQuery}
                 onChange={(e) => applyUnifiedSearch(e.target.value)}
-                placeholder="예: 중소기업 회계처리 특례, 운용리스, 유형자산, 지분법, 이연법인세, 제31장..."
+                placeholder="예: 보고기간후사건, 최초채택, 간주원가, 중소기업 회계처리 특례, 운용리스..."
                 className="w-full pl-9 pr-20 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white text-slate-900"
               />
               {unifiedQuery && (
@@ -467,17 +566,19 @@ export default function GeneralAccountingStandardsTab() {
 
       {/* 좌우 분할 영역 (독립 종스크롤 적용) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 h-[calc(100vh-230px)] min-h-[640px]">
-        {/* ==================== 좌측 영역: 일반기업회계기준 (본문 문단) ==================== */}
+        {/* ==================== 좌측 영역: 일반기업회계기준 (본문 원문) ==================== */}
         <div className="flex flex-col bg-white border border-slate-200 rounded-lg shadow-xs overflow-hidden h-full">
           {/* 좌측 패널 고정 헤더 & 검색바 */}
           <div className="bg-slate-900 text-white px-3.5 py-2.5 flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               <FileText className="w-4 h-4 text-blue-400 shrink-0" />
               <span className="text-sm font-bold whitespace-nowrap">
-                일반기업회계기준 본문
+                일반기업회계기준 본문 (원문)
               </span>
               <span className="text-[11px] text-slate-300 bg-slate-800 px-2 py-0.5 rounded whitespace-nowrap">
-                총 {GENERAL_STANDARD_ARTICLES.length}개 항목 (개념체계·제1장~제33장·경과규정)
+                {leftChapterFilter === "ALL"
+                  ? `전체 35개 장 · ${GENERAL_STANDARD_ARTICLES.length}개 섹션`
+                  : `${leftChapterFilter} · ${visibleLeftArticles.length}개 섹션`}
               </span>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
@@ -511,14 +612,14 @@ export default function GeneralAccountingStandardsTab() {
           <div className="bg-slate-50 border-b border-slate-200 p-2.5 grid grid-cols-1 sm:grid-cols-12 gap-2 shrink-0">
             <div className="sm:col-span-5 flex flex-col gap-1">
               <label className="text-[11px] font-bold text-slate-700 whitespace-nowrap">
-                회계기준 장별 이동/필터
+                회계기준 장별 이동/필터 (좌·우 동기화)
               </label>
               <select
                 value={leftChapterFilter}
-                onChange={(e) => setLeftChapterFilter(e.target.value)}
+                onChange={(e) => handleSelectLeftChapter(e.target.value)}
                 className="w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-600 text-slate-900"
               >
-                <option value="ALL">전체 장 보기 (개념체계 · 제1장~제33장 · 경과규정)</option>
+                <option value="ALL">전체 35개 장 보기 (개념체계 · 제1장~제33장 · 경과규정)</option>
                 {GENERAL_STANDARD_CHAPTERS.map((ch) => (
                   <option key={ch.no} value={ch.no}>
                     {ch.no} — {ch.title}
@@ -529,7 +630,7 @@ export default function GeneralAccountingStandardsTab() {
 
             <div className="sm:col-span-5 flex flex-col gap-1">
               <label className="text-[11px] font-bold text-slate-700 whitespace-nowrap">
-                좌측 회계기준 내 키워드 검색
+                좌측 회계기준 본문 내 키워드 검색
               </label>
               <div className="relative flex items-center">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
@@ -543,7 +644,7 @@ export default function GeneralAccountingStandardsTab() {
                       handleLeftNavigate("next");
                     }
                   }}
-                  placeholder="장·문단번호(문단 31.5) 또는 키워드 입력 (Enter: 다음)"
+                  placeholder="문단번호(24.1, 30.8) 또는 본문 키워드 입력 (Enter: 다음)"
                   className="w-full pl-8 pr-14 py-1.5 text-xs bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-600 text-slate-900"
                 />
                 {leftQuery && (
@@ -583,13 +684,14 @@ export default function GeneralAccountingStandardsTab() {
           >
             {visibleLeftArticles.length === 0 ? (
               <div className="py-16 text-center text-xs text-slate-500">
-                조건에 일치하는 일반기업회계기준 문단이 없습니다.
+                조건에 일치하는 일반기업회계기준 본문 문단이 없습니다.
               </div>
             ) : (
               visibleLeftArticles.map((art) => {
                 const isFocused = focusedLeftId === art.id;
                 const isMatched =
                   leftQuery.trim().length > 0 && matchesArticle(art, leftQuery);
+                const primaryGuidanceIds = art.relatedGuidanceIds.slice(0, 2);
 
                 return (
                   <div
@@ -641,7 +743,7 @@ export default function GeneralAccountingStandardsTab() {
                           <span>원문 PDF</span>
                           <ExternalLink className="w-2.5 h-2.5 text-slate-400" />
                         </a>
-                        {art.relatedGuidanceIds.map((gId) => {
+                        {primaryGuidanceIds.map((gId) => {
                           const guide = guidanceMap.get(gId);
                           if (!guide) return null;
                           return (
@@ -650,12 +752,12 @@ export default function GeneralAccountingStandardsTab() {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleCrossJumpToRight(gId);
+                                handleCrossJumpToRight(gId, art.chapterNo);
                               }}
                               className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded transition-colors whitespace-nowrap"
                               title={`우측 부록·해설 ${guide.sectionNo} (${guide.sectionTitle}) 위치로 스크롤 포커스`}
                             >
-                              <span>해설 {guide.sectionNo}</span>
+                              <span>{guide.sectionNo}</span>
                               <ArrowRight className="w-3 h-3" />
                             </button>
                           );
@@ -663,16 +765,11 @@ export default function GeneralAccountingStandardsTab() {
                       </div>
                     </div>
 
-                    {/* 기준서 본문 문단 */}
-                    <div className="space-y-1.5 text-xs leading-relaxed text-slate-800">
-                      {art.paragraphs.map((para, pIdx) => (
-                        <p
-                          key={pIdx}
-                          className="whitespace-pre-line pl-1 border-l-2 border-slate-200"
-                        >
-                          <HighlightedText text={para} query={leftQuery} />
-                        </p>
-                      ))}
+                    {/* 기준서 본문 원문 문단 */}
+                    <div className="space-y-1.5">
+                      {art.paragraphs.map((para, pIdx) =>
+                        renderVerbatimLine(para, leftQuery, pIdx, "blue")
+                      )}
                     </div>
 
                     {/* 하단 핵심 키워드 태그 */}
@@ -701,17 +798,19 @@ export default function GeneralAccountingStandardsTab() {
           </div>
         </div>
 
-        {/* ==================== 우측 영역: 일반기업회계기준 부록·해설 ==================== */}
+        {/* ==================== 우측 영역: 일반기업회계기준 부록·해설 (원문 + 보조 요약) ==================== */}
         <div className="flex flex-col bg-white border border-slate-200 rounded-lg shadow-xs overflow-hidden h-full">
           {/* 우측 패널 고정 헤더 & 검색바 */}
           <div className="bg-emerald-950 text-white px-3.5 py-2.5 flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
               <span className="text-sm font-bold whitespace-nowrap">
-                일반기업회계기준 부록·해설
+                일반기업회계기준 부록·해설 (원문)
               </span>
               <span className="text-[11px] text-emerald-200 bg-emerald-900 px-2 py-0.5 rounded whitespace-nowrap">
-                총 {GENERAL_GUIDANCE_SECTIONS.length}개 주제 (결론도출근거·실무지침·적용사례)
+                {rightChapterFilter === "ALL"
+                  ? `전체 35개 장 · ${GENERAL_GUIDANCE_SECTIONS.length}개 섹션`
+                  : `${rightChapterFilter} · ${visibleRightSections.length}개 섹션`}
               </span>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
@@ -749,11 +848,11 @@ export default function GeneralAccountingStandardsTab() {
               </label>
               <select
                 value={rightChapterFilter}
-                onChange={(e) => setRightChapterFilter(e.target.value)}
+                onChange={(e) => handleSelectRightChapter(e.target.value)}
                 className="w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-emerald-600 text-slate-900"
               >
-                <option value="ALL">전체 부록·해설 보기 (개념체계 · 제1장~제33장)</option>
-                {guidanceChapters.map((ch) => (
+                <option value="ALL">전체 35개 장 부록·해설 보기 (개념체계 · 제1장~제33장 · 경과규정)</option>
+                {GENERAL_STANDARD_CHAPTERS.map((ch) => (
                   <option key={ch.no} value={ch.no}>
                     {ch.no} — {ch.title}
                   </option>
@@ -763,7 +862,7 @@ export default function GeneralAccountingStandardsTab() {
 
             <div className="sm:col-span-5 flex flex-col gap-1">
               <label className="text-[11px] font-bold text-slate-700 whitespace-nowrap">
-                우측 실무지침·적용사례 키워드 검색
+                우측 결론도출근거·실무지침·적용사례 검색
               </label>
               <div className="relative flex items-center">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
@@ -777,7 +876,7 @@ export default function GeneralAccountingStandardsTab() {
                       handleRightNavigate("next");
                     }
                   }}
-                  placeholder="실무지침·분개사례·특례비교 키워드 입력 (Enter: 다음)"
+                  placeholder="결24.1, 실24.1, 사례1 또는 해설 키워드 입력 (Enter: 다음)"
                   className="w-full pl-8 pr-14 py-1.5 text-xs bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-emerald-600 text-slate-900"
                 />
                 {rightQuery && (
@@ -825,6 +924,8 @@ export default function GeneralAccountingStandardsTab() {
                 const isMatched =
                   rightQuery.trim().length > 0 &&
                   matchesGuidance(sec, rightQuery);
+                const chTitle = chapterTitleMap.get(sec.chapterNo) || "";
+                const primaryArticleIds = sec.relatedArticleIds.slice(0, 2);
 
                 return (
                   <div
@@ -844,7 +945,7 @@ export default function GeneralAccountingStandardsTab() {
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-900 text-white whitespace-nowrap">
                           <HighlightedText
-                            text={`${sec.chapterNo} ${sec.chapterTitle}`}
+                            text={`${sec.chapterNo} ${chTitle}`}
                             query={rightQuery}
                           />
                         </span>
@@ -876,7 +977,7 @@ export default function GeneralAccountingStandardsTab() {
                           <span>원문 PDF</span>
                           <ExternalLink className="w-2.5 h-2.5 text-slate-400" />
                         </a>
-                        {sec.relatedStandardIds.map((artId) => {
+                        {primaryArticleIds.map((artId) => {
                           const art = articleMap.get(artId);
                           if (!art) return null;
                           return (
@@ -885,7 +986,7 @@ export default function GeneralAccountingStandardsTab() {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleCrossJumpToLeft(artId);
+                                handleCrossJumpToLeft(artId, sec.chapterNo);
                               }}
                               className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 rounded transition-colors whitespace-nowrap"
                               title={`좌측 기준서 ${art.articleNo}(${art.articleTitle})로 스크롤 포커스`}
@@ -898,107 +999,65 @@ export default function GeneralAccountingStandardsTab() {
                       </div>
                     </div>
 
-                    {/* 관련 기준서 핵심 문단 인용 박스 */}
-                    {sec.quotedParagraphs.length > 0 && (
-                      <div className="mb-3 p-2.5 rounded bg-slate-100 border-l-4 border-slate-600 text-xs text-slate-700 space-y-1">
-                        {sec.quotedParagraphs.map((qText, qIdx) => (
-                          <p key={qIdx} className="whitespace-pre-line">
-                            <HighlightedText text={qText} query={rightQuery} />
+                    {/* 보조 핵심요약 비교표 (첫 카드 상단 보조 제공) */}
+                    {sec.summaryTable && (
+                      <div className="mb-3 p-3 rounded-md bg-blue-50/70 border border-blue-200 text-xs text-slate-800 space-y-1">
+                        <div className="font-bold text-blue-950 flex items-center gap-1.5 mb-1">
+                          <Calculator className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                          <HighlightedText
+                            text={sec.summaryTable.title}
+                            query={rightQuery}
+                          />
+                        </div>
+                        {sec.summaryTable.rows.map((row, rIdx) => (
+                          <p key={rIdx} className="leading-relaxed text-slate-700">
+                            <HighlightedText text={row} query={rightQuery} />
                           </p>
                         ))}
                       </div>
                     )}
 
-                    {/* 핵심 요약 비교표 */}
-                    {sec.summaryTable && (
-                      <div className="mb-3 p-3 rounded-md bg-blue-50/70 border border-blue-200 text-xs text-slate-800 whitespace-pre-line leading-relaxed font-medium">
-                        <HighlightedText
-                          text={sec.summaryTable}
-                          query={rightQuery}
-                        />
-                      </div>
-                    )}
-
-                    {/* 상세 해설 본문 */}
-                    {sec.explanations && sec.explanations.length > 0 && (
-                      <div className="space-y-2.5 text-xs leading-relaxed text-slate-800">
-                        {sec.explanations.map((exp, eIdx) => (
-                          <div key={eIdx} className="space-y-1">
-                            <h4 className="font-bold text-slate-900">
+                    {/* 부록 원문 블록 (결론도출근거 · 실무지침 · 적용사례 전문) */}
+                    <div className="space-y-3">
+                      {sec.blocks.map((block, bIdx) => (
+                        <div key={bIdx} className="space-y-1.5">
+                          {block.subtitle && (
+                            <h4 className="text-xs font-bold text-slate-900 bg-emerald-50/80 px-2.5 py-1 rounded border-l-3 border-emerald-700">
                               <HighlightedText
-                                text={exp.heading}
+                                text={block.subtitle.replace(/^■\s*/, "")}
                                 query={rightQuery}
                               />
                             </h4>
-                            <p className="whitespace-pre-line text-slate-700 pl-2 border-l-2 border-emerald-200">
-                              <HighlightedText
-                                text={exp.body}
-                                query={rightQuery}
-                              />
-                            </p>
+                          )}
+                          <div className="space-y-1.5">
+                            {block.content.map((line, lIdx) =>
+                              renderVerbatimLine(line, rightQuery, lIdx, "emerald")
+                            )}
                           </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* 실무 회계분개 [적용사례] 박스 */}
-                    {sec.cases && sec.cases.length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        {sec.cases.map((cs, cIdx) => (
-                          <div
-                            key={cIdx}
-                            className="p-3 rounded-md bg-amber-50/70 border border-amber-200 text-xs"
-                          >
-                            <div className="flex items-center gap-1.5 font-bold text-amber-950 mb-1">
-                              <Calculator className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                              <span>
-                                [
+                          {block.exampleBox && (
+                            <div className="mt-2 p-3 rounded-md bg-amber-50/70 border border-amber-200 text-xs space-y-1">
+                              <div className="font-bold text-amber-950">
                                 <HighlightedText
-                                  text={cs.caseNo}
+                                  text={block.exampleBox.title}
                                   query={rightQuery}
                                 />
-                                ]{" "}
-                                <HighlightedText
-                                  text={cs.title}
-                                  query={rightQuery}
-                                />
-                              </span>
+                              </div>
+                              {block.exampleBox.lines.map((exLine, exIdx) => (
+                                <p
+                                  key={exIdx}
+                                  className="font-mono text-[11px] text-slate-800 whitespace-pre-line"
+                                >
+                                  <HighlightedText
+                                    text={exLine}
+                                    query={rightQuery}
+                                  />
+                                </p>
+                              ))}
                             </div>
-                            <p className="whitespace-pre-line text-slate-800 font-mono text-[11px] leading-relaxed">
-                              <HighlightedText
-                                text={cs.body}
-                                query={rightQuery}
-                              />
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* 관련 규정 [참고] 박스 */}
-                    {sec.references && sec.references.length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        {sec.references.map((ref, rIdx) => (
-                          <div
-                            key={rIdx}
-                            className="p-2.5 rounded-md bg-slate-100/90 border border-slate-300 text-xs"
-                          >
-                            <div className="font-bold text-slate-900 mb-1">
-                              <HighlightedText
-                                text={ref.title}
-                                query={rightQuery}
-                              />
-                            </div>
-                            <p className="whitespace-pre-line text-slate-700 text-[11px] leading-relaxed">
-                              <HighlightedText
-                                text={ref.body}
-                                query={rightQuery}
-                              />
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                          )}
+                        </div>
+                      ))}
+                    </div>
 
                     {/* 하단 키워드 태그 */}
                     {sec.keywords.length > 0 && (

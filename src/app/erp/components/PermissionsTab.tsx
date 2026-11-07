@@ -60,6 +60,7 @@ const MENU_DEFS: Array<{ key: string; name: string; category: string; hasBilling
   { key: "tax_invoice", name: "매입·매출 세금계산서", category: "영업" },
   { key: "cloud_share", name: "클라우드 자료실", category: "영업" },
   { key: "gov_support", name: "정부지원·뉴스·트렌드", category: "영업" },
+  { key: "rental_biz_dir", name: "렌탈 사업자 DB (FL·AWP·OA)", category: "영업" },
   { key: "obsidian_vault", name: "옵시디언 노트 (PC·폰 연동)", category: "영업" },
 ];
 

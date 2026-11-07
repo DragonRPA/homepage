@@ -50,6 +50,7 @@ import { InboundRegTab } from "./components/InboundRegTab";
 import { CloudShareTab } from "./components/CloudShareTab";
 import { GovSupportIntelTab } from "./components/GovSupportIntelTab";
 import { ObsidianVaultTab } from "./components/ObsidianVaultTab";
+import { RentalBizDirectoryTab } from "./components/RentalBizDirectoryTab";
 import "./erp-theme.css";
 
 export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "PARTNER" | "ASSET" | "INOUT" | "BUSINESS";
@@ -85,7 +86,8 @@ export type ErpMenuKey =
   | "SERVICES"
   | "CLOUD_SHARE"
   | "GOV_SUPPORT"
-  | "OBSIDIAN_VAULT";
+  | "OBSIDIAN_VAULT"
+  | "RENTAL_BIZ_DIR";
 
 interface MenuItem {
   key: ErpMenuKey;
@@ -178,6 +180,7 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "TAX", label: "매입·매출 세금계산서", icon: FileText },
       { key: "CLOUD_SHARE", label: "클라우드 자료실", icon: Database },
       { key: "GOV_SUPPORT", label: "정부지원·뉴스·트렌드", icon: Compass },
+      { key: "RENTAL_BIZ_DIR", label: "렌탈 사업자 DB (FL·AWP·OA)", icon: Building2 },
       { key: "OBSIDIAN_VAULT", label: "옵시디언 노트 (PC·폰 연동)", icon: BookOpen },
     ],
   },
@@ -215,6 +218,7 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   CLOUD_SHARE: "cloud_share",
   GOV_SUPPORT: "gov_support",
   OBSIDIAN_VAULT: "obsidian_vault",
+  RENTAL_BIZ_DIR: "rental_biz_dir",
 };
 
 export default function ErpMainPage() {
@@ -815,6 +819,9 @@ export default function ErpMainPage() {
                 )}
                 {activeMenu === "GOV_SUPPORT" && (
                   <GovSupportIntelTab currentUser={enrichedUser} />
+                )}
+                {activeMenu === "RENTAL_BIZ_DIR" && (
+                  <RentalBizDirectoryTab currentUser={enrichedUser} />
                 )}
                 {activeMenu === "OBSIDIAN_VAULT" && (
                   <ObsidianVaultTab currentUser={enrichedUser} />

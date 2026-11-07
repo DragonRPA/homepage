@@ -121,6 +121,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
   const [checkedIds, setCheckedIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [discovering, setDiscovering] = useState(false);
+  const [crawlingBoards, setCrawlingBoards] = useState(false);
   const [registeringId, setRegisteringId] = useState<number | null>(null);
   const [bulkRegistering, setBulkRegistering] = useState(false);
 
@@ -218,7 +219,12 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
   const filteredItems = useMemo(() => {
     return items.filter((it) => {
       if (sectorFilter !== "ALL" && it.sector !== sectorFilter) return false;
-      if (regionFilter !== "ALL" && !it.region.includes(regionFilter) && !it.address.includes(regionFilter)) {
+      if (
+        regionFilter !== "ALL" &&
+        !it.region.includes(regionFilter) &&
+        !it.address.includes(regionFilter) &&
+        !it.officialSource.includes(regionFilter)
+      ) {
         return false;
       }
       if (statusFilter !== "ALL") {
@@ -237,6 +243,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
           it.ceoName,
           it.region,
           it.address,
+          it.phone,
           it.mainBrands,
           it.mainProducts,
           it.officialSource,
@@ -390,6 +397,33 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
       showToast(err.message, "error");
     } finally {
       setDiscovering(false);
+    }
+  };
+
+  // 협동조합(klra.or.kr) · 전국지게차연합(udj.kr) · 신도리코 공식 파트너 원부 실시간 직접 크롤링 동기화
+  const handleCrawlOfficialBoards = async () => {
+    setCrawlingBoards(true);
+    try {
+      const res = await fetch("/api/erp/rental-directory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "CRAWL_OFFICIAL_BOARDS",
+          sector: sectorFilter,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "공식 원부 동기화 실패");
+      }
+      setItems(data.items || []);
+      showToast(
+        `공식 원부(klra.or.kr 협동조합 · udj.kr 전국지게차 · 신도리코 파트너) 실시간 동기화 완료 (${data.crawledCount}건 점검)`
+      );
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setCrawlingBoards(false);
     }
   };
 
@@ -693,6 +727,19 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
 
           <button
             type="button"
+            onClick={handleCrawlOfficialBoards}
+            disabled={crawlingBoards}
+            className="px-2.5 py-1.5 rounded bg-blue-700 hover:bg-blue-800 text-white text-xs font-extrabold flex items-center gap-1 whitespace-nowrap shadow-xs"
+            title="klra.or.kr(한국고소작업대임대업협동조합 전 회원사) · udj.kr(우리동네지게차 전국업체) · sindoh.com(신도리코 파트너) 원부를 직접 크롤링하여 동기화합니다"
+          >
+            <Globe className={`w-3.5 h-3.5 ${crawlingBoards ? "animate-spin" : ""}`} />
+            <span>
+              {crawlingBoards ? "공식 원부 크롤링 중..." : "협동조합·공식원부 실시간 동기화"}
+            </span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setShowPortalGuideModal(true)}
             className="px-2.5 py-1.5 rounded bg-[#f4efe4] hover:bg-[#d8d0c0] text-[#0f172a] border border-[#b8ae99] text-xs font-bold flex items-center gap-1 whitespace-nowrap"
           >
@@ -747,18 +794,42 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
             onChange={(e) => setRegionFilter(e.target.value)}
             className="px-2 py-1 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs font-bold text-[#0f172a]"
           >
-            <option value="ALL">전국 모든 권역</option>
-            <option value="전국">전국망 대형사</option>
-            <option value="서울">서울</option>
-            <option value="경기">경기 전체</option>
-            <option value="용인">경기 용인</option>
-            <option value="화성">경기 화성</option>
-            <option value="평택">경기 평택</option>
-            <option value="시흥">경기 시흥·안산</option>
-            <option value="인천">인천</option>
-            <option value="부산">부산·경남·울산</option>
-            <option value="충청">충청·대전·천안</option>
-            <option value="전북">전북·광주·전남</option>
+            <option value="ALL">전국 모든 권역 / 지회</option>
+            <optgroup label="협동조합(klra.or.kr) 지회별">
+              <option value="한국고소작업대임대업협동조합">협동조합 전 회원사 (101개사)</option>
+              <option value="경기동부지회">경기동부지회 (용인·이천·광주·안성)</option>
+              <option value="경기서부지회">경기서부지회 (시흥·안산·화성·김포·인천)</option>
+              <option value="경기남부지회">경기남부지회 (평택·화성·오산·안성)</option>
+              <option value="경기북부지회">경기북부지회 (고양·파주·양주·남양주·포천)</option>
+              <option value="충남지회">충남지회 (천안·아산·당진·서산)</option>
+              <option value="충북지회">충북지회 (청주·진천·음성·충주)</option>
+              <option value="대구경북지회">대구경북지회 (대구·구미·경산·포항)</option>
+              <option value="부산울산경남지회">부산울산경남지회 (부산·울산·창원·김해)</option>
+              <option value="광주전남지회">광주전남지회 (광주·여수·순천·광양)</option>
+            </optgroup>
+            <optgroup label="전국 시·도 / 주요 거점별">
+              <option value="전국">전국망 대형사</option>
+              <option value="서울">서울</option>
+              <option value="경기">경기 전체</option>
+              <option value="용인">경기 용인</option>
+              <option value="화성">경기 화성</option>
+              <option value="평택">경기 평택</option>
+              <option value="시흥">경기 시흥·안산</option>
+              <option value="인천">인천</option>
+              <option value="충남">충남 (천안·아산·당진)</option>
+              <option value="충북">충북 (청주·음성·진천)</option>
+              <option value="대전">대전·세종</option>
+              <option value="부산">부산</option>
+              <option value="울산">울산</option>
+              <option value="경남">경남 (창원·김해·양산)</option>
+              <option value="대구">대구</option>
+              <option value="경북">경북 (구미·포항·경산)</option>
+              <option value="광주">광주</option>
+              <option value="전남">전남 (여수·순천·광양)</option>
+              <option value="전북">전북 (전주·군산·익산)</option>
+              <option value="강원">강원</option>
+              <option value="제주">제주</option>
+            </optgroup>
           </select>
 
           <select
@@ -893,8 +964,9 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
                   <th className="py-2 px-1.5 text-center font-extrabold whitespace-nowrap w-8">관심</th>
                   <th className="py-2 px-2 font-extrabold whitespace-nowrap">업종구분</th>
                   <th className="py-2 px-2 font-extrabold whitespace-nowrap">상호 (법인명)</th>
-                  <th className="py-2 px-2 font-extrabold whitespace-nowrap">사업자번호</th>
                   <th className="py-2 px-2 font-extrabold whitespace-nowrap">권역/지역</th>
+                  <th className="py-2 px-2 font-extrabold whitespace-nowrap">소재지 주소</th>
+                  <th className="py-2 px-2 font-extrabold whitespace-nowrap">대표전화</th>
                   <th className="py-2 px-2 font-extrabold whitespace-nowrap">공식 확인 경로</th>
                   <th className="py-2 px-2 text-center font-extrabold whitespace-nowrap">
                     매출처(고객) 등록
@@ -904,7 +976,7 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
               <tbody className="divide-y divide-[#d5ccb8]">
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-10 text-center space-y-2">
+                    <td colSpan={9} className="py-10 text-center space-y-2">
                       <div className="text-[#475569] font-bold">
                         현재 로컬 디렉토리에서 &apos;{searchQuery}&apos; 조건과 일치하는 사업자가 없습니다.
                       </div>
@@ -975,22 +1047,28 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
                           </span>
                         </td>
                         <td
-                          className="py-1.5 px-2 font-extrabold text-[#0f172a] max-w-[180px] truncate whitespace-nowrap"
+                          className="py-1.5 px-2 font-extrabold text-[#0f172a] max-w-[165px] truncate whitespace-nowrap"
                           title={item.companyName}
                         >
                           {item.companyName}
                         </td>
-                        <td className="py-1.5 px-2 font-mono text-[11px] text-[#334155] whitespace-nowrap">
-                          {item.businessNo || "-"}
-                        </td>
                         <td
-                          className="py-1.5 px-2 text-[#1e293b] max-w-[125px] truncate whitespace-nowrap"
-                          title={`${item.region} ${item.address}`}
+                          className="py-1.5 px-2 text-[#1e293b] max-w-[115px] truncate whitespace-nowrap"
+                          title={item.region}
                         >
                           {item.region}
                         </td>
                         <td
-                          className="py-1.5 px-2 text-[11px] text-[#1d4ed8] font-semibold max-w-[165px] truncate whitespace-nowrap"
+                          className="py-1.5 px-2 text-[#334155] text-[11px] max-w-[185px] truncate whitespace-nowrap"
+                          title={item.address}
+                        >
+                          {item.address || "-"}
+                        </td>
+                        <td className="py-1.5 px-2 font-mono text-[11px] text-[#0f172a] whitespace-nowrap">
+                          {item.phone || item.businessNo || "-"}
+                        </td>
+                        <td
+                          className="py-1.5 px-2 text-[11px] text-[#1d4ed8] font-semibold max-w-[155px] truncate whitespace-nowrap"
                           title={item.officialSource}
                         >
                           {item.officialSource}

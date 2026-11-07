@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { decryptPii } from "@/lib/piiCrypto";
+import officialCrawledSeeds from "./officialDirectoryData.json";
 
 export interface RentalBizSeed {
   sector: "FL" | "AWP" | "OA_PC";
@@ -1020,15 +1021,268 @@ async function ensureRentalDirectoryTable() {
     ALTER TABLE erp_rental_biz_directory ENABLE ROW LEVEL SECURITY;
   `);
 
-  // 초기/확장 검증 사업자 시드 Upsert (누락된 사업자가 있으면 자동 보강)
-  for (const item of INITIAL_VERIFIED_OPERATORS) {
+  const countRes = await pool.query(`SELECT COUNT(*)::int AS cnt FROM erp_rental_biz_directory`);
+  const existingCount = Number(countRes.rows[0]?.cnt || 0);
+
+  if (existingCount < 850) {
+    const allSeeds: RentalBizSeed[] = [
+      ...INITIAL_VERIFIED_OPERATORS,
+      ...(officialCrawledSeeds as RentalBizSeed[]),
+    ];
+    const batchSize = 100;
+    for (let i = 0; i < allSeeds.length; i += batchSize) {
+      const batch = allSeeds.slice(i, i + batchSize);
+      const values: string[] = [];
+      const params: any[] = [];
+      let pIdx = 1;
+      for (const item of batch) {
+        values.push(
+          `($${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++})`
+        );
+        params.push(
+          item.sector,
+          item.companyName,
+          item.businessNo || "",
+          item.ceoName || "",
+          item.region || "전국",
+          item.address || "",
+          item.bizScope || "",
+          item.mainBrands || "",
+          item.mainProducts || "",
+          item.officialSource || "",
+          item.ksicCode || "71201",
+          item.phone || "",
+          item.websiteUrl || "",
+          item.scaleNote || "",
+          item.salesStatus || "TARGET"
+        );
+      }
+      await pool.query(
+        `INSERT INTO erp_rental_biz_directory (
+          sector, company_name, business_no, ceo_name, region, address,
+          biz_scope, main_brands, main_products, official_source, ksic_code,
+          phone, website_url, scale_note, sales_status
+        ) VALUES ${values.join(",")}
+        ON CONFLICT (sector, company_name) DO UPDATE SET
+          region = EXCLUDED.region,
+          address = COALESCE(NULLIF(EXCLUDED.address, ''), erp_rental_biz_directory.address),
+          phone = COALESCE(NULLIF(EXCLUDED.phone, ''), erp_rental_biz_directory.phone),
+          official_source = EXCLUDED.official_source,
+          website_url = COALESCE(NULLIF(EXCLUDED.website_url, ''), erp_rental_biz_directory.website_url),
+          updated_at = NOW()`,
+        params
+      );
+    }
+  }
+}
+
+function formatCrawlRegion(rawRegion: string, rawAddr: string): string {
+  const s = `${rawRegion || ""} ${rawAddr || ""}`.trim();
+  const tokens = (rawAddr || "").trim().split(/\s+/);
+  const sigungu = tokens[1] || "";
+  let sido = "경기";
+  if (s.includes("서울")) sido = "서울";
+  else if (s.includes("경기")) sido = "경기";
+  else if (s.includes("인천")) sido = "인천";
+  else if (s.includes("부산")) sido = "부산";
+  else if (s.includes("대구")) sido = "대구";
+  else if (s.includes("광주광역시") || /^광주\s/.test(s) || rawRegion === "광주" || rawRegion === "광주광역시") sido = "광주";
+  else if (s.includes("대전")) sido = "대전";
+  else if (s.includes("울산")) sido = "울산";
+  else if (s.includes("세종")) sido = "세종";
+  else if (s.includes("강원")) sido = "강원";
+  else if (s.includes("충북") || s.includes("충청북도")) sido = "충북";
+  else if (s.includes("충남") || s.includes("충청남도")) sido = "충남";
+  else if (s.includes("전북") || s.includes("전라북도") || s.includes("전북특별자치도")) sido = "전북";
+  else if (s.includes("전남") || s.includes("전라남도")) sido = "전남";
+  else if (s.includes("경북") || s.includes("경상북도")) sido = "경북";
+  else if (s.includes("경남") || s.includes("경상남도")) sido = "경남";
+  else if (s.includes("제주")) sido = "제주";
+  return sigungu ? `${sido} (${sigungu})` : sido;
+}
+
+async function crawlOfficialBoardsLive(pool: any, targetSector: "FL" | "AWP" | "OA_PC" | "ALL"): Promise<number> {
+  const crawled: RentalBizSeed[] = [];
+
+  // 1) AWP: 한국고소작업대임대업협동조합(klra.or.kr) 지역별 회원사 게시판 실시간 크롤링
+  if (targetSector === "AWP" || targetSector === "ALL") {
+    for (let page = 1; page <= 3; page++) {
+      try {
+        const url = `http://www.klra.or.kr/bbs/board.php?bo_table=member&page=${page}`;
+        const res = await fetch(url, {
+          headers: { "User-Agent": "Mozilla/5.0" },
+          signal: AbortSignal.timeout(7000),
+        });
+        if (!res.ok) continue;
+        const html = await res.text();
+        const tbodyMatch = html.match(/<tbody>([\s\S]*?)<\/tbody>/i);
+        if (!tbodyMatch) continue;
+        const trMatches = Array.from(tbodyMatch[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi));
+        for (const tr of trMatches) {
+          const tdMatches = Array.from(tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)).map((m) =>
+            m[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
+          );
+          const linkMatch = tr[1].match(/href=["']([^"']*wr_id=(\d+)[^"']*)["']/i);
+          if (tdMatches.length >= 4 && tdMatches[1]) {
+            const rawRegion = tdMatches[0];
+            const companyName = tdMatches[1];
+            const address = tdMatches[2];
+            const phone = tdMatches[3];
+            const wrId = linkMatch ? linkMatch[2] : "";
+            const detailUrl = wrId
+              ? `http://www.klra.or.kr/bbs/board.php?bo_table=member&wr_id=${wrId}&page=${page}`
+              : url;
+            const region = formatCrawlRegion(rawRegion, address);
+            crawled.push({
+              sector: "AWP",
+              companyName,
+              businessNo: "",
+              ceoName: "",
+              region,
+              address,
+              bizScope: "고소작업대(AWP) 장단기 임대 전문",
+              mainBrands: "Genie, JLG, Skyjack, 호이스트, 수직·굴절 리프트",
+              mainProducts: "시저형(수직형)·굴절형·직진형 고소작업대 임대 및 현장배차",
+              officialSource: "한국고소작업대임대업협동조합 공식 회원사 (klra.or.kr)",
+              ksicCode: "71201 (건설·물류장비 임대업)",
+              phone,
+              websiteUrl: detailUrl,
+              scaleNote: `한국고소작업대임대업협동조합 정회원 (${region})`,
+              salesStatus: "TARGET",
+            });
+          }
+        }
+      } catch {
+        // ignore network timeout on individual page
+      }
+    }
+  }
+
+  // 2) FL: 전국지게차연합·우리동네지게차(udj.kr) 전국업체 원부 실시간 크롤링
+  if (targetSector === "FL" || targetSector === "ALL") {
+    for (let page = 1; page <= 5; page++) {
+      try {
+        const url = `https://www.udj.kr/kwa-info_company?PB_1622438032=${page}`;
+        const res = await fetch(url, {
+          headers: { "User-Agent": "Mozilla/5.0" },
+          signal: AbortSignal.timeout(7000),
+        });
+        if (!res.ok) continue;
+        const html = await res.text();
+        const trMatches = Array.from(html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi));
+        for (const tr of trMatches) {
+          const rowHtml = tr[1];
+          const idMatch = rowHtml.match(/href=["'](kwa-info_company_v-\d+)["']/i);
+          const nameMatch = rowHtml.match(/<span style="font-size:\s*16px;\s*line-height:16px;">([\s\S]*?)<\/span>/i);
+          const areaMatch = rowHtml.match(/<div class="-fdArea"[^>]*>([\s\S]*?)<span class="-bdBtwBar">/i);
+          const phoneMatch = rowHtml.match(/<span class="-fdPhoneIcon">([\s\S]*?)<\/span>/i);
+          const serviceMatch = rowHtml.match(/<div class="-fdService">([\s\S]*?)<\/div>/i);
+          if (!nameMatch) continue;
+          const companyName = nameMatch[1].replace(/<[^>]+>/g, "").trim();
+          const address = (areaMatch?.[1] || "").replace(/<[^>]+>/g, "").trim();
+          const phone = (phoneMatch?.[1] || "").replace(/<[^>]+>/g, "").trim();
+          const svc = (serviceMatch?.[1] || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+          const detailUrl = idMatch ? `https://www.udj.kr/${idMatch[1]}` : url;
+          const region = formatCrawlRegion("", address);
+          crawled.push({
+            sector: "FL",
+            companyName,
+            businessNo: "",
+            ceoName: "",
+            region,
+            address,
+            bizScope: `지게차 ${svc || "임대/렌탈 · 매매"}`,
+            mainBrands: "두산, HD현대, 클라크, 토요타, 니찌유, 전동·디젤지게차",
+            mainProducts: `전동(입식·좌식)·디젤 지게차 ${svc || "임대/렌탈 · 매매"}`,
+            officialSource: "전국지게차연합·우리동네지게차(udj.kr) 공식 등록업체",
+            ksicCode: "71201 (건설·물류장비 임대 및 매매업)",
+            phone,
+            websiteUrl: detailUrl,
+            scaleNote: `${region} 거점 지게차 공식 등록 사업자 (${svc})`,
+            salesStatus: "TARGET",
+          });
+        }
+      } catch {
+        // ignore timeout
+      }
+    }
+  }
+
+  // 3) OA_PC: 신도리코(sindoh.com) 전국 공식 파트너·지정점 원부 실시간 크롤링
+  if (targetSector === "OA_PC" || targetSector === "ALL") {
+    try {
+      const res = await fetch("https://www.sindoh.com/_hcms/api/proxy/post", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0",
+          Referer: "https://www.sindoh.com/support/service-center",
+        },
+        body: JSON.stringify({
+          url: "/crm/v3/objects/companies/search",
+          filterGroups: [
+            {
+              filters: [
+                { propertyName: "partner_type", operator: "EQ", value: "printers" },
+                { propertyName: "partner_status", operator: "EQ", value: "Active" },
+              ],
+            },
+          ],
+          properties: ["name", "alternate_name", "address", "city_province", "phone", "service_partner_grade"],
+          limit: 200,
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const rows = json?.data?.results || [];
+        for (const r of rows) {
+          const p = r.properties || {};
+          const companyName = String(p.alternate_name || p.name || "").trim();
+          if (!companyName) continue;
+          const address = String(p.address || "").trim();
+          const phone = String(p.phone || "").trim();
+          const grade = String(p.service_partner_grade || "서비스 파트너").trim();
+          const region = formatCrawlRegion(String(p.city_province || ""), address);
+          crawled.push({
+            sector: "OA_PC",
+            companyName,
+            businessNo: "",
+            ceoName: "",
+            region,
+            address,
+            bizScope: `복합기·프린터·OA기기 임대·판매 (${grade})`,
+            mainBrands: "신도리코(Sindoh), 복합기·프린터·문서솔루션, 사무용 PC·OA",
+            mainProducts: "컬러/흑백 디지털 복합기, 프린터, 사무용 OA·PC 장단기 임대 및 유지보수",
+            officialSource: `신도리코 전국 공식 파트너·지정점 원부 (${grade})`,
+            ksicCode: "71202 (사무용 기계·장비 임대업)",
+            phone,
+            websiteUrl: "https://www.sindoh.com/support/service-center",
+            scaleNote: `신도리코 공식 인증 ${grade} (${region})`,
+            salesStatus: "TARGET",
+          });
+        }
+      }
+    } catch {
+      // ignore timeout
+    }
+  }
+
+  let upsertedCount = 0;
+  for (const item of crawled) {
+    if (!item.companyName) continue;
     await pool.query(
       `INSERT INTO erp_rental_biz_directory (
         sector, company_name, business_no, ceo_name, region, address,
         biz_scope, main_brands, main_products, official_source, ksic_code,
         phone, website_url, scale_note, sales_status
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-      ON CONFLICT (sector, company_name) DO NOTHING`,
+      ON CONFLICT (sector, company_name) DO UPDATE SET
+        region = EXCLUDED.region,
+        address = COALESCE(NULLIF(EXCLUDED.address, ''), erp_rental_biz_directory.address),
+        phone = COALESCE(NULLIF(EXCLUDED.phone, ''), erp_rental_biz_directory.phone),
+        website_url = COALESCE(NULLIF(EXCLUDED.website_url, ''), erp_rental_biz_directory.website_url),
+        updated_at = NOW()`,
       [
         item.sector,
         item.companyName,
@@ -1047,7 +1301,9 @@ async function ensureRentalDirectoryTable() {
         item.salesStatus,
       ]
     );
+    upsertedCount++;
   }
+  return upsertedCount;
 }
 
 async function resolveGeminiApiKey(): Promise<string> {
@@ -1404,6 +1660,18 @@ export async function POST(request: Request) {
         success: true,
         newlyCreatedCount,
         alreadyExistedCount,
+        items,
+      });
+    }
+
+    // 3-2. 협동조합(klra.or.kr)·전국지게차연합(udj.kr)·신도리코 파트너 원부 직접 실시간 크롤링 동기화
+    if (action === "CRAWL_OFFICIAL_BOARDS") {
+      const targetSector: "FL" | "AWP" | "OA_PC" | "ALL" = body.sector || "ALL";
+      const crawledCount = await crawlOfficialBoardsLive(pool, targetSector);
+      const items = await fetchDirectoryWithPartnerStatus(pool);
+      return NextResponse.json({
+        success: true,
+        crawledCount,
         items,
       });
     }

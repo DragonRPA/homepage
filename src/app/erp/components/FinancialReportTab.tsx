@@ -651,7 +651,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
   };
 
   return (
-    <div className="flex flex-col min-h-full md:h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 md:overflow-hidden font-sans">
+    <div className="erp-print-report-root flex flex-col min-h-full md:h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 md:overflow-hidden font-sans">
       {/* 1. 상단 조회 조건 & 파이프라인 바 (헌장 3.4, 3.5 준수) */}
       <div className="p-2.5 md:p-3 bg-[#e2dbcd] border-b border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 flex flex-wrap items-end justify-between gap-2.5 shrink-0">
         <div className="flex flex-wrap items-end gap-2 w-full sm:w-auto">
@@ -899,7 +899,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
       </div>
 
       {/* 3. 본문: 재무제표 4대 보드 (BS / PL / CF / Remark) + 월별 계정 손익 매트릭스 + 상세 전표 내역 */}
-      <div className="flex-1 md:overflow-auto p-2.5 md:p-3 space-y-3">
+      <div className="erp-print-report-body flex-1 md:overflow-auto p-2.5 md:p-3 space-y-3">
         {/* 3-0. 연도별 재무제표 4대 보드 (BS · PL · CF · Remark) */}
         {statements && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">

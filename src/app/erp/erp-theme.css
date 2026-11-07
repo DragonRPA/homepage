@@ -973,3 +973,81 @@
   color: #0f172a !important;
   border: 1px solid var(--border-color) !important;
 }
+
+/* ==========================================================================
+   🖨️ [다중 페이지 보고서 인쇄 표준 (@media print)]
+   - h-dvh / h-full / overflow-hidden / flex-1 내부 스크롤 컨테이너를 인쇄 시 전면 해제하여
+     2페이지 이후 모든 재무제표, 월별 매트릭스, 감가상각 명세, 상세 전표가 누락 없이 출력되도록 보장
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  .erp-app-container,
+  .erp-main-content,
+  .erp-main-content > div,
+  .erp-print-report-root,
+  .erp-print-report-body {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: 100% !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  /* 인쇄 시 상단 글로벌 헤더, 좌측 사이드바, 브레드크럼, 모바일 하단바 숨김 */
+  .erp-header,
+  .erp-sidebar,
+  .erp-breadcrumb-bar,
+  nav.md\:hidden,
+  .no-print {
+    display: none !important;
+  }
+
+  /* 내부 스크롤 영역(상세 전표 max-h-[360px], 가로 스크롤 테이블 등) 제한 해제 */
+  .max-h-\[360px\],
+  .overflow-auto,
+  .overflow-y-auto,
+  .overflow-x-auto,
+  .overflow-hidden,
+  .md\:overflow-hidden,
+  .md\:overflow-auto {
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* 페이지 넘김 시 테이블 헤더 반복 및 행 잘림 방지 */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .erp-print-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 12px !important;
+  }
+}

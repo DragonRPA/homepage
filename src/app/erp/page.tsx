@@ -30,6 +30,7 @@ import { EmploymentContractTab } from "./components/EmploymentContractTab";
 import { BankMatchingTab } from "./components/BankMatchingTab";
 import { PayrollTab } from "./components/PayrollTab";
 import { FinancialReportTab } from "./components/FinancialReportTab";
+import AccountingStandardsTab from "./components/AccountingStandardsTab";
 
 // ebro_it 제품관리 및 자산관리
 import { ProductManagementTab } from "./components/ProductManagementTab";
@@ -67,6 +68,7 @@ export type ErpMenuKey =
   | "FINANCIAL_REPORT"
   | "BANK_MATCHING"
   | "PAYROLL"
+  | "ACCOUNTING_STANDARD"
   | "TAX"
   | "CUSTOMER"
   | "VENDOR"
@@ -128,6 +130,7 @@ const CATEGORIES: CategoryConfig[] = [
       { key: "FINANCIAL_REPORT", label: "경영지표 보고서", icon: BarChart3 },
       { key: "BANK_MATCHING", label: "은행 입출금 대장", icon: DollarSign },
       { key: "PAYROLL", label: "급여 정산", icon: CreditCard },
+      { key: "ACCOUNTING_STANDARD", label: "중소기업회계기준", icon: BookOpen },
     ],
   },
   {
@@ -188,6 +191,7 @@ const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
   FINANCIAL_REPORT: "bank_matching",
   BANK_MATCHING: "bank_matching",
   PAYROLL: "payroll",
+  ACCOUNTING_STANDARD: "bank_matching",
   TAX: "tax_invoice",
   CUSTOMER: "customer",
   VENDOR: "vendor",
@@ -718,6 +722,11 @@ export default function ErpMainPage() {
                   <BankMatchingTab currentUser={enrichedUser} selectedEntity={selectedEntity} />
                 )}
                 {activeMenu === "PAYROLL" && <PayrollTab currentUser={enrichedUser} />}
+                {activeMenu === "ACCOUNTING_STANDARD" && (
+                  <div className="p-4">
+                    <AccountingStandardsTab />
+                  </div>
+                )}
                 {activeMenu === "TAX" && (
                   <TaxInvoiceTab 
                     currentUser={enrichedUser} 

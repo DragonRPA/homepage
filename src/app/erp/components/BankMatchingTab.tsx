@@ -30,6 +30,7 @@ import { SortableTh, useErpTableSort } from "./SortableTh";
 import { STANDARD_ACCOUNT_SUBJECTS, recommendAccountSubjectForTx } from "@/lib/erpAccountSubjects";
 import {
   BankTransaction,
+  BankMatchingTabProps,
   AccountStatusItem,
   BankSummary,
   NewTransactionState,
@@ -39,14 +40,10 @@ import { BankUploadModal } from "./bank-matching/BankUploadModal";
 import { ManualTransactionModal } from "./bank-matching/ManualTransactionModal";
 import { BankMatchModal } from "./bank-matching/BankMatchModal";
 
-interface BankMatchingTabProps {
-  currentUser: any;
-  selectedEntity?: "ALL" | "CORP" | "INDIVIDUAL";
-}
-
 export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
   currentUser,
   selectedEntity = "ALL",
+  isActive = true,
 }) => {
   const today = new Date().toISOString().substring(0, 10);
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
@@ -58,10 +55,11 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
   const [transType, setTransType] = useState<"ALL" | "DEPOSIT" | "WITHDRAWAL">("ALL");
   const [txChannel, setTxChannel] = useState("ALL");
   const [matchStatus, setMatchStatus] = useState<
-    "ALL" | "MATCHED" | "UNMATCHED" | "PAYROLL" | "INVOICE"
-  >("ALL");
+    "UNCLOSED" | "ALL" | "MATCHED" | "UNMATCHED" | "PAYROLL" | "INVOICE"
+  >("UNCLOSED");
   const [accountFilter, setAccountFilter] = useState("ALL");
   const [search, setSearch] = useState("");
+  const prevActiveRef = useRef(isActive);
 
   useEffect(() => {
     if (selectedEntity === "CORP") {
@@ -74,21 +72,8 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
   }, [selectedEntity]);
 
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
-  const [accountStatus, setAccountStatus] = useState<
-    Array<{
-      accountNo: string;
-      entityType: string;
-      bankName: string;
-      label?: string;
-      latestTransDate: string | null;
-      latestTransTime: string | null;
-      latestTransDatetime: string | null;
-      latestBalance: number;
-      totalCount: number;
-      lastUploadedAt: string | null;
-    }>
-  >([]);
-  const [summary, setSummary] = useState({
+  const [accountStatus, setAccountStatus] = useState<AccountStatusItem[]>([]);
+  const [summary, setSummary] = useState<BankSummary>({
     totalCount: 0,
     depositCount: 0,
     withdrawalCount: 0,
@@ -97,7 +82,8 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     matchedDeposit: 0,
     unmatchedDeposit: 0,
     latestBalance: 0,
-    latestTxDatetime: null as string | null,
+    latestTxDatetime: null,
+    excludedClosedCount: 0,
   });
   const [loading, setLoading] = useState(false);
 
@@ -292,6 +278,23 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     fetchTransactions();
   }, [startDate, endDate, transType, txChannel, matchStatus, accountFilter, selectedEntity]);
 
+  // 타 메뉴 이동 후 재진입 시 기마감 내역을 기본 제외한 최신 미마감 상태로 복귀
+  useEffect(() => {
+    const wasInactive = !prevActiveRef.current;
+    prevActiveRef.current = isActive;
+    if (wasInactive && isActive) {
+      const needsFilterReset =
+        matchStatus !== "UNCLOSED" || startDate !== "2023-01-01" || endDate !== today;
+      if (needsFilterReset) {
+        setStartDate("2023-01-01");
+        setEndDate(today);
+        setMatchStatus("UNCLOSED");
+      } else {
+        fetchTransactions();
+      }
+    }
+  }, [isActive]);
+
   const formatMonthRange = (year: number, monthIndex0: number) => {
     const first = new Date(year, monthIndex0, 1);
     const last = new Date(year, monthIndex0 + 1, 0);
@@ -313,6 +316,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     const baseYear = isSingleMonthView ? sy : new Date().getFullYear();
     const baseMonth0 = isSingleMonthView ? sm - 1 : new Date().getMonth();
     const range = formatMonthRange(baseYear, baseMonth0 + delta);
+    if (matchStatus === "UNCLOSED") setMatchStatus("ALL");
     setStartDate(range.start);
     setEndDate(range.end);
   };
@@ -326,7 +330,18 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     return "당월";
   }, [startDate, endDate]);
 
-  const setPeriodPreset = (preset: "ALL" | "2026" | "2025" | "2024" | "2023" | "MONTH") => {
+  const setPeriodPreset = (
+    preset: "UNCLOSED" | "ALL" | "2026" | "2025" | "2024" | "2023" | "MONTH"
+  ) => {
+    if (preset === "UNCLOSED") {
+      setStartDate("2023-01-01");
+      setEndDate(today);
+      setMatchStatus("UNCLOSED");
+      return;
+    }
+    if (matchStatus === "UNCLOSED") {
+      setMatchStatus("ALL");
+    }
     if (preset === "ALL") {
       setStartDate("2023-01-01");
       setEndDate(today);
@@ -394,8 +409,12 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
         duplicateCount: data.duplicateCount,
         meta: data.meta,
       });
+      const closedMsg =
+        Array.isArray(data.newlyClosedAccounts) && data.newlyClosedAccounts.length > 0
+          ? " · 전건 매칭 완료(마감 확정)"
+          : "";
       showToast(
-        `업로드 완료: 총 ${data.totalParsed}건 확인 (신규 저장 ${data.insertedCount}건 / 중복 제외 ${data.duplicateCount}건)`
+        `업로드 완료: 총 ${data.totalParsed}건 확인 (신규 저장 ${data.insertedCount}건 / 중복 제외 ${data.duplicateCount}건${closedMsg})`
       );
       setSelectedFiles([]);
       setRawPasteText("");
@@ -637,7 +656,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       t.cmsCode || "",
       t.counterpartyHolder || "",
       t.accountNo || "",
-      t.isMatched ? "매칭완료" : "미매칭",
+      t.isMatched ? (t.isClosed ? "기마감" : "매칭완료") : "미매칭",
       t.matchedId || "",
     ]);
 
@@ -655,6 +674,67 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const renderMatchBadge = (t: BankTransaction) => {
+    if (t.matchedType === "PAYROLL") {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ede9fe] text-[#5b21b6] border border-[#c4b5fd] dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/40 whitespace-nowrap">
+          {t.isClosed ? `기마감 · ${t.matchedId || "급여"}` : t.matchedId || "급여"}
+        </span>
+      );
+    }
+    if (!t.isMatched) {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#fef3c7] text-[#92400e] border border-[#fde68a] dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30 whitespace-nowrap">
+          미매칭
+        </span>
+      );
+    }
+    const label = t.matchedId || t.matchedType || "확정";
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30 whitespace-nowrap">
+        {t.isClosed ? `기마감 · ${label}` : `매칭완료 (${label})`}
+      </span>
+    );
+  };
+
+  const renderEmptyStateNotice = () => {
+    const excludedCnt = Number(summary.excludedClosedCount || 0);
+    if (matchStatus === "UNCLOSED" && excludedCnt > 0) {
+      const hasSearch = Boolean(search.trim());
+      return (
+        <div className="flex flex-col items-center justify-center gap-2.5 py-6 px-4 text-center">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] text-xs font-bold whitespace-nowrap">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{hasSearch ? "미마감 내역 중 검색 결과 없음" : "대사 마감 완료"}</span>
+          </div>
+          <p className="text-xs text-[#334155] dark:text-slate-300 font-medium">
+            기마감 {excludedCnt.toLocaleString()}건 조회 제외 · 최종 거래일시:{" "}
+            <span className="font-mono font-bold text-[#0f172a] dark:text-slate-100">
+              {summary.latestTxDatetime || "-"}
+            </span>{" "}
+            · 현재 잔액:{" "}
+            <span className="font-mono font-bold text-[#047857] dark:text-emerald-400">
+              {formatErpCurrency(summary.latestBalance)}
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => setMatchStatus("ALL")}
+            className="px-3 py-1.5 rounded bg-[#f4efe4] hover:bg-[#dcd4c4] text-[#0f172a] border border-[#b5a894] text-xs font-bold transition whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+          >
+            {hasSearch ? "기마감 내역 포함 검색" : "기마감 내역 포함 조회"}
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <span className="text-xs text-[#475569] dark:text-slate-500 whitespace-nowrap">
+        조회된 은행 입출금 내역이 없습니다.
+      </span>
+    );
   };
 
   return (
@@ -684,14 +764,20 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
               <input
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  if (matchStatus === "UNCLOSED") setMatchStatus("ALL");
+                  setStartDate(e.target.value);
+                }}
                 className="bg-transparent text-xs text-[#0f172a] dark:text-slate-200 focus:outline-none font-mono min-w-0"
               />
               <span className="text-[#475569] dark:text-slate-500 text-xs">~</span>
               <input
                 type="date"
                 value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                onChange={(e) => {
+                  if (matchStatus === "UNCLOSED") setMatchStatus("ALL");
+                  setEndDate(e.target.value);
+                }}
                 className="bg-transparent text-xs text-[#0f172a] dark:text-slate-200 focus:outline-none font-mono min-w-0"
               />
             </div>
@@ -702,6 +788,17 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
               기간 선택
             </label>
             <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+              <button
+                type="button"
+                onClick={() => setPeriodPreset("UNCLOSED")}
+                className={`px-2 py-1.5 text-[11px] font-bold rounded border whitespace-nowrap shrink-0 transition ${
+                  matchStatus === "UNCLOSED"
+                    ? "border-[#1d4ed8] bg-[#1d4ed8] text-white"
+                    : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#dcd4c4] text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                }`}
+              >
+                미마감
+              </button>
               {[
                 { key: "ALL", label: "전체" },
                 { key: "2026", label: "2026년" },
@@ -794,13 +891,14 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
             <select
               value={matchStatus}
               onChange={(e) => setMatchStatus(e.target.value as any)}
-              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+              className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 font-semibold"
             >
-              <option value="ALL">전체 상태</option>
-              <option value="MATCHED">매칭완료</option>
+              <option value="UNCLOSED">미마감 내역 (기마감 제외)</option>
               <option value="UNMATCHED">미매칭</option>
-              <option value="PAYROLL">급여 항목</option>
-              <option value="INVOICE">세금계산서 매칭</option>
+              <option value="ALL">전체 상태 (기마감 포함)</option>
+              <option value="MATCHED">매칭완료 (기마감 포함)</option>
+              <option value="PAYROLL">급여 항목 (기마감 포함)</option>
+              <option value="INVOICE">세금계산서 매칭 (기마감 포함)</option>
             </select>
           </div>
 
@@ -946,6 +1044,15 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                       (잔액 {formatErpCurrency(acc.latestBalance)} / 총 {acc.totalCount.toLocaleString()}건
                       {uploadedAtStr ? ` · 업로드: ${uploadedAtStr}` : ""})
                     </span>
+                    {acc.isAllClosed ? (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] whitespace-nowrap">
+                        대사마감 완료
+                      </span>
+                    ) : (acc.unmatchedCount || 0) > 0 ? (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#fef3c7] text-[#92400e] border border-[#fde68a] whitespace-nowrap">
+                        미매칭 {(acc.unmatchedCount || 0).toLocaleString()}건
+                      </span>
+                    ) : null}
                   </>
                 ) : (
                   <span className="font-semibold text-[#dc2626] dark:text-rose-400">
@@ -1007,9 +1114,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
           {/* 모바일 전용 카드형 입출금 대장 (가로폭 100% 최적화) */}
           <div className="md:hidden divide-y divide-[#c4b6a0] dark:divide-slate-800">
             {sortedTransactions.length === 0 ? (
-              <div className="p-8 text-center text-xs text-[#475569]">
-                조회된 은행 입출금 내역이 없습니다.
-              </div>
+              <div className="p-6 text-center">{renderEmptyStateNotice()}</div>
             ) : (
               sortedTransactions.slice(0, 200).map((t) => {
                 const isDep = t.depositAmount > 0;
@@ -1070,21 +1175,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                       </span>
 
                       <div className="flex items-center gap-1.5">
-                        {t.matchedType === "PAYROLL" ? (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ede9fe] text-[#5b21b6] border border-[#c4b5fd]">
-                            {t.matchedId || "급여"}
-                          </span>
-                        ) : (
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                              t.isMatched
-                                ? "bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0]"
-                                : "bg-[#fef3c7] text-[#92400e] border border-[#fde68a]"
-                            }`}
-                          >
-                            {t.isMatched ? `매칭완료 (${t.matchedId || "확정"})` : "미매칭"}
-                          </span>
-                        )}
+                        {renderMatchBadge(t)}
 
                         {t.isMatched ? (
                           <button
@@ -1159,11 +1250,8 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
               <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
                 {sortedTransactions.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={15}
-                      className="py-16 text-center text-[#475569] dark:text-slate-500 whitespace-nowrap"
-                    >
-                      조회된 은행 입출금 내역이 없습니다.
+                    <td colSpan={15} className="py-12 text-center">
+                      {renderEmptyStateNotice()}
                     </td>
                   </tr>
                 ) : (
@@ -1334,23 +1422,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
 
                       {/* 대사상태 */}
                       <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
-                        {t.matchedType === "PAYROLL" ? (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ede9fe] text-[#5b21b6] border border-[#c4b5fd] dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/40 whitespace-nowrap">
-                            {t.matchedId || "급여"}
-                          </span>
-                        ) : (
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap ${
-                              t.isMatched
-                                ? "bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30"
-                                : "bg-[#fef3c7] text-[#92400e] border border-[#fde68a] dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30"
-                            }`}
-                          >
-                            {t.isMatched
-                              ? `매칭완료 (${t.matchedId || t.matchedType || "확정"})`
-                              : "미매칭"}
-                          </span>
-                        )}
+                        {renderMatchBadge(t)}
                       </td>
 
                       {/* 계좌번호 */}
@@ -1384,6 +1456,11 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
             <span className="font-bold text-[#0f172a] dark:text-slate-100">
               {summary.totalCount.toLocaleString()}건
             </span>
+            {matchStatus === "UNCLOSED" && (summary.excludedClosedCount || 0) > 0 && (
+              <span className="ml-1.5 text-[11px] font-semibold text-[#047857] dark:text-emerald-400">
+                (기마감 {(summary.excludedClosedCount || 0).toLocaleString()}건 제외)
+              </span>
+            )}
           </div>
           <span className="text-[#b5a894]">|</span>
           <div>

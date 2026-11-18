@@ -938,7 +938,13 @@ export default function ErpMainPage() {
       case "FINANCIAL_REPORT":
         return <FinancialReportTab currentUser={menuUser} selectedEntity={selectedEntity} />;
       case "BANK_MATCHING":
-        return <BankMatchingTab currentUser={menuUser} selectedEntity={selectedEntity} />;
+        return (
+          <BankMatchingTab
+            currentUser={menuUser}
+            selectedEntity={selectedEntity}
+            isActive={activeMenu === "BANK_MATCHING"}
+          />
+        );
       case "PAYROLL":
         return <PayrollTab currentUser={menuUser} />;
       case "ACCOUNTING_STANDARD":

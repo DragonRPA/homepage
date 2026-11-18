@@ -6,6 +6,7 @@ import { registIssuePopbill, deletePopbillInvoice, resolvePopbillCorpNum } from 
 import { resolveContractItemTemplate, resolveContractTaxItemsTemplate, selectPreferredBizItem } from "@/lib/erpFormat";
 import { assertPartnerTradable, PartnerTradeBlockedError } from "@/lib/partnerStatusService";
 import { requireMenuPermission } from "@/lib/erpRbacGuard";
+import { syncBankAccountClosingState } from "@/lib/erpBankClosing";
 
 function normalizeNameForAutoMatch(raw?: string): string {
   if (!raw) return "";
@@ -152,6 +153,8 @@ async function tryAutoReconcileNewInvoice(client: any, invoice: any) {
     `UPDATE erp_trade_billings SET payment_status = 'PAID', paid_amount = total_amount WHERE tax_invoice_id = $1`,
     [invoice.id]
   );
+
+  await syncBankAccountClosingState(client);
 
   return updInv.rows[0] || invoice;
 }
@@ -1013,6 +1016,7 @@ export async function DELETE(request: Request) {
     }
 
     await client.query("DELETE FROM erp_tax_invoices WHERE id = $1", [inv.id]);
+    await syncBankAccountClosingState(client);
     await client.query("COMMIT");
 
     return NextResponse.json({

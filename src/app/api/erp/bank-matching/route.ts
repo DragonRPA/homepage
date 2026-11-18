@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
 import { requireMenuPermission } from "@/lib/erpRbacGuard";
 import {
+  ensureBankClosingColumns,
+  syncBankAccountClosingState,
+} from "@/lib/erpBankClosing";
+import {
   parseBankFileBuffer,
   parseCsvOrTsvTextToRows,
   extractBankTransactionsFromRows,
@@ -500,10 +504,12 @@ async function autoReconcileUnpaidInvoicesWithBank(client: any): Promise<number>
 
 async function bulkUpsertBankTransactions(items: ParsedBankTransaction[]) {
   const pool = getErpPool();
+  await ensureBankClosingColumns(pool);
   const client = await pool.connect();
   let insertedCount = 0;
   let duplicateCount = 0;
   let autoReconciledCount = 0;
+  let newlyClosedAccounts: string[] = [];
 
   try {
     await client.query("BEGIN");
@@ -586,8 +592,10 @@ async function bulkUpsertBankTransactions(items: ParsedBankTransaction[]) {
       }
     }
 
-    // 신규 통장 입출금 반영 후 미수납/미지급 세금계산서와 자동 대사 실행
+    // 신규 통장 입출금 반영 후 미수납/미지급 세금계산서와 자동 대사 실행 및 계좌별 전건 매칭 자동 마감 동기화
     autoReconciledCount = await autoReconcileUnpaidInvoicesWithBank(client);
+    const closingSync = await syncBankAccountClosingState(client);
+    newlyClosedAccounts = closingSync.newlyClosedAccounts;
 
     await client.query("COMMIT");
   } catch (err) {
@@ -597,7 +605,7 @@ async function bulkUpsertBankTransactions(items: ParsedBankTransaction[]) {
     client.release();
   }
 
-  return { insertedCount, duplicateCount, autoReconciledCount };
+  return { insertedCount, duplicateCount, autoReconciledCount, newlyClosedAccounts };
 }
 
 // GET: 은행 입출금 거래내역 및 1:1 대사 통계 조회
@@ -617,12 +625,13 @@ export async function GET(request: Request) {
     const endDate = searchParams.get("endDate");
     const transType = searchParams.get("transType"); // ALL, DEPOSIT, WITHDRAWAL
     const txChannel = searchParams.get("txChannel"); // ALL or 타행이체, 체크, 인터넷...
-    const matchStatus = searchParams.get("matchStatus"); // ALL, MATCHED, UNMATCHED
+    const matchStatus = searchParams.get("matchStatus") || "UNCLOSED"; // UNCLOSED, ALL, MATCHED, UNMATCHED, PAYROLL, INVOICE
     const accountNo = searchParams.get("accountNo"); // ALL or specific account no
     const entityType = searchParams.get("entityType"); // ALL, CORP, INDIVIDUAL
     const search = searchParams.get("search");
 
     const pool = getErpPool();
+    await ensureBankClosingColumns(pool);
     let query = `
       SELECT 
         id,
@@ -650,6 +659,8 @@ export async function GET(request: Request) {
         matched_type AS "matchedType",
         matched_id AS "matchedId",
         matched_at AS "matchedAt",
+        COALESCE(is_closed, false) AS "isClosed",
+        closed_at AS "closedAt",
         created_at AS "createdAt"
       FROM erp_bank_transactions
     `;
@@ -677,7 +688,9 @@ export async function GET(request: Request) {
       conditions.push(`tx_channel = $${params.length}`);
     }
 
-    if (matchStatus === "MATCHED") {
+    if (matchStatus === "UNCLOSED") {
+      conditions.push(`COALESCE(is_closed, false) = false`);
+    } else if (matchStatus === "MATCHED") {
       conditions.push(`is_matched = true`);
     } else if (matchStatus === "UNMATCHED") {
       conditions.push(`is_matched = false`);
@@ -743,6 +756,10 @@ export async function GET(request: Request) {
         SELECT
           account_no,
           COUNT(*)::int AS total_count,
+          COUNT(*) FILTER (WHERE COALESCE(is_matched, false) = false)::int AS unmatched_count,
+          COUNT(*) FILTER (WHERE COALESCE(is_closed, false) = true)::int AS closed_count,
+          COUNT(*) FILTER (WHERE COALESCE(is_closed, false) = false)::int AS unclosed_count,
+          MAX(closed_at) AS last_closed_at,
           MAX(created_at) AS last_uploaded_at
         FROM erp_bank_transactions
         GROUP BY account_no
@@ -755,6 +772,10 @@ export async function GET(request: Request) {
         l.latest_trans_time AS "latestTransTime",
         l.latest_balance AS "latestBalance",
         a.total_count AS "totalCount",
+        a.unmatched_count AS "unmatchedCount",
+        a.closed_count AS "closedCount",
+        a.unclosed_count AS "unclosedCount",
+        a.last_closed_at AS "lastClosedAt",
         a.last_uploaded_at AS "lastUploadedAt"
       FROM latest_per_acc l
       JOIN agg_per_acc a ON a.account_no = l.account_no
@@ -778,6 +799,9 @@ export async function GET(request: Request) {
 
     const statsByAcc = new Map<string, any>();
     for (const r of accountStatsRes.rows) {
+      const totalCnt = Number(r.totalCount || 0);
+      const unmatchedCnt = Number(r.unmatchedCount || 0);
+      const unclosedCnt = Number(r.unclosedCount || 0);
       statsByAcc.set(r.accountNo, {
         accountNo: r.accountNo,
         entityType: r.entityType || (String(r.accountNo).includes("140") ? "INDIVIDUAL" : "CORP"),
@@ -788,7 +812,12 @@ export async function GET(request: Request) {
           ? `${r.latestTransDate} ${r.latestTransTime || "00:00:00"}`
           : null,
         latestBalance: Number(r.latestBalance || 0),
-        totalCount: Number(r.totalCount || 0),
+        totalCount: totalCnt,
+        unmatchedCount: unmatchedCnt,
+        closedCount: Number(r.closedCount || 0),
+        unclosedCount: unclosedCnt,
+        isAllClosed: totalCnt > 0 && unmatchedCnt === 0 && unclosedCnt === 0,
+        lastClosedAt: r.lastClosedAt || null,
         lastUploadedAt: r.lastUploadedAt || null,
       });
     }
@@ -806,6 +835,11 @@ export async function GET(request: Request) {
         latestTransDatetime: null,
         latestBalance: 0,
         totalCount: 0,
+        unmatchedCount: 0,
+        closedCount: 0,
+        unclosedCount: 0,
+        isAllClosed: false,
+        lastClosedAt: null,
         lastUploadedAt: null,
       };
     });
@@ -816,6 +850,12 @@ export async function GET(request: Request) {
         ...extra,
       });
     }
+
+    const excludedClosedCount = accountStatus.reduce((acc, item) => {
+      if (accountNo && accountNo !== "ALL" && item.accountNo !== accountNo) return acc;
+      if (entityType && entityType !== "ALL" && item.entityType !== entityType) return acc;
+      return acc + Number(item.closedCount || 0);
+    }, 0);
 
     // KPI 집계
     let totalDeposit = 0;
@@ -854,6 +894,7 @@ export async function GET(request: Request) {
         unmatchedDeposit,
         latestBalance,
         latestTxDatetime,
+        excludedClosedCount,
       },
     });
   } catch (error: any) {
@@ -913,13 +954,15 @@ export async function POST(request: Request) {
       }
       const deduplicatedList = Array.from(uniqueMap.values());
 
-      const { insertedCount, duplicateCount } = await bulkUpsertBankTransactions(deduplicatedList);
+      const { insertedCount, duplicateCount, newlyClosedAccounts } =
+        await bulkUpsertBankTransactions(deduplicatedList);
 
       return NextResponse.json({
         success: true,
         totalParsed: deduplicatedList.length,
         insertedCount,
         duplicateCount,
+        newlyClosedAccounts,
         meta: lastMeta,
       });
     }
@@ -944,13 +987,15 @@ export async function POST(request: Request) {
         uniqueMap.set(tx.txHash, tx);
       }
       const deduplicatedList = Array.from(uniqueMap.values());
-      const { insertedCount, duplicateCount } = await bulkUpsertBankTransactions(deduplicatedList);
+      const { insertedCount, duplicateCount, newlyClosedAccounts } =
+        await bulkUpsertBankTransactions(deduplicatedList);
 
       return NextResponse.json({
         success: true,
         totalParsed: deduplicatedList.length,
         insertedCount,
         duplicateCount,
+        newlyClosedAccounts,
         meta,
       });
     }
@@ -999,12 +1044,14 @@ export async function POST(request: Request) {
         });
       }
 
-      const { insertedCount, duplicateCount } = await bulkUpsertBankTransactions(mapped);
+      const { insertedCount, duplicateCount, newlyClosedAccounts } =
+        await bulkUpsertBankTransactions(mapped);
       return NextResponse.json({
         success: true,
         totalParsed: mapped.length,
         insertedCount,
         duplicateCount,
+        newlyClosedAccounts,
       });
     }
 
@@ -1046,6 +1093,7 @@ export async function POST(request: Request) {
     const txHash = `${targetAccount}|${transDate}|${finalTransTime}|${wthAmt}|${depAmt}|${numBal}`;
 
     const pool = getErpPool();
+    await ensureBankClosingColumns(pool);
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -1081,8 +1129,14 @@ export async function POST(request: Request) {
         ]
       );
       const autoReconciledCount = await autoReconcileUnpaidInvoicesWithBank(client);
+      const { newlyClosedAccounts } = await syncBankAccountClosingState(client);
       await client.query("COMMIT");
-      return NextResponse.json({ success: true, transaction: res.rows[0], autoReconciledCount });
+      return NextResponse.json({
+        success: true,
+        transaction: res.rows[0],
+        autoReconciledCount,
+        newlyClosedAccounts,
+      });
     } catch (e) {
       await client.query("ROLLBACK");
       throw e;
@@ -1107,6 +1161,7 @@ export async function PATCH(request: Request) {
   }
 
   const pool = getErpPool();
+  await ensureBankClosingColumns(pool);
   const client = await pool.connect();
 
   try {
@@ -1143,11 +1198,15 @@ export async function PATCH(request: Request) {
         [subjectLabel, memoText, targetIds]
       );
 
+      const { newlyClosedAccounts } = await syncBankAccountClosingState(client);
       await client.query("COMMIT");
+      const closedSuffix = newlyClosedAccounts.length > 0 ? " (전건 매칭 완료 · 대사 마감 확정)" : "";
       return NextResponse.json({
         success: true,
         count: targetIds.length,
-        message: `선택한 통장 내역 ${targetIds.length}건을 [${subjectLabel}] 계정과목으로 정리 완료했습니다.`,
+        newlyClosed: newlyClosedAccounts.length > 0,
+        newlyClosedAccounts,
+        message: `선택한 통장 내역 ${targetIds.length}건을 [${subjectLabel}] 계정과목으로 정리 완료했습니다.${closedSuffix}`,
       });
     }
 
@@ -1282,10 +1341,14 @@ export async function PATCH(request: Request) {
         [expectedMatchedType, joinedInvNos, memoNote, targetTxIds]
       );
 
+      const { newlyClosedAccounts } = await syncBankAccountClosingState(client);
       await client.query("COMMIT");
+      const closedSuffix = newlyClosedAccounts.length > 0 ? " (전건 매칭 완료 · 대사 마감 확정)" : "";
       return NextResponse.json({
         success: true,
-        message: `통장 내역 ${targetTxIds.length}건과 세금계산서 ${targetInvIds.length}건을 연결하여 대사 완결했습니다.`,
+        newlyClosed: newlyClosedAccounts.length > 0,
+        newlyClosedAccounts,
+        message: `통장 내역 ${targetTxIds.length}건과 세금계산서 ${targetInvIds.length}건을 연결하여 대사 완결했습니다.${closedSuffix}`,
       });
     }
 
@@ -1366,6 +1429,7 @@ export async function PATCH(request: Request) {
         [txId]
       );
 
+      await syncBankAccountClosingState(client);
       await client.query("COMMIT");
       return NextResponse.json({ success: true, message: "대사가 취소되었습니다." });
     }
@@ -1388,8 +1452,15 @@ export async function PATCH(request: Request) {
       [matchedType || "ACCOUNT_SUBJECT", matchedId ? String(matchedId) : null, now, memo, id]
     );
 
+    const { newlyClosedAccounts } = await syncBankAccountClosingState(client);
     await client.query("COMMIT");
-    return NextResponse.json({ success: true, message: "대사 매칭이 완료되었습니다." });
+    const closedSuffix = newlyClosedAccounts.length > 0 ? " (전건 매칭 완료 · 대사 마감 확정)" : "";
+    return NextResponse.json({
+      success: true,
+      newlyClosed: newlyClosedAccounts.length > 0,
+      newlyClosedAccounts,
+      message: `대사 매칭이 완료되었습니다.${closedSuffix}`,
+    });
   } catch (error: any) {
     await client.query("ROLLBACK");
     console.error("PATCH Bank Matching Error:", error);
@@ -1422,6 +1493,12 @@ export async function DELETE(request: Request) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    try {
+      const pool = getErpPool();
+      await ensureBankClosingColumns(pool);
+      await syncBankAccountClosingState(pool);
+    } catch {}
 
     return NextResponse.json({ success: true, message: "거래내역이 삭제되었습니다." });
   } catch (error: any) {

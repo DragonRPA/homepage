@@ -2,6 +2,10 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { recommendAccountSubjectForTx } from "@/lib/erpAccountSubjects";
+import {
+  ensureBankClosingColumns,
+  syncBankAccountClosingState,
+} from "@/lib/erpBankClosing";
 
 // Normalize counterparty/company names by stripping legal entity prefixes/suffixes and spaces
 function normalizeCompanyName(raw?: string): string {
@@ -438,6 +442,7 @@ export async function GET(request: Request) {
 // POST: Reconcile tax invoices with bank transactions (AUTO_MATCH, MATCH, UNMATCH, MANUAL_SETTLE)
 export async function POST(request: Request) {
   const pool = getErpPool();
+  await ensureBankClosingColumns(pool);
   const client = await pool.connect();
 
   try {
@@ -993,6 +998,7 @@ export async function POST(request: Request) {
         }
       }
 
+      await syncBankAccountClosingState(client);
       await client.query("COMMIT");
       return NextResponse.json({
         success: true,
@@ -1103,6 +1109,7 @@ export async function POST(request: Request) {
         );
       }
 
+      await syncBankAccountClosingState(client);
       await client.query("COMMIT");
       return NextResponse.json({
         success: true,
@@ -1145,6 +1152,7 @@ export async function POST(request: Request) {
         [subjectLabel, memoText, targetIds]
       );
 
+      await syncBankAccountClosingState(client);
       await client.query("COMMIT");
       return NextResponse.json({
         success: true,
@@ -1253,6 +1261,7 @@ export async function POST(request: Request) {
         inv.ref_id ? Number(inv.ref_id) : null
       );
 
+      await syncBankAccountClosingState(client);
       await client.query("COMMIT");
       return NextResponse.json({
         success: true,

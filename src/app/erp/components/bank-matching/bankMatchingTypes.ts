@@ -24,11 +24,14 @@ export interface BankTransaction {
   matchedType: string | null;
   matchedId: string | null;
   matchedAt: string | null;
+  isClosed?: boolean;
+  closedAt?: string | null;
 }
 
 export interface BankMatchingTabProps {
   currentUser: any;
   selectedEntity?: "ALL" | "CORP" | "INDIVIDUAL";
+  isActive?: boolean;
 }
 
 export interface AccountStatusItem {
@@ -41,6 +44,11 @@ export interface AccountStatusItem {
   latestTransDatetime: string | null;
   latestBalance: number;
   totalCount: number;
+  unmatchedCount?: number;
+  closedCount?: number;
+  unclosedCount?: number;
+  isAllClosed?: boolean;
+  lastClosedAt?: string | null;
   lastUploadedAt: string | null;
 }
 
@@ -54,6 +62,7 @@ export interface BankSummary {
   unmatchedDeposit: number;
   latestBalance: number;
   latestTxDatetime: string | null;
+  excludedClosedCount?: number;
 }
 
 export interface NewTransactionState {

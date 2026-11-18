@@ -12,17 +12,9 @@ import {
   Wrench,
   RotateCcw,
 } from "lucide-react";
-import {
-  formatErpNumber,
-  formatErpInputNumber,
-  toErpInputString,
-  cleanErpNumber,
-  sortErpItems,
-  matchHangulAny,
-  AttachedForkliftOption,
-  formatAttachedOptionsSummary,
-  normalizeAttachedOptions,
-} from "@/lib/erpFormat";
+import { formatErpNumber, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems } from "@/lib/erpFormat";
+import { matchHangulAny } from "@/lib/hangulSearch";
+import { type AttachedForkliftOption, formatAttachedOptionsSummary, normalizeAttachedOptions } from "@/lib/forkliftDomain";
 import { SortableTh, useErpTableSort } from "./SortableTh";
 import { SearchSelectCombobox, SearchSelectOption } from "./SearchSelectCombobox";
 

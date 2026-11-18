@@ -2,38 +2,10 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { decryptPii } from "@/lib/piiCrypto";
-import { calculateServiceEmployeeMonthlyProRata } from "@/lib/erpFormat";
-import { ensureErpCoreIndexes, runSchemaInitOnce } from "@/lib/erpSchemaCache";
+import { calculateServiceEmployeeMonthlyProRata } from "@/lib/erpHrLaborDomain";
+import { ensureExpenseSchema } from "@/lib/erpExpenseSchema";
+import { ensureErpCoreIndexes } from "@/lib/erpSchemaCache";
 import { requireMenuPermission } from "@/lib/erpRbacGuard";
-
-async function ensurePayrollExpenseSchema(pool: any) {
-  await runSchemaInitOnce("erp_expenses_schema_v1", async () => {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS erp_expense_receipts (
-        id SERIAL PRIMARY KEY,
-        employee_id BIGINT NOT NULL REFERENCES erp_employees(id) ON DELETE CASCADE,
-        expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
-        year_month VARCHAR(7) NOT NULL,
-        category VARCHAR(50) NOT NULL DEFAULT '식대·회식비',
-        merchant_name VARCHAR(200) NOT NULL DEFAULT '',
-        amount NUMERIC NOT NULL DEFAULT 0,
-        payment_method VARCHAR(50) NOT NULL DEFAULT '개인카드',
-        reason TEXT NOT NULL DEFAULT '',
-        receipt_file_url TEXT,
-        receipt_file_name TEXT,
-        status VARCHAR(20) NOT NULL DEFAULT 'APPROVED',
-        approver_id BIGINT,
-        approved_at TIMESTAMPTZ,
-        memo TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      );
-      ALTER TABLE erp_payroll_records
-      ADD COLUMN IF NOT EXISTS personal_expense_amount NUMERIC NOT NULL DEFAULT 0;
-    `);
-  });
-  await ensureErpCoreIndexes(pool);
-}
 
 // GET: 특정 귀속연월의 급여 정산 대장 조회
 export async function GET(request: Request) {
@@ -48,7 +20,8 @@ export async function GET(request: Request) {
     const includeFiles = searchParams.get("includeFiles") === "true";
 
     const pool = getErpPool();
-    await ensurePayrollExpenseSchema(pool);
+    await ensureExpenseSchema(pool);
+    await ensureErpCoreIndexes(pool);
 
     // Fast path: 단건 급여명세서 및 첨부 PDF 파일 지연 로딩
     if (idParam) {
@@ -346,138 +319,157 @@ export async function POST(request: Request) {
     // 1. OCR 또는 사용자 입력으로 수신된 다건 일괄 저장 (BATCH_SAVE)
     if (action === "BATCH_SAVE" && Array.isArray(records)) {
       const savedIds = [];
-      for (const r of records) {
-        let employeeId = r.employeeId;
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
 
-        // employeeId가 없으면 성명 또는 사원번호로 매핑 조회
-        if (!employeeId) {
-          const empSearch = await pool.query(`
-            SELECT id FROM erp_employees 
-            WHERE employee_no = $1 OR name = $2 OR name LIKE $2 || '%'
-            ORDER BY id ASC LIMIT 1
-          `, [r.employeeNo || "", r.employeeName || ""]);
-          if (empSearch.rows.length > 0) {
-            employeeId = empSearch.rows[0].id;
+        const needsEmployeeLookup = records.some((r: any) => !r?.employeeId);
+        const empRows = needsEmployeeLookup
+          ? (await client.query(`SELECT id, employee_no, name FROM erp_employees ORDER BY id ASC`)).rows
+          : [];
+
+        for (const r of records) {
+          let employeeId = r.employeeId;
+
+          // employeeId가 없으면 성명 또는 사원번호로 매핑 조회
+          if (!employeeId) {
+            const empNo = r.employeeNo ? String(r.employeeNo) : "";
+            const empName = r.employeeName ? String(r.employeeName) : "";
+            const matched = empRows.find(
+              (e: any) =>
+                (empNo && e.employee_no === empNo) ||
+                (empName && (e.name === empName || String(e.name || "").startsWith(empName)))
+            );
+            if (matched) {
+              employeeId = matched.id;
+            }
           }
+
+          if (!employeeId) {
+            console.warn(`[Payroll BatchSave] Employee mapping not found for: ${r.employeeName} (${r.employeeNo})`);
+            continue;
+          }
+
+          const upsertRes = await client.query(
+            `INSERT INTO erp_payroll_records (
+              year_month, employee_id, pay_date, service_contract_amount,
+              base_salary, meal_allowance, vehicle_allowance, ot_pay, annual_leave_allowance, severance_pay, bonus,
+              total_gross, national_pension, health_insurance, employment_insurance, long_term_care_insurance,
+              income_tax, local_tax, year_end_income_tax, year_end_local_tax,
+              national_pension_settlement, health_insurance_settlement, long_term_care_settlement,
+              allowance_settlement, expense_settlement, employment_insurance_settlement,
+              total_deduction, net_salary, status, pdf_file_name, updated_at
+            ) VALUES (
+              $1, $2, $3, $4,
+              $5, $6, $7, $8, $9, $10, $11,
+              $12, $13, $14, $15, $16,
+              $17, $18, $19, $20,
+              $21, $22, $23,
+              $24, $25, $26,
+              $27, $28, $29, $30, NOW()
+            )
+            ON CONFLICT (year_month, employee_id)
+            DO UPDATE SET
+              pay_date = COALESCE(EXCLUDED.pay_date, erp_payroll_records.pay_date),
+              service_contract_amount = COALESCE(EXCLUDED.service_contract_amount, erp_payroll_records.service_contract_amount),
+              base_salary = EXCLUDED.base_salary,
+              meal_allowance = EXCLUDED.meal_allowance,
+              vehicle_allowance = EXCLUDED.vehicle_allowance,
+              ot_pay = EXCLUDED.ot_pay,
+              annual_leave_allowance = EXCLUDED.annual_leave_allowance,
+              severance_pay = COALESCE(EXCLUDED.severance_pay, erp_payroll_records.severance_pay, 0),
+              bonus = EXCLUDED.bonus,
+              total_gross = EXCLUDED.total_gross,
+              national_pension = EXCLUDED.national_pension,
+              health_insurance = EXCLUDED.health_insurance,
+              employment_insurance = EXCLUDED.employment_insurance,
+              long_term_care_insurance = EXCLUDED.long_term_care_insurance,
+              income_tax = EXCLUDED.income_tax,
+              local_tax = EXCLUDED.local_tax,
+              year_end_income_tax = EXCLUDED.year_end_income_tax,
+              year_end_local_tax = EXCLUDED.year_end_local_tax,
+              national_pension_settlement = EXCLUDED.national_pension_settlement,
+              health_insurance_settlement = EXCLUDED.health_insurance_settlement,
+              long_term_care_settlement = EXCLUDED.long_term_care_settlement,
+              allowance_settlement = EXCLUDED.allowance_settlement,
+              expense_settlement = EXCLUDED.expense_settlement,
+              employment_insurance_settlement = EXCLUDED.employment_insurance_settlement,
+              total_deduction = EXCLUDED.total_deduction,
+              net_salary = EXCLUDED.net_salary,
+              status = COALESCE(EXCLUDED.status, erp_payroll_records.status),
+              pdf_file_name = COALESCE(EXCLUDED.pdf_file_name, erp_payroll_records.pdf_file_name),
+              updated_at = NOW()
+            RETURNING id`,
+            [
+              yearMonth,
+              employeeId,
+              payDate || r.payDate || null,
+              Number(r.serviceContractAmount || 0),
+              Number(r.baseSalary || 0),
+              Number(r.mealAllowance || 0),
+              Number(r.vehicleAllowance || 0),
+              Number(r.otPay || 0),
+              Number(r.annualLeaveAllowance || 0),
+              Number(r.severancePay || 0),
+              Number(r.bonus || 0),
+              Number(r.totalGross || 0),
+              Number(r.nationalPension || 0),
+              Number(r.healthInsurance || 0),
+              Number(r.employmentInsurance || 0),
+              Number(r.longTermCareInsurance || 0),
+              Number(r.incomeTax || 0),
+              Number(r.localTax || 0),
+              Number(r.yearEndIncomeTax || 0),
+              Number(r.yearEndLocalTax || 0),
+              Number(r.nationalPensionSettlement || 0),
+              Number(r.healthInsuranceSettlement || 0),
+              Number(r.longTermCareSettlement || 0),
+              Number(r.allowanceSettlement || 0),
+              Number(r.expenseSettlement || 0),
+              Number(r.employmentInsuranceSettlement || 0),
+              Number(r.totalDeduction || 0),
+              Number(r.netSalary || 0),
+              r.status || "APPROVED",
+              pdfFileName || r.pdfFileName || null,
+            ]
+          );
+          savedIds.push(upsertRes.rows[0].id);
+
+          // erp_employees에도 기본급, 식대, 차량보조금, 4대보험 가입여부 및 용역계약금액 동기화
+          const hasNatPension = Number(r.nationalPension || 0) > 0;
+          const hasHealthIns = Number(r.healthInsurance || 0) > 0;
+          const hasEmpIns = Number(r.employmentInsurance || 0) > 0;
+          await client.query(
+            `UPDATE erp_employees
+             SET base_salary = CASE WHEN $1 > 0 THEN $1 ELSE base_salary END,
+                 meal_allowance = $2,
+                 vehicle_allowance = $3,
+                 ins_national_pension = $4,
+                 ins_health_insurance = $5,
+                 ins_employment_insurance = $6,
+                 ins_industrial_accident = $6,
+                 service_contract_amount = CASE WHEN $7 > 0 THEN $7 ELSE service_contract_amount END,
+                 updated_at = NOW()
+             WHERE id = $8`,
+            [
+              Number(r.baseSalary || 0),
+              Number(r.mealAllowance || 0),
+              Number(r.vehicleAllowance || 0),
+              hasNatPension,
+              hasHealthIns,
+              hasEmpIns,
+              Number(r.serviceContractAmount || 0),
+              employeeId,
+            ]
+          );
         }
 
-        if (!employeeId) {
-          console.warn(`[Payroll BatchSave] Employee mapping not found for: ${r.employeeName} (${r.employeeNo})`);
-          continue;
-        }
-
-        const upsertRes = await pool.query(
-          `INSERT INTO erp_payroll_records (
-            year_month, employee_id, pay_date, service_contract_amount,
-            base_salary, meal_allowance, vehicle_allowance, ot_pay, annual_leave_allowance, severance_pay, bonus,
-            total_gross, national_pension, health_insurance, employment_insurance, long_term_care_insurance,
-            income_tax, local_tax, year_end_income_tax, year_end_local_tax,
-            national_pension_settlement, health_insurance_settlement, long_term_care_settlement,
-            allowance_settlement, expense_settlement, employment_insurance_settlement,
-            total_deduction, net_salary, status, pdf_file_name, updated_at
-          ) VALUES (
-            $1, $2, $3, $4,
-            $5, $6, $7, $8, $9, $10, $11,
-            $12, $13, $14, $15, $16,
-            $17, $18, $19, $20,
-            $21, $22, $23,
-            $24, $25, $26,
-            $27, $28, $29, $30, NOW()
-          )
-          ON CONFLICT (year_month, employee_id)
-          DO UPDATE SET
-            pay_date = COALESCE(EXCLUDED.pay_date, erp_payroll_records.pay_date),
-            service_contract_amount = COALESCE(EXCLUDED.service_contract_amount, erp_payroll_records.service_contract_amount),
-            base_salary = EXCLUDED.base_salary,
-            meal_allowance = EXCLUDED.meal_allowance,
-            vehicle_allowance = EXCLUDED.vehicle_allowance,
-            ot_pay = EXCLUDED.ot_pay,
-            annual_leave_allowance = EXCLUDED.annual_leave_allowance,
-            severance_pay = COALESCE(EXCLUDED.severance_pay, erp_payroll_records.severance_pay, 0),
-            bonus = EXCLUDED.bonus,
-            total_gross = EXCLUDED.total_gross,
-            national_pension = EXCLUDED.national_pension,
-            health_insurance = EXCLUDED.health_insurance,
-            employment_insurance = EXCLUDED.employment_insurance,
-            long_term_care_insurance = EXCLUDED.long_term_care_insurance,
-            income_tax = EXCLUDED.income_tax,
-            local_tax = EXCLUDED.local_tax,
-            year_end_income_tax = EXCLUDED.year_end_income_tax,
-            year_end_local_tax = EXCLUDED.year_end_local_tax,
-            national_pension_settlement = EXCLUDED.national_pension_settlement,
-            health_insurance_settlement = EXCLUDED.health_insurance_settlement,
-            long_term_care_settlement = EXCLUDED.long_term_care_settlement,
-            allowance_settlement = EXCLUDED.allowance_settlement,
-            expense_settlement = EXCLUDED.expense_settlement,
-            employment_insurance_settlement = EXCLUDED.employment_insurance_settlement,
-            total_deduction = EXCLUDED.total_deduction,
-            net_salary = EXCLUDED.net_salary,
-            status = COALESCE(EXCLUDED.status, erp_payroll_records.status),
-            pdf_file_name = COALESCE(EXCLUDED.pdf_file_name, erp_payroll_records.pdf_file_name),
-            updated_at = NOW()
-          RETURNING id`,
-          [
-            yearMonth,
-            employeeId,
-            payDate || r.payDate || null,
-            Number(r.serviceContractAmount || 0),
-            Number(r.baseSalary || 0),
-            Number(r.mealAllowance || 0),
-            Number(r.vehicleAllowance || 0),
-            Number(r.otPay || 0),
-            Number(r.annualLeaveAllowance || 0),
-            Number(r.severancePay || 0),
-            Number(r.bonus || 0),
-            Number(r.totalGross || 0),
-            Number(r.nationalPension || 0),
-            Number(r.healthInsurance || 0),
-            Number(r.employmentInsurance || 0),
-            Number(r.longTermCareInsurance || 0),
-            Number(r.incomeTax || 0),
-            Number(r.localTax || 0),
-            Number(r.yearEndIncomeTax || 0),
-            Number(r.yearEndLocalTax || 0),
-            Number(r.nationalPensionSettlement || 0),
-            Number(r.healthInsuranceSettlement || 0),
-            Number(r.longTermCareSettlement || 0),
-            Number(r.allowanceSettlement || 0),
-            Number(r.expenseSettlement || 0),
-            Number(r.employmentInsuranceSettlement || 0),
-            Number(r.totalDeduction || 0),
-            Number(r.netSalary || 0),
-            r.status || "APPROVED",
-            pdfFileName || r.pdfFileName || null,
-          ]
-        );
-        savedIds.push(upsertRes.rows[0].id);
-
-        // erp_employees에도 기본급, 식대, 차량보조금, 4대보험 가입여부 및 용역계약금액 동기화
-        const hasNatPension = Number(r.nationalPension || 0) > 0;
-        const hasHealthIns = Number(r.healthInsurance || 0) > 0;
-        const hasEmpIns = Number(r.employmentInsurance || 0) > 0;
-        await pool.query(
-          `UPDATE erp_employees
-           SET base_salary = CASE WHEN $1 > 0 THEN $1 ELSE base_salary END,
-               meal_allowance = $2,
-               vehicle_allowance = $3,
-               ins_national_pension = $4,
-               ins_health_insurance = $5,
-               ins_employment_insurance = $6,
-               ins_industrial_accident = $6,
-               service_contract_amount = CASE WHEN $7 > 0 THEN $7 ELSE service_contract_amount END,
-               updated_at = NOW()
-           WHERE id = $8`,
-          [
-            Number(r.baseSalary || 0),
-            Number(r.mealAllowance || 0),
-            Number(r.vehicleAllowance || 0),
-            hasNatPension,
-            hasHealthIns,
-            hasEmpIns,
-            Number(r.serviceContractAmount || 0),
-            employeeId,
-          ]
-        );
+        await client.query("COMMIT");
+      } catch (e) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw e;
+      } finally {
+        client.release();
       }
 
       return NextResponse.json({
@@ -493,32 +485,50 @@ export async function POST(request: Request) {
     const cLastDayNum = new Date(Date.UTC(cYear, cMon, 0)).getUTCDate();
     const cMonthEnd = `${yearMonth}-${String(cLastDayNum).padStart(2, "0")}`;
 
-    const empRes = await pool.query(
-      `SELECT id, name, join_date, leave_date, base_salary,
-              COALESCE(hourly_wage, 0) as hourly_wage,
-              COALESCE(meal_allowance, 200000) as meal_allowance,
-              COALESCE(vehicle_allowance, 0) as vehicle_allowance,
-              COALESCE(ins_national_pension, TRUE) as ins_national_pension,
-              COALESCE(ins_health_insurance, TRUE) as ins_health_insurance,
-              COALESCE(ins_employment_insurance, TRUE) as ins_employment_insurance,
-              COALESCE(ins_industrial_accident, TRUE) as ins_industrial_accident,
-              COALESCE(service_contract_amount, 0) as service_contract_amount
-       FROM erp_employees
-       WHERE (join_date IS NULL OR join_date::date <= $2::date)
-         AND (
-           (employment_status = 'ACTIVE' AND (leave_date IS NULL OR leave_date::date >= $1::date))
-           OR (leave_date IS NOT NULL AND leave_date::date >= $1::date)
-         )
-       ORDER BY id ASC`,
-      [cMonthStart, cMonthEnd]
-    );
-
-    const otRes = await pool.query(`
-      SELECT employee_id, SUM(ot_hours)::numeric as hours, SUM(COALESCE(ot_pay, 0))::bigint as total_ot_pay
-      FROM erp_overtimes
-      WHERE ot_date >= $1::date AND ot_date <= $2::date AND status = 'APPROVED'
-      GROUP BY employee_id
-    `, [cMonthStart, cMonthEnd]);
+    const [empRes, otRes, expRes, ctRes] = await Promise.all([
+      pool.query(
+        `SELECT id, name, join_date, leave_date, base_salary,
+                COALESCE(hourly_wage, 0) as hourly_wage,
+                COALESCE(meal_allowance, 200000) as meal_allowance,
+                COALESCE(vehicle_allowance, 0) as vehicle_allowance,
+                COALESCE(ins_national_pension, TRUE) as ins_national_pension,
+                COALESCE(ins_health_insurance, TRUE) as ins_health_insurance,
+                COALESCE(ins_employment_insurance, TRUE) as ins_employment_insurance,
+                COALESCE(ins_industrial_accident, TRUE) as ins_industrial_accident,
+                COALESCE(service_contract_amount, 0) as service_contract_amount
+         FROM erp_employees
+         WHERE (join_date IS NULL OR join_date::date <= $2::date)
+           AND (
+             (employment_status = 'ACTIVE' AND (leave_date IS NULL OR leave_date::date >= $1::date))
+             OR (leave_date IS NOT NULL AND leave_date::date >= $1::date)
+           )
+         ORDER BY id ASC`,
+        [cMonthStart, cMonthEnd]
+      ),
+      pool.query(
+        `SELECT employee_id, SUM(ot_hours)::numeric as hours, SUM(COALESCE(ot_pay, 0))::bigint as total_ot_pay
+         FROM erp_overtimes
+         WHERE ot_date >= $1::date AND ot_date <= $2::date AND status = 'APPROVED'
+         GROUP BY employee_id`,
+        [cMonthStart, cMonthEnd]
+      ),
+      pool.query(
+        `SELECT employee_id, SUM(COALESCE(amount, 0))::numeric as total_expense
+         FROM erp_expense_receipts
+         WHERE year_month = $1 AND status = 'APPROVED'
+         GROUP BY employee_id`,
+        [yearMonth]
+      ),
+      pool.query(
+        `SELECT assigned_employees
+         FROM erp_service_contracts
+         WHERE COALESCE(status, 'ACTIVE') <> 'CANCELLED'
+           AND assigned_employees IS NOT NULL
+           AND (start_date IS NULL OR start_date::date <= $2::date)
+           AND (end_date IS NULL OR end_date::date >= $1::date)`,
+        [cMonthStart, cMonthEnd]
+      ),
+    ]);
 
     const otMap: Record<number, { hours: number; otPay: number }> = {};
     for (const row of otRes.rows) {
@@ -528,32 +538,11 @@ export async function POST(request: Request) {
       };
     }
 
-    const expRes = await pool.query(`
-      SELECT employee_id, SUM(COALESCE(amount, 0))::numeric as total_expense
-      FROM erp_expense_receipts
-      WHERE year_month = $1 AND status = 'APPROVED'
-      GROUP BY employee_id
-    `, [yearMonth]);
-
     const expMap: Record<number, number> = {};
     for (const row of expRes.rows) {
       expMap[row.employee_id] = Number(row.total_expense || 0);
     }
 
-    const [ymYear, ymMon] = yearMonth.split("-").map(Number);
-    const monthStart = `${yearMonth}-01`;
-    const lastDayNum = new Date(ymYear, ymMon, 0).getDate();
-    const monthEnd = `${yearMonth}-${String(lastDayNum).padStart(2, "0")}`;
-
-    const ctRes = await pool.query(
-      `SELECT assigned_employees
-       FROM erp_service_contracts
-       WHERE COALESCE(status, 'ACTIVE') <> 'CANCELLED'
-         AND assigned_employees IS NOT NULL
-         AND (start_date IS NULL OR start_date::date <= $2::date)
-         AND (end_date IS NULL OR end_date::date >= $1::date)`,
-      [monthStart, monthEnd]
-    );
     const activeContractRateMap: Record<number, number> = {};
     for (const ct of ctRes.rows) {
       const list = Array.isArray(ct.assigned_employees) ? ct.assigned_employees : [];

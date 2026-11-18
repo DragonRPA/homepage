@@ -9,18 +9,8 @@ import {
   ShieldCheck,
   UserCheck,
 } from "lucide-react";
-import {
-  sortErpItems,
-  formatErpNumber,
-  formatErpLeaveDays,
-  calculateAnnualLeaveEntitlement,
-  LeaveTypeCode,
-  LEAVE_TYPE_LIST,
-  LEAVE_TYPE_MAP,
-  isNonDeductingLeaveType,
-  getLeaveTypeLabel,
-  calculateWeekdayCount,
-} from "@/lib/erpFormat";
+import { sortErpItems, formatErpNumber } from "@/lib/erpFormat";
+import { formatErpLeaveDays, calculateAnnualLeaveEntitlement, type LeaveTypeCode, LEAVE_TYPE_LIST, LEAVE_TYPE_MAP, isNonDeductingLeaveType, getLeaveTypeLabel, calculateWeekdayCount } from "@/lib/erpHrLaborDomain";
 import { SortableTh, useErpTableSort } from "./SortableTh";
 
 interface LeaveRequest {

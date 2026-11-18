@@ -2,14 +2,8 @@
 
 import React, { useMemo, useState } from "react";
 import { Plus, Trash2, Wrench } from "lucide-react";
-import {
-  AttachedForkliftOption,
-  calculateAttachedOptionsTotals,
-  cleanErpNumber,
-  formatErpCurrency,
-  formatErpInputNumber,
-  toErpInputString,
-} from "@/lib/erpFormat";
+import { cleanErpNumber, formatErpCurrency, formatErpInputNumber, toErpInputString } from "@/lib/erpFormat";
+import { type AttachedForkliftOption, calculateAttachedOptionsTotals } from "@/lib/forkliftDomain";
 import SearchSelectCombobox, { SearchSelectOption } from "./SearchSelectCombobox";
 
 export interface CatalogOptionItem {

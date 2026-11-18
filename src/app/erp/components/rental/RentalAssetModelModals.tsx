@@ -3,7 +3,8 @@
 import React from "react";
 import { DollarSign, Layers, ShieldCheck, X } from "lucide-react";
 import { SearchSelectCombobox, type SearchSelectOption } from "../SearchSelectCombobox";
-import { RENTAL_RATE_BASIS_OPTIONS, RentalRateBasis, calculateAutoDailyRentalFee, cleanErpNumber, formatErpInputNumber, toErpInputString } from "@/lib/erpFormat";
+import { cleanErpNumber, formatErpInputNumber, toErpInputString } from "@/lib/erpFormat";
+import { RENTAL_RATE_BASIS_OPTIONS, type RentalRateBasis, calculateAutoDailyRentalFee } from "@/lib/rentalFeeUtils";
 import { ContractTaxInvoiceSection, type BuyerTaxSpec } from "../ContractTaxInvoiceSection";
 
 export interface AcquireAssetModalProps {

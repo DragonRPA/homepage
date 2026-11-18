@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import dynamic from "next/dynamic";
 import {
   Layers,
   Plus,
@@ -17,18 +18,10 @@ import {
   CheckCircle2,
   Calculator,
 } from "lucide-react";
-import {
-  formatErpNumber,
-  formatErpCurrency,
-  cleanErpNumber,
-  sortErpItems,
-  resolveDailyRentalFee,
-  matchHangulAny,
-  AttachedForkliftOption,
-  normalizeAttachedOptions,
-  normalizeItemClass,
-  addMonthsMinusOneDay,
-} from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, cleanErpNumber, sortErpItems } from "@/lib/erpFormat";
+import { resolveDailyRentalFee } from "@/lib/rentalFeeUtils";
+import { matchHangulAny } from "@/lib/hangulSearch";
+import { type AttachedForkliftOption, normalizeAttachedOptions, normalizeItemClass, addMonthsMinusOneDay } from "@/lib/forkliftDomain";
 import { useErpTableSort } from "./SortableTh";
 import { SearchSelectOption } from "./SearchSelectCombobox";
 import { CatalogOptionItem } from "./ForkliftOptionAttachPanel";
@@ -46,9 +39,23 @@ import {
   NewAssetFormState,
 } from "./assets/assetTypes";
 import { AssetSummaryTable, AssetDetailTable } from "./assets/AssetSummaryAndDetailTables";
-import { AssetDepreciationLedgerView } from "./assets/AssetDepreciationLedgerView";
-import { AssetDossierDrawer } from "./assets/AssetDossierDrawer";
-import { AssetAcquireModal } from "./assets/AssetAcquireModal";
+
+const AssetDepreciationLedgerView = dynamic(
+  () =>
+    import("./assets/AssetDepreciationLedgerView").then(
+      (m) => m.AssetDepreciationLedgerView
+    ),
+  { ssr: false }
+);
+const AssetDossierDrawer = dynamic(
+  () =>
+    import("./assets/AssetDossierDrawer").then((m) => m.AssetDossierDrawer),
+  { ssr: false }
+);
+const AssetAcquireModal = dynamic(
+  () => import("./assets/AssetAcquireModal").then((m) => m.AssetAcquireModal),
+  { ssr: false }
+);
 
 export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   currentUser,

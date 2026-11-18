@@ -2,14 +2,8 @@
 
 import React from "react";
 import { Trash2 } from "lucide-react";
-import {
-  formatErpNumber,
-  formatErpCurrency,
-  formatErpQty,
-  formatAttachedOptionsSummary,
-  normalizeAttachedOptions,
-  SortDirection,
-} from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, formatErpQty, type SortDirection } from "@/lib/erpFormat";
+import { formatAttachedOptionsSummary, normalizeAttachedOptions } from "@/lib/forkliftDomain";
 import { SortableTh } from "../SortableTh";
 import { AssetRecord, ModelSummaryRow, ModelSummaryTotals } from "./assetTypes";
 

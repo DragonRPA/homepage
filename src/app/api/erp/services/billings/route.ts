@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
-import { resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
+import { resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpContractTemplate";
 
 // GET: List all service billings
 export async function GET(request: Request) {

@@ -1,19 +1,8 @@
 "use client";
 
 import React from "react";
-import {
-  ForkliftItemClass,
-  ForkliftSpecData,
-  FORKLIFT_MAST_TYPES,
-  FORKLIFT_OPTION_GROUPS,
-  FORKLIFT_PART_GROUPS,
-  FORKLIFT_POWER_TYPES,
-  FORKLIFT_TIRE_TYPES,
-  cleanErpNumber,
-  formatErpInputNumber,
-  summarizeForkliftSpec,
-  toErpInputString,
-} from "@/lib/erpFormat";
+import { cleanErpNumber, formatErpInputNumber, toErpInputString } from "@/lib/erpFormat";
+import { type ForkliftItemClass, type ForkliftSpecData, FORKLIFT_MAST_TYPES, FORKLIFT_OPTION_GROUPS, FORKLIFT_PART_GROUPS, FORKLIFT_POWER_TYPES, FORKLIFT_TIRE_TYPES, summarizeForkliftSpec } from "@/lib/forkliftDomain";
 
 interface ForkliftSpecEditorProps {
   itemClass: ForkliftItemClass;

@@ -11,8 +11,8 @@ import {
   resolveUsefulLifeMonths,
   resolveBaseMonthlyDepreciation,
   generateMonthRange,
-  syncAllRentalAssetDepreciationLogs,
 } from "@/lib/erpDepreciation";
+import { syncAllRentalAssetDepreciationLogs } from "@/lib/erpDepreciationSync";
 
 export async function GET(request: Request) {
   try {

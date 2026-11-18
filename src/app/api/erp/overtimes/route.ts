@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
-import { calculateOvertimeBreakdown } from "@/lib/erpFormat";
+import { calculateOvertimeBreakdown } from "@/lib/erpHrLaborDomain";
 import { isCeoEmployee } from "@/lib/erpApprovalLine";
 import {
   loadOrgApprovalContext,

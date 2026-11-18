@@ -4,8 +4,8 @@ import {
   RentalMaintenanceValidationError,
   cleanNumericValue,
   ensureRentalMaintenanceSchema,
-  executePartStockTransferTx,
 } from "@/lib/rentalMaintenanceSchema";
+import { executePartStockTransferTx } from "@/lib/rentalMaintPartStockTx";
 import { normalizeIsoDate } from "@/lib/rentalMaintenanceDomain";
 import { getKstTodayIso } from "@/lib/forkliftDomain";
 

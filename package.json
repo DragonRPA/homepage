@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "autopurge": "node scripts/vercel-autopurge.cjs"
+    "autopurge": "node scripts/vercel-autopurge.cjs",
+    "spec:sync": "node scripts/generate_code_file_spec.cjs --sync",
+    "spec:verify": "node scripts/generate_code_file_spec.cjs --verify",
+    "spec:query": "node scripts/generate_code_file_spec.cjs --query"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

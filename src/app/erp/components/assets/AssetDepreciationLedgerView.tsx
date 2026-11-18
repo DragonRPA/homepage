@@ -2,12 +2,7 @@
 
 import React, { useMemo } from "react";
 import { DollarSign, Calculator, Layers } from "lucide-react";
-import {
-  formatErpNumber,
-  formatErpCurrency,
-  formatErpQty,
-  sortErpItems,
-} from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems } from "@/lib/erpFormat";
 import { SortableTh, useErpTableSort } from "../SortableTh";
 import { DepMatrixMode } from "./assetTypes";
 

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { encryptPii, decryptPii, hashPassword } from "@/lib/piiCrypto";
 import { putErpPrivateObject } from "@/lib/r2ErpVault";
-import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
+import { calculateAnnualLeaveEntitlement } from "@/lib/erpHrLaborDomain";
 import { runSchemaInitOnce } from "@/lib/erpSchemaCache";
 import { requireMenuPermission, logPiiReadAudit } from "@/lib/erpRbacGuard";
 

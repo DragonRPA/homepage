@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
-import { calculateServiceEmployeeMonthlyProRata } from "@/lib/erpFormat";
+import { calculateServiceEmployeeMonthlyProRata } from "@/lib/erpHrLaborDomain";
 import { assertPartnerTradable, PartnerTradeBlockedError } from "@/lib/partnerStatusService";
 
 // GET: List all service contracts (filter by service_type: 'OPERATIONAL' or 'DEVELOPMENT' & entityType, or id for single contract file)

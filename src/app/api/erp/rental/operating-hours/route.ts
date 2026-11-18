@@ -3,9 +3,11 @@ import { getErpPool } from "@/lib/supabaseErp";
 import {
   RentalMaintenanceValidationError,
   ensureRentalMaintenanceSchema,
+} from "@/lib/rentalMaintenanceSchema";
+import {
   recordAssetOperatingHoursTx,
   saveAssetWearConfigTx,
-} from "@/lib/rentalMaintenanceSchema";
+} from "@/lib/rentalOperatingHoursTxService";
 import {
   buildAssetWearSummary,
   computePreventivePmSchedule,

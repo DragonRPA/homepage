@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 import {
   Users,
   Building2,
@@ -9,61 +10,58 @@ import {
   RefreshCw,
   Search,
   Download,
-  Check,
-  X,
-  FileText,
-  CreditCard,
-  Phone,
-  Mail,
-  Edit2,
-  Trash2,
-  Upload,
-  UserCheck,
-  FileCheck,
-  Sparkles,
-  Image as ImageIcon,
-  Clock,
-  Eye,
   FileUp,
   Landmark,
-  Copy,
-  ExternalLink,
-  Printer,
   ShieldAlert,
-  Ban,
-  ZoomIn,
-  ZoomOut,
-  RotateCw,
-  Save,
 } from "lucide-react";
-import { formatErpNumber, matchHangulAny, sortErpItems } from "@/lib/erpFormat";
+import { formatErpNumber, sortErpItems } from "@/lib/erpFormat";
+import { matchHangulAny } from "@/lib/hangulSearch";
 import { invalidateMasterData } from "@/lib/erpMasterDataBus";
 import { SortableTh, useErpTableSort } from "./SortableTh";
 import {
-  getNtsBizStateBadgeLabel,
-  getPartnerTradeBlockInfo,
-  isPartnerTradeBlocked,
-  normalizeBizNoDigits,
-} from "@/lib/partnerStatusClient";
-import { KOREAN_BANKS, type ActiveDocumentViewer, type PartnerContact, type Partner } from "./partners/partnerTypes";
-import {
-  extractPdfImageAndTextFromSource,
-  resizeImageToBase64,
-  exportPartnersToCsv,
-  readFileAsDataUrl,
-  isPdfDocument,
-  processBankCopyOcr,
-  extractBizCertOcrFromFile,
-  queryNtsByBizNoClient,
-} from "./partners/partnerPdfUtils";
+  type ActiveDocumentViewer,
+  type PartnerContact,
+  type Partner,
+  type PartnerManagementTabProps,
+} from "./partners/partnerTypes";
+import { exportPartnersToCsv, resizeImageToBase64 } from "./partners/partnerPdfUtils";
 import { PartnerListPanel } from "./partners/PartnerListPanel";
 import { PartnerDossierPanel } from "./partners/PartnerDossierPanel";
-import { PartnerFormModal } from "./partners/PartnerFormModal";
-import { BizCertOcrModal } from "./partners/BizCertOcrModal";
-import { BankCopyOcrModal } from "./partners/BankCopyOcrModal";
-import { ContactFormModal } from "./partners/ContactFormModal";
-import { BizStatusBatchModal } from "./partners/BizStatusBatchModal";
-import { PartnerDocViewerModal } from "./partners/PartnerDocViewerModal";
+import {
+  buildPartnerPutPayload,
+  createContactFormFromContact,
+  createDefaultContactForm,
+  createDefaultPartnerForm,
+  createPartnerFormFromPartner,
+  mergePreloadedFilesIntoPartnerForm,
+  type PartnerFileBundle,
+} from "./partners/partnerFormHelpers";
+import { usePartnerDocAndNtsActions } from "./partners/usePartnerDocAndNtsActions";
+
+const PartnerFormModal = dynamic(
+  () => import("./partners/PartnerFormModal").then((m) => m.PartnerFormModal),
+  { ssr: false }
+);
+const BizCertOcrModal = dynamic(
+  () => import("./partners/BizCertOcrModal").then((m) => m.BizCertOcrModal),
+  { ssr: false }
+);
+const BankCopyOcrModal = dynamic(
+  () => import("./partners/BankCopyOcrModal").then((m) => m.BankCopyOcrModal),
+  { ssr: false }
+);
+const ContactFormModal = dynamic(
+  () => import("./partners/ContactFormModal").then((m) => m.ContactFormModal),
+  { ssr: false }
+);
+const BizStatusBatchModal = dynamic(
+  () => import("./partners/BizStatusBatchModal").then((m) => m.BizStatusBatchModal),
+  { ssr: false }
+);
+const PartnerDocViewerModal = dynamic(
+  () => import("./partners/PartnerDocViewerModal").then((m) => m.PartnerDocViewerModal),
+  { ssr: false }
+);
 
 export {
   KOREAN_BANKS,
@@ -72,18 +70,10 @@ export {
   type Partner,
 } from "./partners/partnerTypes";
 
-interface PartnerManagementTabProps {
-  currentUser: any;
-  initialType?: "CUSTOMER" | "VENDOR";
-  onSelectTypeTab?: (type: "CUSTOMER" | "VENDOR" | "ALL") => void;
-  onNavigateToTax?: () => void;
-}
-
 export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   currentUser,
   initialType = "CUSTOMER",
   onSelectTypeTab,
-  onNavigateToTax,
 }) => {
   const isAdmin = currentUser?.role === "ADMIN" || currentUser?.loginId === "admin";
 
@@ -112,17 +102,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   const [partnerContacts, setPartnerContacts] = useState<PartnerContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState<boolean>(false);
   const contactsCacheRef = useRef<Record<number, PartnerContact[]>>({});
-  const filesCacheRef = useRef<
-    Record<
-      number,
-      {
-        bizCertFileUrl?: string | null;
-        bankCopyFileUrl?: string | null;
-        contractFileUrl?: string | null;
-      }
-    >
-  >({});
-  const [docFetching, setDocFetching] = useState<boolean>(false);
+  const filesCacheRef = useRef<Record<number, PartnerFileBundle>>({});
 
   // Sorting (3단계: asc ➔ desc ➔ null 정렬안함)
   const { sortKey, sortDir, handleSort } = useErpTableSort("id", "desc");
@@ -132,103 +112,30 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   const [showPartnerModal, setShowPartnerModal] = useState<boolean>(false);
   const [partnerModalMode, setPartnerModalMode] = useState<"CREATE" | "EDIT">("CREATE");
   const [showBizCertOcrModal, setShowBizCertOcrModal] = useState<boolean>(false);
+  const [showBankOcrModal, setShowBankOcrModal] = useState<boolean>(false);
   const [showContactModal, setShowContactModal] = useState<boolean>(false);
   const [contactModalMode, setContactModalMode] = useState<"CREATE" | "EDIT">("CREATE");
-  const [editingContact, setEditingContact] = useState<PartnerContact | null>(null);
+  const [showBizStatusBatchModal, setShowBizStatusBatchModal] = useState<boolean>(false);
   const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null);
   const [activeDocument, setActiveDocument] = useState<ActiveDocumentViewer | null>(null);
 
-  // Drag and Drop States for OCR Modal
-  const [isCertDragging, setIsCertDragging] = useState<boolean>(false);
+  // File Input Refs & Dropzone UI States
   const certFileInputRef = useRef<HTMLInputElement>(null);
-
-  // File Input Refs & Drag States for Partner Modal & Dossier
   const bankCopyInputRef = useRef<HTMLInputElement>(null);
   const directBizCertInputRef = useRef<HTMLInputElement>(null);
   const directContractInputRef = useRef<HTMLInputElement>(null);
   const dossierBizCertInputRef = useRef<HTMLInputElement>(null);
   const dossierContractInputRef = useRef<HTMLInputElement>(null);
   const viewerReplaceFileInputRef = useRef<HTMLInputElement>(null);
+  const bankOcrModalFileInputRef = useRef<HTMLInputElement>(null);
   const [isBankCopyDragging, setIsBankCopyDragging] = useState<boolean>(false);
   const [isDirectBizCertDragging, setIsDirectBizCertDragging] = useState<boolean>(false);
   const [isDirectContractDragging, setIsDirectContractDragging] = useState<boolean>(false);
   const [isDossierBizCertDragging, setIsDossierBizCertDragging] = useState<boolean>(false);
   const [isDossierContractDragging, setIsDossierContractDragging] = useState<boolean>(false);
-  const [dossierBizCertSaving, setDossierBizCertSaving] = useState<boolean>(false);
-  const [dossierContractSaving, setDossierContractSaving] = useState<boolean>(false);
-  const [directBizCertOcrLoading, setDirectBizCertOcrLoading] = useState<boolean>(false);
-  const [directBizCertSuggestion, setDirectBizCertSuggestion] = useState<any>(null);
-  const [singleNtsCheckingId, setSingleNtsCheckingId] = useState<number | null>(null);
-  const [formNtsChecking, setFormNtsChecking] = useState<boolean>(false);
-
-  // Split Document Viewer + Inline Customer Info Edit States
-  const [viewerZoom, setViewerZoom] = useState<number>(1);
-  const [viewerRotation, setViewerRotation] = useState<number>(0);
-  const [isViewerDragging, setIsViewerDragging] = useState<boolean>(false);
-  const [resolvedPdfBlobUrl, setResolvedPdfBlobUrl] = useState<string | null>(null);
-  const [viewerForm, setViewerForm] = useState<any>(null);
-  const [viewerSaving, setViewerSaving] = useState<boolean>(false);
-  const [viewerOcrLoading, setViewerOcrLoading] = useState<boolean>(false);
-  const [viewerNtsLoading, setViewerNtsLoading] = useState<boolean>(false);
-
-  // Batch Business Status Lookup Modal States
-  const [showBizStatusBatchModal, setShowBizStatusBatchModal] = useState<boolean>(false);
-  const [batchScope, setBatchScope] = useState<"CUSTOMER" | "FILTERED" | "ALL">("CUSTOMER");
-  const [batchAutoBlock, setBatchAutoBlock] = useState<boolean>(true);
-  const [batchLoading, setBatchLoading] = useState<boolean>(false);
-  const [batchResult, setBatchResult] = useState<{ summary: any; results: any[] } | null>(null);
-
-  // OCR Processing States (Business Registration Certificate)
-  const [ocrLoading, setOcrLoading] = useState<boolean>(false);
-  const [ocrResult, setOcrResult] = useState<any>(null);
-  const [ocrPreviewFileUrl, setOcrPreviewFileUrl] = useState<string>("");
-  const [ocrPreviewThumbUrl, setOcrPreviewThumbUrl] = useState<string>("");
-  const [ocrNtsStatus, setOcrNtsStatus] = useState<any>(null);
-  const [ocrFileName, setOcrFileName] = useState<string>("");
-
-  // Bankbook OCR Modal & Processing States
-  const [showBankOcrModal, setShowBankOcrModal] = useState<boolean>(false);
-  const [bankOcrLoading, setBankOcrLoading] = useState<boolean>(false);
-  const [bankOcrResult, setBankOcrResult] = useState<any>(null);
-  const [bankOcrPreviewUrl, setBankOcrPreviewUrl] = useState<string>("");
-  const [bankOcrFileName, setBankOcrFileName] = useState<string>("");
-  const [isBankOcrModalDragging, setIsBankOcrModalDragging] = useState<boolean>(false);
-  const bankOcrModalFileInputRef = useRef<HTMLInputElement>(null);
 
   // Partner Form State
-  const [partnerForm, setPartnerForm] = useState<any>({
-    id: 0,
-    partnerType: "CUSTOMER",
-    partnerCode: "",
-    name: "",
-    businessNo: "",
-    corporateNo: "",
-    ceoName: "",
-    bizType: "",
-    bizItem: "",
-    address: "",
-    addressDetail: "",
-    mainPhone: "",
-    mainEmail: "",
-    subEmail: "",
-    faxNo: "",
-    managerEmployeeId: "",
-    managerName: "",
-    statementClosingDay: "매월 25일",
-    taxInvoiceClosingDay: "익월 10일",
-    paymentDueDay: "익월 15일",
-    status: "ACTIVE",
-    memo: "",
-    bizCertFileUrl: "",
-    bizCertFileName: "",
-    bankName: "",
-    bankAccountNo: "",
-    bankAccountHolder: "",
-    bankCopyFileUrl: "",
-    bankCopyFileName: "",
-    contractFileUrl: "",
-    contractFileName: "",
-  });
+  const [partnerForm, setPartnerForm] = useState<any>(() => createDefaultPartnerForm());
 
   // Dossier Inline Email Edit State
   const [editingDossierEmail, setEditingDossierEmail] = useState<boolean>(false);
@@ -237,20 +144,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   const [savingDossierEmail, setSavingDossierEmail] = useState<boolean>(false);
 
   // Contact Form State
-  const [contactForm, setContactForm] = useState<any>({
-    id: 0,
-    partnerId: 0,
-    name: "",
-    department: "",
-    position: "",
-    mobile: "",
-    email: "",
-    telephone: "",
-    isPrimary: false,
-    businessCardFrontUrl: "",
-    businessCardBackUrl: "",
-    memo: "",
-  });
+  const [contactForm, setContactForm] = useState<any>(() => createDefaultContactForm());
 
   // Toast
   const [toastMessage, setToastMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -273,7 +167,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       if (data.success && Array.isArray(data.employees)) {
         setEmployees(data.employees);
       }
-    } catch (e) {}
+    } catch {}
   };
 
   // Fetch all partners once and filter client-side for instant 0ms tab/scope switching
@@ -304,112 +198,6 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     } finally {
       setLoading(false);
     }
-  };
-
-  // On-demand fetch for heavy Base64 document files (bizCertFileUrl, bankCopyFileUrl, contractFileUrl)
-  const ensurePartnerFiles = async (
-    p: Partner,
-    requiredDocType?: "BIZ_CERT" | "BANK_COPY" | "CONTRACT"
-  ): Promise<{
-    bizCertFileUrl?: string | null;
-    bankCopyFileUrl?: string | null;
-    contractFileUrl?: string | null;
-  }> => {
-    const cached = filesCacheRef.current[p.id] || {};
-    const merged = {
-      bizCertFileUrl: p.bizCertFileUrl || cached.bizCertFileUrl || null,
-      bankCopyFileUrl: p.bankCopyFileUrl || cached.bankCopyFileUrl || null,
-      contractFileUrl: p.contractFileUrl || cached.contractFileUrl || null,
-    };
-
-    const hasNeeded =
-      requiredDocType === "BIZ_CERT"
-        ? Boolean(merged.bizCertFileUrl)
-        : requiredDocType === "BANK_COPY"
-        ? Boolean(merged.bankCopyFileUrl)
-        : requiredDocType === "CONTRACT"
-        ? Boolean(merged.contractFileUrl)
-        : Boolean(
-            (!p.hasBizCert || merged.bizCertFileUrl) &&
-              (!p.hasBankCopy || merged.bankCopyFileUrl) &&
-              (!p.hasContractFile || merged.contractFileUrl)
-          );
-
-    if (hasNeeded) {
-      return merged;
-    }
-
-    setDocFetching(true);
-    try {
-      const res = await fetch(`/api/erp/partners?id=${p.id}`, { cache: "no-store" });
-      const data = await res.json();
-      if (data.success && data.partner) {
-        const loaded = {
-          bizCertFileUrl: data.partner.bizCertFileUrl || null,
-          bankCopyFileUrl: data.partner.bankCopyFileUrl || null,
-          contractFileUrl: data.partner.contractFileUrl || null,
-        };
-        filesCacheRef.current[p.id] = loaded;
-        setPartners((prev) =>
-          prev.map((item) => (item.id === p.id ? { ...item, ...loaded } : item))
-        );
-        setSelectedPartner((prev) => (prev && prev.id === p.id ? { ...prev, ...loaded } : prev));
-        return loaded;
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setDocFetching(false);
-    }
-    return merged;
-  };
-
-  const handleOpenPartnerDoc = async (
-    p: Partner,
-    docType: "BIZ_CERT" | "BANK_COPY" | "CONTRACT",
-    mode: "VIEW" | "DOWNLOAD" = "VIEW"
-  ) => {
-    const files = await ensurePartnerFiles(p, docType);
-    const url =
-      docType === "BIZ_CERT"
-        ? files.bizCertFileUrl
-        : docType === "BANK_COPY"
-        ? files.bankCopyFileUrl
-        : files.contractFileUrl;
-    if (!url) {
-      showToast("등록된 원본 서류 데이터를 불러올 수 없습니다.", "error");
-      return;
-    }
-    const fileName =
-      docType === "BIZ_CERT"
-        ? p.bizCertFileName || `${p.name}_사업자등록증`
-        : docType === "BANK_COPY"
-        ? p.bankCopyFileName || `${p.bankName || p.name}_통장사본`
-        : p.contractFileName || `${p.name}_계약서.pdf`;
-
-    if (mode === "DOWNLOAD") {
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      return;
-    }
-
-    setActiveDocument({
-      title:
-        docType === "BIZ_CERT"
-          ? "사업자등록증 원본"
-          : docType === "BANK_COPY"
-          ? "통장사본 원본"
-          : "계약서 원본",
-      partnerName: p.name,
-      url,
-      fileName,
-      partnerId: p.id,
-      docType,
-    });
   };
 
   // Fetch Contacts for selected partner (with in-memory cache)
@@ -451,109 +239,6 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     }
   }, [selectedPartner?.id, selectedPartner?.mainEmail, selectedPartner?.subEmail]);
 
-  // Split Viewer Sync & Chrome/Edge Safe PDF Blob URL
-  useEffect(() => {
-    setViewerZoom(1);
-    setViewerRotation(0);
-    setIsViewerDragging(false);
-
-    let createdBlobUrl: string | null = null;
-    if (activeDocument?.url && activeDocument.url.startsWith("data:application/pdf")) {
-      try {
-        const commaIdx = activeDocument.url.indexOf(",");
-        const base64Str = commaIdx >= 0 ? activeDocument.url.slice(commaIdx + 1) : "";
-        const binaryStr = atob(base64Str);
-        const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) {
-          bytes[i] = binaryStr.charCodeAt(i);
-        }
-        createdBlobUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-        setResolvedPdfBlobUrl(createdBlobUrl);
-      } catch {
-        setResolvedPdfBlobUrl(null);
-      }
-    } else {
-      setResolvedPdfBlobUrl(null);
-    }
-
-    if (activeDocument?.partnerId) {
-      const target =
-        partners.find((p) => p.id === activeDocument.partnerId) || selectedPartner;
-      if (target && target.id === activeDocument.partnerId) {
-        setViewerForm({
-          id: target.id,
-          partnerType: target.partnerType || "CUSTOMER",
-          partnerCode: target.partnerCode || "",
-          name: target.name || "",
-          businessNo: target.businessNo || "",
-          corporateNo: target.corporateNo || "",
-          ceoName: target.ceoName || "",
-          bizType: target.bizType || "",
-          bizItem: target.bizItem || "",
-          address: target.address || "",
-          addressDetail: target.addressDetail || "",
-          mainPhone: target.mainPhone || "",
-          mainEmail: target.mainEmail || "",
-          subEmail: target.subEmail || "",
-          faxNo: target.faxNo || "",
-          managerEmployeeId: target.managerEmployeeId ? String(target.managerEmployeeId) : "",
-          managerName: target.managerName || "",
-          statementClosingDay: target.statementClosingDay || "매월 25일",
-          taxInvoiceClosingDay: target.taxInvoiceClosingDay || "익월 10일",
-          paymentDueDay: target.paymentDueDay || "익월 15일",
-          status: target.status || "ACTIVE",
-          ntsBizState: target.ntsBizState || null,
-          ntsTaxType: target.ntsTaxType || null,
-          ntsClosedDate: target.ntsClosedDate || null,
-          ntsStatusMsg: target.ntsStatusMsg || null,
-          ntsCheckedAt: target.ntsCheckedAt || null,
-          memo: target.memo || "",
-          bankName: target.bankName || "",
-          bankAccountNo: target.bankAccountNo || "",
-          bankAccountHolder: target.bankAccountHolder || "",
-        });
-      }
-    } else {
-      setViewerForm(null);
-    }
-
-    return () => {
-      if (createdBlobUrl) {
-        URL.revokeObjectURL(createdBlobUrl);
-      }
-    };
-  }, [activeDocument?.url, activeDocument?.partnerId]);
-
-  /** 거래처 PUT 요청용 공통 페이로드 생성기 */
-  const buildPartnerPutPayload = (p: Partner, overrides: Record<string, any> = {}) => ({
-    id: p.id,
-    name: p.name,
-    partnerType: p.partnerType,
-    partnerCode: p.partnerCode,
-    businessNo: p.businessNo || "",
-    corporateNo: p.corporateNo || "",
-    ceoName: p.ceoName || "",
-    bizType: p.bizType || "",
-    bizItem: p.bizItem || "",
-    address: p.address || "",
-    addressDetail: p.addressDetail || "",
-    mainPhone: p.mainPhone || "",
-    mainEmail: p.mainEmail || "",
-    subEmail: p.subEmail || "",
-    faxNo: p.faxNo || "",
-    managerEmployeeId: p.managerEmployeeId ? String(p.managerEmployeeId) : "",
-    managerName: p.managerName || "",
-    statementClosingDay: p.statementClosingDay || "매월 25일",
-    taxInvoiceClosingDay: p.taxInvoiceClosingDay || "익월 10일",
-    paymentDueDay: p.paymentDueDay || "익월 15일",
-    status: p.status || "ACTIVE",
-    memo: p.memo || "",
-    bankName: p.bankName || "",
-    bankAccountNo: p.bankAccountNo || "",
-    bankAccountHolder: p.bankAccountHolder || "",
-    ...overrides,
-  });
-
   const handleSaveDossierEmail = async () => {
     if (!selectedPartner) return;
     setSavingDossierEmail(true);
@@ -561,33 +246,12 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       const res = await fetch("/api/erp/partners", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: selectedPartner.id,
-          partnerType: selectedPartner.partnerType,
-          partnerCode: selectedPartner.partnerCode,
-          name: selectedPartner.name,
-          businessNo: selectedPartner.businessNo,
-          corporateNo: selectedPartner.corporateNo,
-          ceoName: selectedPartner.ceoName,
-          bizType: selectedPartner.bizType,
-          bizItem: selectedPartner.bizItem,
-          address: selectedPartner.address,
-          addressDetail: selectedPartner.addressDetail,
-          mainPhone: selectedPartner.mainPhone,
-          mainEmail: dossierMainEmail.trim() || null,
-          subEmail: dossierSubEmail.trim() || null,
-          faxNo: selectedPartner.faxNo,
-          managerEmployeeId: selectedPartner.managerEmployeeId,
-          managerName: selectedPartner.managerName,
-          statementClosingDay: selectedPartner.statementClosingDay,
-          taxInvoiceClosingDay: selectedPartner.taxInvoiceClosingDay,
-          paymentDueDay: selectedPartner.paymentDueDay,
-          status: selectedPartner.status,
-          memo: selectedPartner.memo,
-          bankName: selectedPartner.bankName,
-          bankAccountNo: selectedPartner.bankAccountNo,
-          bankAccountHolder: selectedPartner.bankAccountHolder,
-        }),
+        body: JSON.stringify(
+          buildPartnerPutPayload(selectedPartner, {
+            mainEmail: dossierMainEmail.trim() || null,
+            subEmail: dossierSubEmail.trim() || null,
+          })
+        ),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "이메일 저장 실패");
@@ -631,22 +295,21 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       if (managerFilter !== "ALL" && String(p.managerEmployeeId || "") !== String(managerFilter)) {
         return false;
       }
-      if (q) {
-        if (
-          !matchHangulAny(
-            [
-              p.name,
-              p.businessNo,
-              p.ceoName,
-              p.managerName,
-              p.partnerCode,
-              p.primaryContact?.name,
-            ],
-            q
-          )
-        ) {
-          return false;
-        }
+      if (
+        q &&
+        !matchHangulAny(
+          [
+            p.name,
+            p.businessNo,
+            p.ceoName,
+            p.managerName,
+            p.partnerCode,
+            p.primaryContact?.name,
+          ],
+          q
+        )
+      ) {
+        return false;
       }
       return true;
     });
@@ -672,126 +335,57 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     setSelectedPartner(sortedPartners[0]);
   }, [sortedPartners]);
 
+  const docActions = usePartnerDocAndNtsActions({
+    currentUser,
+    partnerTypeTab,
+    partners,
+    setPartners,
+    selectedPartner,
+    setSelectedPartner,
+    sortedPartners,
+    filesCacheRef,
+    fetchPartners,
+    showToast,
+    partnerForm,
+    setPartnerForm,
+    partnerModalMode,
+    setPartnerModalMode,
+    setShowPartnerModal,
+    setShowBizCertOcrModal,
+    setShowBankOcrModal,
+    activeDocument,
+    setActiveDocument,
+  });
+
   // Open Create Modal
   const openCreateModal = () => {
     setPartnerModalMode("CREATE");
-    setDirectBizCertSuggestion(null);
-    setPartnerForm({
-      id: 0,
-      partnerType: partnerTypeTab === "ALL" ? "CUSTOMER" : partnerTypeTab,
-      partnerCode: "",
-      name: "",
-      businessNo: "",
-      corporateNo: "",
-      ceoName: "",
-      bizType: "",
-      bizItem: "",
-      address: "",
-      addressDetail: "",
-      mainPhone: "",
-      mainEmail: "",
-      subEmail: "",
-      faxNo: "",
-      managerEmployeeId: currentUser?.id ? String(currentUser.id) : "",
-      managerName: currentUser?.name || "",
-      statementClosingDay: "매월 25일",
-      taxInvoiceClosingDay: "익월 10일",
-      paymentDueDay: "익월 15일",
-      status: "ACTIVE",
-      ntsBizState: null,
-      ntsTaxType: null,
-      ntsClosedDate: null,
-      ntsStatusMsg: null,
-      ntsCheckedAt: null,
-      memo: "",
-      bizCertFileUrl: "",
-      bizCertFileName: "",
-      bankName: "",
-      bankAccountNo: "",
-      bankAccountHolder: "",
-      bankCopyFileUrl: "",
-      bankCopyFileName: "",
-      contractFileUrl: "",
-      contractFileName: "",
-    });
+    docActions.setDirectBizCertSuggestion(null);
+    setPartnerForm(
+      createDefaultPartnerForm({
+        partnerType: partnerTypeTab === "ALL" ? "CUSTOMER" : partnerTypeTab,
+        currentUser,
+      })
+    );
     setShowPartnerModal(true);
   };
 
   // Open Edit Modal
   const openEditModal = async (p: Partner) => {
     setPartnerModalMode("EDIT");
-    setDirectBizCertSuggestion(null);
-    const hasBiz = Boolean(p.hasBizCert || p.bizCertFileUrl);
-    const hasBank = Boolean(p.hasBankCopy || p.bankCopyFileUrl);
-    const hasContract = Boolean(p.hasContractFile || p.contractFileUrl);
-    setPartnerForm({
-      id: p.id,
-      partnerType: p.partnerType,
-      partnerCode: p.partnerCode,
-      name: p.name,
-      businessNo: p.businessNo || "",
-      corporateNo: p.corporateNo || "",
-      ceoName: p.ceoName || "",
-      bizType: p.bizType || "",
-      bizItem: p.bizItem || "",
-      address: p.address || "",
-      addressDetail: p.addressDetail || "",
-      mainPhone: p.mainPhone || "",
-      mainEmail: p.mainEmail || "",
-      subEmail: p.subEmail || "",
-      faxNo: p.faxNo || "",
-      managerEmployeeId: p.managerEmployeeId ? String(p.managerEmployeeId) : "",
-      managerName: p.managerName || "",
-      statementClosingDay: p.statementClosingDay || "매월 25일",
-      taxInvoiceClosingDay: p.taxInvoiceClosingDay || "익월 10일",
-      paymentDueDay: p.paymentDueDay || "익월 15일",
-      status: p.status,
-      ntsBizState: p.ntsBizState || null,
-      ntsTaxType: p.ntsTaxType || null,
-      ntsClosedDate: p.ntsClosedDate || null,
-      ntsStatusMsg: p.ntsStatusMsg || null,
-      ntsCheckedAt: p.ntsCheckedAt || null,
-      memo: p.memo || "",
-      bizCertFileUrl: p.bizCertFileUrl || "",
-      bizCertFileName: p.bizCertFileName || "",
-      hasBizCert: hasBiz,
-      bankName: p.bankName || "",
-      bankAccountNo: p.bankAccountNo || "",
-      bankAccountHolder: p.bankAccountHolder || "",
-      bankCopyFileUrl: p.bankCopyFileUrl || "",
-      bankCopyFileName: p.bankCopyFileName || "",
-      hasBankCopy: hasBank,
-      contractFileUrl: p.contractFileUrl || "",
-      contractFileName: p.contractFileName || "",
-      hasContractFile: hasContract,
-    });
+    docActions.setDirectBizCertSuggestion(null);
+    const form = createPartnerFormFromPartner(p);
+    setPartnerForm(form);
     setShowPartnerModal(true);
 
     // Preload original files in background when opening Edit modal so preview/re-run OCR works seamlessly
     if (
-      (hasBiz && !p.bizCertFileUrl) ||
-      (hasBank && !p.bankCopyFileUrl) ||
-      (hasContract && !p.contractFileUrl)
+      (form.hasBizCert && !p.bizCertFileUrl) ||
+      (form.hasBankCopy && !p.bankCopyFileUrl) ||
+      (form.hasContractFile && !p.contractFileUrl)
     ) {
-      const files = await ensurePartnerFiles(p);
-      setPartnerForm((prev: any) => {
-        if (prev.id !== p.id) return prev;
-        return {
-          ...prev,
-          bizCertFileUrl:
-            prev.bizCertFileUrl === "__DELETE__"
-              ? "__DELETE__"
-              : prev.bizCertFileUrl || files.bizCertFileUrl || "",
-          bankCopyFileUrl:
-            prev.bankCopyFileUrl === "__DELETE__"
-              ? "__DELETE__"
-              : prev.bankCopyFileUrl || files.bankCopyFileUrl || "",
-          contractFileUrl:
-            prev.contractFileUrl === "__DELETE__"
-              ? "__DELETE__"
-              : prev.contractFileUrl || files.contractFileUrl || "",
-        };
-      });
+      const files = await docActions.ensurePartnerFiles(p);
+      setPartnerForm((prev: any) => mergePreloadedFilesIntoPartnerForm(prev, p.id, files));
     }
   };
 
@@ -804,9 +398,8 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     }
 
     try {
-      const url = "/api/erp/partners";
       const method = partnerModalMode === "CREATE" ? "POST" : "PUT";
-      const res = await fetch(url, {
+      const res = await fetch("/api/erp/partners", {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(partnerForm),
@@ -850,40 +443,18 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   const openCreateContactModal = () => {
     if (!selectedPartner) return;
     setContactModalMode("CREATE");
-    setContactForm({
-      id: 0,
-      partnerId: selectedPartner.id,
-      name: "",
-      department: "",
-      position: "",
-      mobile: "",
-      email: "",
-      telephone: "",
-      isPrimary: partnerContacts.length === 0,
-      businessCardFrontUrl: "",
-      businessCardBackUrl: "",
-      memo: "",
-    });
+    setContactForm(
+      createDefaultContactForm({
+        partnerId: selectedPartner.id,
+        isPrimary: partnerContacts.length === 0,
+      })
+    );
     setShowContactModal(true);
   };
 
   const openEditContactModal = (c: PartnerContact) => {
     setContactModalMode("EDIT");
-    setEditingContact(c);
-    setContactForm({
-      id: c.id,
-      partnerId: c.partnerId,
-      name: c.name,
-      department: c.department || "",
-      position: c.position || "",
-      mobile: c.mobile || "",
-      email: c.email || "",
-      telephone: c.telephone || "",
-      isPrimary: c.isPrimary,
-      businessCardFrontUrl: c.businessCardFrontUrl || "",
-      businessCardBackUrl: c.businessCardBackUrl || "",
-      memo: c.memo || "",
-    });
+    setContactForm(createContactFormFromContact(c));
     setShowContactModal(true);
   };
 
@@ -896,9 +467,8 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     }
 
     try {
-      const url = "/api/erp/partners/contacts";
       const method = contactModalMode === "CREATE" ? "POST" : "PUT";
-      const res = await fetch(url, {
+      const res = await fetch("/api/erp/partners/contacts", {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(contactForm),
@@ -940,954 +510,6 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
 
   const handleExportCsv = () => {
     exportPartnersToCsv(sortedPartners, partnerTypeTab);
-  };
-  const extractPdfImageAndText = (file: File) => extractPdfImageAndTextFromSource(file);
-
-  // Re-run OCR on currently uploaded bank copy fileData
-  const handleReRunBankOcr = async () => {
-    if (!partnerForm.bankCopyFileUrl) return;
-    setBankOcrLoading(true);
-    try {
-      const res = await fetch("/api/erp/partners/ocr-bank", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileData: partnerForm.bankCopyFileUrl,
-          fileName: partnerForm.bankCopyFileName || "통장사본",
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success || !data.parsed) {
-        throw new Error(data?.error || "통장사본 OCR 판독 실패");
-      }
-      const p = data.parsed;
-      setPartnerForm((prev: any) => ({
-        ...prev,
-        bankName: p.bankName || prev.bankName,
-        bankAccountNo: p.bankAccountNo || prev.bankAccountNo,
-        bankAccountHolder: p.bankAccountHolder || prev.bankAccountHolder,
-      }));
-      const details = [
-        p.bankName && `은행: ${p.bankName}`,
-        p.bankAccountNo && `계좌: ${p.bankAccountNo}`,
-        p.bankAccountHolder && `예금주: ${p.bankAccountHolder}`,
-      ].filter(Boolean).join(" | ");
-      showToast(`통장사본 OCR 재판독 완료 (${details || "반영됨"})`);
-    } catch (err: any) {
-      showToast(err.message || "통장사본 OCR 판독 실패", "error");
-    } finally {
-      setBankOcrLoading(false);
-    }
-  };
-
-  // Direct Bank Copy Upload with Automatic OCR
-  const handleBankCopyFileUpload = async (file: File) => {
-    if (!file) return;
-    setBankOcrLoading(true);
-    try {
-      const ocr = await processBankCopyOcr(file);
-      setPartnerForm((prev: any) => ({
-        ...prev,
-        bankCopyFileUrl: ocr.previewUrl,
-        bankCopyFileName: file.name,
-        bankName: ocr.bankName || prev.bankName,
-        bankAccountNo: ocr.bankAccountNo || prev.bankAccountNo,
-        bankAccountHolder: ocr.bankAccountHolder || prev.bankAccountHolder || prev.name || prev.ceoName || "",
-      }));
-      const details = [
-        ocr.bankName && `은행: ${ocr.bankName}`,
-        ocr.bankAccountNo && `계좌: ${ocr.bankAccountNo}`,
-        ocr.bankAccountHolder && `예금주: ${ocr.bankAccountHolder}`,
-      ].filter(Boolean).join(", ");
-      showToast(`통장사본 자동 인식 완료 (${details || file.name})`);
-    } catch (err: any) {
-      try {
-        const fallbackUrl = await readFileAsDataUrl(file);
-        setPartnerForm((prev: any) => ({
-          ...prev,
-          bankCopyFileUrl: fallbackUrl,
-          bankCopyFileName: file.name,
-        }));
-        showToast("통장사본 첨부 완료 (OCR 추출 불가로 수기 입력 필요)", "error");
-      } catch (fErr) {
-        showToast("통장사본 파일 읽기 실패", "error");
-      }
-    } finally {
-      setBankOcrLoading(false);
-    }
-  };
-
-  // Bankbook OCR Modal: File Processing
-  const handleBankModalFileUpload = async (file: File) => {
-    if (!file) return;
-    setBankOcrLoading(true);
-    setBankOcrFileName(file.name);
-    setBankOcrResult(null);
-
-    try {
-      const ocr = await processBankCopyOcr(file);
-      setBankOcrPreviewUrl(ocr.previewUrl);
-      setBankOcrResult({
-        bankName: ocr.bankName,
-        bankAccountNo: ocr.bankAccountNo,
-        bankAccountHolder: ocr.bankAccountHolder,
-        branchName: ocr.branchName,
-      });
-      showToast(`통장사본 분석 완료: ${ocr.bankName || "은행"} ${ocr.bankAccountNo || ""}`);
-    } catch (e: any) {
-      showToast(e.message || "통장사본 OCR 판독 실패", "error");
-    } finally {
-      setBankOcrLoading(false);
-    }
-  };
-
-  // Drag Event Handlers for Bank Copy OCR Modal
-  const handleBankOcrDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!isBankOcrModalDragging) setIsBankOcrModalDragging(true);
-  };
-
-  const handleBankOcrDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-    setIsBankOcrModalDragging(false);
-  };
-
-  const handleBankOcrDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsBankOcrModalDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleBankModalFileUpload(e.dataTransfer.files[0]);
-    }
-  };
-
-  // Apply Bank OCR result to Partner Form (opens CREATE modal as VENDOR)
-  const handleApplyBankOcrToForm = () => {
-    if (!bankOcrResult) return;
-    setPartnerModalMode("CREATE");
-    setPartnerForm({
-      id: 0,
-      partnerType: "VENDOR",
-      partnerCode: "",
-      name: bankOcrResult.bankAccountHolder || "",
-      businessNo: "",
-      corporateNo: "",
-      ceoName: bankOcrResult.bankAccountHolder || "",
-      bizType: "",
-      bizItem: "",
-      address: "",
-      addressDetail: "",
-      mainPhone: "",
-      mainEmail: "",
-      subEmail: "",
-      faxNo: "",
-      managerEmployeeId: currentUser?.id ? String(currentUser.id) : "",
-      managerName: currentUser?.name || "",
-      statementClosingDay: "매월 25일",
-      taxInvoiceClosingDay: "익월 10일",
-      paymentDueDay: "익월 15일",
-      status: "ACTIVE",
-      memo: `통장사본 기반 등록 (${bankOcrFileName})`,
-      bizCertFileUrl: "",
-      bizCertFileName: "",
-      bankName: bankOcrResult.bankName || "",
-      bankAccountNo: bankOcrResult.bankAccountNo || "",
-      bankAccountHolder: bankOcrResult.bankAccountHolder || "",
-      bankCopyFileUrl: bankOcrPreviewUrl || "",
-      bankCopyFileName: bankOcrFileName || "",
-      contractFileUrl: "",
-      contractFileName: "",
-    });
-    setShowBankOcrModal(false);
-    setShowPartnerModal(true);
-    showToast("통장사본 정보가 매입거래처 등록 양식에 자동 입력되었습니다.");
-  };
-
-
-  // Direct Business Registration Certificate Upload (Partner Modal: Browse & Drag-Drop + Auto OCR & NTS Check)
-  const handleDirectBizCertUpload = async (file: File) => {
-    if (!file) return;
-    const isPdf =
-      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    if (!isPdf && !file.type.startsWith("image/")) {
-      showToast("PDF 또는 이미지 형식의 사업자등록증 파일을 선택해주세요.", "error");
-      return;
-    }
-
-    setDirectBizCertOcrLoading(true);
-    setDirectBizCertSuggestion(null);
-    try {
-      const { rawDataUrl, parsed } = await extractBizCertOcrFromFile(file);
-      let ntsRes: any = null;
-      if (parsed?.businessNo && normalizeBizNoDigits(parsed.businessNo).length === 10) {
-        ntsRes = await queryNtsByBizNoClient(parsed.businessNo).catch(() => null);
-      }
-
-      setPartnerForm((prev: any) => {
-        const next: any = {
-          ...prev,
-          bizCertFileUrl: rawDataUrl,
-          bizCertFileName: file.name,
-          hasBizCert: true,
-        };
-        if (parsed) {
-          const isCreatePristine =
-            partnerModalMode === "CREATE" && !prev.name?.trim() && !prev.businessNo?.trim();
-          const applyField = (key: string, val?: string) => {
-            if (!val) return;
-            if (isCreatePristine || !prev[key] || !String(prev[key]).trim()) {
-              next[key] = val;
-            }
-          };
-          applyField("name", parsed.name);
-          applyField("businessNo", parsed.businessNo);
-          applyField("corporateNo", parsed.corporateNo);
-          applyField("ceoName", parsed.ceoName);
-          applyField("bizType", parsed.bizType);
-          applyField("bizItem", parsed.bizItem);
-          applyField("address", parsed.address);
-          applyField("mainPhone", parsed.mainPhone);
-          applyField("mainEmail", parsed.email);
-        }
-        if (ntsRes) {
-          next.ntsBizState = ntsRes.ntsBizState;
-          next.ntsTaxType = ntsRes.ntsTaxType;
-          next.ntsClosedDate = ntsRes.ntsClosedDate;
-          next.ntsStatusMsg = ntsRes.ntsStatusMsg;
-          next.ntsCheckedAt = new Date().toISOString();
-          if (ntsRes.shouldBlockTrade) {
-            next.status = "BLOCKED";
-          }
-        }
-        return next;
-      });
-
-      if (parsed) {
-        setDirectBizCertSuggestion(parsed);
-        if (ntsRes?.shouldBlockTrade) {
-          showToast(
-            `사업자등록증 인식 완료 — 국세청 ${ntsRes.ntsBizState === "CLOSED" ? "폐업자" : "휴업자"}로 확인되어 거래불가로 지정되었습니다.`,
-            "error"
-          );
-        } else {
-          showToast(`사업자등록증(${file.name}) 첨부 및 자동 인식이 완료되었습니다.`);
-        }
-      } else {
-        showToast(`사업자등록증(${file.name}) 파일이 첨부되었습니다.`);
-      }
-    } catch (err: any) {
-      showToast(err.message || "사업자등록증 파일 처리 실패", "error");
-    } finally {
-      setDirectBizCertOcrLoading(false);
-    }
-  };
-
-  // Re-run OCR on currently attached partnerForm bizCertFileUrl
-  const handlePartnerFormReRunOcr = async () => {
-    if (!partnerForm.bizCertFileUrl || partnerForm.bizCertFileUrl === "__DELETE__") return;
-    setDirectBizCertOcrLoading(true);
-    try {
-      const isPdf = isPdfDocument(partnerForm.bizCertFileUrl, partnerForm.bizCertFileName);
-      let imageBase64 = "";
-      let textHint = "";
-      if (isPdf) {
-        const pdfOut = await extractPdfImageAndTextFromSource(partnerForm.bizCertFileUrl);
-        imageBase64 = pdfOut.imageBase64;
-        textHint = pdfOut.textHint;
-      } else {
-        imageBase64 = partnerForm.bizCertFileUrl;
-      }
-      const res = await fetch("/api/erp/partners/ocr-biz-cert", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageBase64: imageBase64 || undefined,
-          rawText: textHint || undefined,
-          fileName: partnerForm.bizCertFileName || "biz-cert",
-        }),
-      });
-      const data = await res.json();
-      if (!data.success || !data.parsed) {
-        throw new Error(data.error || "사업자등록증 판독 실패");
-      }
-      setDirectBizCertSuggestion(data.parsed);
-      showToast("사업자등록증 재인식이 완료되었습니다. 반영할 경우 [인식값 반영]을 선택하세요.");
-    } catch (err: any) {
-      showToast(err.message || "사업자등록증 재인식 실패", "error");
-    } finally {
-      setDirectBizCertOcrLoading(false);
-    }
-  };
-
-  // Apply OCR Suggestion onto partnerForm
-  const handleApplyDirectBizCertSuggestion = () => {
-    if (!directBizCertSuggestion) return;
-    const p = directBizCertSuggestion;
-    setPartnerForm((prev: any) => ({
-      ...prev,
-      name: p.name || prev.name,
-      businessNo: p.businessNo || prev.businessNo,
-      corporateNo: p.corporateNo || prev.corporateNo,
-      ceoName: p.ceoName || prev.ceoName,
-      bizType: p.bizType || prev.bizType,
-      bizItem: p.bizItem || prev.bizItem,
-      address: p.address || prev.address,
-      mainPhone: p.mainPhone || prev.mainPhone,
-      mainEmail: p.email || prev.mainEmail,
-    }));
-    setDirectBizCertSuggestion(null);
-    showToast("사업자등록증 인식값이 입력 양식에 반영되었습니다.");
-  };
-
-  // Partner Modal Single NTS Check
-  const handleFormCheckNtsStatus = async () => {
-    const digits = normalizeBizNoDigits(partnerForm.businessNo);
-    if (digits.length !== 10) {
-      showToast("10자리 사업자등록번호를 먼저 입력해주세요.", "error");
-      return;
-    }
-    setFormNtsChecking(true);
-    try {
-      const res = await queryNtsByBizNoClient(partnerForm.businessNo);
-      if (!res) throw new Error("국세청 휴·폐업 조회 실패");
-      setPartnerForm((prev: any) => ({
-        ...prev,
-        businessNo: res.businessNo || prev.businessNo,
-        ntsBizState: res.ntsBizState,
-        ntsTaxType: res.ntsTaxType,
-        ntsClosedDate: res.ntsClosedDate,
-        ntsStatusMsg: res.ntsStatusMsg,
-        ntsCheckedAt: new Date().toISOString(),
-        status: res.shouldBlockTrade ? "BLOCKED" : prev.status,
-      }));
-      if (res.shouldBlockTrade) {
-        showToast(
-          `국세청 확인: ${res.ntsBizState === "CLOSED" ? "폐업자" : "휴업자"} — 거래불가 상태로 전환되었습니다.`,
-          "error"
-        );
-      } else {
-        showToast(`국세청 확인: ${getNtsBizStateBadgeLabel(res.ntsBizState)} (${res.ntsTaxType})`);
-      }
-    } catch (err: any) {
-      showToast(err.message || "국세청 휴·폐업 조회 실패", "error");
-    } finally {
-      setFormNtsChecking(false);
-    }
-  };
-
-  // Direct Contract PDF Upload in Partner Modal
-  const handleDirectContractUpload = async (file: File) => {
-    if (!file) return;
-    const isPdf =
-      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    if (!isPdf && !file.type.startsWith("image/")) {
-      showToast("PDF 또는 이미지 형식의 계약서 파일을 선택해주세요.", "error");
-      return;
-    }
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      setPartnerForm((prev: any) => ({
-        ...prev,
-        contractFileUrl: dataUrl,
-        contractFileName: file.name,
-        hasContractFile: true,
-      }));
-      showToast(`계약서(${file.name})가 첨부되었습니다.`);
-    } catch (err: any) {
-      showToast("계약서 파일 읽기 실패", "error");
-    }
-  };
-
-  // Direct Business Cert Upload & Immediate DB Save from Right-Hand Dossier Panel
-  const handleDossierBizCertUpload = async (file: File) => {
-    if (!file || !selectedPartner) return;
-    const isPdf =
-      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    if (!isPdf && !file.type.startsWith("image/")) {
-      showToast("PDF 또는 이미지 형식의 사업자등록증 파일을 업로드해주세요.", "error");
-      return;
-    }
-    setDossierBizCertSaving(true);
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      const res = await fetch("/api/erp/partners", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          buildPartnerPutPayload(selectedPartner, {
-            bizCertFileUrl: dataUrl,
-            bizCertFileName: file.name,
-          })
-        ),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "사업자등록증 저장 실패");
-      }
-      const targetId = selectedPartner.id;
-      const prevCache = filesCacheRef.current[targetId] || {};
-      filesCacheRef.current[targetId] = { ...prevCache, bizCertFileUrl: dataUrl };
-      setPartners((prev) =>
-        prev.map((item) =>
-          item.id === targetId
-            ? { ...item, bizCertFileUrl: dataUrl, bizCertFileName: file.name, hasBizCert: true }
-            : item
-        )
-      );
-      setSelectedPartner((prev) =>
-        prev && prev.id === targetId
-          ? { ...prev, bizCertFileUrl: dataUrl, bizCertFileName: file.name, hasBizCert: true }
-          : prev
-      );
-      showToast(`[${selectedPartner.name}] 사업자등록증(${file.name})이 저장되었습니다.`);
-      await fetchPartners();
-    } catch (err: any) {
-      showToast(err.message || "사업자등록증 저장 실패", "error");
-    } finally {
-      setDossierBizCertSaving(false);
-    }
-  };
-
-  // Delete Business Cert directly from Right-Hand Dossier Panel
-  const handleDossierBizCertDelete = async () => {
-    if (!selectedPartner) return;
-    if (!confirm(`[${selectedPartner.name}] 등록된 사업자등록증 파일을 삭제하시겠습니까?`)) return;
-    setDossierBizCertSaving(true);
-    try {
-      const res = await fetch("/api/erp/partners", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          buildPartnerPutPayload(selectedPartner, {
-            bizCertFileUrl: "__DELETE__",
-            bizCertFileName: "",
-          })
-        ),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "사업자등록증 삭제 실패");
-      }
-      const targetId = selectedPartner.id;
-      if (filesCacheRef.current[targetId]) {
-        filesCacheRef.current[targetId].bizCertFileUrl = null;
-      }
-      setPartners((prev) =>
-        prev.map((item) =>
-          item.id === targetId
-            ? { ...item, bizCertFileUrl: null, bizCertFileName: null, hasBizCert: false }
-            : item
-        )
-      );
-      setSelectedPartner((prev) =>
-        prev && prev.id === targetId
-          ? { ...prev, bizCertFileUrl: null, bizCertFileName: null, hasBizCert: false }
-          : prev
-      );
-      showToast(`[${selectedPartner.name}] 사업자등록증 파일이 삭제되었습니다.`);
-      await fetchPartners();
-    } catch (err: any) {
-      showToast(err.message || "사업자등록증 삭제 실패", "error");
-    } finally {
-      setDossierBizCertSaving(false);
-    }
-  };
-
-  // Direct Contract PDF Upload & Immediate DB Save from Right-Hand Dossier Panel
-  const handleDossierContractUpload = async (file: File) => {
-    if (!file || !selectedPartner) return;
-    const isPdf =
-      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    if (!isPdf && !file.type.startsWith("image/")) {
-      showToast("PDF 또는 이미지 형식의 계약서 파일을 업로드해주세요.", "error");
-      return;
-    }
-    setDossierContractSaving(true);
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      const res = await fetch("/api/erp/partners", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          buildPartnerPutPayload(selectedPartner, {
-            contractFileUrl: dataUrl,
-            contractFileName: file.name,
-          })
-        ),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "계약서 저장 실패");
-      }
-
-      const targetId = selectedPartner.id;
-      const prevCache = filesCacheRef.current[targetId] || {};
-      filesCacheRef.current[targetId] = {
-        ...prevCache,
-        contractFileUrl: dataUrl,
-      };
-      setPartners((prev) =>
-        prev.map((item) =>
-          item.id === targetId
-            ? {
-                ...item,
-                contractFileUrl: dataUrl,
-                contractFileName: file.name,
-                hasContractFile: true,
-              }
-            : item
-        )
-      );
-      setSelectedPartner((prev) =>
-        prev && prev.id === targetId
-          ? {
-              ...prev,
-              contractFileUrl: dataUrl,
-              contractFileName: file.name,
-              hasContractFile: true,
-            }
-          : prev
-      );
-      showToast(`[${selectedPartner.name}] 계약서(${file.name})가 저장되었습니다.`);
-      await fetchPartners();
-    } catch (err: any) {
-      showToast(err.message || "계약서 업로드 실패", "error");
-    } finally {
-      setDossierContractSaving(false);
-    }
-  };
-
-  // Delete Contract PDF directly from Right-Hand Dossier Panel
-  const handleDossierContractDelete = async () => {
-    if (!selectedPartner) return;
-    if (!confirm(`[${selectedPartner.name}] 등록된 계약서 파일을 삭제하시겠습니까?`)) return;
-    setDossierContractSaving(true);
-    try {
-      const res = await fetch("/api/erp/partners", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          buildPartnerPutPayload(selectedPartner, {
-            contractFileUrl: "__DELETE__",
-            contractFileName: "",
-          })
-        ),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "계약서 삭제 실패");
-      }
-
-      const targetId = selectedPartner.id;
-      if (filesCacheRef.current[targetId]) {
-        filesCacheRef.current[targetId].contractFileUrl = null;
-      }
-      setPartners((prev) =>
-        prev.map((item) =>
-          item.id === targetId
-            ? {
-                ...item,
-                contractFileUrl: null,
-                contractFileName: null,
-                hasContractFile: false,
-              }
-            : item
-        )
-      );
-      setSelectedPartner((prev) =>
-        prev && prev.id === targetId
-          ? {
-              ...prev,
-              contractFileUrl: null,
-              contractFileName: null,
-              hasContractFile: false,
-            }
-          : prev
-      );
-      showToast(`[${selectedPartner.name}] 계약서 파일이 삭제되었습니다.`);
-      await fetchPartners();
-    } catch (err: any) {
-      showToast(err.message || "계약서 삭제 실패", "error");
-    } finally {
-      setDossierContractSaving(false);
-    }
-  };
-
-  // Single Partner Immediate NTS Lookup
-  const handleRunSingleNtsCheck = async (partner: Partner, autoUnblockActive = false) => {
-    if (!partner?.id) return;
-    if (normalizeBizNoDigits(partner.businessNo).length !== 10) {
-      showToast("유효한 10자리 사업자등록번호가 등록되어 있지 않습니다.", "error");
-      return;
-    }
-    setSingleNtsCheckingId(partner.id);
-    try {
-      const res = await fetch("/api/erp/partners/check-biz-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          partnerId: partner.id,
-          autoBlock: true,
-          autoUnblockActive,
-          actorName: currentUser?.name || "ADMIN",
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "국세청 휴·폐업 조회 실패");
-      }
-      const item = data.results?.[0];
-      await fetchPartners();
-      if (item) {
-        if (viewerForm && viewerForm.id === partner.id) {
-          setViewerForm((prev: any) => ({
-            ...prev,
-            status: item.nextStatus,
-            ntsBizState: item.ntsBizState,
-            ntsTaxType: item.ntsTaxType,
-            ntsClosedDate: item.ntsClosedDate,
-            ntsStatusMsg: item.ntsStatusMsg,
-            ntsCheckedAt: item.ntsCheckedAt,
-          }));
-        }
-        if (item.ntsBizState === "CLOSED" || item.ntsBizState === "SUSPENDED") {
-          showToast(
-            `[${partner.name}] ${getNtsBizStateBadgeLabel(item.ntsBizState)} 확인 — 거래불가 처리되었습니다.`,
-            "error"
-          );
-        } else {
-          showToast(
-            `[${partner.name}] 국세청 상태: ${getNtsBizStateBadgeLabel(item.ntsBizState)} (${item.ntsTaxType})`
-          );
-        }
-      }
-    } catch (err: any) {
-      showToast(err.message || "휴·폐업 조회 실패", "error");
-    } finally {
-      setSingleNtsCheckingId(null);
-    }
-  };
-
-  // Batch NTS Lookup Handler
-  const handleRunBatchBizStatusCheck = async () => {
-    setBatchLoading(true);
-    try {
-      const payload: Record<string, any> = {
-        autoBlock: batchAutoBlock,
-        actorName: currentUser?.name || "ADMIN",
-      };
-      if (batchScope === "FILTERED") {
-        payload.partnerIds = sortedPartners.map((p) => p.id);
-      } else {
-        payload.scope = batchScope;
-      }
-
-      const res = await fetch("/api/erp/partners/check-biz-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "국세청 일괄조회 실패");
-      }
-      setBatchResult({ summary: data.summary, results: data.results || [] });
-      await fetchPartners();
-      const s = data.summary || {};
-      showToast(
-        `조회 완료: ${s.checkedCount || 0}건 확인 (휴업 ${s.suspendedCount || 0} / 폐업 ${s.closedCount || 0} / 거래불가 전환 ${s.newlyBlockedCount || 0}건)`
-      );
-    } catch (err: any) {
-      showToast(err.message || "일괄조회 처리 실패", "error");
-    } finally {
-      setBatchLoading(false);
-    }
-  };
-
-  // Split Viewer File Replace (Browse & Drag-Drop)
-  const handleViewerFileReplace = async (file: File) => {
-    if (!file || !activeDocument) return;
-    const isPdf =
-      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    if (!isPdf && !file.type.startsWith("image/")) {
-      showToast("PDF 또는 이미지 파일을 선택해주세요.", "error");
-      return;
-    }
-
-    setViewerOcrLoading(true);
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      const docType = activeDocument.docType || "BIZ_CERT";
-      const pid = activeDocument.partnerId;
-
-      if (pid) {
-        const target = partners.find((p) => p.id === pid) || selectedPartner;
-        if (target) {
-          const overrideFields =
-            docType === "BIZ_CERT"
-              ? { bizCertFileUrl: dataUrl, bizCertFileName: file.name }
-              : docType === "BANK_COPY"
-              ? { bankCopyFileUrl: dataUrl, bankCopyFileName: file.name }
-              : { contractFileUrl: dataUrl, contractFileName: file.name };
-
-          const res = await fetch("/api/erp/partners", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(buildPartnerPutPayload(target, overrideFields)),
-          });
-          const data = await res.json();
-          if (!res.ok || !data.success) {
-            throw new Error(data.error || "파일 교체 저장 실패");
-          }
-          const prevCache = filesCacheRef.current[pid] || {};
-          if (docType === "BIZ_CERT") prevCache.bizCertFileUrl = dataUrl;
-          else if (docType === "BANK_COPY") prevCache.bankCopyFileUrl = dataUrl;
-          else prevCache.contractFileUrl = dataUrl;
-          filesCacheRef.current[pid] = prevCache;
-          await fetchPartners();
-        }
-      }
-
-      setActiveDocument((prev) =>
-        prev ? { ...prev, url: dataUrl, fileName: file.name } : prev
-      );
-      showToast(`파일(${file.name})이 교체 저장되었습니다.`);
-    } catch (err: any) {
-      showToast(err.message || "파일 교체 실패", "error");
-    } finally {
-      setViewerOcrLoading(false);
-    }
-  };
-
-  // Split Viewer Re-run OCR on Current Document
-  const handleViewerReRunOcr = async () => {
-    if (!activeDocument?.url || !viewerForm) return;
-    setViewerOcrLoading(true);
-    try {
-      const isPdf = isPdfDocument(activeDocument.url, activeDocument.fileName);
-      let imageBase64 = "";
-      let textHint = "";
-      if (isPdf) {
-        const pdfOut = await extractPdfImageAndTextFromSource(activeDocument.url);
-        imageBase64 = pdfOut.imageBase64;
-        textHint = pdfOut.textHint;
-      } else {
-        imageBase64 = activeDocument.url;
-      }
-
-      const res = await fetch("/api/erp/partners/ocr-biz-cert", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageBase64: imageBase64 || undefined,
-          rawText: textHint || undefined,
-          fileName: activeDocument.fileName || "biz-cert",
-        }),
-      });
-      const data = await res.json();
-      if (!data.success || !data.parsed) {
-        throw new Error(data.error || "서류 판독 실패");
-      }
-      const p = data.parsed;
-      setViewerForm((prev: any) => ({
-        ...prev,
-        name: p.name || prev.name,
-        businessNo: p.businessNo || prev.businessNo,
-        corporateNo: p.corporateNo || prev.corporateNo,
-        ceoName: p.ceoName || prev.ceoName,
-        bizType: p.bizType || prev.bizType,
-        bizItem: p.bizItem || prev.bizItem,
-        address: p.address || prev.address,
-        mainPhone: p.mainPhone || prev.mainPhone,
-        mainEmail: p.email || prev.mainEmail,
-      }));
-      showToast("서류 판독 결과가 우측 양식에 반영되었습니다. 확인 후 저장하세요.");
-    } catch (err: any) {
-      showToast(err.message || "서류 재판독 실패", "error");
-    } finally {
-      setViewerOcrLoading(false);
-    }
-  };
-
-  // Split Viewer Single NTS Lookup
-  const handleViewerNtsCheck = async () => {
-    if (!viewerForm) return;
-    const digits = normalizeBizNoDigits(viewerForm.businessNo);
-    if (digits.length !== 10) {
-      showToast("10자리 사업자등록번호를 입력해주세요.", "error");
-      return;
-    }
-    setViewerNtsLoading(true);
-    try {
-      const ntsRes = await queryNtsByBizNoClient(viewerForm.businessNo);
-      if (!ntsRes) throw new Error("국세청 휴·폐업 조회 실패");
-
-      setViewerForm((prev: any) => ({
-        ...prev,
-        businessNo: ntsRes.businessNo || prev.businessNo,
-        ntsBizState: ntsRes.ntsBizState,
-        ntsTaxType: ntsRes.ntsTaxType,
-        ntsClosedDate: ntsRes.ntsClosedDate,
-        ntsStatusMsg: ntsRes.ntsStatusMsg,
-        ntsCheckedAt: new Date().toISOString(),
-        status: ntsRes.shouldBlockTrade ? "BLOCKED" : prev.status,
-      }));
-      if (ntsRes.shouldBlockTrade) {
-        showToast(
-          `국세청 확인: ${getNtsBizStateBadgeLabel(ntsRes.ntsBizState)} — [정보 저장] 시 거래불가로 반영됩니다.`,
-          "error"
-        );
-      } else {
-        showToast(
-          `국세청 상태: ${getNtsBizStateBadgeLabel(ntsRes.ntsBizState)} (${ntsRes.ntsTaxType})`
-        );
-      }
-    } catch (err: any) {
-      showToast(err.message || "국세청 조회 실패", "error");
-    } finally {
-      setViewerNtsLoading(false);
-    }
-  };
-
-  // Split Viewer Save Inline Partner Edits
-  const handleViewerSavePartner = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!viewerForm || !viewerForm.id) return;
-    if (!viewerForm.name || !String(viewerForm.name).trim()) {
-      showToast("상호명(법인명)을 입력해주세요.", "error");
-      return;
-    }
-    setViewerSaving(true);
-    try {
-      const res = await fetch("/api/erp/partners", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(viewerForm),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "거래처 정보 수정 실패");
-      }
-
-      setActiveDocument((prev) =>
-        prev ? { ...prev, partnerName: String(viewerForm.name).trim() } : prev
-      );
-      showToast("원본 대조 수정사항이 저장되었습니다.");
-      await fetchPartners();
-    } catch (err: any) {
-      showToast(err.message || "수정사항 저장 실패", "error");
-    } finally {
-      setViewerSaving(false);
-    }
-  };
-
-  // Business Registration Certificate Drag & Drop / File Processing (Simple OCR Modal)
-  const handleBizCertFileUpload = async (file: File) => {
-    if (!file) return;
-    setOcrLoading(true);
-    setOcrFileName(file.name);
-    setOcrResult(null);
-    setOcrNtsStatus(null);
-
-    try {
-      const { rawDataUrl, thumbUrl, parsed, errorMessage } =
-        await extractBizCertOcrFromFile(file);
-
-      setOcrPreviewFileUrl(rawDataUrl);
-      setOcrPreviewThumbUrl(thumbUrl);
-
-      if (parsed) {
-        setOcrResult(parsed);
-        if (parsed.businessNo && normalizeBizNoDigits(parsed.businessNo).length === 10) {
-          const ntsRes = await queryNtsByBizNoClient(parsed.businessNo).catch(() => null);
-          if (ntsRes) setOcrNtsStatus(ntsRes);
-        }
-        showToast("사업자등록증 정보가 자동 분석되었습니다.");
-      } else {
-        showToast(
-          errorMessage || "자동 분석을 완료할 수 없습니다. 파일을 확인해주세요.",
-          "error"
-        );
-      }
-    } catch (e: any) {
-      showToast(e.message || "파일 처리 실패", "error");
-    } finally {
-      setOcrLoading(false);
-    }
-  };
-
-  // Drag Event Handlers for Biz Cert Dropzone
-  const handleCertDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!isCertDragging) setIsCertDragging(true);
-  };
-
-  const handleCertDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-    setIsCertDragging(false);
-  };
-
-  const handleCertDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsCertDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleBizCertFileUpload(e.dataTransfer.files[0]);
-    }
-  };
-
-  // Apply OCR to Partner Form and open full create form
-  const handleApplyOcrToForm = () => {
-    if (!ocrResult) return;
-    setPartnerModalMode("CREATE");
-    setDirectBizCertSuggestion(null);
-    setPartnerForm({
-      id: 0,
-      partnerType: partnerTypeTab === "ALL" ? "CUSTOMER" : partnerTypeTab,
-      partnerCode: "",
-      name: ocrResult.name || "",
-      businessNo: ocrResult.businessNo || "",
-      corporateNo: ocrResult.corporateNo || "",
-      ceoName: ocrResult.ceoName || "",
-      bizType: ocrResult.bizType || "",
-      bizItem: ocrResult.bizItem || "",
-      address: ocrResult.address || "",
-      addressDetail: "",
-      mainPhone: ocrResult.mainPhone || "",
-      mainEmail: ocrResult.email || "",
-      subEmail: "",
-      faxNo: "",
-      managerEmployeeId: currentUser?.id ? String(currentUser.id) : "",
-      managerName: currentUser?.name || "",
-      statementClosingDay: "매월 25일",
-      taxInvoiceClosingDay: "익월 10일",
-      paymentDueDay: "익월 15일",
-      status: ocrNtsStatus?.shouldBlockTrade ? "BLOCKED" : "ACTIVE",
-      ntsBizState: ocrNtsStatus?.ntsBizState || null,
-      ntsTaxType: ocrNtsStatus?.ntsTaxType || null,
-      ntsClosedDate: ocrNtsStatus?.ntsClosedDate || null,
-      ntsStatusMsg: ocrNtsStatus?.ntsStatusMsg || null,
-      ntsCheckedAt: ocrNtsStatus ? new Date().toISOString() : null,
-      memo: `사업자등록증 기반 등록 (${ocrFileName})`,
-      bizCertFileUrl: ocrPreviewFileUrl || "",
-      bizCertFileName: ocrFileName || "",
-      bankName: "",
-      bankAccountNo: "",
-      bankAccountHolder: "",
-      bankCopyFileUrl: "",
-      bankCopyFileName: "",
-      contractFileUrl: "",
-      contractFileName: "",
-    });
-    setShowBizCertOcrModal(false);
-    setShowPartnerModal(true);
-    showToast("사업자등록증 정보가 거래처 등록 양식에 자동 입력되었습니다.");
   };
 
   // Business Card Upload
@@ -2060,7 +682,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
 
           <button
             onClick={() => {
-              setBatchResult(null);
+              docActions.setBatchResult(null);
               setShowBizStatusBatchModal(true);
             }}
             className="px-3 py-1.5 bg-[#991b1b] hover:bg-[#7f1d1d] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition whitespace-nowrap shrink-0"
@@ -2073,11 +695,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
           {/* 사업자등록증 간편 등록 버튼 */}
           <button
             onClick={() => {
-              setOcrResult(null);
-              setOcrPreviewFileUrl("");
-              setOcrPreviewThumbUrl("");
-              setOcrNtsStatus(null);
-              setOcrFileName("");
+              docActions.resetBizCertOcrModalState();
               setShowBizCertOcrModal(true);
             }}
             className="px-3 py-1.5 bg-[#6d28d9] hover:bg-[#5b21b6] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition whitespace-nowrap shrink-0"
@@ -2089,9 +707,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
           {/* 통장사본 간편 등록 버튼 (매입거래처 OCR) */}
           <button
             onClick={() => {
-              setBankOcrResult(null);
-              setBankOcrPreviewUrl("");
-              setBankOcrFileName("");
+              docActions.resetBankOcrModalState();
               setShowBankOcrModal(true);
             }}
             className="px-3 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
@@ -2118,8 +734,8 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       <div className="flex-1 grid grid-cols-12 gap-3 p-3 overflow-hidden">
         {/* Left: High-Density Partner Grid (7~8 cols) */}
         <PartnerListPanel
-          docFetching={docFetching}
-          handleOpenPartnerDoc={handleOpenPartnerDoc}
+          docFetching={docActions.docFetching}
+          handleOpenPartnerDoc={docActions.handleOpenPartnerDoc}
           kpi={kpi}
           loading={loading}
           partnerTypeTab={partnerTypeTab}
@@ -2132,43 +748,43 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
         {/* Right: Master-Detail Dossier Studio (4~5 cols) */}
         <div className="col-span-12 lg:col-span-5 xl:col-span-4 bg-[#ebe5d8] border border-[#b5a894] rounded flex flex-col overflow-hidden shadow-xs dark:bg-slate-900 dark:border-slate-800">
           {selectedPartner ? (
-          <PartnerDossierPanel
-            contactsLoading={contactsLoading}
-            docFetching={docFetching}
-            dossierBizCertInputRef={dossierBizCertInputRef}
-            dossierBizCertSaving={dossierBizCertSaving}
-            dossierContractInputRef={dossierContractInputRef}
-            dossierContractSaving={dossierContractSaving}
-            dossierMainEmail={dossierMainEmail}
-            dossierSubEmail={dossierSubEmail}
-            editingDossierEmail={editingDossierEmail}
-            handleDeleteContact={handleDeleteContact}
-            handleDeletePartner={handleDeletePartner}
-            handleDossierBizCertDelete={handleDossierBizCertDelete}
-            handleDossierBizCertUpload={handleDossierBizCertUpload}
-            handleDossierContractDelete={handleDossierContractDelete}
-            handleDossierContractUpload={handleDossierContractUpload}
-            handleOpenPartnerDoc={handleOpenPartnerDoc}
-            handleRunSingleNtsCheck={handleRunSingleNtsCheck}
-            handleSaveDossierEmail={handleSaveDossierEmail}
-            isAdmin={isAdmin}
-            isDossierBizCertDragging={isDossierBizCertDragging}
-            isDossierContractDragging={isDossierContractDragging}
-            openCreateContactModal={openCreateContactModal}
-            openEditContactModal={openEditContactModal}
-            openEditModal={openEditModal}
-            partnerContacts={partnerContacts}
-            savingDossierEmail={savingDossierEmail}
-            selectedPartner={selectedPartner}
-            setActiveDocument={setActiveDocument}
-            setDossierMainEmail={setDossierMainEmail}
-            setDossierSubEmail={setDossierSubEmail}
-            setEditingDossierEmail={setEditingDossierEmail}
-            setIsDossierBizCertDragging={setIsDossierBizCertDragging}
-            setIsDossierContractDragging={setIsDossierContractDragging}
-            showToast={showToast}
-            singleNtsCheckingId={singleNtsCheckingId}
-          />
+            <PartnerDossierPanel
+              contactsLoading={contactsLoading}
+              docFetching={docActions.docFetching}
+              dossierBizCertInputRef={dossierBizCertInputRef}
+              dossierBizCertSaving={docActions.dossierBizCertSaving}
+              dossierContractInputRef={dossierContractInputRef}
+              dossierContractSaving={docActions.dossierContractSaving}
+              dossierMainEmail={dossierMainEmail}
+              dossierSubEmail={dossierSubEmail}
+              editingDossierEmail={editingDossierEmail}
+              handleDeleteContact={handleDeleteContact}
+              handleDeletePartner={handleDeletePartner}
+              handleDossierBizCertDelete={docActions.handleDossierBizCertDelete}
+              handleDossierBizCertUpload={docActions.handleDossierBizCertUpload}
+              handleDossierContractDelete={docActions.handleDossierContractDelete}
+              handleDossierContractUpload={docActions.handleDossierContractUpload}
+              handleOpenPartnerDoc={docActions.handleOpenPartnerDoc}
+              handleRunSingleNtsCheck={docActions.handleRunSingleNtsCheck}
+              handleSaveDossierEmail={handleSaveDossierEmail}
+              isAdmin={isAdmin}
+              isDossierBizCertDragging={isDossierBizCertDragging}
+              isDossierContractDragging={isDossierContractDragging}
+              openCreateContactModal={openCreateContactModal}
+              openEditContactModal={openEditContactModal}
+              openEditModal={openEditModal}
+              partnerContacts={partnerContacts}
+              savingDossierEmail={savingDossierEmail}
+              selectedPartner={selectedPartner}
+              setActiveDocument={setActiveDocument}
+              setDossierMainEmail={setDossierMainEmail}
+              setDossierSubEmail={setDossierSubEmail}
+              setEditingDossierEmail={setEditingDossierEmail}
+              setIsDossierBizCertDragging={setIsDossierBizCertDragging}
+              setIsDossierContractDragging={setIsDossierContractDragging}
+              showToast={showToast}
+              singleNtsCheckingId={docActions.singleNtsCheckingId}
+            />
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-[#475569] text-xs p-6 text-center">
               <Building2 className="w-8 h-8 opacity-30 mb-2 text-[#475569]" />
@@ -2178,26 +794,24 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* 1. Modal: 신규/수정 거래처 폼 (Warm Paper Aesthetic) */}
-      {/* ========================================================================= */}
+      {/* 1. Modal: 신규/수정 거래처 폼 */}
       {showPartnerModal && (
         <PartnerFormModal
           bankCopyInputRef={bankCopyInputRef}
-          bankOcrLoading={bankOcrLoading}
+          bankOcrLoading={docActions.bankOcrLoading}
           directBizCertInputRef={directBizCertInputRef}
-          directBizCertOcrLoading={directBizCertOcrLoading}
-          directBizCertSuggestion={directBizCertSuggestion}
+          directBizCertOcrLoading={docActions.directBizCertOcrLoading}
+          directBizCertSuggestion={docActions.directBizCertSuggestion}
           directContractInputRef={directContractInputRef}
           employees={employees}
-          formNtsChecking={formNtsChecking}
-          handleApplyDirectBizCertSuggestion={handleApplyDirectBizCertSuggestion}
-          handleBankCopyFileUpload={handleBankCopyFileUpload}
-          handleDirectBizCertUpload={handleDirectBizCertUpload}
-          handleDirectContractUpload={handleDirectContractUpload}
-          handleFormCheckNtsStatus={handleFormCheckNtsStatus}
-          handlePartnerFormReRunOcr={handlePartnerFormReRunOcr}
-          handleReRunBankOcr={handleReRunBankOcr}
+          formNtsChecking={docActions.formNtsChecking}
+          handleApplyDirectBizCertSuggestion={docActions.handleApplyDirectBizCertSuggestion}
+          handleBankCopyFileUpload={docActions.handleBankCopyFileUpload}
+          handleDirectBizCertUpload={docActions.handleDirectBizCertUpload}
+          handleDirectContractUpload={docActions.handleDirectContractUpload}
+          handleFormCheckNtsStatus={docActions.handleFormCheckNtsStatus}
+          handlePartnerFormReRunOcr={docActions.handlePartnerFormReRunOcr}
+          handleReRunBankOcr={docActions.handleReRunBankOcr}
           handleSavePartner={handleSavePartner}
           isBankCopyDragging={isBankCopyDragging}
           isDirectBizCertDragging={isDirectBizCertDragging}
@@ -2205,7 +819,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
           partnerForm={partnerForm}
           partnerModalMode={partnerModalMode}
           setActiveDocument={setActiveDocument}
-          setDirectBizCertSuggestion={setDirectBizCertSuggestion}
+          setDirectBizCertSuggestion={docActions.setDirectBizCertSuggestion}
           setIsBankCopyDragging={setIsBankCopyDragging}
           setIsDirectBizCertDragging={setIsDirectBizCertDragging}
           setIsDirectContractDragging={setIsDirectContractDragging}
@@ -2214,54 +828,48 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
         />
       )}
 
-      {/* ========================================================================= */}
-      {/* 2. Modal: 사업자등록증 OCR 간편등록 모달 (Full Drag-and-Drop & Paper Tone) */}
-      {/* ========================================================================= */}
+      {/* 2. Modal: 사업자등록증 OCR 간편등록 모달 */}
       {showBizCertOcrModal && (
         <BizCertOcrModal
           certFileInputRef={certFileInputRef}
-          handleApplyOcrToForm={handleApplyOcrToForm}
-          handleBizCertFileUpload={handleBizCertFileUpload}
-          handleCertDragLeave={handleCertDragLeave}
-          handleCertDragOver={handleCertDragOver}
-          handleCertDrop={handleCertDrop}
-          isCertDragging={isCertDragging}
-          ocrFileName={ocrFileName}
-          ocrLoading={ocrLoading}
-          ocrNtsStatus={ocrNtsStatus}
-          ocrPreviewThumbUrl={ocrPreviewThumbUrl}
-          ocrResult={ocrResult}
-          setOcrResult={setOcrResult}
+          handleApplyOcrToForm={docActions.handleApplyOcrToForm}
+          handleBizCertFileUpload={docActions.handleBizCertFileUpload}
+          handleCertDragLeave={docActions.handleCertDragLeave}
+          handleCertDragOver={docActions.handleCertDragOver}
+          handleCertDrop={docActions.handleCertDrop}
+          isCertDragging={docActions.isCertDragging}
+          ocrFileName={docActions.ocrFileName}
+          ocrLoading={docActions.ocrLoading}
+          ocrNtsStatus={docActions.ocrNtsStatus}
+          ocrPreviewThumbUrl={docActions.ocrPreviewThumbUrl}
+          ocrResult={docActions.ocrResult}
+          setOcrResult={docActions.setOcrResult}
           setShowBizCertOcrModal={setShowBizCertOcrModal}
           setZoomImageUrl={setZoomImageUrl}
         />
       )}
 
-      {/* ========================================================================= */}
-      {/* 2-2. Modal: 통장사본 OCR 간편등록 모달 (Bank Copy Drag-and-Drop & Paper Tone) */}
-      {/* ========================================================================= */}
+      {/* 2-2. Modal: 통장사본 OCR 간편등록 모달 */}
       {showBankOcrModal && (
         <BankCopyOcrModal
-          bankOcrFileName={bankOcrFileName}
-          bankOcrLoading={bankOcrLoading}
+          bankOcrFileName={docActions.bankOcrFileName}
+          bankOcrLoading={docActions.bankOcrLoading}
           bankOcrModalFileInputRef={bankOcrModalFileInputRef}
-          bankOcrPreviewUrl={bankOcrPreviewUrl}
-          bankOcrResult={bankOcrResult}
-          handleApplyBankOcrToForm={handleApplyBankOcrToForm}
-          handleBankModalFileUpload={handleBankModalFileUpload}
-          handleBankOcrDragLeave={handleBankOcrDragLeave}
-          handleBankOcrDragOver={handleBankOcrDragOver}
-          handleBankOcrDrop={handleBankOcrDrop}
-          isBankOcrModalDragging={isBankOcrModalDragging}
+          bankOcrPreviewUrl={docActions.bankOcrPreviewUrl}
+          bankOcrResult={docActions.bankOcrResult}
+          handleApplyBankOcrToForm={docActions.handleApplyBankOcrToForm}
+          handleBankModalFileUpload={docActions.handleBankModalFileUpload}
+          handleBankOcrDragLeave={docActions.handleBankOcrDragLeave}
+          handleBankOcrDragOver={docActions.handleBankOcrDragOver}
+          handleBankOcrDrop={docActions.handleBankOcrDrop}
+          isBankOcrModalDragging={docActions.isBankOcrModalDragging}
           setActiveDocument={setActiveDocument}
-          setBankOcrResult={setBankOcrResult}
+          setBankOcrResult={docActions.setBankOcrResult}
           setShowBankOcrModal={setShowBankOcrModal}
         />
       )}
 
-      {/* ========================================================================= */}
-      {/* 3. Modal: 거래처 담당자 및 실물 명함 등록 모달 (Warm Paper Tone) */}
-      {/* ========================================================================= */}
+      {/* 3. Modal: 거래처 담당자 및 실물 명함 등록 모달 */}
       {showContactModal && (
         <ContactFormModal
           contactForm={contactForm}
@@ -2275,56 +883,54 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
         />
       )}
 
-      {/* ========================================================================= */}
       {/* 4. Modal: 국세청 휴·폐업 일괄조회 및 거래불가 연동 */}
-      {/* ========================================================================= */}
       {showBizStatusBatchModal && (
         <BizStatusBatchModal
-          batchAutoBlock={batchAutoBlock}
-          batchLoading={batchLoading}
-          batchResult={batchResult}
-          batchScope={batchScope}
-          handleRunBatchBizStatusCheck={handleRunBatchBizStatusCheck}
-          handleRunSingleNtsCheck={handleRunSingleNtsCheck}
+          batchAutoBlock={docActions.batchAutoBlock}
+          batchLoading={docActions.batchLoading}
+          batchResult={docActions.batchResult}
+          batchScope={docActions.batchScope}
+          handleRunBatchBizStatusCheck={docActions.handleRunBatchBizStatusCheck}
+          handleRunSingleNtsCheck={docActions.handleRunSingleNtsCheck}
           ntsSort={ntsSort}
           partners={partners}
-          setBatchAutoBlock={setBatchAutoBlock}
-          setBatchResult={setBatchResult}
-          setBatchScope={setBatchScope}
+          setBatchAutoBlock={docActions.setBatchAutoBlock}
+          setBatchResult={docActions.setBatchResult}
+          setBatchScope={docActions.setBatchScope}
           setSelectedPartner={setSelectedPartner}
           setShowBizStatusBatchModal={setShowBizStatusBatchModal}
-          singleNtsCheckingId={singleNtsCheckingId}
+          singleNtsCheckingId={docActions.singleNtsCheckingId}
           sortedPartners={sortedPartners}
         />
       )}
 
-      {/* ========================================================================= */}
       {/* 5. Modal: 통합 문서 뷰어 & 원본 대조 거래처 수정 스튜디오 */}
-      {/* ========================================================================= */}
-      <PartnerDocViewerModal
-        activeDocument={activeDocument}
-        handleViewerFileReplace={handleViewerFileReplace}
-        handleViewerNtsCheck={handleViewerNtsCheck}
-        handleViewerReRunOcr={handleViewerReRunOcr}
-        handleViewerSavePartner={handleViewerSavePartner}
-        isViewerDragging={isViewerDragging}
-        resolvedPdfBlobUrl={resolvedPdfBlobUrl}
-        selectedPartner={selectedPartner}
-        setActiveDocument={setActiveDocument}
-        setIsViewerDragging={setIsViewerDragging}
-        setViewerForm={setViewerForm}
-        setViewerRotation={setViewerRotation}
-        setViewerZoom={setViewerZoom}
-        setZoomImageUrl={setZoomImageUrl}
-        viewerForm={viewerForm}
-        viewerNtsLoading={viewerNtsLoading}
-        viewerOcrLoading={viewerOcrLoading}
-        viewerReplaceFileInputRef={viewerReplaceFileInputRef}
-        viewerRotation={viewerRotation}
-        viewerSaving={viewerSaving}
-        viewerZoom={viewerZoom}
-        zoomImageUrl={zoomImageUrl}
-      />
+      {(activeDocument || zoomImageUrl) && (
+        <PartnerDocViewerModal
+          activeDocument={activeDocument}
+          handleViewerFileReplace={docActions.handleViewerFileReplace}
+          handleViewerNtsCheck={docActions.handleViewerNtsCheck}
+          handleViewerReRunOcr={docActions.handleViewerReRunOcr}
+          handleViewerSavePartner={docActions.handleViewerSavePartner}
+          isViewerDragging={docActions.isViewerDragging}
+          resolvedPdfBlobUrl={docActions.resolvedPdfBlobUrl}
+          selectedPartner={selectedPartner}
+          setActiveDocument={setActiveDocument}
+          setIsViewerDragging={docActions.setIsViewerDragging}
+          setViewerForm={docActions.setViewerForm}
+          setViewerRotation={docActions.setViewerRotation}
+          setViewerZoom={docActions.setViewerZoom}
+          setZoomImageUrl={setZoomImageUrl}
+          viewerForm={docActions.viewerForm}
+          viewerNtsLoading={docActions.viewerNtsLoading}
+          viewerOcrLoading={docActions.viewerOcrLoading}
+          viewerReplaceFileInputRef={viewerReplaceFileInputRef}
+          viewerRotation={docActions.viewerRotation}
+          viewerSaving={docActions.viewerSaving}
+          viewerZoom={docActions.viewerZoom}
+          zoomImageUrl={zoomImageUrl}
+        />
+      )}
     </div>
   );
 };

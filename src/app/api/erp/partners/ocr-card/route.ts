@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { getGroqApiKey } from "@/lib/groqServerKey";
+import { callGroqJsonOcr } from "@/lib/erpOcrEngine";
 
 export async function POST(request: Request) {
   try {
@@ -22,9 +22,7 @@ export async function POST(request: Request) {
 
     if (visionImage) {
       try {
-        const groqApiKey = await getGroqApiKey();
-        if (groqApiKey) {
-          const prompt = `당신은 대한민국 비즈니스 명함 판독 전문가입니다.
+        const prompt = `당신은 대한민국 비즈니스 명함 판독 전문가입니다.
 제공된 명함 이미지에서 아래 정보를 추출하여 순수 JSON으로만 응답하세요. 값이 없으면 ""로 반환하세요.
 {
   "companyName": "회사명/상호",
@@ -35,42 +33,21 @@ export async function POST(request: Request) {
   "telephone": "유선전화 번호",
   "email": "이메일 주소"
 }`;
-          const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${groqApiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "qwen/qwen3.8-27b",
-              messages: [
-                {
-                  role: "user",
-                  content: [
-                    { type: "text", text: prompt },
-                    { type: "image_url", image_url: { url: visionImage } },
-                  ],
-                },
-              ],
-              response_format: { type: "json_object" },
-              temperature: 0.1,
-              max_tokens: 500,
-            }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const content = data?.choices?.[0]?.message?.content;
-            if (content) {
-              const aiObj = JSON.parse(content.replace(/<think>[\s\S]*?<\/think>/g, "").trim());
-              parsed.companyName = String(aiObj.companyName || "").trim();
-              parsed.name = String(aiObj.name || "").trim();
-              parsed.department = String(aiObj.department || "").trim();
-              parsed.position = String(aiObj.position || "").trim();
-              parsed.mobile = String(aiObj.mobile || "").trim();
-              parsed.telephone = String(aiObj.telephone || "").trim();
-              parsed.email = String(aiObj.email || "").trim();
-            }
-          }
+        const aiObj = await callGroqJsonOcr({
+          prompt,
+          imageBase64: visionImage,
+          models: ["qwen/qwen3.8-27b"],
+          timeoutMs: 18000,
+          maxTokens: 500,
+        });
+        if (aiObj) {
+          parsed.companyName = String(aiObj.companyName || "").trim();
+          parsed.name = String(aiObj.name || "").trim();
+          parsed.department = String(aiObj.department || "").trim();
+          parsed.position = String(aiObj.position || "").trim();
+          parsed.mobile = String(aiObj.mobile || "").trim();
+          parsed.telephone = String(aiObj.telephone || "").trim();
+          parsed.email = String(aiObj.email || "").trim();
         }
       } catch (e) {
         console.warn("[ocr-card] Vision AI warning:", e);

@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import {
   RentalMaintenanceValidationError,
-  createRentalMaintenanceTx,
   ensureRentalMaintenanceSchema,
-  updateRentalMaintenanceTx,
 } from "@/lib/rentalMaintenanceSchema";
+import {
+  createRentalMaintenanceTx,
+  updateRentalMaintenanceTx,
+} from "@/lib/rentalMaintenanceTxService";
 import {
   computePreventivePmSchedule,
   normalizeIsoDate,

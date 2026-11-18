@@ -4,16 +4,35 @@ import { getErpPool } from "@/lib/supabaseErp";
 import { ensureRentalRateSchema } from "@/lib/rentalSchemaInit";
 import { ensureForkliftSchema } from "@/lib/forkliftSchemaInit";
 import { assertPartnerTradable, PartnerTradeBlockedError } from "@/lib/partnerStatusService";
+import { normalizeAttachedOptions } from "@/lib/forkliftDomain";
+import { parseNumericInput } from "@/lib/rentalFeeUtils";
 import {
-  formatAttachedOptionsSummary,
-  normalizeAttachedOptions,
-} from "@/lib/forkliftDomain";
-import {
-  calculateAutoDailyRentalFee,
-  inferRentalRateBasis,
-  parseNumericInput,
-  resolveDailyRentalFee,
-} from "@/lib/rentalFeeUtils";
+  assignAssetsToRentalContractBatchTx,
+  buildContractTaxSummaryTx,
+  normalizeRentalContractRows,
+  releaseContractAssetsTx,
+  reserveRentalContractAssetsTx,
+  resolveContractRateTerms,
+  resolveExistingContractAndPartnerTx,
+  syncPartnerTaxEmailsTx,
+} from "@/lib/erpRentalContractService";
+
+function resolvePostPartnerTaxFields(body: any, partnerRow: any) {
+  const partnerAddr = partnerRow
+    ? [partnerRow.address, partnerRow.address_detail].filter(Boolean).join(" ")
+    : "";
+  return [
+    body.customerBizNo || partnerRow?.business_no || "",
+    body.customerCeoName || partnerRow?.ceo_name || "",
+    body.customerAddress || partnerAddr || "",
+    body.customerBizType || partnerRow?.biz_type || "",
+    body.customerBizClass || partnerRow?.biz_item || "",
+    body.customerEmail || partnerRow?.main_email || "",
+    body.customerEmail2 || partnerRow?.sub_email || "",
+    body.taxPurpose || "청구",
+    body.taxMemo || "{1번째 아이템} 외",
+  ];
+}
 
 // GET: List all rental contracts (optionally filter by entityType, or id for single contract file)
 export async function GET(request: Request) {
@@ -122,121 +141,14 @@ export async function GET(request: Request) {
     query += " ORDER BY c.start_date DESC, c.id DESC";
 
     const res = await pool.query(query, params);
-    const normalizedContracts = res.rows.map((r: any) => {
-      const mRate = Math.round(parseNumericInput(r.monthlyRate));
-      const dRate = resolveDailyRentalFee(mRate, r.dailyRate);
-      const rBasis = inferRentalRateBasis(mRate, dRate, r.rateBasis);
-      return {
-        ...r,
-        monthlyRate: mRate,
-        dailyRate: dRate,
-        rateBasis: rBasis,
-      };
+    return NextResponse.json({
+      success: true,
+      contracts: normalizeRentalContractRows(res.rows),
     });
-    return NextResponse.json({ success: true, contracts: normalizedContracts });
   } catch (error: any) {
     console.error("GET Rental Contracts Error:", error);
     return NextResponse.json({ error: "임대계약 목록 조회 실패" }, { status: 500 });
   }
-}
-
-// Helper: Build grouped tax_items from currently rented assets of a contract
-async function buildGroupedTaxItemsForContract(
-  client: any,
-  contractId: number,
-  customerName: string,
-  fallbackStartDate: string,
-  fallbackItems: any[] = []
-) {
-  const rentedRes = await client.query(
-    `SELECT a.id, a.asset_no, a.rental_product_id, a.current_monthly_rate, a.current_daily_rate, a.outbound_date,
-            rp.model_code, rp.model_name, rp.standard_monthly_rate, rp.standard_daily_rate
-     FROM erp_rental_assets a
-     LEFT JOIN erp_rental_products rp ON a.rental_product_id = rp.id
-     WHERE a.status = 'RENTED' AND (a.current_contract_id = $1 OR a.current_customer = $2)
-     ORDER BY a.outbound_date ASC NULLS LAST, a.id ASC`,
-    [contractId, customerName]
-  );
-
-  const rentedList = rentedRes.rows;
-  if (rentedList.length === 0) {
-    return {
-      rentedList: [],
-      taxItems: Array.isArray(fallbackItems) ? fallbackItems : [],
-    };
-  }
-
-  // Group by (rental_product_id, unit_rate) so same product with same unit price becomes 1 line with qty = N
-  const groupMap = new Map<
-    string,
-    {
-      productId: number | null;
-      modelCode: string;
-      modelName: string;
-      unitCost: number;
-      dailyCost: number;
-      qty: number;
-      assetIds: number[];
-      assetNos: string[];
-      firstOutDate: string;
-    }
-  >();
-
-  for (const ra of rentedList) {
-    const unitCost = Math.round(Number(ra.current_monthly_rate || ra.standard_monthly_rate || 0));
-    const dailyCost = resolveDailyRentalFee(unitCost, ra.current_daily_rate || ra.standard_daily_rate);
-    const pid = ra.rental_product_id ? Number(ra.rental_product_id) : null;
-    const mName = ra.model_name || "임대장비";
-    const mCode = ra.model_code || "";
-    const outDt = ra.outbound_date ? String(ra.outbound_date).slice(0, 10) : fallbackStartDate;
-    const key = `${pid || mName}__${unitCost}`;
-
-    const existing = groupMap.get(key);
-    if (existing) {
-      existing.qty += 1;
-      existing.dailyCost += dailyCost;
-      existing.assetIds.push(ra.id);
-      existing.assetNos.push(ra.asset_no);
-    } else {
-      groupMap.set(key, {
-        productId: pid,
-        modelCode: mCode,
-        modelName: mName,
-        unitCost,
-        dailyCost,
-        qty: 1,
-        assetIds: [ra.id],
-        assetNos: [ra.asset_no],
-        firstOutDate: outDt,
-      });
-    }
-  }
-
-  const taxItems = Array.from(groupMap.values()).map((g) => {
-    const supplyAmount = Math.round(g.qty * g.unitCost);
-    const vatAmount = Math.round(supplyAmount * 0.1);
-    const assetSummary =
-      g.assetNos.length <= 2
-        ? g.assetNos.join(", ")
-        : `${g.assetNos[0]} 외 ${g.assetNos.length - 1}대`;
-    return {
-      productId: g.productId,
-      assetIds: g.assetIds,
-      assetNo: g.assetNos[0] || "",
-      month: g.firstOutDate.slice(5, 7),
-      day: g.firstOutDate.slice(8, 10),
-      itemName: g.modelName,
-      spec: g.modelCode || `${g.qty}대`,
-      qty: g.qty,
-      unitCost: g.unitCost,
-      dailyRate: g.qty > 0 ? Math.round(g.dailyCost / g.qty) : calculateAutoDailyRentalFee(g.unitCost),
-      supplyAmount,
-      vatAmount,
-      note: assetSummary,
-    };
-  });
-
-  return { rentedList, taxItems };
 }
 
 // POST: Create or append to rental contract (Sets asset status to RENTED per 헌장 1.3)
@@ -244,34 +156,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const {
-      baseContractId,
-      partnerId,
-      customerName,
-      siteName,
-      assetId,
-      rentalItems,
-      startDate,
-      endDate,
-      monthlyRate,
-      dailyRate,
-      rateBasis,
-      vatAmount,
-      deposit,
-      billingDay,
-      memo,
-      entityType,
-      customerBizNo,
-      customerCeoName,
-      customerAddress,
-      customerBizType,
-      customerBizClass,
-      customerEmail,
-      customerEmail2,
-      taxPurpose,
-      taxMemo,
-      taxItems,
-      contractFileUrl,
-      contractFileName,
+      baseContractId, partnerId, customerName, siteName, assetId, rentalItems,
+      startDate, endDate, monthlyRate, dailyRate, rateBasis, vatAmount, deposit,
+      billingDay, memo, entityType, customerBizNo, customerEmail, customerEmail2,
+      taxItems, contractFileUrl, contractFileName,
     } = body;
 
     if ((!customerName && !baseContractId) || !startDate || !endDate) {
@@ -286,47 +174,13 @@ export async function POST(request: Request) {
     try {
       await client.query("BEGIN");
 
-      // 1. 기본 계약(baseContractId) 또는 고객사(customerName) 기준으로 기존 계약 조회
-      let existingCt: any = null;
-      if (baseContractId) {
-        const byIdRes = await client.query(
-          `SELECT * FROM erp_rental_contracts WHERE id = $1 FOR UPDATE`,
-          [parseInt(String(baseContractId), 10)]
-        );
-        if (byIdRes.rows.length > 0) {
-          existingCt = byIdRes.rows[0];
-        }
-      }
-
-      const cleanCustomer = (customerName || existingCt?.customer_name || "").trim();
-      if (!cleanCustomer) {
-        throw new Error("고객사명이 필요합니다.");
-      }
-
-      if (!existingCt) {
-        const existingRes = await client.query(
-          `SELECT * FROM erp_rental_contracts WHERE customer_name = $1 ORDER BY id ASC LIMIT 1 FOR UPDATE`,
-          [cleanCustomer]
-        );
-        if (existingRes.rows.length > 0) {
-          existingCt = existingRes.rows[0];
-        }
-      }
-
-      // 거래처(erp_partners) 제원 자동 조회 (전달되지 않은 경우 백그라운드 자동 매핑)
-      let partnerRow: any = null;
-      const targetPartnerId = partnerId || existingCt?.partner_id || null;
-      if (targetPartnerId) {
-        const pRes = await client.query(`SELECT * FROM erp_partners WHERE id = $1 LIMIT 1`, [
-          parseInt(String(targetPartnerId), 10),
-        ]);
-        partnerRow = pRes.rows[0] || null;
-      } else {
-        const pRes = await client.query(`SELECT * FROM erp_partners WHERE name = $1 LIMIT 1`, [
-          cleanCustomer,
-        ]);
-        partnerRow = pRes.rows[0] || null;
-      }
+      // 1. 기본 계약(baseContractId) 또는 고객사(customerName) 기준으로 기존 계약·거래처 조회
+      const { existingCt, cleanCustomer, targetPartnerId, partnerRow } =
+        await resolveExistingContractAndPartnerTx(client, {
+          baseContractId,
+          customerName,
+          partnerId,
+        });
 
       await assertPartnerTradable(client, {
         partnerId: targetPartnerId,
@@ -342,85 +196,27 @@ export async function POST(request: Request) {
           : existingCt?.entity_type || "CORP";
 
       // 2. 배정할 자산 목록 확보 (rentalItems: [{ productId, qty, unitCost, dailyRate }] 또는 단일 assetId)
-      const assetsToAssign: Array<{ id: number; asset_no: string; model_name: string; unitCost: number; dailyCost: number }> = [];
+      const assetsToAssign = await reserveRentalContractAssetsTx(client, {
+        rentalItems,
+        assetId,
+        monthlyRate,
+        dailyRate,
+      });
 
-      if (Array.isArray(rentalItems) && rentalItems.length > 0) {
-        for (const item of rentalItems) {
-          const prodId = parseInt(String(item.productId || "0"), 10);
-          const reqQty = Math.max(0, parseInt(String(item.qty || "0"), 10));
-          const unitCost = Math.round(parseNumericInput(item.unitCost ?? item.unitPrice ?? "0"));
-          const itemDailyCost = resolveDailyRentalFee(unitCost, item.dailyRate);
-          if (!prodId || reqQty <= 0) continue;
-
-          const availRes = await client.query(
-            `SELECT a.id, a.asset_no, rp.model_name
-             FROM erp_rental_assets a
-             LEFT JOIN erp_rental_products rp ON a.rental_product_id = rp.id
-             WHERE a.rental_product_id = $1 AND a.status = 'AVAILABLE'
-             ORDER BY a.asset_no ASC
-             LIMIT $2
-             FOR UPDATE OF a`,
-            [prodId, reqQty]
-          );
-
-          if (availRes.rows.length < reqQty) {
-            const prodNameRes = await client.query(
-              `SELECT model_name FROM erp_rental_products WHERE id = $1`,
-              [prodId]
-            );
-            const mName = prodNameRes.rows[0]?.model_name || `제품ID#${prodId}`;
-            throw new Error(
-              `[${mName}] 제품의 임대가능 재고가 부족합니다. (요청: ${reqQty}대 / 가용재고: ${availRes.rows.length}대)`
-            );
-          }
-
-          for (const row of availRes.rows) {
-            assetsToAssign.push({
-              id: row.id,
-              asset_no: row.asset_no,
-              model_name: row.model_name || "임대장비",
-              unitCost,
-              dailyCost: itemDailyCost,
-            });
-          }
-        }
-      } else if (assetId) {
-        const assetCheck = await client.query(
-          `SELECT a.id, a.asset_no, a.status, rp.model_name
-           FROM erp_rental_assets a
-           LEFT JOIN erp_rental_products rp ON a.rental_product_id = rp.id
-           WHERE a.id = $1 FOR UPDATE OF a`,
-          [assetId]
-        );
-        if (assetCheck.rows.length === 0) {
-          throw new Error("지정된 자산이 존재하지 않습니다.");
-        }
-        if (assetCheck.rows[0].status === "RENTED") {
-          throw new Error("해당 자산은 이미 타 계약에서 대여중(RENTED)입니다.");
-        }
-        const singleMonthly = Math.round(parseNumericInput(monthlyRate));
-        assetsToAssign.push({
-          id: assetCheck.rows[0].id,
-          asset_no: assetCheck.rows[0].asset_no,
-          model_name: assetCheck.rows[0].model_name || "임대장비",
-          unitCost: singleMonthly,
-          dailyCost: resolveDailyRentalFee(singleMonthly, dailyRate),
-        });
-      }
-
-      const parsedMonthly = Math.round(parseNumericInput(monthlyRate));
-      const initialBasis = inferRentalRateBasis(parsedMonthly, dailyRate, rateBasis);
-      const initialDaily =
-        initialBasis === "DAILY_AUTO"
-          ? calculateAutoDailyRentalFee(parsedMonthly)
-          : resolveDailyRentalFee(parsedMonthly, dailyRate);
-      const parsedVat =
-        vatAmount !== undefined && vatAmount !== null && vatAmount !== ""
-          ? Math.round(parseNumericInput(vatAmount))
-          : Math.round(parsedMonthly * 0.1);
+      const initialRates = resolveContractRateTerms({
+        monthlyRate,
+        dailyRate,
+        rateBasis,
+        vatAmount,
+      });
+      const parsedMonthly = initialRates.monthlyRate;
+      const initialBasis = initialRates.rateBasis;
+      const initialDaily = initialRates.dailyRate;
+      const parsedVat = initialRates.vatAmount;
 
       const normalizedAttachedOptions = normalizeAttachedOptions(body.attachedOptions);
-      const optionSummary = formatAttachedOptionsSummary(normalizedAttachedOptions);
+      const partnerTaxFields = resolvePostPartnerTaxFields(body, partnerRow);
+      const resolvedPartnerId = partnerRow ? partnerRow.id : targetPartnerId;
 
       let savedContract: any = null;
       let targetContractId: number;
@@ -433,9 +229,6 @@ export async function POST(request: Request) {
         targetContractNo = `RC${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(
           1000 + Math.random() * 9000
         )}`;
-        const partnerAddr = partnerRow
-          ? [partnerRow.address, partnerRow.address_detail].filter(Boolean).join(" ")
-          : "";
         const insRes = await client.query(
           `INSERT INTO erp_rental_contracts
            (contract_no, entity_type, partner_id, customer_name, site_name, asset_id, start_date, end_date,
@@ -449,7 +242,7 @@ export async function POST(request: Request) {
           [
             targetContractNo,
             assignedEntity,
-            partnerRow ? partnerRow.id : targetPartnerId ? parseInt(String(targetPartnerId), 10) : null,
+            resolvedPartnerId,
             cleanCustomer,
             siteName || "",
             assetsToAssign[0]?.id || null,
@@ -462,15 +255,7 @@ export async function POST(request: Request) {
             parseNumericInput(deposit || "0"),
             parseInt(billingDay || "25", 10),
             memo || "",
-            customerBizNo || partnerRow?.business_no || "",
-            customerCeoName || partnerRow?.ceo_name || "",
-            customerAddress || partnerAddr || "",
-            customerBizType || partnerRow?.biz_type || "",
-            customerBizClass || partnerRow?.biz_item || "",
-            customerEmail || partnerRow?.main_email || "",
-            customerEmail2 || partnerRow?.sub_email || "",
-            taxPurpose || "청구",
-            taxMemo || "{1번째 아이템} 외",
+            ...partnerTaxFields,
             JSON.stringify(normalizedAttachedOptions),
             contractFileUrl || null,
             contractFileName || null,
@@ -480,99 +265,43 @@ export async function POST(request: Request) {
         targetContractId = savedContract.id;
       }
 
-      // 3. 선택된 제품 재고 자산들을 RENTED로 전환 및 입출고 로그(OUTBOUND) 기록
-      for (const ast of assetsToAssign) {
-        await client.query(
-          `UPDATE erp_rental_assets
-           SET status = 'RENTED',
-               current_customer = $1,
-               current_site = NULL,
-               contract_no = $2,
-               current_contract_id = $3,
-               current_monthly_rate = $4,
-               current_daily_rate = $5,
-               outbound_date = $6,
-               attached_options = CASE WHEN jsonb_array_length($7::jsonb) > 0 THEN $7::jsonb ELSE attached_options END,
-               updated_at = NOW()
-           WHERE id = $8`,
-          [
-            cleanCustomer,
-            targetContractNo,
-            targetContractId,
-            ast.unitCost,
-            ast.dailyCost,
-            startDate,
-            JSON.stringify(normalizedAttachedOptions),
-            ast.id,
-          ]
-        );
-
-        await client.query(
-          `INSERT INTO erp_asset_inout_logs
-           (asset_id, asset_no, event_type, event_date, customer_name, site_name, memo)
-           VALUES ($1, $2, 'OUTBOUND', $3, $4, NULL, $5)`,
-          [
-            ast.id,
-            ast.asset_no,
-            startDate,
-            cleanCustomer,
-            `임대계약(${targetContractNo}) 제품 배정 출고 (월단가: ₩${ast.unitCost.toLocaleString()} / 일단가: ₩${ast.dailyCost.toLocaleString()})${
-              optionSummary ? ` [부착옵션: ${optionSummary}]` : ""
-            }`,
-          ]
-        );
-      }
+      // 3. 선택된 제품 재고 자산들을 배치로 RENTED 전환 및 입출고 로그(OUTBOUND) 일괄 기록
+      await assignAssetsToRentalContractBatchTx(client, {
+        assets: assetsToAssign,
+        customerName: cleanCustomer,
+        contractNo: targetContractNo,
+        contractId: targetContractId,
+        startDate,
+        attachedOptions: normalizedAttachedOptions,
+        isAdditional: false,
+      });
 
       // 4. 계약에 속한 전체 RENTED 자산을 제품+단가 기준으로 그룹핑하여 계약 금액 및 tax_items 최신화
-      const { rentedList, taxItems: baseGroupedItems } = await buildGroupedTaxItemsForContract(
-        client,
-        targetContractId,
-        cleanCustomer,
-        startDate,
-        Array.isArray(taxItems) && taxItems.length > 0 ? taxItems : existingCt?.tax_items || []
-      );
-
       const mergedContractOptions =
         normalizedAttachedOptions.length > 0
           ? normalizedAttachedOptions
           : normalizeAttachedOptions(existingCt?.attached_options);
 
-      const optionTaxRows = mergedContractOptions
-        .filter((o) => Number(o.monthlyAddonRate || 0) > 0)
-        .map((o) => {
-          const unitAddon = Math.round(Number(o.monthlyAddonRate || 0));
-          const q = Math.max(1, Number(o.qty || 1));
-          const sup = unitAddon * q;
-          return {
-            month: String(startDate || "").slice(5, 7),
-            day: String(startDate || "").slice(8, 10),
-            itemName: `[부착옵션] ${o.optionName}`,
-            spec: o.specSummary || "장비 부착 임대옵션",
-            qty: q,
-            unitCost: unitAddon,
-            dailyRate: Math.round(Number(o.dailyAddonRate || 0)),
-            supplyAmount: sup,
-            vatAmount: Math.round(sup * 0.1),
-            note: "옵션 추가 임대료",
-          };
-        });
+      const { rentedList, groupedItems, sumSupply, sumVat } = await buildContractTaxSummaryTx(
+        client,
+        {
+          contractId: targetContractId,
+          customerName: cleanCustomer,
+          startDate,
+          fallbackItems:
+            Array.isArray(taxItems) && taxItems.length > 0 ? taxItems : existingCt?.tax_items || [],
+          attachedOptions: mergedContractOptions,
+        }
+      );
 
-      const groupedItems = [...baseGroupedItems, ...optionTaxRows];
-
-      const sumSupply =
-        groupedItems.reduce((acc: number, it: any) => acc + Number(it.supplyAmount || 0), 0) || parsedMonthly;
-      const sumVat =
-        groupedItems.reduce((acc: number, it: any) => acc + Number(it.vatAmount || 0), 0) || parsedVat;
-
-      const finalBasis = inferRentalRateBasis(sumSupply, dailyRate, rateBasis || existingCt?.rate_basis);
-      const finalDailyRate =
-        finalBasis === "DAILY_AUTO"
-          ? calculateAutoDailyRentalFee(sumSupply)
-          : resolveDailyRentalFee(sumSupply, dailyRate);
-
-      const partnerAddr = partnerRow
-        ? [partnerRow.address, partnerRow.address_detail].filter(Boolean).join(" ")
-        : "";
+      const effectiveSupply = sumSupply || parsedMonthly;
+      const effectiveVat = sumVat || parsedVat;
+      const finalRates = resolveContractRateTerms({
+        monthlyRate: effectiveSupply,
+        dailyRate,
+        rateBasis: rateBasis || existingCt?.rate_basis,
+        vatAmount: effectiveVat,
+      });
 
       const updRes = await client.query(
         `UPDATE erp_rental_contracts
@@ -607,27 +336,19 @@ export async function POST(request: Request) {
          RETURNING id, contract_no AS "contractNo", customer_name AS "customerName"`,
         [
           assignedEntity,
-          partnerRow ? partnerRow.id : targetPartnerId ? parseInt(String(targetPartnerId), 10) : null,
+          resolvedPartnerId,
           siteName !== undefined ? siteName : "",
           rentedList[0]?.id || assetsToAssign[0]?.id || null,
           startDate,
           endDate,
-          sumSupply,
-          finalDailyRate,
-          finalBasis,
-          sumVat,
+          effectiveSupply,
+          finalRates.dailyRate,
+          finalRates.rateBasis,
+          effectiveVat,
           parseNumericInput(deposit || "0"),
           parseInt(billingDay || "25", 10),
           memo || "",
-          customerBizNo || partnerRow?.business_no || "",
-          customerCeoName || partnerRow?.ceo_name || "",
-          customerAddress || partnerAddr || "",
-          customerBizType || partnerRow?.biz_type || "",
-          customerBizClass || partnerRow?.biz_item || "",
-          customerEmail || partnerRow?.main_email || "",
-          customerEmail2 || partnerRow?.sub_email || "",
-          taxPurpose || "청구",
-          taxMemo || "{1번째 아이템} 외",
+          ...partnerTaxFields,
           JSON.stringify(groupedItems),
           contractFileUrl || null,
           contractFileName || null,
@@ -638,21 +359,12 @@ export async function POST(request: Request) {
       savedContract = updRes.rows[0];
 
       // 임대계약에서 입력한 이메일을 거래처(erp_partners)에도 자동 동기화
-      if (customerEmail || customerEmail2) {
-        await client.query(
-          `UPDATE erp_partners
-           SET main_email = COALESCE(NULLIF($1, ''), main_email),
-               sub_email = COALESCE(NULLIF($2, ''), sub_email),
-               updated_at = NOW()
-           WHERE id = $3 OR name = $4`,
-          [
-            customerEmail || "",
-            customerEmail2 || "",
-            partnerRow ? partnerRow.id : targetPartnerId ? parseInt(String(targetPartnerId), 10) : -1,
-            cleanCustomer,
-          ]
-        );
-      }
+      await syncPartnerTaxEmailsTx(client, {
+        email1: customerEmail,
+        email2: customerEmail2,
+        partnerId: resolvedPartnerId,
+        customerName: cleanCustomer,
+      });
 
       // Audit log
       await client.query(
@@ -664,7 +376,7 @@ export async function POST(request: Request) {
             customerName: cleanCustomer,
             assignedCount: assetsToAssign.length,
             assetNos: assetsToAssign.map((a) => a.asset_no),
-            monthlyRate: sumSupply,
+            monthlyRate: effectiveSupply,
             entityType: assignedEntity,
           }),
         ]
@@ -697,34 +409,11 @@ export async function PUT(request: Request) {
   try {
     const body = await request.json();
     const {
-      id,
-      partnerId,
-      customerName,
-      siteName,
-      rentalItems,
-      startDate,
-      endDate,
-      monthlyRate,
-      dailyRate,
-      rateBasis,
-      vatAmount,
-      deposit,
-      billingDay,
-      status,
-      memo,
-      entityType,
-      customerBizNo,
-      customerCeoName,
-      customerAddress,
-      customerBizType,
-      customerBizClass,
-      customerEmail,
-      customerEmail2,
-      taxPurpose,
-      taxMemo,
-      taxItems,
-      contractFileUrl,
-      contractFileName,
+      id, partnerId, customerName, siteName, rentalItems, startDate, endDate,
+      monthlyRate, dailyRate, rateBasis, vatAmount, deposit, billingDay, status, memo,
+      entityType, customerBizNo, customerCeoName, customerAddress, customerBizType,
+      customerBizClass, customerEmail, customerEmail2, taxPurpose, taxMemo, taxItems,
+      contractFileUrl, contractFileName,
     } = body;
 
     if (!id) {
@@ -756,133 +445,56 @@ export async function PUT(request: Request) {
 
       const normalizedPutOptions =
         body.attachedOptions !== undefined ? normalizeAttachedOptions(body.attachedOptions) : null;
-      const putOptionSummary =
-        normalizedPutOptions !== null ? formatAttachedOptionsSummary(normalizedPutOptions) : "";
 
-      // 추가 배정할 재고 제품(rentalItems)이 전달된 경우 가용 자산에서 수량만큼 RENTED 전환
-      if (Array.isArray(rentalItems) && rentalItems.length > 0) {
-        for (const item of rentalItems) {
-          const prodId = parseInt(String(item.productId || "0"), 10);
-          const reqQty = Math.max(0, parseInt(String(item.qty || "0"), 10));
-          const unitCost = Math.round(parseNumericInput(item.unitCost ?? item.unitPrice ?? "0"));
-          const itemDailyCost = resolveDailyRentalFee(unitCost, item.dailyRate);
-          if (!prodId || reqQty <= 0) continue;
-
-          const availRes = await client.query(
-            `SELECT a.id, a.asset_no, rp.model_name
-             FROM erp_rental_assets a
-             LEFT JOIN erp_rental_products rp ON a.rental_product_id = rp.id
-             WHERE a.rental_product_id = $1 AND a.status = 'AVAILABLE'
-             ORDER BY a.asset_no ASC
-             LIMIT $2
-             FOR UPDATE OF a`,
-            [prodId, reqQty]
-          );
-
-          if (availRes.rows.length < reqQty) {
-            const prodNameRes = await client.query(
-              `SELECT model_name FROM erp_rental_products WHERE id = $1`,
-              [prodId]
-            );
-            const mName = prodNameRes.rows[0]?.model_name || `제품ID#${prodId}`;
-            throw new Error(
-              `[${mName}] 제품의 임대가능 재고가 부족합니다. (요청: ${reqQty}대 / 가용재고: ${availRes.rows.length}대)`
-            );
-          }
-
-          for (const row of availRes.rows) {
-            await client.query(
-              `UPDATE erp_rental_assets
-               SET status = 'RENTED',
-                   current_customer = $1,
-                   current_site = NULL,
-                   contract_no = $2,
-                   current_contract_id = $3,
-                   current_monthly_rate = $4,
-                   current_daily_rate = $5,
-                   outbound_date = $6,
-                   attached_options = CASE WHEN $7::jsonb IS NOT NULL AND jsonb_array_length($7::jsonb) > 0 THEN $7::jsonb ELSE attached_options END,
-                   updated_at = NOW()
-               WHERE id = $8`,
-              [
-                cleanCustomer,
-                existing.contract_no,
-                existing.id,
-                unitCost,
-                itemDailyCost,
-                startDate,
-                normalizedPutOptions ? JSON.stringify(normalizedPutOptions) : null,
-                row.id,
-              ]
-            );
-
-            await client.query(
-              `INSERT INTO erp_asset_inout_logs
-               (asset_id, asset_no, event_type, event_date, customer_name, site_name, memo)
-               VALUES ($1, $2, 'OUTBOUND', $3, $4, NULL, $5)`,
-              [
-                row.id,
-                row.asset_no,
-                startDate,
-                cleanCustomer,
-                `임대계약(${existing.contract_no}) 추가 제품 배정 출고 (월단가: ₩${unitCost.toLocaleString()} / 일단가: ₩${itemDailyCost.toLocaleString()})${
-                  putOptionSummary ? ` [부착옵션: ${putOptionSummary}]` : ""
-                }`,
-              ]
-            );
-          }
-        }
+      // 추가 배정할 재고 제품(rentalItems)이 전달된 경우 배치 선점 후 RENTED 전환 및 로그 일괄 기록
+      const hasAddedRentalItems = Array.isArray(rentalItems) && rentalItems.length > 0;
+      if (hasAddedRentalItems) {
+        const addedAssets = await reserveRentalContractAssetsTx(client, { rentalItems });
+        await assignAssetsToRentalContractBatchTx(client, {
+          assets: addedAssets,
+          customerName: cleanCustomer,
+          contractNo: existing.contract_no,
+          contractId: existing.id,
+          startDate,
+          attachedOptions: normalizedPutOptions ?? [],
+          isAdditional: true,
+        });
       }
 
       const assignedEntity = entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
       let finalTaxItems = Array.isArray(taxItems) ? taxItems : existing.tax_items || [];
-      let parsedMonthly = Math.round(parseNumericInput(monthlyRate || "0"));
-      let parsedVat =
-        vatAmount !== undefined && vatAmount !== null && vatAmount !== ""
-          ? Math.round(parseNumericInput(vatAmount))
-          : Math.round(parsedMonthly * 0.1);
+      const baseRates = resolveContractRateTerms({
+        monthlyRate: monthlyRate || "0",
+        dailyRate,
+        rateBasis: rateBasis || existing.rate_basis,
+        vatAmount,
+      });
+      let parsedMonthly = baseRates.monthlyRate;
+      let parsedVat = baseRates.vatAmount;
 
-      if (Array.isArray(rentalItems) && rentalItems.length > 0) {
-        const { taxItems: baseGroupedItems } = await buildGroupedTaxItemsForContract(
-          client,
-          existing.id,
-          cleanCustomer,
+      if (hasAddedRentalItems) {
+        const { groupedItems, sumSupply, sumVat } = await buildContractTaxSummaryTx(client, {
+          contractId: existing.id,
+          customerName: cleanCustomer,
           startDate,
-          finalTaxItems
-        );
-        const putOpts = normalizedPutOptions ?? [];
-        const optRows = putOpts
-          .filter((o) => Number(o.monthlyAddonRate || 0) > 0)
-          .map((o) => {
-            const unitAddon = Math.round(Number(o.monthlyAddonRate || 0));
-            const q = Math.max(1, Number(o.qty || 1));
-            const sup = unitAddon * q;
-            return {
-              month: String(startDate || "").slice(5, 7),
-              day: String(startDate || "").slice(8, 10),
-              itemName: `[부착옵션] ${o.optionName}`,
-              spec: o.specSummary || "장비 부착 임대옵션",
-              qty: q,
-              unitCost: unitAddon,
-              dailyRate: Math.round(Number(o.dailyAddonRate || 0)),
-              supplyAmount: sup,
-              vatAmount: Math.round(sup * 0.1),
-              note: "옵션 추가 임대료",
-            };
-          });
-        const groupedItems = [...baseGroupedItems, ...optRows];
+          fallbackItems: finalTaxItems,
+          attachedOptions: normalizedPutOptions ?? [],
+        });
         if (groupedItems.length > 0) {
           finalTaxItems = groupedItems;
-          parsedMonthly = groupedItems.reduce((acc: number, it: any) => acc + Number(it.supplyAmount || 0), 0);
-          parsedVat = groupedItems.reduce((acc: number, it: any) => acc + Number(it.vatAmount || 0), 0);
+          parsedMonthly = sumSupply;
+          parsedVat = sumVat;
         }
       }
 
-      const resolvedBasis = inferRentalRateBasis(parsedMonthly, dailyRate, rateBasis || existing.rate_basis);
-      const resolvedDaily =
-        resolvedBasis === "DAILY_AUTO"
-          ? calculateAutoDailyRentalFee(parsedMonthly)
-          : resolveDailyRentalFee(parsedMonthly, dailyRate);
+      const resolvedRates = resolveContractRateTerms({
+        monthlyRate: parsedMonthly,
+        dailyRate,
+        rateBasis: rateBasis || existing.rate_basis,
+        vatAmount: parsedVat,
+      });
+      const resolvedBasis = resolvedRates.rateBasis;
+      const resolvedDaily = resolvedRates.dailyRate;
 
       const normalizedTaxItems = Array.isArray(finalTaxItems) ? JSON.stringify(finalTaxItems) : null;
 
@@ -959,22 +571,13 @@ export async function PUT(request: Request) {
       );
 
       // 임대계약 수정 시 입력한 이메일을 거래처(erp_partners)에도 자동 동기화
-      if (customerEmail || customerEmail2) {
-        await client.query(
-          `UPDATE erp_partners
-           SET main_email = CASE WHEN $1::text <> '' THEN $1 ELSE main_email END,
-               sub_email = CASE WHEN $2::text <> '' THEN $2 ELSE sub_email END,
-               updated_at = NOW()
-           WHERE id = $3 OR name = $4 OR ($5 <> '' AND business_no = $5)`,
-          [
-            customerEmail || "",
-            customerEmail2 || "",
-            partnerId ? parseInt(String(partnerId), 10) : -1,
-            cleanCustomer,
-            customerBizNo || "",
-          ]
-        );
-      }
+      await syncPartnerTaxEmailsTx(client, {
+        email1: customerEmail,
+        email2: customerEmail2,
+        partnerId: partnerId ? parseInt(String(partnerId), 10) : null,
+        customerName: cleanCustomer,
+        businessNo: customerBizNo,
+      });
 
       // Audit log
       await client.query(
@@ -1053,20 +656,11 @@ export async function DELETE(request: Request) {
       );
 
       // 4. Restore all assets assigned to this customer contract to AVAILABLE (헌장 1.2, 1.3 핵심 준수)
-      await client.query(
-        `UPDATE erp_rental_assets
-         SET status = 'AVAILABLE',
-             current_customer = NULL,
-             current_site = NULL,
-             contract_no = NULL,
-             current_contract_id = NULL,
-             current_monthly_rate = 0,
-             current_daily_rate = 0,
-             outbound_date = NULL,
-             updated_at = NOW()
-         WHERE current_contract_id = $1 OR id = $2 OR current_customer = $3`,
-        [contractId, ct.asset_id, ct.customer_name]
-      );
+      await releaseContractAssetsTx(client, {
+        contractId,
+        fallbackAssetId: ct.asset_id,
+        customerName: ct.customer_name,
+      });
 
       // 5. Delete the contract
       await client.query(
@@ -1123,20 +717,11 @@ export async function PATCH(request: Request) {
       );
 
       // 2. Rollback all rented assets of this customer contract to AVAILABLE
-      await client.query(
-        `UPDATE erp_rental_assets
-         SET status = 'AVAILABLE',
-             current_customer = NULL,
-             current_site = NULL,
-             contract_no = NULL,
-             current_contract_id = NULL,
-             current_monthly_rate = 0,
-             current_daily_rate = 0,
-             outbound_date = NULL,
-             updated_at = NOW()
-         WHERE current_contract_id = $1 OR id = $2 OR current_customer = $3`,
-        [contractId, contract.asset_id, contract.customer_name]
-      );
+      await releaseContractAssetsTx(client, {
+        contractId,
+        fallbackAssetId: contract.asset_id,
+        customerName: contract.customer_name,
+      });
 
       await client.query("COMMIT");
       return NextResponse.json({ success: true, message: "장비 회수 및 계약 반납이 완료되었습니다." });

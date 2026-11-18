@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { formatAttachedOptionsSummary, formatErpCurrency, formatErpNumber, formatErpQty, getItemClassLabel } from "@/lib/erpFormat";
+import { formatErpCurrency, formatErpNumber, formatErpQty } from "@/lib/erpFormat";
+import { formatAttachedOptionsSummary, getItemClassLabel } from "@/lib/forkliftDomain";
 import { Edit, FileText, Plus, Trash2 } from "lucide-react";
 
 export interface PurchasesSubTabProps {

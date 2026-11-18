@@ -21,6 +21,7 @@ export async function POST(request: Request) {
         [targetYm]
       );
       if (parseInt(checkRes.rows[0].count, 10) > 0) {
+        await client.query("ROLLBACK");
         return NextResponse.json(
           { error: `${targetYm}월 감가상각이 이미 마감 실행되었습니다.` },
           { status: 400 }
@@ -38,6 +39,10 @@ export async function POST(request: Request) {
       const assets = assetRes.rows;
       let executedCount = 0;
       let totalDeprecAmount = 0;
+      const assetIds: number[] = [];
+      const newAccums: number[] = [];
+      const newBookValues: number[] = [];
+      const monthlyAmounts: number[] = [];
 
       for (const a of assets) {
         const cost = parseFloat(a.acquisition_cost);
@@ -58,25 +63,35 @@ export async function POST(request: Request) {
           const newAccum = currentAccum + monthlyAmt;
           const newBookValue = cost - newAccum;
 
-          // 1. Update asset table
-          await client.query(
-            `UPDATE erp_rental_assets 
-             SET accumulated_depreciation = $1, book_value = $2, updated_at = NOW() 
-             WHERE id = $3`,
-            [newAccum, newBookValue, a.id]
-          );
-
-          // 2. Insert depreciation log
-          await client.query(
-            `INSERT INTO erp_asset_depreciation_logs 
-             (asset_id, year_month, monthly_depreciation, accumulated_depreciation, book_value_after) 
-             VALUES ($1, $2, $3, $4, $5)`,
-            [a.id, targetYm, monthlyAmt, newAccum, newBookValue]
-          );
+          assetIds.push(Number(a.id));
+          newAccums.push(newAccum);
+          newBookValues.push(newBookValue);
+          monthlyAmounts.push(monthlyAmt);
 
           executedCount++;
           totalDeprecAmount += monthlyAmt;
         }
+      }
+
+      if (assetIds.length > 0) {
+        await client.query(
+          `UPDATE erp_rental_assets AS a
+           SET accumulated_depreciation = u.new_accum,
+               book_value = u.new_book,
+               updated_at = NOW()
+           FROM UNNEST($1::bigint[], $2::numeric[], $3::numeric[]) AS u(id, new_accum, new_book)
+           WHERE a.id = u.id`,
+          [assetIds, newAccums, newBookValues]
+        );
+
+        await client.query(
+          `INSERT INTO erp_asset_depreciation_logs
+           (asset_id, year_month, monthly_depreciation, accumulated_depreciation, book_value_after)
+           SELECT u.asset_id, $2, u.monthly_amt, u.new_accum, u.new_book
+           FROM UNNEST($1::bigint[], $3::numeric[], $4::numeric[], $5::numeric[])
+             AS u(asset_id, monthly_amt, new_accum, new_book)`,
+          [assetIds, targetYm, monthlyAmounts, newAccums, newBookValues]
+        );
       }
 
       // Audit Log (헌장 1.2 무누락 저장)

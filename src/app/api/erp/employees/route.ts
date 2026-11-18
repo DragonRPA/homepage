@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { supabaseErp, getErpPool } from "@/lib/supabaseErp";
-import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
+import { calculateAnnualLeaveEntitlement } from "@/lib/erpHrLaborDomain";
 import {
   encryptPii,
   decryptPii,

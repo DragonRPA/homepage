@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
-import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
+import { calculateAnnualLeaveEntitlement } from "@/lib/erpHrLaborDomain";
 
 // POST: Execute annual leave quota calculation and reset for target year (회계연도 1/1 ~ 12/31 기준)
 export async function POST(request: Request) {
@@ -36,17 +36,16 @@ export async function POST(request: Request) {
 
       const employees = empRes.rows;
       let updateCount = 0;
+      const empIds: number[] = [];
+      const newGrants: number[] = [];
       const detailsList: any[] = [];
 
       for (const emp of employees) {
         const entitlement = calculateAnnualLeaveEntitlement(emp.joinDate, targetYear);
         const newGrant = entitlement.grantDays;
 
-        await client.query(
-          "UPDATE erp_employees SET annual_leave_grant = $1, updated_at = NOW() WHERE id = $2",
-          [newGrant, emp.id]
-        );
-
+        empIds.push(Number(emp.id));
+        newGrants.push(newGrant);
         detailsList.push({
           id: emp.id,
           name: emp.name,
@@ -56,6 +55,16 @@ export async function POST(request: Request) {
           newGrant,
         });
         updateCount++;
+      }
+
+      if (empIds.length > 0) {
+        await client.query(
+          `UPDATE erp_employees AS e
+           SET annual_leave_grant = u.new_grant, updated_at = NOW()
+           FROM UNNEST($1::bigint[], $2::numeric[]) AS u(id, new_grant)
+           WHERE e.id = u.id`,
+          [empIds, newGrants]
+        );
       }
 
       // 2. Insert into erp_annual_leave_resets

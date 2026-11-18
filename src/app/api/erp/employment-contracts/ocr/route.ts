@@ -1,90 +1,11 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import zlib from "zlib";
-import { getGroqApiKey } from "@/lib/groqServerKey";
+import {
+  callGroqJsonOcr,
+  extractTextFromPdfBuffer,
+} from "@/lib/erpOcrEngine";
 
 export const maxDuration = 60;
-
-function extractTextFromPdfBuffer(buf: Buffer): string {
-  let out = "";
-  try {
-    out += " " + buf.toString("utf8");
-    if (buf.slice(0, 5).toString("ascii") === "%PDF-") {
-      const cmap = new Map<string, string>();
-      const decompressedStreams: string[] = [];
-
-      let streamStart = 0;
-      while ((streamStart = buf.indexOf("stream", streamStart)) !== -1) {
-        streamStart += 6;
-        if (buf[streamStart] === 0x0d && buf[streamStart + 1] === 0x0a)
-          streamStart += 2;
-        else if (buf[streamStart] === 0x0a) streamStart += 1;
-        const streamEnd = buf.indexOf("endstream", streamStart);
-        if (streamEnd === -1) break;
-
-        const slice = buf.slice(streamStart, streamEnd);
-        let dec: Buffer | null = null;
-        try {
-          dec = zlib.inflateSync(slice);
-        } catch {
-          try {
-            dec = zlib.inflateRawSync(slice);
-          } catch {}
-        }
-
-        if (dec) {
-          const latin = dec.toString("latin1");
-          const utf8 = dec.toString("utf8");
-          decompressedStreams.push(latin);
-          out += " " + utf8;
-
-          if (latin.includes("beginbfchar") || latin.includes("beginbfrange")) {
-            const charRegex = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g;
-            let m;
-            while ((m = charRegex.exec(latin)) !== null) {
-              const srcHex = m[1].toUpperCase();
-              const dstHex = m[2];
-              let str = "";
-              for (let i = 0; i < dstHex.length; i += 4) {
-                const cp = parseInt(dstHex.slice(i, i + 4), 16);
-                if (!isNaN(cp)) str += String.fromCharCode(cp);
-              }
-              if (str) cmap.set(srcHex, str);
-            }
-          }
-        }
-        streamStart = streamEnd + 9;
-      }
-
-      if (cmap.size > 0) {
-        for (const s of decompressedStreams) {
-          const hexBlocks = s.match(/<([0-9A-Fa-f]{4,})>/g);
-          if (!hexBlocks) continue;
-          let line = "";
-          for (const hb of hexBlocks) {
-            const hex = hb.slice(1, -1).toUpperCase();
-            for (let i = 0; i < hex.length; i += 4) {
-              const code = hex.slice(i, i + 4);
-              if (cmap.has(code)) {
-                line += cmap.get(code);
-              } else {
-                const cp = parseInt(code, 16);
-                if (cp >= 0x20 && cp <= 0xd7ff) {
-                  line += String.fromCharCode(cp);
-                }
-              }
-            }
-            line += " ";
-          }
-          if (line.trim()) out += "\n" + line;
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("PDF buffer text extraction warning:", e);
-  }
-  return out;
-}
 
 async function analyzeContractWithAi(
   imageBase64?: string,
@@ -125,70 +46,12 @@ async function analyzeContractWithAi(
 
 반드시 순수 JSON 객체만 반환하세요.`;
 
-  try {
-    const hasImage =
-      imageBase64 &&
-      typeof imageBase64 === "string" &&
-      imageBase64.startsWith("data:image/");
-
-    const messages: any[] = [
-      {
-        role: "user",
-        content: hasImage
-          ? [
-              { type: "text", text: prompt },
-              { type: "image_url", image_url: { url: imageBase64 } },
-            ]
-          : prompt,
-      },
-    ];
-
-    const groqApiKey = await getGroqApiKey();
-    if (!groqApiKey) return null;
-
-    const modelsToTry = hasImage
-      ? ["qwen/qwen3.8-27b"]
-      : ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"];
-
-    for (const model of modelsToTry) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 20000);
-      try {
-        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${groqApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model,
-            messages,
-            response_format: { type: "json_object" },
-            temperature: 0.1,
-            max_tokens: 1000,
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timer);
-
-        if (res.ok) {
-          const data = await res.json();
-          const content = data?.choices?.[0]?.message?.content;
-          if (content) {
-            const cleaned = content
-              .replace(/<think>[\s\S]*?<\/think>/g, "")
-              .trim();
-            return JSON.parse(cleaned);
-          }
-        }
-      } catch {
-        clearTimeout(timer);
-      }
-    }
-  } catch (err) {
-    console.warn("[employment-contracts/ocr] AI error:", err);
-  }
-  return null;
+  return callGroqJsonOcr({
+    prompt,
+    imageBase64,
+    timeoutMs: 20000,
+    maxTokens: 1000,
+  });
 }
 
 export async function POST(request: Request) {

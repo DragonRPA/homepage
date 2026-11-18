@@ -340,12 +340,106 @@ function parseHometaxExcelBuffer(
   return results;
 }
 
+interface IndexedInvoiceRow {
+  dbId: number | null;
+  sortId: number;
+  ntsConfirmNo: string;
+  domainType: string;
+  issueDate: string;
+  customerName: string;
+  businessNo: string;
+  supplyAmount: number;
+  totalAmount: number;
+  settlementStatus: string;
+  itemName: string;
+  ioType: string;
+  supplierEntityType: string;
+  stagedRef?: StagedInvoiceInsert;
+}
+
+interface StagedInvoiceInsert {
+  invoiceNo: string;
+  ioType: "SALE" | "PURCHASE";
+  sourceType: "HOMETAX_RPA" | "EXCEL_UPLOAD";
+  domainType: string;
+  supplierEntityType: string;
+  supplierCorpNum: string;
+  supplierCorpName: string;
+  supplierCeoName: string;
+  supplierAddress: string;
+  supplierBizType: string;
+  supplierBizClass: string;
+  supplierEmail: string;
+  customerName: string;
+  businessNo: string;
+  ceoName: string;
+  customerEmail: string;
+  purposeType: string;
+  modifyReason: string;
+  taxItemsJson: string;
+  writeDate: string;
+  supplyAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+  itemName: string;
+  ntsConfirmNo: string | null;
+  memo: string;
+  settledAmount: number;
+  settlementStatus: string;
+  settledAt: string | null;
+}
+
+function normalizeIsoDateStr(raw: unknown): string {
+  const s = String(raw || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const digits = s.replace(/[^0-9]/g, "");
+  if (digits.length >= 8) {
+    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+  }
+  return s.slice(0, 10);
+}
+
+function diffIsoDaysAbs(dateA: string, dateB: string): number {
+  const a = Date.parse(`${dateA.slice(0, 10)}T00:00:00Z`);
+  const b = Date.parse(`${dateB.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(a) || Number.isNaN(b)) return Number.MAX_SAFE_INTEGER;
+  return Math.abs(Math.round((a - b) / 86400000));
+}
+
+function extractOrigNtsNo(remark?: string): string {
+  const m = String(remark || "").match(/([0-9]{8}-[0-9]{8}-[0-9A-Za-z]{8})/);
+  return m ? m[1] : "";
+}
+
+function isNewerSaleHistRow(cand: IndexedInvoiceRow, cur: IndexedInvoiceRow | undefined): boolean {
+  if (!cur) return true;
+  if (cand.issueDate !== cur.issueDate) return cand.issueDate > cur.issueDate;
+  return cand.sortId > cur.sortId;
+}
+
 // Upsert collected invoices into erp_tax_invoices without duplicates
 async function saveCollectedInvoicesToDb(
   items: HometaxCollectedInvoice[],
   entityKey: "CORP" | "INDIVIDUAL",
   sourceType: "HOMETAX_RPA" | "EXCEL_UPLOAD"
 ) {
+  if (items.length === 0) {
+    return { insertedCount: 0, skippedCount: 0, offsetCount: 0, savedRows: [] as any[] };
+  }
+
+  const candidateNtsSet = new Set<string>();
+  for (const item of items) {
+    const ntsNo = (item.ntsConfirmNo || "").trim();
+    if (ntsNo && !ntsNo.includes("POPBILL_TEST")) {
+      candidateNtsSet.add(ntsNo);
+    }
+    const origNtsNo = extractOrigNtsNo(item.remark1);
+    if (origNtsNo) {
+      candidateNtsSet.add(origNtsNo);
+    }
+  }
+  const candidateNtsNos = Array.from(candidateNtsSet);
+
   const pool = getErpPool();
   const client = await pool.connect();
   const entity = getEntity(entityKey);
@@ -358,10 +452,110 @@ async function saveCollectedInvoicesToDb(
   try {
     await client.query("BEGIN");
 
+    // 1회 일괄 선조회로 중복/수정세금계산서/매출분과 이력을 인메모리 색인
+    const prefetchRes = await client.query(
+      `SELECT id,
+              nts_confirm_no,
+              domain_type,
+              issue_date::text AS issue_date,
+              customer_name,
+              business_no,
+              supply_amount,
+              total_amount,
+              settlement_status,
+              item_name,
+              COALESCE(io_type, 'SALE') AS io_type,
+              COALESCE(supplier_entity_type, 'CORP') AS supplier_entity_type
+       FROM erp_tax_invoices
+       WHERE COALESCE(supplier_entity_type, 'CORP') = $1
+          OR nts_confirm_no = ANY($2::text[])
+       ORDER BY issue_date DESC, id DESC`,
+      [entity.key, candidateNtsNos]
+    );
+
+    const byAnyNts = new Map<string, IndexedInvoiceRow>();
+    const byEntityIoNts = new Map<string, IndexedInvoiceRow>();
+    const byDateName = new Map<string, IndexedInvoiceRow[]>();
+    const byDateBiz = new Map<string, IndexedInvoiceRow[]>();
+    const posByName = new Map<string, IndexedInvoiceRow[]>();
+    const posByBiz = new Map<string, IndexedInvoiceRow[]>();
+    const saleHistByNameItem = new Map<string, IndexedInvoiceRow>();
+    const saleHistByBizItem = new Map<string, IndexedInvoiceRow>();
+
+    const pushToBucket = (map: Map<string, IndexedInvoiceRow[]>, key: string, row: IndexedInvoiceRow) => {
+      const list = map.get(key);
+      if (list) list.push(row);
+      else map.set(key, [row]);
+    };
+
+    const indexRow = (row: IndexedInvoiceRow) => {
+      if (row.ntsConfirmNo) {
+        const prevAny = byAnyNts.get(row.ntsConfirmNo);
+        if (!prevAny || (!prevAny.domainType && row.domainType)) {
+          byAnyNts.set(row.ntsConfirmNo, row);
+        }
+      }
+      if (row.supplierEntityType !== entity.key) return;
+
+      if (row.ntsConfirmNo) {
+        const key = `${row.ioType}::${row.ntsConfirmNo}`;
+        if (!byEntityIoNts.has(key)) byEntityIoNts.set(key, row);
+      }
+      pushToBucket(byDateName, `${row.ioType}::${row.issueDate}::${row.customerName}`, row);
+      if (row.businessNo) {
+        pushToBucket(byDateBiz, `${row.ioType}::${row.issueDate}::${row.businessNo}`, row);
+      }
+      if (row.supplyAmount > 0) {
+        pushToBucket(posByName, `${row.ioType}::${row.customerName}`, row);
+        if (row.businessNo) {
+          pushToBucket(posByBiz, `${row.ioType}::${row.businessNo}`, row);
+        }
+      }
+      if (row.ioType === "SALE") {
+        const nameItemKey = `${row.customerName}::${row.itemName}`;
+        if (isNewerSaleHistRow(row, saleHistByNameItem.get(nameItemKey))) {
+          saleHistByNameItem.set(nameItemKey, row);
+        }
+        if (row.businessNo) {
+          const bizItemKey = `${row.businessNo}::${row.itemName}`;
+          if (isNewerSaleHistRow(row, saleHistByBizItem.get(bizItemKey))) {
+            saleHistByBizItem.set(bizItemKey, row);
+          }
+        }
+      }
+    };
+
+    let maxDbId = 0;
+    for (const r of prefetchRes.rows) {
+      const dbId = Number(r.id);
+      if (dbId > maxDbId) maxDbId = dbId;
+      indexRow({
+        dbId,
+        sortId: dbId,
+        ntsConfirmNo: String(r.nts_confirm_no || "").trim(),
+        domainType: String(r.domain_type || ""),
+        issueDate: normalizeIsoDateStr(r.issue_date),
+        customerName: String(r.customer_name || ""),
+        businessNo: String(r.business_no || ""),
+        supplyAmount: Number(r.supply_amount || 0),
+        totalAmount: Number(r.total_amount || 0),
+        settlementStatus: String(r.settlement_status || "UNPAID"),
+        itemName: String(r.item_name || ""),
+        ioType: String(r.io_type || "SALE"),
+        supplierEntityType: String(r.supplier_entity_type || "CORP"),
+      });
+    }
+
+    const ntsBackfillMap = new Map<number, string>();
+    const stagedInserts: StagedInvoiceInsert[] = [];
+    const offsetOriginalIdSet = new Set<number>();
+    const nowIso = new Date().toISOString();
+
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const ioType = item.ioType;
       const ntsNo = (item.ntsConfirmNo || "").trim();
+      const writeDateNorm = normalizeIsoDateStr(item.writeDate);
 
       const counterpartyName = ioType === "PURCHASE"
         ? (item.invoicerCorpName || item.invoiceeCorpName || "매입거래처")
@@ -378,37 +572,33 @@ async function saveCollectedInvoicesToDb(
         ? (item.invoicerEmail || "")
         : (item.invoiceeEmail1 || "");
 
-      let dupRes;
+      let existingRow: IndexedInvoiceRow | undefined;
       if (ntsNo && !ntsNo.includes("POPBILL_TEST")) {
-        dupRes = await client.query(
-          `SELECT id, nts_confirm_no FROM erp_tax_invoices
-           WHERE nts_confirm_no = $1
-             AND COALESCE(supplier_entity_type, 'CORP') = $2
-             AND COALESCE(io_type, 'SALE') = $3
-           LIMIT 1`,
-          [ntsNo, entity.key, ioType]
-        );
+        existingRow = byEntityIoNts.get(`${ioType}::${ntsNo}`);
       }
-      if (!dupRes || dupRes.rows.length === 0) {
-        dupRes = await client.query(
-          `SELECT id, nts_confirm_no FROM erp_tax_invoices
-           WHERE COALESCE(supplier_entity_type, 'CORP') = $1
-             AND COALESCE(io_type, 'SALE') = $2
-             AND issue_date = $3::date
-             AND (customer_name = $4 OR ($5 <> '' AND business_no = $5))
-             AND ABS(COALESCE(total_amount, 0) - $6) <= 1
-           LIMIT 1`,
-          [entity.key, ioType, item.writeDate, counterpartyName, counterpartyBizNo, item.totalAmount]
-        );
+      if (!existingRow) {
+        const dateNameHits = byDateName.get(`${ioType}::${writeDateNorm}::${counterpartyName}`) || [];
+        existingRow = dateNameHits.find((r) => Math.abs(r.totalAmount - item.totalAmount) <= 1);
+        if (!existingRow && counterpartyBizNo) {
+          const dateBizHits = byDateBiz.get(`${ioType}::${writeDateNorm}::${counterpartyBizNo}`) || [];
+          existingRow = dateBizHits.find((r) => Math.abs(r.totalAmount - item.totalAmount) <= 1);
+        }
       }
 
-      if (dupRes.rows.length > 0) {
-        const existingRow = dupRes.rows[0];
-        if (ntsNo && existingRow.nts_confirm_no !== ntsNo) {
-          await client.query(
-            `UPDATE erp_tax_invoices SET nts_confirm_no = $1 WHERE id = $2`,
-            [ntsNo, existingRow.id]
-          );
+      if (existingRow) {
+        if (ntsNo && existingRow.ntsConfirmNo !== ntsNo) {
+          existingRow.ntsConfirmNo = ntsNo;
+          if (!byEntityIoNts.has(`${ioType}::${ntsNo}`)) {
+            byEntityIoNts.set(`${ioType}::${ntsNo}`, existingRow);
+          }
+          if (!byAnyNts.has(ntsNo)) {
+            byAnyNts.set(ntsNo, existingRow);
+          }
+          if (existingRow.dbId !== null) {
+            ntsBackfillMap.set(existingRow.dbId, ntsNo);
+          } else if (existingRow.stagedRef) {
+            existingRow.stagedRef.ntsConfirmNo = ntsNo;
+          }
         }
         skippedCount++;
         continue;
@@ -416,69 +606,66 @@ async function saveCollectedInvoicesToDb(
 
       const isNegative = item.supplyCostTotal < 0 || item.totalAmount < 0;
       let resolvedDomainType = ioType === "PURCHASE" ? "PURCHASE_EXPENSE" : "TRADE_SALE";
-      let matchedOriginalInvoice: any = null;
+      let matchedOriginalInvoice: IndexedInvoiceRow | undefined;
 
       // 1) 수정세금계산서(마이너스 취소분)인 경우: 당초 발행된 원본(+) 세금계산서를 찾아 domain_type 동기화 및 상계 준비
       if (isNegative) {
         const absSupply = Math.abs(item.supplyCostTotal);
         const absTotal = Math.abs(item.totalAmount);
-        const origNtsMatch = String(item.remark1 || "").match(/([0-9]{8}-[0-9]{8}-[0-9A-Za-z]{8})/);
-        const origNtsNo = origNtsMatch ? origNtsMatch[1] : "";
+        const origNtsNo = extractOrigNtsNo(item.remark1);
 
         if (origNtsNo) {
-          const byNtsRes = await client.query(
-            `SELECT id, domain_type, total_amount, settlement_status, issue_date::text AS issue_date
-             FROM erp_tax_invoices
-             WHERE COALESCE(supplier_entity_type, 'CORP') = $1
-               AND COALESCE(io_type, 'SALE') = $2
-               AND nts_confirm_no = $3
-             LIMIT 1`,
-            [entity.key, ioType, origNtsNo]
-          );
-          if (byNtsRes.rows.length > 0) {
-            matchedOriginalInvoice = byNtsRes.rows[0];
-          }
+          matchedOriginalInvoice = byEntityIoNts.get(`${ioType}::${origNtsNo}`);
         }
 
         if (!matchedOriginalInvoice) {
-          const origRes = await client.query(
-            `SELECT id, domain_type, total_amount, settlement_status, issue_date::text AS issue_date
-             FROM erp_tax_invoices
-             WHERE COALESCE(supplier_entity_type, 'CORP') = $1
-               AND COALESCE(io_type, 'SALE') = $2
-               AND (customer_name = $3 OR ($4 <> '' AND business_no = $4))
-               AND supply_amount > 0
-               AND (ABS(COALESCE(supply_amount, 0) - $5) <= 10 OR ABS(COALESCE(total_amount, 0) - $6) <= 10)
-             ORDER BY
-               (CASE WHEN issue_date = $7::date THEN 0 ELSE 1 END),
-               (CASE WHEN COALESCE(settlement_status, 'UNPAID') <> 'PAID' THEN 0 ELSE 1 END),
-               ABS(issue_date - $7::date) ASC,
-               id DESC
-             LIMIT 1`,
-            [entity.key, ioType, counterpartyName, counterpartyBizNo, absSupply, absTotal, item.writeDate]
+          const candidatesSet = new Set<IndexedInvoiceRow>();
+          for (const r of posByName.get(`${ioType}::${counterpartyName}`) || []) {
+            candidatesSet.add(r);
+          }
+          if (counterpartyBizNo) {
+            for (const r of posByBiz.get(`${ioType}::${counterpartyBizNo}`) || []) {
+              candidatesSet.add(r);
+            }
+          }
+          const candidates = Array.from(candidatesSet).filter(
+            (r) =>
+              r.supplyAmount > 0 &&
+              (Math.abs(r.supplyAmount - absSupply) <= 10 || Math.abs(r.totalAmount - absTotal) <= 10)
           );
-          if (origRes.rows.length > 0) {
-            matchedOriginalInvoice = origRes.rows[0];
+          if (candidates.length > 0) {
+            candidates.sort((a, b) => {
+              const aSameDate = a.issueDate === writeDateNorm ? 0 : 1;
+              const bSameDate = b.issueDate === writeDateNorm ? 0 : 1;
+              if (aSameDate !== bSameDate) return aSameDate - bSameDate;
+
+              const aUnpaid = (a.settlementStatus || "UNPAID") !== "PAID" ? 0 : 1;
+              const bUnpaid = (b.settlementStatus || "UNPAID") !== "PAID" ? 0 : 1;
+              if (aUnpaid !== bUnpaid) return aUnpaid - bUnpaid;
+
+              const aDiff = diffIsoDaysAbs(a.issueDate, writeDateNorm);
+              const bDiff = diffIsoDaysAbs(b.issueDate, writeDateNorm);
+              if (aDiff !== bDiff) return aDiff - bDiff;
+
+              return b.sortId - a.sortId;
+            });
+            matchedOriginalInvoice = candidates[0];
           }
         }
 
-        if (matchedOriginalInvoice && matchedOriginalInvoice.domain_type) {
-          resolvedDomainType = matchedOriginalInvoice.domain_type;
+        if (matchedOriginalInvoice && matchedOriginalInvoice.domainType) {
+          resolvedDomainType = matchedOriginalInvoice.domainType;
         }
       }
 
       // 2) 일반 매출이거나 원본 매칭이 안 된 경우: 당초 승인번호/품목명/비고 및 기존 거래처 이력으로 매출 분과(domain_type) 지능형 분류
       if (ioType === "SALE" && !matchedOriginalInvoice) {
-        const origNtsMatch = String(item.remark1 || "").match(/([0-9]{8}-[0-9]{8}-[0-9A-Za-z]{8})/);
-        const origNtsNo = origNtsMatch ? origNtsMatch[1] : "";
+        const origNtsNo = extractOrigNtsNo(item.remark1);
         let foundByOrigNts = false;
         if (origNtsNo) {
-          const origRes = await client.query(
-            `SELECT domain_type FROM erp_tax_invoices WHERE nts_confirm_no = $1 LIMIT 1`,
-            [origNtsNo]
-          );
-          if (origRes.rows.length > 0 && origRes.rows[0].domain_type) {
-            resolvedDomainType = origRes.rows[0].domain_type;
+          const origRow = byAnyNts.get(origNtsNo);
+          if (origRow && origRow.domainType) {
+            resolvedDomainType = origRow.domainType;
             foundByOrigNts = true;
           }
         }
@@ -492,29 +679,25 @@ async function saveCollectedInvoicesToDb(
         } else if (/개발|구축|착수금|잔금|중도금|컨설팅/i.test(text)) {
           resolvedDomainType = "DEV_SERVICE";
         } else {
-          // 같은 날/같은 달 취소된 원본이 있는지 혹은 거래처 최근 분과 조회
-          const histRes = await client.query(
-            `SELECT domain_type
-             FROM erp_tax_invoices
-             WHERE COALESCE(supplier_entity_type, 'CORP') = $1
-               AND COALESCE(io_type, 'SALE') = 'SALE'
-               AND (customer_name = $2 OR ($3 <> '' AND business_no = $3))
-               AND item_name = $4
-             ORDER BY issue_date DESC, id DESC
-             LIMIT 1`,
-            [entity.key, counterpartyName, counterpartyBizNo, item.itemName || ""]
-          );
-          if (histRes.rows.length > 0 && histRes.rows[0].domain_type) {
-            resolvedDomainType = histRes.rows[0].domain_type;
+          const itemKey = item.itemName || "";
+          const byName = saleHistByNameItem.get(`${counterpartyName}::${itemKey}`);
+          const byBiz = counterpartyBizNo ? saleHistByBizItem.get(`${counterpartyBizNo}::${itemKey}`) : undefined;
+          let histBest = byName;
+          if (byBiz && isNewerSaleHistRow(byBiz, histBest)) {
+            histBest = byBiz;
+          }
+          if (histBest && histBest.domainType) {
+            resolvedDomainType = histBest.domainType;
           }
         }
       }
 
+      const effectiveWriteDate = writeDateNorm || item.writeDate;
       const prefix = ioType === "PURCHASE" ? "PX" : "TX";
-      const dateCompact = item.writeDate.slice(2, 10).replace(/-/g, "");
+      const dateCompact = effectiveWriteDate.slice(2, 10).replace(/-/g, "");
       const invoiceNo = item.mgtKey || `${prefix}${dateCompact}-${Math.floor(1000 + Math.random() * 9000)}`;
-      const mm = item.writeDate.slice(5, 7);
-      const dd = item.writeDate.slice(8, 10);
+      const mm = effectiveWriteDate.slice(5, 7);
+      const dd = effectiveWriteDate.slice(8, 10);
 
       const taxItemsJson =
         Array.isArray(item.taxItems) && item.taxItems.length > 0
@@ -542,84 +725,191 @@ async function saveCollectedInvoicesToDb(
           : isNegative
           ? "수정세금계산서(감액/취소)"
           : "해당없음";
+      const storedItemName = item.itemName || (ioType === "PURCHASE" ? "매입 세금계산서" : "매출 세금계산서");
+      const storedBizNo = counterpartyBizNo || "100-00-00000";
 
-      const ins = await client.query(
+      const staged: StagedInvoiceInsert = {
+        invoiceNo,
+        ioType,
+        sourceType,
+        domainType: resolvedDomainType,
+        supplierEntityType: entity.key,
+        supplierCorpNum: ioType === "PURCHASE" ? (item.invoicerCorpNum || entity.bizNumRaw) : entity.bizNumRaw,
+        supplierCorpName: ioType === "PURCHASE" ? (item.invoicerCorpName || counterpartyName) : entity.corpName,
+        supplierCeoName: ioType === "PURCHASE" ? (item.invoicerCEOName || counterpartyCeo) : entity.ceoName,
+        supplierAddress: entity.address,
+        supplierBizType: entity.bizType,
+        supplierBizClass: entity.bizClass,
+        supplierEmail: entity.email,
+        customerName: counterpartyName,
+        businessNo: storedBizNo,
+        ceoName: counterpartyCeo || "대표자",
+        customerEmail: counterpartyEmail,
+        purposeType: item.purposeType || "청구",
+        modifyReason: resolvedModifyReason,
+        taxItemsJson: JSON.stringify(taxItemsJson),
+        writeDate: writeDateNorm || item.writeDate,
+        supplyAmount: item.supplyCostTotal,
+        vatAmount: item.taxTotal,
+        totalAmount: item.totalAmount,
+        itemName: storedItemName,
+        ntsConfirmNo: ntsNo || null,
+        memo: item.remark1 || "",
+        settledAmount: initialSettledAmount,
+        settlementStatus: initialSettlementStatus,
+        settledAt: null,
+      };
+      stagedInserts.push(staged);
+
+      indexRow({
+        dbId: null,
+        sortId: maxDbId + stagedInserts.length,
+        ntsConfirmNo: ntsNo,
+        domainType: resolvedDomainType,
+        issueDate: writeDateNorm,
+        customerName: counterpartyName,
+        businessNo: storedBizNo,
+        supplyAmount: item.supplyCostTotal,
+        totalAmount: item.totalAmount,
+        settlementStatus: initialSettlementStatus,
+        itemName: storedItemName,
+        ioType,
+        supplierEntityType: entity.key,
+        stagedRef: staged,
+      });
+
+      // 3) 수정세금계산서(취소분)와 매칭된 원본 세금계산서가 있으면 원본도 자동으로 상계완료(PAID) 처리 및 연결 청구 해제
+      if (isNegative && matchedOriginalInvoice) {
+        matchedOriginalInvoice.settlementStatus = "PAID";
+        if (matchedOriginalInvoice.dbId !== null) {
+          offsetOriginalIdSet.add(matchedOriginalInvoice.dbId);
+        } else if (matchedOriginalInvoice.stagedRef) {
+          const sRef = matchedOriginalInvoice.stagedRef;
+          sRef.settledAmount = sRef.totalAmount;
+          sRef.settlementStatus = "PAID";
+          if (!sRef.settledAt) sRef.settledAt = nowIso;
+          if (!sRef.memo.includes("[수정세금계산서 상계]")) {
+            sRef.memo = `${sRef.memo} [수정세금계산서 상계]`.trim();
+          }
+        }
+        offsetCount++;
+      }
+    }
+
+    if (ntsBackfillMap.size > 0) {
+      const backfillIds = Array.from(ntsBackfillMap.keys());
+      const backfillNts = Array.from(ntsBackfillMap.values());
+      await client.query(
+        `UPDATE erp_tax_invoices AS t
+         SET nts_confirm_no = u.nts
+         FROM UNNEST($1::bigint[], $2::text[]) AS u(id, nts)
+         WHERE t.id = u.id`,
+        [backfillIds, backfillNts]
+      );
+    }
+
+    const INSERT_CHUNK_SIZE = 100;
+    for (let start = 0; start < stagedInserts.length; start += INSERT_CHUNK_SIZE) {
+      const chunk = stagedInserts.slice(start, start + INSERT_CHUNK_SIZE);
+      const values: any[] = [];
+      const placeholders: string[] = [];
+
+      chunk.forEach((row, idx) => {
+        const base = idx * 29;
+        placeholders.push(
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}::jsonb, $${base + 20}, $${base + 21}, $${base + 22}, $${base + 23}, $${base + 24}, 'SENT_NTS', $${base + 25}, $${base + 26}, $${base + 27}, $${base + 28}, '[]'::jsonb, $${base + 29}::timestamptz)`
+        );
+        values.push(
+          row.invoiceNo,
+          row.ioType,
+          row.sourceType,
+          row.domainType,
+          row.supplierEntityType,
+          row.supplierCorpNum,
+          row.supplierCorpName,
+          row.supplierCeoName,
+          row.supplierAddress,
+          row.supplierBizType,
+          row.supplierBizClass,
+          row.supplierEmail,
+          row.customerName,
+          row.businessNo,
+          row.ceoName,
+          row.customerEmail,
+          row.purposeType,
+          row.modifyReason,
+          row.taxItemsJson,
+          row.writeDate,
+          row.supplyAmount,
+          row.vatAmount,
+          row.totalAmount,
+          row.itemName,
+          row.ntsConfirmNo,
+          row.memo,
+          row.settledAmount,
+          row.settlementStatus,
+          row.settledAt
+        );
+      });
+
+      const insRes = await client.query(
         `INSERT INTO erp_tax_invoices
          (invoice_no, io_type, source_type, domain_type, supplier_entity_type, supplier_corp_num, supplier_corp_name,
           supplier_ceo_name, supplier_address, supplier_biz_type, supplier_biz_class, supplier_email,
           customer_name, business_no, ceo_name, customer_email, purpose_type, modify_reason, tax_items,
           issue_date, supply_amount, vat_amount, total_amount, item_name,
-          status, nts_confirm_no, memo, settled_amount, settlement_status, matched_bank_tx_ids)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb,
-                 $20, $21, $22, $23, $24, 'SENT_NTS', $25, $26, $27, $28, '[]'::jsonb)
+          status, nts_confirm_no, memo, settled_amount, settlement_status, matched_bank_tx_ids, settled_at)
+         VALUES ${placeholders.join(", ")}
          RETURNING *`,
-        [
-          invoiceNo,
-          ioType,
-          sourceType,
-          resolvedDomainType,
-          entity.key,
-          ioType === "PURCHASE" ? (item.invoicerCorpNum || entity.bizNumRaw) : entity.bizNumRaw,
-          ioType === "PURCHASE" ? (item.invoicerCorpName || counterpartyName) : entity.corpName,
-          ioType === "PURCHASE" ? (item.invoicerCEOName || counterpartyCeo) : entity.ceoName,
-          entity.address,
-          entity.bizType,
-          entity.bizClass,
-          entity.email,
-          counterpartyName,
-          counterpartyBizNo || "100-00-00000",
-          counterpartyCeo || "대표자",
-          counterpartyEmail,
-          item.purposeType || "청구",
-          resolvedModifyReason,
-          JSON.stringify(taxItemsJson),
-          item.writeDate,
-          item.supplyCostTotal,
-          item.taxTotal,
-          item.totalAmount,
-          item.itemName || (ioType === "PURCHASE" ? "매입 세금계산서" : "매출 세금계산서"),
-          ntsNo || null,
-          item.remark1 || "",
-          initialSettledAmount,
-          initialSettlementStatus,
-        ]
+        values
       );
-      insertedCount++;
-      savedRows.push(ins.rows[0]);
+      insertedCount += insRes.rows.length;
+      savedRows.push(...insRes.rows);
+    }
 
-      // 3) 수정세금계산서(취소분)와 매칭된 원본 세금계산서가 있으면 원본도 자동으로 상계완료(PAID) 처리 및 연결 청구 해제
-      if (isNegative && matchedOriginalInvoice) {
+    const offsetIds = Array.from(offsetOriginalIdSet);
+    if (offsetIds.length > 0) {
+      await client.query(
+        `UPDATE erp_tax_invoices
+         SET settled_amount = total_amount,
+             settlement_status = 'PAID',
+             settled_at = COALESCE(settled_at, NOW()),
+             memo = CASE
+               WHEN COALESCE(memo, '') LIKE '%[수정세금계산서 상계]%' THEN memo
+               ELSE TRIM(CONCAT(COALESCE(memo, ''), ' [수정세금계산서 상계]'))
+             END
+         WHERE id = ANY($1::bigint[])`,
+        [offsetIds]
+      );
+      // 원본 세금계산서에 묶여 있던 청구 레코드의 tax_invoice_id 연결을 해제하여 재청구/재발행 가능 상태로 복원
+      await client.query(
+        `UPDATE erp_rental_billings
+         SET tax_invoice_id = NULL, payment_status = 'UNPAID', paid_amount = 0
+         WHERE tax_invoice_id = ANY($1::bigint[])`,
+        [offsetIds]
+      );
+      await client.query(
+        `UPDATE erp_service_billings
+         SET tax_invoice_id = NULL, payment_status = 'UNPAID'
+         WHERE tax_invoice_id = ANY($1::bigint[])`,
+        [offsetIds]
+      );
+      // erp_trade_billings.tax_invoice_id is int4 in PostgreSQL
+      const int4OffsetIds = offsetIds.filter((id) => id >= -2147483648 && id <= 2147483647);
+      if (int4OffsetIds.length > 0) {
         await client.query(
-          `UPDATE erp_tax_invoices
-           SET settled_amount = total_amount,
-               settlement_status = 'PAID',
-               settled_at = COALESCE(settled_at, NOW()),
-               memo = CASE
-                 WHEN COALESCE(memo, '') LIKE '%[수정세금계산서 상계]%' THEN memo
-                 ELSE TRIM(CONCAT(COALESCE(memo, ''), ' [수정세금계산서 상계]'))
-               END
-           WHERE id = $1`,
-          [matchedOriginalInvoice.id]
+          `UPDATE erp_trade_billings
+           SET tax_invoice_id = NULL, payment_status = 'UNPAID', paid_amount = 0
+           WHERE tax_invoice_id = ANY($1::int[])`,
+          [int4OffsetIds]
         );
-        // 원본 세금계산서에 묶여 있던 청구 레코드의 tax_invoice_id 연결을 해제하여 재청구/재발행 가능 상태로 복원
-        await client.query(
-          `UPDATE erp_rental_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID', paid_amount = 0 WHERE tax_invoice_id = $1`,
-          [matchedOriginalInvoice.id]
-        );
-        await client.query(
-          `UPDATE erp_service_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID' WHERE tax_invoice_id = $1`,
-          [matchedOriginalInvoice.id]
-        );
-        await client.query(
-          `UPDATE erp_trade_billings SET tax_invoice_id = NULL, payment_status = 'UNPAID', paid_amount = 0 WHERE tax_invoice_id = $1`,
-          [matchedOriginalInvoice.id]
-        );
-        await client.query(
-          `UPDATE erp_trade_sales SET tax_invoice_id = NULL WHERE tax_invoice_id = $1`,
-          [matchedOriginalInvoice.id]
-        );
-        offsetCount++;
       }
+      await client.query(
+        `UPDATE erp_trade_sales
+         SET tax_invoice_id = NULL
+         WHERE tax_invoice_id = ANY($1::bigint[])`,
+        [offsetIds]
+      );
     }
 
     await client.query("COMMIT");

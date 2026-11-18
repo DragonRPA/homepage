@@ -2,12 +2,8 @@
 
 import React from "react";
 import { Layers, X } from "lucide-react";
-import {
-  formatErpCurrency,
-  formatErpInputNumber,
-  cleanErpNumber,
-  addMonthsMinusOneDay,
-} from "@/lib/erpFormat";
+import { formatErpCurrency, formatErpInputNumber, cleanErpNumber } from "@/lib/erpFormat";
+import { addMonthsMinusOneDay } from "@/lib/forkliftDomain";
 import { SearchSelectCombobox, SearchSelectOption } from "../SearchSelectCombobox";
 import ForkliftOptionAttachPanel, { CatalogOptionItem } from "../ForkliftOptionAttachPanel";
 import {

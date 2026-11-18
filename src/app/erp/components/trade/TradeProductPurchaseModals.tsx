@@ -2,7 +2,8 @@
 
 import React from "react";
 import { Package, ShoppingCart, X } from "lucide-react";
-import { FORKLIFT_ITEM_CLASS_OPTIONS, formatErpCurrency, formatErpInputNumber, type ForkliftItemClass, type ForkliftSpecData } from "@/lib/erpFormat";
+import { formatErpCurrency, formatErpInputNumber } from "@/lib/erpFormat";
+import { FORKLIFT_ITEM_CLASS_OPTIONS, type ForkliftItemClass, type ForkliftSpecData } from "@/lib/forkliftDomain";
 import ForkliftSpecEditor from "../ForkliftSpecEditor";
 import { SearchSelectCombobox, type SearchSelectOption } from "../SearchSelectCombobox";
 

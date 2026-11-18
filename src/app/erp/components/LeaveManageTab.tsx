@@ -10,14 +10,8 @@ import {
   ShieldCheck,
   UserCheck,
 } from "lucide-react";
-import {
-  sortErpItems,
-  formatErpNumber,
-  formatErpLeaveDays,
-  calculateAnnualLeaveEntitlement,
-  isNonDeductingLeaveType,
-  getLeaveTypeLabel,
-} from "@/lib/erpFormat";
+import { sortErpItems, formatErpNumber } from "@/lib/erpFormat";
+import { formatErpLeaveDays, calculateAnnualLeaveEntitlement, isNonDeductingLeaveType, getLeaveTypeLabel } from "@/lib/erpHrLaborDomain";
 import { SortableTh, useErpTableSort } from "./SortableTh";
 
 interface EmployeeLeave {

@@ -8,6 +8,10 @@ import {
   addMonthsMinusOneDay,
   computeWarrantyStatus,
 } from "@/lib/forkliftDomain";
+import {
+  upsertForkliftWarrantiesBatchTx,
+  type ForkliftWarrantyUpsertInput,
+} from "@/lib/forkliftWarrantyService";
 
 // GET: List all sales (optionally filter by entityType, or id for single contract file)
 export async function GET(request: Request) {
@@ -178,6 +182,27 @@ export async function POST(request: Request) {
       let primaryProductName = "판매 상품";
       const builtTaxItems: any[] = [];
 
+      const uniqueProductIds = Array.from(
+        new Set(
+          lineInputs
+            .map((line: any) => (line.productId ? parseInt(String(line.productId), 10) : 0))
+            .filter((pid: number) => pid > 0)
+        )
+      ).sort((a, b) => a - b);
+
+      const lockedProductMap = new Map<number, any>();
+      if (uniqueProductIds.length > 0) {
+        const prodRes = await client.query(
+          "SELECT id, standard_cost, current_stock, name, spec, sku_code FROM erp_trade_products WHERE id = ANY($1::bigint[]) ORDER BY id ASC FOR UPDATE",
+          [uniqueProductIds]
+        );
+        for (const p of prodRes.rows) {
+          lockedProductMap.set(Number(p.id), p);
+        }
+      }
+
+      const deductQtyByPid = new Map<number, number>();
+
       for (let i = 0; i < lineInputs.length; i++) {
         const line = lineInputs[i];
         const lPid = line.productId ? parseInt(String(line.productId), 10) : null;
@@ -195,25 +220,14 @@ export async function POST(request: Request) {
         let unitCost = 0;
 
         if (lPid) {
-          const prodRes = await client.query(
-            "SELECT id, standard_cost, current_stock, name, spec, sku_code FROM erp_trade_products WHERE id = $1 FOR UPDATE",
-            [lPid]
-          );
-          if (prodRes.rows.length === 0) {
+          const prod = lockedProductMap.get(lPid);
+          if (!prod) {
             throw new Error(`상품(ID: ${lPid})을 찾을 수 없습니다.`);
           }
-          const prod = prodRes.rows[0];
           prodName = line.itemName || prod.name;
           prodSpec = line.spec || prod.spec || "";
           unitCost = parseFloat(prod.standard_cost || "0");
-
-          // 재고 차감
-          await client.query(
-            `UPDATE erp_trade_products
-             SET current_stock = current_stock - $1, updated_at = NOW()
-             WHERE id = $2`,
-            [lQty, lPid]
-          );
+          deductQtyByPid.set(lPid, (deductQtyByPid.get(lPid) || 0) + lQty);
 
           if (!primaryProductId) {
             primaryProductId = lPid;
@@ -240,6 +254,18 @@ export async function POST(request: Request) {
           vatAmount: lVat,
           note: line.note || line.remark || "",
         });
+      }
+
+      if (deductQtyByPid.size > 0) {
+        const deductEntries = Array.from(deductQtyByPid.entries()).sort((a, b) => a[0] - b[0]);
+        await client.query(
+          `UPDATE erp_trade_products AS p
+           SET current_stock = p.current_stock - u.qty,
+               updated_at = NOW()
+           FROM UNNEST($1::bigint[], $2::numeric[]) AS u(id, qty)
+           WHERE p.id = u.id`,
+          [deductEntries.map((e) => e[0]), deductEntries.map((e) => e[1])]
+        );
       }
 
       if (!primaryProductId && productId) {
@@ -362,6 +388,10 @@ export async function POST(request: Request) {
           currentOperatingHours: 0,
         });
 
+        const warrantyInputs: ForkliftWarrantyUpsertInput[] = [];
+        const optionsJson = JSON.stringify(normalizedInstalledOptions);
+        const resolvedPartnerIdNum = partnerId ? parseInt(String(partnerId), 10) : null;
+
         for (let idx = 0; idx < normalizedChassisNumbers.length; idx++) {
           const chassisNo = normalizedChassisNumbers[idx];
           const suffix =
@@ -370,53 +400,32 @@ export async function POST(request: Request) {
             1000 + Math.random() * 9000
           )}${suffix}`;
 
-          await client.query(
-            `INSERT INTO erp_forklift_warranties
-             (warranty_no, chassis_no, source_type, source_id, product_id, model_name, manufacturer,
-              partner_id, customer_name, site_name, delivery_date, warranty_start_date,
-              warranty_months, warranty_end_date, warranty_hours, current_operating_hours,
-              attached_options, status, memo)
-             VALUES ($1, $2, 'SALE', $3, $4, $5, $6,
-                     $7, $8, $9, $10, $11,
-                     $12, $13, $14, 0,
-                     $15::jsonb, $16, $17)
-             ON CONFLICT (chassis_no) DO UPDATE SET
-               source_type = 'SALE',
-               source_id = EXCLUDED.source_id,
-               product_id = EXCLUDED.product_id,
-               model_name = EXCLUDED.model_name,
-               manufacturer = CASE WHEN EXCLUDED.manufacturer <> '' THEN EXCLUDED.manufacturer ELSE erp_forklift_warranties.manufacturer END,
-               partner_id = EXCLUDED.partner_id,
-               customer_name = EXCLUDED.customer_name,
-               site_name = EXCLUDED.site_name,
-               delivery_date = EXCLUDED.delivery_date,
-               warranty_start_date = EXCLUDED.warranty_start_date,
-               warranty_months = EXCLUDED.warranty_months,
-               warranty_end_date = EXCLUDED.warranty_end_date,
-               warranty_hours = EXCLUDED.warranty_hours,
-               attached_options = EXCLUDED.attached_options,
-               status = EXCLUDED.status,
-               updated_at = NOW()`,
-            [
-              warrantyNo,
-              chassisNo,
-              createdSale.id,
-              primaryProductId,
-              modelName,
-              manufacturer,
-              partnerId ? parseInt(String(partnerId), 10) : null,
-              customerName.trim(),
-              resolvedSiteName,
-              effectiveSaleDate,
-              warrantyStart,
-              resolvedWarrantyMonths,
-              warrantyEnd,
-              resolvedWarrantyHours,
-              JSON.stringify(normalizedInstalledOptions),
-              computed.status,
-              memo || "",
-            ]
-          );
+          warrantyInputs.push({
+            warrantyNo,
+            chassisNo,
+            sourceType: "SALE",
+            sourceId: Number(createdSale.id),
+            assetId: null,
+            productId: primaryProductId,
+            modelName,
+            manufacturer,
+            partnerId: resolvedPartnerIdNum,
+            customerName: customerName.trim(),
+            siteName: resolvedSiteName,
+            deliveryDate: effectiveSaleDate,
+            warrantyStartDate: warrantyStart,
+            warrantyMonths: resolvedWarrantyMonths,
+            warrantyEndDate: warrantyEnd,
+            warrantyHours: resolvedWarrantyHours,
+            currentOperatingHours: 0,
+            attachedOptionsJson: optionsJson,
+            status: computed.status,
+            memo: memo || "",
+          });
+        }
+
+        if (warrantyInputs.length > 0) {
+          await upsertForkliftWarrantiesBatchTx(client, warrantyInputs);
         }
       }
 
@@ -680,10 +689,25 @@ export async function DELETE(request: Request) {
       const itemsArr = Array.isArray(sale.tax_items) ? sale.tax_items : [];
       const itemsWithPid = itemsArr.filter((it: any) => it.productId);
       if (itemsWithPid.length > 0) {
+        const restoreQtyByPid = new Map<number, number>();
         for (const it of itemsWithPid) {
+          const pid = parseInt(String(it.productId), 10);
+          if (pid > 0) {
+            restoreQtyByPid.set(
+              pid,
+              (restoreQtyByPid.get(pid) || 0) + Math.max(1, parseInt(String(it.qty || 1), 10))
+            );
+          }
+        }
+        if (restoreQtyByPid.size > 0) {
+          const restoreEntries = Array.from(restoreQtyByPid.entries()).sort((a, b) => a[0] - b[0]);
           await client.query(
-            "UPDATE erp_trade_products SET current_stock = current_stock + $1, updated_at = NOW() WHERE id = $2",
-            [Math.max(1, parseInt(String(it.qty || 1), 10)), parseInt(String(it.productId), 10)]
+            `UPDATE erp_trade_products AS p
+             SET current_stock = p.current_stock + u.qty,
+                 updated_at = NOW()
+             FROM UNNEST($1::bigint[], $2::numeric[]) AS u(id, qty)
+             WHERE p.id = u.id`,
+            [restoreEntries.map((e) => e[0]), restoreEntries.map((e) => e[1])]
           );
         }
       } else if (sale.product_id) {

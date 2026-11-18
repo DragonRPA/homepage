@@ -2,13 +2,8 @@
 
 import React from "react";
 import { Plus, Trash2, FileText } from "lucide-react";
-import {
-  formatErpInputNumber,
-  toErpInputString,
-  cleanErpNumber,
-  formatErpCurrency,
-  selectPreferredBizItem,
-} from "@/lib/erpFormat";
+import { formatErpInputNumber, toErpInputString, cleanErpNumber, formatErpCurrency } from "@/lib/erpFormat";
+import { selectPreferredBizItem } from "@/lib/erpContractTemplate";
 
 export interface TaxInvoiceLineItem {
   month?: string;

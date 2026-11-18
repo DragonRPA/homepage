@@ -2,37 +2,9 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { putErpPrivateObject } from "@/lib/r2ErpVault";
-import { getGroqApiKey } from "@/lib/groqServerKey";
-import { runSchemaInitOnce } from "@/lib/erpSchemaCache";
+import { callGroqJsonOcr } from "@/lib/erpOcrEngine";
+import { ensureExpenseSchema } from "@/lib/erpExpenseSchema";
 import { requireMenuPermission } from "@/lib/erpRbacGuard";
-
-async function ensureExpenseSchema(pool: any) {
-  await runSchemaInitOnce("erp_expenses_schema_v1", async () => {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS erp_expense_receipts (
-        id SERIAL PRIMARY KEY,
-        employee_id BIGINT NOT NULL REFERENCES erp_employees(id) ON DELETE CASCADE,
-        expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
-        year_month VARCHAR(7) NOT NULL,
-        category VARCHAR(50) NOT NULL DEFAULT '식대·회식비',
-        merchant_name VARCHAR(200) NOT NULL DEFAULT '',
-        amount NUMERIC NOT NULL DEFAULT 0,
-        payment_method VARCHAR(50) NOT NULL DEFAULT '개인카드',
-        reason TEXT NOT NULL DEFAULT '',
-        receipt_file_url TEXT,
-        receipt_file_name TEXT,
-        status VARCHAR(20) NOT NULL DEFAULT 'APPROVED',
-        approver_id BIGINT,
-        approved_at TIMESTAMPTZ,
-        memo TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      );
-      ALTER TABLE erp_payroll_records
-      ADD COLUMN IF NOT EXISTS personal_expense_amount NUMERIC NOT NULL DEFAULT 0;
-    `);
-  });
-}
 
 /**
  * 특정 귀속연월 + 임직원의 승인된 개인경비 합계를 급여 정산 대장(erp_payroll_records)에 실시간 반영
@@ -306,45 +278,16 @@ export async function POST(request: Request) {
         // 이미지 파일인 경우 AI Vision으로 가맹점명, 결제금액, 결제일자 자동 추출 시도
         if (mimeType.startsWith("image/") && fileBuffer.length < 4 * 1024 * 1024) {
           try {
-            const groqApiKey = await getGroqApiKey();
-            if (groqApiKey) {
-              const base64Img = fileBuffer.toString("base64");
-              const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${groqApiKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  model: "meta-llama/llama-4-scout-17b-16e-instruct",
-                  temperature: 0.1,
-                  response_format: { type: "json_object" },
-                  messages: [
-                    {
-                      role: "user",
-                      content: [
-                        {
-                          type: "text",
-                          text: `다음 영수증 이미지에서 결제일자(YYYY-MM-DD), 가맹점명(상호), 총 결제금액(숫자만), 경비구분(식대·회식비 / 유류비·주차·통행료 / 출장·교통비 / 소모품·현장자재 / 접대·업무추진비 / 기타 업무경비 중 택1)을 JSON으로 추출하세요. 형식: {"expenseDate":"YYYY-MM-DD","merchantName":"상호명","amount":15000,"category":"식대·회식비"}`,
-                        },
-                        {
-                          type: "image_url",
-                          image_url: {
-                            url: `data:${mimeType};base64,${base64Img}`,
-                          },
-                        },
-                      ],
-                    },
-                  ],
-                }),
-              });
-              if (aiRes.ok) {
-                const aiData = await aiRes.json();
-                const rawJson = aiData.choices?.[0]?.message?.content;
-                if (rawJson) {
-                  parsedInfo = JSON.parse(rawJson);
-                }
-              }
+            const base64Img = fileBuffer.toString("base64");
+            const aiParsed = await callGroqJsonOcr({
+              prompt: `다음 영수증 이미지에서 결제일자(YYYY-MM-DD), 가맹점명(상호), 총 결제금액(숫자만), 경비구분(식대·회식비 / 유류비·주차·통행료 / 출장·교통비 / 소모품·현장자재 / 접대·업무추진비 / 기타 업무경비 중 택1)을 JSON으로 추출하세요. 형식: {"expenseDate":"YYYY-MM-DD","merchantName":"상호명","amount":15000,"category":"식대·회식비"}`,
+              imageBase64: `data:${mimeType};base64,${base64Img}`,
+              models: ["meta-llama/llama-4-scout-17b-16e-instruct"],
+              timeoutMs: 18000,
+              maxTokens: 500,
+            });
+            if (aiParsed) {
+              parsedInfo = aiParsed;
             }
           } catch (ocrErr) {
             console.warn("[Expense OCR Warning]:", ocrErr);

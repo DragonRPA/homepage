@@ -3,128 +3,79 @@ import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { decryptPii, encryptPii } from "@/lib/piiCrypto";
 import { runSchemaInitOnce } from "@/lib/erpSchemaCache";
+import {
+  GOV_SUPPORT_SEED_ITEMS,
+  GovSupportSeedItem,
+  SEED_ORIGINAL_CONTENTS,
+} from "./govSupportSeedData";
 
-const SEED_ORIGINAL_CONTENTS: Record<string, string> = {
-  "2026년 중소기업 스마트서비스 지원사업 (AI·RPA·클라우드 솔루션 구축 및 고도화)": `[공고원문 요약본 - 중소벤처기업부 공고 / 전담기관: 중소기업기술정보진흥원(TIPA)]
+type GovSupportInsertRow = GovSupportSeedItem & { original_content: string };
 
-1. 사업개요
- □ 사업목적: 중소기업 서비스 분야의 생산성 향상, 고부가가치화 및 신사업 창출을 위해 AI(인공지능), 빅데이터, 클라우드, RPA(로보틱 프로세스 자동화), 지능형 ERP 등 첨단 ICT 솔루션 도입 및 공급기업 솔루션 고도화를 지원
- □ 지원규모
-  - 신규 구축(도입기업 + 공급기업 컨소시엄): 과제당 최대 6,000만원 (정부지원금 50%, 기업부담금 50%)
-  - 고도화/선도형(솔루션 고도화 및 데이터 연동): 과제당 최대 1억 5,000만원 (정부지원금 50%)
+async function insertGovSupportItemsBatch(
+  pool: any,
+  rows: GovSupportInsertRow[]
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  await pool.query(
+    `INSERT INTO erp_gov_support_items (
+      category, agency, title, region, target_audience, support_amount,
+      start_date, end_date, dday_label, fit_score, status, summary,
+      eligibility_detail, action_plan, original_content, source_url, keywords, is_bookmarked, published_date
+    )
+    SELECT * FROM UNNEST(
+      $1::varchar[], $2::varchar[], $3::varchar[], $4::varchar[], $5::varchar[], $6::varchar[],
+      $7::varchar[], $8::varchar[], $9::varchar[], $10::int[], $11::varchar[], $12::text[],
+      $13::text[], $14::text[], $15::text[], $16::text[], $17::text[], $18::bool[], $19::varchar[]
+    )`,
+    [
+      rows.map((r) => r.category),
+      rows.map((r) => r.agency),
+      rows.map((r) => r.title),
+      rows.map((r) => r.region),
+      rows.map((r) => r.target_audience),
+      rows.map((r) => r.support_amount),
+      rows.map((r) => r.start_date),
+      rows.map((r) => r.end_date),
+      rows.map((r) => r.dday_label),
+      rows.map((r) => r.fit_score),
+      rows.map((r) => r.status),
+      rows.map((r) => r.summary),
+      rows.map((r) => r.eligibility_detail),
+      rows.map((r) => r.action_plan),
+      rows.map((r) => r.original_content),
+      rows.map((r) => r.source_url),
+      rows.map((r) => r.keywords),
+      rows.map((r) => r.is_bookmarked),
+      rows.map((r) => r.published_date),
+    ]
+  );
+  return rows.length;
+}
 
-2. 신청자격
- □ 도입기업: 「중소기업기본법」 제2조에 따른 중소기업
- □ 공급기업: 스마트서비스 솔루션(AI, RPA, 클라우드 ERP, 물류·렌탈 관리 시스템 등) 설계·개발·구축 역량을 보유한 중소·중견기업
-  * (주)드래곤알피에이는 자체 개발 RPA 업무자동화 및 AI ERP 솔루션을 기반으로 '공급기업' 참여 가능하며, 자사 렌탈·입출고·정산 고도화를 위한 '도입기업'으로도 신청 가능
+async function insertNewGovSupportItems(
+  pool: any,
+  candidateRows: GovSupportInsertRow[]
+): Promise<number> {
+  const seenTitles = new Set<string>();
+  const uniqueRows: GovSupportInsertRow[] = [];
+  for (const row of candidateRows) {
+    const normalizedTitle = row.title.trim();
+    if (!normalizedTitle || seenTitles.has(normalizedTitle)) continue;
+    seenTitles.add(normalizedTitle);
+    uniqueRows.push({ ...row, title: normalizedTitle });
+  }
+  if (uniqueRows.length === 0) return 0;
 
-3. 지원내용
- □ 인건비(신규 및 내부 개발인력), SW 개발·커스터마이징 용역비, 클라우드 서버 임차료, 외부 전문가 활용비, 솔루션 시험·인증비(GS인증·보안검증 등)
-
-4. 평가절차 및 우대사항
- □ 1차 서면평가(사업계획서 타당성, 기술성, 실현가능성) → 2차 발표평가(컨소시엄 역량, 성과지표 명확성)
- □ 우대 가점: 벤처기업, 이노비즈/메인비즈 인증기업, 청년고용 우수기업, AI/빅데이터 핵심기술 적용 과제
-
-5. 신청방법 및 문의처
- □ 접수처: 중소기업 스마트서비스 지원시스템 (https://www.smb-service.kr) 온라인 접수
- □ 제출서류: 스마트서비스 사업계획서, 도입·공급기업 사업자등록증, 중소기업확인서, 최근 3개년 표준재무제표증명, 국세·지방세 완납증명서`,
-
-  "2026~2027년 AI 바우처 및 클라우드 서비스 바우처 공급·수요기업 모집": `[공고원문 요약본 - 과학기술정보통신부 / 정보통신산업진흥원(NIPA)]
-
-1. 사업개요
- □ AI 바우처 지원사업: AI 기술 적용이 필요한 수요기업(중소·벤처·중견기업)에게 바우처를 발급하고, 수요기업은 AI 솔루션 보유 공급기업으로부터 자사 맞춤형 AI 솔루션을 구매·구축하도록 지원
- □ 클라우드 서비스 바우처 지원사업: 국내 중소기업의 디지털 전환(DX) 촉진을 위해 클라우드 기반 SaaS(ERP, CRM, RPA, 협업툴 등) 도입 이용료 및 데이터 이관 비용을 지원
-
-2. 지원한도 및 분담비율
- □ AI 바우처: 과제당 최대 2억원 이내 (정부지원금 70~80%, 수요기업 자부담 20~30% 현금+현물)
- □ 클라우드 서비스 바우처:
-  - 일반지원: 기업당 최대 1,550만원 (국비 80% 지원)
-  - 집중지원(심화 컨설팅 + 데이터 마이그레이션 포함): 기업당 최대 5,000만원~8,000만원 (국비 80% 지원)
-
-3. (주)드래곤알피에이 활용 전략
- □ 공급기업(Pool) 등록 시: 당사 AI ERP 및 RPA 자동화 솔루션을 NIPA 공급 서비스로 등록하여, 거래처(렌탈·유통·서비스 기업)가 정부보조금 80%를 지원받아 당사 솔루션을 도입하도록 영업 레버리지 극대화
- □ 수요기업 신청 시: 사내 AI 에이전트 고도화 및 클라우드 인프라 확충 비용의 80% 국비 절감
-
-4. 접수 및 공고 확인
- □ 정보통신산업진흥원(NIPA) 홈페이지 (https://www.nipa.kr) 및 NIPA SMART 사업관리시스템
- □ 클라우드 서비스 지원포털 (https://www.cloudsup.or.kr)`,
-
-  "청년일자리도약장려금 및 고용창출장려금 (IT·운용 인력 신규 채용 지원)": `[공고원문 요약본 - 고용노동부 / 한국고용정보원 (고용24)]
-
-1. 사업목적
- □ 기업의 청년 정규직 채용을 촉진하고 인건비 부담을 완화하기 위해 5인 이상 우선지원대상기업(지식서비스·SW·IT·문화콘텐츠 업종은 1인~4인 기업도 특례 인정)에 채용장려금을 직접 지원
-
-2. 지원요건
- □ 기업요건: 고용보험 피보험자 수 5인 이상 우선지원대상기업 (단, SW개발·정보통신·지식서비스 산업 등 예외업종은 1인 이상 가능)
- □ 청년요건: 채용일 현재 만 15세 이상 ~ 34세 이하 청년 (군필자의 경우 복무기간만큼 최대 만 39세까지 연장)
- □ 채용조건: 정규직(기간의 정함이 없는 근로자)으로 채용 후 6개월 이상 고용유지, 주 30시간 이상 근로 및 최저임금 이상 지급, 4대 사회보험 가입 필수
-
-3. 지원금액 및 지급방식
- □ 신규 채용 청년 1인당 월 최대 60만원 × 12개월 지원 (1년차 최대 720만원)
- □ 최초 채용일로부터 2년 근속 시 480만원 일시 지급 → 1인당 2년간 최대 1,200만원 무상 지원
-
-4. 신청절차
- □ 고용24 (https://www.work24.go.kr) 접속 → 기업회원 로그인 → 사업장 소재지 관할 운영기관(서울 금천구 가산디지털단지 관할 운영기관) 선택 후 참여신청서 제출
- □ 채용 후 3개월 이내 채용자 명단 통보 및 6개월 고용유지 후 제1회차 지원금 신청`,
-
-  "G밸리(가산·구로) 중소기업 디지털 전환(DX) 및 판로개척·마케팅 지원사업": `[공고원문 요약본 - 서울경제진흥원(SBA) / 금천구청 기업지원과]
-
-1. 사업개요
- □ 서울 디지털산업단지(G밸리: 금천구 가산동·독산동, 구로구 구로동) 소재 유망 중소·벤처기업의 기술경쟁력 강화 및 국내외 판로 개척을 위한 종합 맞춤형 바우처 지원
-
-2. 지원대상
- □ 본점 또는 주사업장(지점·기업부설연구소 포함)이 서울특별시 금천구 또는 구로구에 소재한 중소기업
-  * (주)드래곤알피에이 본점 소재지(서울 금천구 서부샛길 / 가산동) 요건 100% 부합
-
-3. 세부 지원항목 (기업당 최대 2,000만원 한도 내 자율 선택)
- □ 디지털 전환(DX): 업무용 SW·클라우드 서비스 임차, 홈페이지·쇼핑몰·ERP 고도화
- □ 판로개척 및 마케팅: 국내외 전시회·박람회 참가 부스비, 홍보영상·카탈로그 제작, 온라인 키워드/검색 광고비
- □ 기술보호 및 인증: 특허·상표 출원비, ISO인증, 벤처기업/이노비즈 인증 수수료, 보안 시스템 구축
-
-4. 신청방법
- □ 서울경제진흥원(SBA) 스타트업플러스 (https://www.sba.seoul.kr) 및 금천구청 홈페이지 고시·공고란
- □ 필수서류: 사업신청서, 사업자등록증명원, 법인등기부등본, 중소기업확인서, 국세·지방세 완납증명서`,
-
-  "[공공입찰 트렌드] 연말·연초 공공기관 및 학술행사 대형 스마트TV·디스플레이·OA 단기임차 발주 급증": `[나라장터(KONEPS) 공공입찰 발주 동향 원문 브리핑]
-
-1. 발주 동향 핵심 요약
- □ 매년 11월~익년 2월은 정부부처, 지자체, 국책연구기관, 대학교(산학협력단), 코엑스/킨텍스/벡스코 전시주관사의 연말 성과발표회·학술대회·CES 프리뷰·신년 인사회가 집중되는 시기입니다.
- □ 이에 따라 조달청 나라장터(G2B)에 55인치~85인치 대형 스마트TV(이동식 스탠드 포함), 터치스크린 키오스크, 업무용 노트북, 레이저 프린터·복합기 단기 임차(렌탈) 및 현장 설치·철거 용역 공고가 전월 대비 2.4배 이상 급증하고 있습니다.
-
-2. 주요 발주 형태 및 예산 규모
- □ 소액수의계약(견적입찰): 추정가격 2,000만원 이상 ~ 5,000만원 이하 (여성기업·중소기업·지역제한 다수)
- □ 제한경쟁입찰(총액/단가): 5,000만원 ~ 1.5억원 규모 (전시회·국제행사 통합 장비 임차)
- □ 나라장터 종합쇼핑몰 / 벤처나라: 사전 등록 물품의 경우 수의계약 직발주 가능
-
-3. (주)드래곤알피에이 실전 대응 포인트
- □ 당사 보유 97대 스마트TV(UDH 55/65, SMART TV 55/75 등) 자산의 유휴 기간을 활용하여, 단기 고단가 행사 렌탈 입찰에 참여 시 장비 회전율 및 마진율 극대화 가능
- □ 설치·배송·회수 인력(렌탈운영팀)과 자체 배차·검수 ERP를 보유하고 있어 공공기관이 요구하는 납품검수조서 및 사진대지 즉시 제출 가능`,
-
-  "[트렌드] 2026~2027 기업용 B2B 디바이스 구독(Device-as-a-Service) 및 AI 에이전트 결합형 ERP 확산": `[산업 인텔리전스 원문 리포트 - B2B 렌탈 & AI ERP 시장 분석]
-
-1. B2B 디바이스 구독(DaaS: Device-as-a-Service) 시장의 구조적 성장
- □ 고금리 및 IT 장비 교체주기 단축으로 인해 일반 기업과 공공기관 모두 디스플레이·노트북·복합기·전산장비를 직접 매입(CAPEX)하기보다, 월 정액 렌탈과 현장 유지보수·자산관리 용역을 결합한 DaaS(OPEX) 계약을 선호하고 있습니다.
- □ 단순 하드웨어 대여만 제공하는 전통 렌탈사 대비, '현장 입출고·설치·AS 운영인력 파견 + IT 자산관리 시스템'을 함께 제공하는 통합 운영 용역사의 계약 갱신율이 92% 이상으로 나타났습니다.
-
-2. AI 에이전트 결합형 ERP 및 RPA 자동화의 경쟁 우위
- □ 렌탈 및 용역 비즈니스에서 가장 큰 관리 손실은 ① 장비 위치·상태 추적 누락, ② 일할계산·초과근무 반영 등 월말 정산 오류, ③ 세금계산서 발행과 통장 입금 내역 간의 미수금 대사 지연에서 발생합니다.
- □ Google Gemini 2.5 등 LLM과 RPA를 ERP에 내재화하여 근로계약·연차·초과근무·용역청구·세금계산서·은행입출금 FIFO 대사를 1-Way 파이프라인으로 통합한 기업은 백오피스 행정 공수를 75% 이상 절감하고 있습니다.`,
-
-  "[정책뉴스] 정부, 2027년도 중소기업 AI·디지털 전환 및 기술개발(R&D) 보조금 예산 대폭 확대 편성": `[정책브리핑 원문 요약 - 중소벤처기업부 2027년 R&D 및 DX 지원방향]
-
-1. 정책 발표 주요 내용
- □ 정부는 2027년도 중소벤처기업부 예산안에서 '인공지능(AI) 활용 비즈니스 모델 상용화', '스마트서비스 고도화', '초격차·디딤돌 기술개발(R&D)' 부문의 출연금 예산을 대폭 확대 편성했습니다.
- □ 특히 제조 중심이었던 기존 지원틀에서 벗어나, 물류·렌탈·유통·지식서비스 분야에서 AI와 자동화(RPA)를 결합해 현장 업무 효율을 높이는 '서비스 R&D' 과제의 선정 비중을 크게 늘릴 계획입니다.
-
-2. 주요 대상 사업
- □ 창업성장기술개발사업 (디딤돌 첫걸음 / 도약 과제): 1년간 최대 1.2억원 ~ 2억원 무상 출연금 지원
- □ 중소기업 기술혁신개발사업: 2년간 최대 5억원 지원
- □ 중소기업 스마트서비스 지원사업: 최대 6,000만원 ~ 1.5억원 지원
-
-3. 사전 준비 체크리스트
- □ 한국산업기술진흥협회(KOITA) 연구개발전담부서 또는 기업부설연구소 설립 인정서 확보 (보유 시 R&D 과제 신청자격 및 세액공제 혜택)
- □ 당사 ERP/RPA 고도화 주제(예: 'AI 기반 렌탈 자산 라이프사이클 추적 및 자동 정산·대사 플랫폼 개발')로 표준 사업계획서 사전 모듈화`,
-};
+  const existingRes = await pool.query(
+    `SELECT title FROM erp_gov_support_items WHERE title = ANY($1::varchar[])`,
+    [uniqueRows.map((r) => r.title)]
+  );
+  const existingTitles = new Set<string>(
+    existingRes.rows.map((r: { title: string }) => r.title)
+  );
+  const newRows = uniqueRows.filter((r) => !existingTitles.has(r.title));
+  return insertGovSupportItemsBatch(pool, newRows);
+}
 
 async function ensureGovSupportTables(pool: any) {
   await runSchemaInitOnce("erp_gov_support_schema_v2", async () => {
@@ -187,211 +138,26 @@ async function ensureGovSupportTables(pool: any) {
   // 초기 기본 시드 데이터 (최초 0건일 때 실무 활용도가 높은 주요 정부지원사업·뉴스·트렌드 제공)
   const countRes = await pool.query(`SELECT COUNT(*)::int AS cnt FROM erp_gov_support_items`);
   if ((countRes.rows[0]?.cnt || 0) === 0) {
-    const seedItems = [
-      {
-        category: "SUPPORT",
-        agency: "중소벤처기업부 / 중소기업기술정보진흥원(TIPA)",
-        title: "2026년 중소기업 스마트서비스 지원사업 (AI·RPA·클라우드 솔루션 구축 및 고도화)",
-        region: "전국 (서울 금천구 포함)",
-        target_audience: "IT·서비스·제조 중소기업 (공급기업 및 도입기업 컨소시엄)",
-        support_amount: "신규 구축 최대 6,000만원 / 고도화 최대 1.5억원 (국비 50%)",
-        start_date: "2026-11-01",
-        end_date: "2026-12-15",
-        dday_label: "접수중",
-        fit_score: 98,
-        status: "BOOKMARKED",
-        summary:
-          "중소기업의 업무 생산성 혁신을 위한 AI, 빅데이터, RPA(업무자동화), ERP 등 스마트서비스 솔루션 도입 및 공급기업 솔루션 고도화를 지원하는 핵심 사업입니다. (주)드래곤알피에이는 RPA 및 AI ERP 공급기업 등록 또는 자사 렌탈·물류 자동화 고도화 과제로 직접 참여 가능합니다.",
-        eligibility_detail:
-          "• 중소기업기본법 제2조에 따른 중소기업\n• AI/RPA/클라우드 기반 스마트서비스 구축 또는 공급 역량 보유 법인\n• 국세·지방세 체납 및 금융기관 채무불이행이 없는 기업",
-        action_plan:
-          "1. 공급기업 풀(Pool) 등록 여부 점검 및 사업계획서(AI 기반 렌탈자산·정산 자동화 ERP) 작성\n2. 수요기업(렌탈 고객사 등) 1~2곳과 컨소시엄 매칭 협의\n3. 중소기업 스마트서비스 지원시스템 온라인 접수",
-        source_url: "https://www.smb-service.kr",
-        keywords: "스마트서비스,RPA,AI ERP,TIPA,중소벤처기업부",
-        is_bookmarked: true,
-        published_date: "2026-11-01",
-      },
-      {
-        category: "SUPPORT",
-        agency: "과학기술정보통신부 / 정보통신산업진흥원(NIPA)",
-        title: "2026~2027년 AI 바우처 및 클라우드 서비스 바우처 공급·수요기업 모집",
-        region: "전국",
-        target_audience: "AI·SW 솔루션 보유 중소·벤처기업 (공급기업) 및 디지털 전환 희망 중소기업",
-        support_amount: "과제당 최대 2억원 바우처 지원 (자부담 20~30%)",
-        start_date: "2026-11-10",
-        end_date: "2026-12-20",
-        dday_label: "공고예정",
-        fit_score: 95,
-        status: "DISCOVERED",
-        summary:
-          "NIPA 주관 AI 바우처 및 클라우드 바우처 사업으로, 드래곤알피에이의 RPA 자동화 및 클라우드형 ERP 솔루션을 공급기업 서비스로 등록하여 고객사에 정부보조금(최대 80%)으로 납품·구축할 수 있는 핵심 영업 레버리지 사업입니다.",
-        eligibility_detail:
-          "• 공급기업: 자체 개발 AI·SW·클라우드 솔루션 보유 법인\n• 수요기업: 국내 중소·중견기업, 의료기관 등",
-        action_plan:
-          "1. NIPA 사업관리시스템(SMART) 공급기업 사전 등록 서류 준비 (솔루션 소개서, 가격표, 실적증명원)\n2. 기존 용역 고객사 대상 바우처 수요기업 공동 참여 제안",
-        source_url: "https://www.nipa.kr",
-        keywords: "AI바우처,클라우드바우처,NIPA,공급기업,SaaS",
-        is_bookmarked: true,
-        published_date: "2026-11-03",
-      },
-      {
-        category: "SUPPORT",
-        agency: "고용노동부 / 한국고용정보원",
-        title: "청년일자리도약장려금 및 고용창출장려금 (IT·운용 인력 신규 채용 지원)",
-        region: "전국 (금천고용센터 관할)",
-        target_audience: "5인 이상 우선지원대상기업 (지식서비스·SW·문화콘텐츠 업종은 1인 이상도 가능)",
-        support_amount: "신규 채용 1인당 월 최대 60만원 × 12개월 + 2년 근속 시 480만원 (최대 1,200만원)",
-        start_date: "2026-01-01",
-        end_date: "2026-12-31",
-        dday_label: "상시접수",
-        fit_score: 93,
-        status: "BOOKMARKED",
-        summary:
-          "정규직 신규 채용 후 6개월 이상 고용 유지 시 인건비를 직접 지원하는 고용노동부 핵심 장려금입니다. 렌탈운영팀 및 개발·기술지원 인력 충원 시 인건비 부담을 대폭 절감할 수 있습니다.",
-        eligibility_detail:
-          "• 4대보험 가입 및 최저임금 이상 지급 정규직 채용\n• 채용일 이전 사전 참여신청 또는 채용 후 기한 내 운영기관 신청 필수",
-        action_plan:
-          "1. 고용24(work24.go.kr) 기업회원 로그인 후 금천구 관할 운영기관 지정 신청\n2. 최근 채용 인력 및 향후 채용 예정 인원 적격 여부 확인",
-        source_url: "https://www.work24.go.kr",
-        keywords: "고용장려금,청년일자리도약장려금,인건비지원,고용노동부",
-        is_bookmarked: true,
-        published_date: "2026-10-25",
-      },
-      {
-        category: "SUPPORT",
-        agency: "서울경제진흥원(SBA) / 금천구청",
-        title: "G밸리(가산·구로) 중소기업 디지털 전환(DX) 및 판로개척·마케팅 지원사업",
-        region: "서울 금천구·구로구 (G밸리)",
-        target_audience: "서울 금천구·구로구 소재 IT·지식산업센터 입주 중소기업",
-        support_amount: "기업당 최대 2,000만원 (홍보·전시회·인증·시제품·클라우드 이용료)",
-        start_date: "2026-11-05",
-        end_date: "2026-11-29",
-        dday_label: "접수중",
-        fit_score: 91,
-        status: "DISCOVERED",
-        summary:
-          "서울 금천구 가산디지털단지(G밸리) 입주 기업을 대상으로 SBA와 금천구청이 지원하는 맞춤형 기업지원 프로그램입니다. 본사 소재지(서울 금천구) 가점 대상에 해당합니다.",
-        eligibility_detail:
-          "• 본점 또는 주사업장이 서울 금천구(가산동·독산동) 소재 법인사업자\n• 상시근로자 5인 이상 또는 SW·IT 서비스 영위 기업",
-        action_plan:
-          "1. 서울경제진흥원(SBA) 스타트업플러스 포털 공고 확인\n2. 법인등기부등본, 사업자등록증, 중소기업확인서 첨부 온라인 신청",
-        source_url: "https://www.sba.seoul.kr",
-        keywords: "SBA,서울경제진흥원,금천구,G밸리,판로개척",
-        is_bookmarked: false,
-        published_date: "2026-11-04",
-      },
-      {
-        category: "PROCUREMENT",
-        agency: "조달청 나라장터 (KONEPS) / 공공기관",
-        title: "[공공입찰 트렌드] 연말·연초 공공기관 및 학술행사 대형 스마트TV·디스플레이·OA 단기임차 발주 급증",
-        region: "수도권 및 전국",
-        target_audience: "물품임차(렌탈) 및 행사대행·전산용역 등록 사업자",
-        support_amount: "건당 1,500만원 ~ 8,000만원 소액수의 및 제한경쟁 입찰 다수",
-        start_date: "2026-11-01",
-        end_date: "2026-12-31",
-        dday_label: "상시모니터링",
-        fit_score: 94,
-        status: "DISCOVERED",
-        summary:
-          "4분기 예산 집행 및 연말 성과보고회·전시회 시즌 도래에 따라 정부부처·지자체·공공기관의 55~85인치 대형 스마트TV, 터치모니터, 노트북, 음향장비 단기 렌탈 및 설치·운영용역 발주가 집중되고 있습니다.",
-        eligibility_detail:
-          "• 나라장터 경쟁입찰참가자격 등록 업체\n• 중소기업확인서 및 직접생산/물품공급 자격 보유",
-        action_plan:
-          "1. 나라장터 키워드 알림('임차', '렌탈', '스마트TV', '모니터', '전시', 'RPA') 설정\n2. 보유 97대 TV/디스플레이 자산 가동 일정과 연계하여 고마진 단기 행사 입찰 참여",
-        source_url: "https://www.g2b.go.kr",
-        keywords: "나라장터,조달청,디스플레이임차,스마트TV렌탈,공공입찰",
-        is_bookmarked: false,
-        published_date: "2026-11-06",
-      },
-      {
-        category: "TREND",
-        agency: "IT·렌탈 산업 인텔리전스 리포트",
-        title: "[트렌드] 2026~2027 기업용 B2B 디바이스 구독(Device-as-a-Service) 및 AI 에이전트 결합형 ERP 확산",
-        region: "국내외 B2B 시장",
-        target_audience: "B2B 렌탈·IT 아웃소싱·ERP/RPA 솔루션 기업",
-        support_amount: "연평균 시장 성장률(CAGR) 18.4% 전망",
-        start_date: "2026-11-07",
-        end_date: "2027-12-31",
-        dday_label: "핵심트렌드",
-        fit_score: 96,
-        status: "DISCOVERED",
-        summary:
-          "기업들이 초기 CAPEX(설비투자) 부담을 줄이기 위해 디스플레이·OA·IT 장비를 하드웨어 렌탈과 운영·유지보수 용역으로 통합 계약하는 DaaS(Device-as-a-Service) 수요가 급증하고 있습니다. 특히 Google Gemini 2.5 등 멀티모달 AI와 RPA를 결합해 계약·검수·세금계산서·미수금 대사를 자동화하는 기업이 영업이익률에서 2배 이상 격차를 보이고 있습니다.",
-        eligibility_detail:
-          "• 하드웨어 렌탈 자산관리 + 현장 운영인력 파견 + RPA 자동화 역량을 동시 보유한 하이브리드 사업모델 유리",
-        action_plan:
-          "1. 현대렌탈서비스 등 대형 파트너사 대상 '장비 입출고·검수·정산 자동화 + 현장 기술지원' 패키지 제안 강화\n2. AI 브리핑을 통한 주간 신규 공고 및 경쟁사 동향 정기 점검",
-        source_url: "https://www.bizinfo.go.kr",
-        keywords: "B2B렌탈,DaaS,AI에이전트,RPA트렌드,구독경제",
-        is_bookmarked: false,
-        published_date: "2026-11-07",
-      },
-      {
-        category: "NEWS",
-        agency: "정책브리핑 / 중소벤처기업부",
-        title: "[정책뉴스] 정부, 2027년도 중소기업 AI·디지털 전환 및 기술개발(R&D) 보조금 예산 대폭 확대 편성",
-        region: "전국",
-        target_audience: "기술혁신형 중소기업(이노비즈), 벤처기업, 기업부설연구소 보유 기업",
-        support_amount: "창업성장기술개발 디딤돌 과제 최대 1.2억원~2억원 (1년)",
-        start_date: "2026-11-05",
-        end_date: "2027-02-28",
-        dday_label: "정책뉴스",
-        fit_score: 89,
-        status: "DISCOVERED",
-        summary:
-          "중소벤처기업부가 내년 초 공고 예정인 창업성장기술개발사업 및 서비스 R&D 사업에서 AI 활용 비즈니스 모델(예: AI 기반 렌탈 자산 수명예측·자동배차·회계대사 시스템)에 대한 우대 가점을 확대한다고 발표했습니다.",
-        eligibility_detail:
-          "• 기업부설연구소 또는 연구개발전담부서 보유(또는 설립 예정) 중소기업\n• 벤처기업 확인 또는 이노비즈/메인비즈 인증 시 가점 부여",
-        action_plan:
-          "1. 한국산업기술진흥협회(KOITA) 연구개발전담부서/기업부설연구소 요건 점검\n2. 1~2월 상반기 제1차 공고 대비 연구주제 사전 기획",
-        source_url: "https://www.smtech.go.kr",
-        keywords: "중소기업R&D,디딤돌과제,기업부설연구소,정책뉴스",
-        is_bookmarked: false,
-        published_date: "2026-11-05",
-      },
-    ];
-
-    for (const item of seedItems) {
-      await pool.query(
-        `INSERT INTO erp_gov_support_items (
-          category, agency, title, region, target_audience, support_amount,
-          start_date, end_date, dday_label, fit_score, status, summary,
-          eligibility_detail, action_plan, original_content, source_url, keywords, is_bookmarked, published_date
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
-        [
-          item.category,
-          item.agency,
-          item.title,
-          item.region,
-          item.target_audience,
-          item.support_amount,
-          item.start_date,
-          item.end_date,
-          item.dday_label,
-          item.fit_score,
-          item.status,
-          item.summary,
-          item.eligibility_detail,
-          item.action_plan,
-          SEED_ORIGINAL_CONTENTS[item.title] || item.summary,
-          item.source_url,
-          item.keywords,
-          item.is_bookmarked,
-          item.published_date,
-        ]
-      );
-    }
+    await insertGovSupportItemsBatch(
+      pool,
+      GOV_SUPPORT_SEED_ITEMS.map((item) => ({
+        ...item,
+        original_content: SEED_ORIGINAL_CONTENTS[item.title] || item.summary,
+      }))
+    );
   } else {
     // 기존 시드 데이터 중 original_content가 비어 있는 항목 자동 보강
-      for (const [seedTitle, seedOrig] of Object.entries(SEED_ORIGINAL_CONTENTS)) {
-        await pool.query(
-          `UPDATE erp_gov_support_items
-           SET original_content = $1
-           WHERE title = $2 AND (original_content IS NULL OR original_content = '')`,
-          [seedOrig, seedTitle]
-        );
-      }
+    const seedEntries = Object.entries(SEED_ORIGINAL_CONTENTS);
+    if (seedEntries.length > 0) {
+      await pool.query(
+        `UPDATE erp_gov_support_items AS g
+         SET original_content = u.orig
+         FROM UNNEST($1::varchar[], $2::text[]) AS u(title, orig)
+         WHERE g.title = u.title AND (g.original_content IS NULL OR g.original_content = '')`,
+        [seedEntries.map(([t]) => t), seedEntries.map(([, orig]) => orig)]
+      );
     }
+  }
   });
 }
 
@@ -915,46 +681,34 @@ ${rssArticles.map((a, i) => `${i + 1}. ${a.title} (${a.source}) - ${a.descriptio
         }
 
         const parsedList = JSON.parse(jsonMatch[0]);
-        let insertedCount = 0;
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const candidateRows: GovSupportInsertRow[] = Array.isArray(parsedList)
+          ? parsedList
+              .filter((item: any) => item?.title && String(item.title).trim())
+              .map((item: any) => ({
+                category: String(item.category || (targetCategory !== "ALL" ? targetCategory : "SUPPORT")),
+                agency: String(item.agency || "정부·공공기관"),
+                title: String(item.title).trim(),
+                region: String(item.region || "전국"),
+                target_audience: String(item.targetAudience || "중소기업"),
+                support_amount: String(item.supportAmount || "공고문 참조"),
+                start_date: String(item.startDate || todayIso),
+                end_date: String(item.endDate || "상시"),
+                dday_label: String(item.ddayLabel || "신규발굴"),
+                fit_score: Math.round(Math.min(99, Math.max(70, Number(item.fitScore) || 90))),
+                status: "DISCOVERED",
+                summary: String(item.summary || ""),
+                eligibility_detail: String(item.eligibilityDetail || ""),
+                action_plan: String(item.actionPlan || ""),
+                original_content: String(item.originalContent || item.summary || ""),
+                source_url: String(item.sourceUrl || "https://www.bizinfo.go.kr"),
+                keywords: String(item.keywords || searchTopic),
+                is_bookmarked: false,
+                published_date: todayIso,
+              }))
+          : [];
 
-        if (Array.isArray(parsedList)) {
-          for (const item of parsedList) {
-            if (!item?.title) continue;
-            const dupCheck = await pool.query(
-              `SELECT id FROM erp_gov_support_items WHERE title = $1 LIMIT 1`,
-              [String(item.title).trim()]
-            );
-            if (dupCheck.rows.length > 0) continue;
-
-            await pool.query(
-              `INSERT INTO erp_gov_support_items (
-                category, agency, title, region, target_audience, support_amount,
-                start_date, end_date, dday_label, fit_score, status, summary,
-                eligibility_detail, action_plan, original_content, source_url, keywords, is_bookmarked, published_date
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'DISCOVERED',$11,$12,$13,$14,$15,$16,false,$17)`,
-              [
-                item.category || (targetCategory !== "ALL" ? targetCategory : "SUPPORT"),
-                item.agency || "정부·공공기관",
-                String(item.title).trim(),
-                item.region || "전국",
-                item.targetAudience || "중소기업",
-                item.supportAmount || "공고문 참조",
-                item.startDate || new Date().toISOString().slice(0, 10),
-                item.endDate || "상시",
-                item.ddayLabel || "신규발굴",
-                Math.min(99, Math.max(70, Number(item.fitScore) || 90)),
-                item.summary || "",
-                item.eligibilityDetail || "",
-                item.actionPlan || "",
-                item.originalContent || item.summary || "",
-                item.sourceUrl || "https://www.bizinfo.go.kr",
-                item.keywords || searchTopic,
-                new Date().toISOString().slice(0, 10),
-              ]
-            );
-            insertedCount++;
-          }
-        }
+        const insertedCount = await insertNewGovSupportItems(pool, candidateRows);
 
         return NextResponse.json({
           success: true,
@@ -965,14 +719,8 @@ ${rssArticles.map((a, i) => `${i + 1}. ${a.title} (${a.source}) - ${a.descriptio
       }
 
       // 3-C. API 키 없이도 동작하는 실시간 뉴스/공고 RSS 자동 수집 모드 (수집 원문 포함)
-      let insertedCount = 0;
-      for (const art of rssArticles.slice(0, 6)) {
-        const dupCheck = await pool.query(
-          `SELECT id FROM erp_gov_support_items WHERE title = $1 LIMIT 1`,
-          [art.title]
-        );
-        if (dupCheck.rows.length > 0) continue;
-
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const rssCandidateRows: GovSupportInsertRow[] = rssArticles.slice(0, 6).map((art) => {
         const isSupport = /지원사업|바우처|보조금|공고|모집|장려금|R&D|자금/.test(art.title);
         const isProcure = /입찰|조달|나라장터|임차|용역|계약/.test(art.title);
         const cat =
@@ -986,7 +734,7 @@ ${rssArticles.map((a, i) => `${i + 1}. ${a.title} (${a.source}) - ${a.descriptio
 
         const pubIso = art.pubDate
           ? new Date(art.pubDate).toISOString().slice(0, 10)
-          : new Date().toISOString().slice(0, 10);
+          : todayIso;
 
         const rssOriginalText = [
           `■ 수집 제목: ${art.title}`,
@@ -999,30 +747,33 @@ ${rssArticles.map((a, i) => `${i + 1}. ${a.title} (${a.source}) - ${a.descriptio
           art.description || art.title,
         ].join("\n");
 
-        await pool.query(
-          `INSERT INTO erp_gov_support_items (
-            category, agency, title, region, target_audience, support_amount,
-            start_date, end_date, dday_label, fit_score, status, summary,
-            eligibility_detail, action_plan, original_content, source_url, keywords, is_bookmarked, published_date
-          ) VALUES ($1,$2,$3,'전국','중소·벤처기업','원문 참조',$4,'상시','실시간뉴스',88,'DISCOVERED',$5,$6,$7,$8,$9,$10,false,$11)`,
-          [
-            cat,
-            art.source || "실시간 정책·뉴스 피드",
-            art.title,
-            pubIso,
-            art.description
-              ? `${art.description}\n\n(※ 우측 [수집 원문 전문 보기] 버튼으로 수집 원문을 즉시 열람하거나 [공식 공고/원문 사이트 열기]로 이동할 수 있습니다.)`
-              : `[${art.source}] '${searchTopic}' 키워드로 실시간 수집된 최신 정책·산업 뉴스입니다.`,
-            "• 관련 업종(IT·RPA·렌탈·용역) 해당 여부 원문 확인",
+        return {
+          category: String(cat),
+          agency: String(art.source || "실시간 정책·뉴스 피드"),
+          title: String(art.title || "").trim(),
+          region: "전국",
+          target_audience: "중소·벤처기업",
+          support_amount: "원문 참조",
+          start_date: pubIso,
+          end_date: "상시",
+          dday_label: "실시간뉴스",
+          fit_score: 88,
+          status: "DISCOVERED",
+          summary: art.description
+            ? `${art.description}\n\n(※ 우측 [수집 원문 전문 보기] 버튼으로 수집 원문을 즉시 열람하거나 [공식 공고/원문 사이트 열기]로 이동할 수 있습니다.)`
+            : `[${art.source}] '${searchTopic}' 키워드로 실시간 수집된 최신 정책·산업 뉴스입니다.`,
+          eligibility_detail: "• 관련 업종(IT·RPA·렌탈·용역) 해당 여부 원문 확인",
+          action_plan:
             "1. [수집 원문 전문 보기]로 세부 내용 확인\n2. Google AI Ultra 브리핑 프롬프트로 사업계획서/실행안 도출",
-            rssOriginalText,
-            art.link || "https://www.bizinfo.go.kr",
-            searchTopic,
-            pubIso,
-          ]
-        );
-        insertedCount++;
-      }
+          original_content: rssOriginalText,
+          source_url: art.link || "https://www.bizinfo.go.kr",
+          keywords: searchTopic,
+          is_bookmarked: false,
+          published_date: pubIso,
+        };
+      });
+
+      const insertedCount = await insertNewGovSupportItems(pool, rssCandidateRows);
 
       return NextResponse.json({
         success: true,

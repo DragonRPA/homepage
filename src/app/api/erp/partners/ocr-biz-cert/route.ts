@@ -1,110 +1,12 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import zlib from "zlib";
-import { selectPreferredBizItem } from "@/lib/erpFormat";
-import { getGroqApiKey } from "@/lib/groqServerKey";
-
-function formatBizRegNo(raw: string): string {
-  if (!raw) return "";
-  const digits = String(raw).replace(/[^0-9]/g, "");
-  if (digits.length === 10) {
-    return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
-  }
-  return String(raw).trim();
-}
-
-function formatCorpRegNo(raw: string): string {
-  if (!raw) return "";
-  const digits = String(raw).replace(/[^0-9]/g, "");
-  if (digits.length === 13) {
-    return `${digits.slice(0, 6)}-${digits.slice(6)}`;
-  }
-  return String(raw).trim();
-}
-
-function extractTextFromPdfBuffer(buf: Buffer): string {
-  let out = "";
-  try {
-    out += " " + buf.toString("utf8");
-    if (buf.slice(0, 5).toString("ascii") === "%PDF-") {
-      // Collect ToUnicode CMap mappings across all streams first
-      const cmap = new Map<string, string>();
-      const decompressedStreams: string[] = [];
-
-      let streamStart = 0;
-      while ((streamStart = buf.indexOf("stream", streamStart)) !== -1) {
-        streamStart += 6;
-        if (buf[streamStart] === 0x0d && buf[streamStart + 1] === 0x0a)
-          streamStart += 2;
-        else if (buf[streamStart] === 0x0a) streamStart += 1;
-        const streamEnd = buf.indexOf("endstream", streamStart);
-        if (streamEnd === -1) break;
-
-        const slice = buf.slice(streamStart, streamEnd);
-        let dec: Buffer | null = null;
-        try {
-          dec = zlib.inflateSync(slice);
-        } catch {
-          try {
-            dec = zlib.inflateRawSync(slice);
-          } catch {}
-        }
-
-        if (dec) {
-          const latin = dec.toString("latin1");
-          const utf8 = dec.toString("utf8");
-          decompressedStreams.push(latin);
-          out += " " + utf8;
-
-          // Parse beginbfchar ... endbfchar
-          if (latin.includes("beginbfchar") || latin.includes("beginbfrange")) {
-            const charRegex = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g;
-            let m;
-            while ((m = charRegex.exec(latin)) !== null) {
-              const srcHex = m[1].toUpperCase();
-              const dstHex = m[2];
-              let str = "";
-              for (let i = 0; i < dstHex.length; i += 4) {
-                const cp = parseInt(dstHex.slice(i, i + 4), 16);
-                if (!isNaN(cp)) str += String.fromCharCode(cp);
-              }
-              if (str) cmap.set(srcHex, str);
-            }
-          }
-        }
-        streamStart = streamEnd + 9;
-      }
-
-      // Decode hex strings <...> using CMap if populated
-      if (cmap.size > 0) {
-        for (const s of decompressedStreams) {
-          const hexBlocks = s.match(/<([0-9A-Fa-f]{4,})>/g);
-          if (!hexBlocks) continue;
-          let line = "";
-          for (const hb of hexBlocks) {
-            const hex = hb.slice(1, -1).toUpperCase();
-            for (let i = 0; i < hex.length; i += 4) {
-              const code = hex.slice(i, i + 4);
-              if (cmap.has(code)) {
-                line += cmap.get(code);
-              } else {
-                const cp = parseInt(code, 16);
-                if (cp >= 0x20 && cp <= 0xd7ff) {
-                  line += String.fromCharCode(cp);
-                }
-              }
-            }
-            line += " ";
-          }
-          if (line.trim()) out += "\n" + line;
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("PDF buffer text extraction warning:", e);
-  }
-  return out;
-}
+import { selectPreferredBizItem } from "@/lib/erpContractTemplate";
+import {
+  callGroqJsonOcr,
+  extractTextFromPdfBuffer,
+  formatBizRegNo,
+  formatCorpRegNo,
+} from "@/lib/erpOcrEngine";
 
 async function analyzeWithGroqVision(
   imageBase64?: string,
@@ -147,70 +49,12 @@ JSON 예시:
   "mainPhone": "02-1234-5678"
 }`;
 
-  try {
-    const hasImage =
-      imageBase64 &&
-      typeof imageBase64 === "string" &&
-      imageBase64.startsWith("data:image/");
-
-    const messages: any[] = [
-      {
-        role: "user",
-        content: hasImage
-          ? [
-              { type: "text", text: prompt },
-              { type: "image_url", image_url: { url: imageBase64 } },
-            ]
-          : prompt,
-      },
-    ];
-
-    const groqApiKey = await getGroqApiKey();
-    if (!groqApiKey) return null;
-
-    const modelsToTry = hasImage
-      ? ["qwen/qwen3.8-27b"]
-      : ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"];
-
-    for (const model of modelsToTry) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 18000);
-      try {
-        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${groqApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model,
-            messages,
-            response_format: { type: "json_object" },
-            temperature: 0.1,
-            max_tokens: 900,
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timer);
-
-        if (res.ok) {
-          const data = await res.json();
-          const content = data?.choices?.[0]?.message?.content;
-          if (content) {
-            const cleaned = content
-              .replace(/<think>[\s\S]*?<\/think>/g, "")
-              .trim();
-            return JSON.parse(cleaned);
-          }
-        }
-      } catch (innerErr) {
-        clearTimeout(timer);
-      }
-    }
-  } catch (err) {
-    console.warn("[ocr-biz-cert] Groq Vision error:", err);
-  }
-  return null;
+  return callGroqJsonOcr({
+    prompt,
+    imageBase64,
+    timeoutMs: 18000,
+    maxTokens: 900,
+  });
 }
 
 export async function POST(request: Request) {

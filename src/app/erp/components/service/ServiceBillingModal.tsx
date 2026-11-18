@@ -3,9 +3,10 @@
 import React from "react";
 import { DollarSign, X } from "lucide-react";
 import { SearchSelectCombobox, type SearchSelectOption } from "../SearchSelectCombobox";
-import { calculateServiceEmployeeMonthlyProRata, cleanErpNumber, formatErpCurrency, formatErpInputNumber, toErpInputString } from "@/lib/erpFormat";
+import { cleanErpNumber, formatErpCurrency, formatErpInputNumber, toErpInputString } from "@/lib/erpFormat";
+import { calculateServiceEmployeeMonthlyProRata } from "@/lib/erpHrLaborDomain";
 import { type AssignedServiceEmployee } from "./serviceTypes";
-import { ProRataFormulaGuideBox } from "./ServiceContractModals";
+import { ProRataFormulaGuideBox } from "./ProRataFormulaGuideBox";
 import { ContractTaxInvoiceSection, type BuyerTaxSpec } from "../ContractTaxInvoiceSection";
 
 export interface AddBillingModalProps {

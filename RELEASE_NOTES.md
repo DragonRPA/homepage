@@ -1,5 +1,18 @@
 # Release Notes
 
+## [v0.4.7.Build.1] - 2026-11-19 03:59
+
+### 🗂️ ERP 전 코드 파일 기능 명세서(SSOT) 구축 및 1~6차 구조·SQL·번들 최적화 배포
+- **ERP 코드 파일 기능 명세서(SSOT) 및 정합성 검증 체계 구축 (`docs/CODE_FILE_SPECIFICATION.md`, `docs/code_file_manifest.json`)**:
+  - AST 분석 생성기(`scripts/generate_code_file_spec.cjs`) 및 계층별 기능 설명 사전(`scripts/descriptions/*.cjs`) 도입 (`spec:sync`·`spec:verify`·`spec:query`), `/erp` 종단 283개 파일 1:1 매핑 완료 (지문 `801a8ebd7cc2369a`)
+- **모듈 크기·의존성 구조 최적화 (`GOD_FILE` 0건, `ORPHAN_CANDIDATE` 0건, 순환 의존 0건)**:
+  - 전체 `src/**` `.ts/.tsx` 파일을 `1,140줄`·`53KB` 미만으로 분할(전용 컨트롤러 훅·하위 그리드·모달 분리) 및 미참조 레거시 모듈 제거, 단방향 AST DAG 확립
+- **초기 번들 경량화 및 지연 로딩 적용**:
+  - `/erp` 셸 정적 임포트를 필수 인증·헤더 2종(`ErpHeader`, `ErpLogin`)으로 한정하고 33개 메뉴 탭 및 대형 모달을 `next/dynamic({ ssr: false })`로 분리 (`/erp` `17.9 kB`, `First Load JS 122 kB`)
+- **PostgreSQL 트랜잭션 N+1 루프 `UNNEST` 배치화 및 도메인 서비스 단일화**:
+  - 입출고(`erpInoutTxService`), 매매(`trade/sales`), 자산·보증(`forkliftWarrantyService`), 정비·부품재고(`rentalMaintPartStockTx`), 가동시간(`rentalOperatingHoursTxService`), 렌탈사업자DB(`rentalDirectorySyncService`), 조직 일괄저장(`organization/batch`), 은행대사(`erpBankReconcileService`), 세금계산서·홈택스(`erpTaxReconcileEngine`) 등 순차 SQL 루프를 `UNNEST` 일괄 쿼리 및 오름차순 `FOR UPDATE` 락으로 전환
+  - OCR 추출(`erpOcrEngine`), 인사·노무 수식(`erpHrLaborDomain`), 계약 치환(`erpContractTemplate`) 중복 로직을 단일 SSOT 모듈로 통합
+
 ## [v0.4.6.Build.2] - 2026-09-13 09:37
 
 ### ⚡ 구글 슬라이드 전송 전용 벡터 아이콘 탑재 및 F11 원터치 단축키 반영

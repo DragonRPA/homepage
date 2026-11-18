@@ -10,15 +10,8 @@ import {
   Calculator,
   History,
 } from "lucide-react";
-import {
-  formatErpNumber,
-  formatErpCurrency,
-  formatErpInputNumber,
-  toErpInputString,
-  cleanErpNumber,
-  formatAttachedOptionsSummary,
-  normalizeAttachedOptions,
-} from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, formatErpInputNumber, toErpInputString, cleanErpNumber } from "@/lib/erpFormat";
+import { formatAttachedOptionsSummary, normalizeAttachedOptions } from "@/lib/forkliftDomain";
 import ForkliftOptionAttachPanel, { CatalogOptionItem } from "../ForkliftOptionAttachPanel";
 import { AssetLog, AssetRecord } from "./assetTypes";
 

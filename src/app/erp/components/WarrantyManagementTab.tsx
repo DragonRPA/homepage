@@ -1,87 +1,35 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   ShieldCheck,
   Search,
   Plus,
   RefreshCw,
   X,
-  Save,
-  Trash2,
-  Wrench,
-  Clock,
   AlertTriangle,
   CheckCircle2,
   XCircle,
 } from "lucide-react";
 import { SortableTh, useErpTableSort } from "./SortableTh";
-import {
-  addMonthsMinusOneDay,
-  AttachedForkliftOption,
-  cleanErpNumber,
-  formatAttachedOptionsSummary,
-  formatErpCurrency,
-  formatErpInputNumber,
-  formatErpNumber,
-  ForkliftWarrantyStatus,
-  getKstTodayIso,
-  matchHangulAny,
-  normalizeAttachedOptions,
-  sortErpItems,
-  SortDirection,
-  toErpInputString,
-} from "@/lib/erpFormat";
-import { SearchSelectCombobox, SearchSelectOption } from "./SearchSelectCombobox";
+import { cleanErpNumber, formatErpNumber, sortErpItems, toErpInputString } from "@/lib/erpFormat";
+import { matchHangulAny } from "@/lib/hangulSearch";
+import { addMonthsMinusOneDay, formatAttachedOptionsSummary, type ForkliftWarrantyStatus, getKstTodayIso, normalizeAttachedOptions } from "@/lib/forkliftDomain";
+import type {
+  WarrantyAddFormState,
+  WarrantyClaimFormState,
+  WarrantyEditFormState,
+  WarrantyRecord,
+} from "./warranty/WarrantyDossierAndAddModal";
 
-interface WarrantyClaimItem {
-  id: number;
-  warrantyId: number;
-  chassisNo: string;
-  claimDate: string;
-  operatingHours: number;
-  claimType: "WARRANTY_FREE" | "PAID_REPAIR" | "INSPECTION" | string;
-  symptom: string;
-  resolution: string;
-  partsUsed: string[];
-  repairCost: number;
-  billedAmount: number;
-  technicianName: string;
-  status: string;
-  memo: string;
-}
-
-interface WarrantyRecord {
-  id: number;
-  warrantyNo: string;
-  chassisNo: string;
-  sourceType: "SALE" | "RENTAL_ASSET" | "MANUAL" | string;
-  sourceId: number | null;
-  assetId: number | null;
-  assetNo: string | null;
-  productId: number | null;
-  modelName: string;
-  manufacturer: string;
-  partnerId: number | null;
-  customerName: string;
-  siteName: string;
-  deliveryDate: string;
-  warrantyStartDate: string;
-  warrantyMonths: number;
-  warrantyEndDate: string;
-  warrantyHours: number;
-  currentOperatingHours: number;
-  attachedOptions: AttachedForkliftOption[];
-  status: ForkliftWarrantyStatus;
-  daysRemaining: number | null;
-  hoursRemaining: number | null;
-  triggerReason: string;
-  claimCount: number;
-  totalRepairCost: number;
-  totalBilledAmount: number;
-  memo: string;
-  claims: WarrantyClaimItem[];
-}
+const WarrantyDossierAndAddModal = dynamic(
+  () =>
+    import("./warranty/WarrantyDossierAndAddModal").then(
+      (m) => m.WarrantyDossierAndAddModal
+    ),
+  { ssr: false }
+);
 
 interface WarrantyManagementTabProps {
   currentUser?: { name?: string; role?: string };
@@ -91,12 +39,6 @@ const SOURCE_LABELS: Record<string, string> = {
   SALE: "완제품판매",
   RENTAL_ASSET: "렌탈자산",
   MANUAL: "수동등록",
-};
-
-const CLAIM_TYPE_LABELS: Record<string, string> = {
-  WARRANTY_FREE: "무상보증 AS",
-  PAID_REPAIR: "유상수리",
-  INSPECTION: "정기점검",
 };
 
 export default function WarrantyManagementTab({ currentUser }: WarrantyManagementTabProps) {
@@ -115,7 +57,7 @@ export default function WarrantyManagementTab({ currentUser }: WarrantyManagemen
   // Slide-over Dossier State
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [editForm, setEditForm] = useState({
+  const [editForm, setEditForm] = useState<WarrantyEditFormState>({
     chassisNo: "",
     modelName: "",
     manufacturer: "",
@@ -132,33 +74,37 @@ export default function WarrantyManagementTab({ currentUser }: WarrantyManagemen
 
   // Inline AS Claim Form
   const [showClaimForm, setShowClaimForm] = useState(false);
-  const [claimDate, setClaimDate] = useState(todayIso);
-  const [claimType, setClaimType] = useState<"WARRANTY_FREE" | "PAID_REPAIR" | "INSPECTION">("WARRANTY_FREE");
-  const [claimHours, setClaimHours] = useState("0");
-  const [claimSymptom, setClaimSymptom] = useState("");
-  const [claimCausePart, setClaimCausePart] = useState("");
-  const [claimResolution, setClaimResolution] = useState("");
-  const [claimRepairCost, setClaimRepairCost] = useState("0");
-  const [claimBilledAmount, setClaimBilledAmount] = useState("0");
-  const [claimTechName, setClaimTechName] = useState(currentUser?.name || "");
-  const [claimMemo, setClaimMemo] = useState("");
+  const [claimForm, setClaimForm] = useState<WarrantyClaimFormState>({
+    claimDate: todayIso,
+    claimType: "WARRANTY_FREE",
+    claimHours: "0",
+    claimSymptom: "",
+    claimCausePart: "",
+    claimResolution: "",
+    claimRepairCost: "0",
+    claimBilledAmount: "0",
+    claimTechName: currentUser?.name || "",
+    claimMemo: "",
+  });
 
   // Manual Registration Modal
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addAssetId, setAddAssetId] = useState("");
-  const [addPartnerId, setAddPartnerId] = useState<number | null>(null);
-  const [addChassisNo, setAddChassisNo] = useState("");
-  const [addModelName, setAddModelName] = useState("");
-  const [addManufacturer, setAddManufacturer] = useState("두산");
-  const [addCustomerName, setAddCustomerName] = useState("");
-  const [addSiteName, setAddSiteName] = useState("");
-  const [addDeliveryDate, setAddDeliveryDate] = useState(todayIso);
-  const [addStartDate, setAddStartDate] = useState(todayIso);
-  const [addMonths, setAddMonths] = useState("12");
-  const [addEndDate, setAddEndDate] = useState(() => addMonthsMinusOneDay(todayIso, 12));
-  const [addWarrantyHours, setAddWarrantyHours] = useState("2,000");
-  const [addOperatingHours, setAddOperatingHours] = useState("0");
-  const [addMemo, setAddMemo] = useState("");
+  const [addForm, setAddForm] = useState<WarrantyAddFormState>(() => ({
+    assetId: "",
+    partnerId: null,
+    chassisNo: "",
+    modelName: "",
+    manufacturer: "두산",
+    customerName: "",
+    siteName: "",
+    deliveryDate: todayIso,
+    startDate: todayIso,
+    months: "12",
+    endDate: addMonthsMinusOneDay(todayIso, 12),
+    warrantyHours: "2,000",
+    operatingHours: "0",
+    memo: "",
+  }));
 
   // Toast
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
@@ -222,7 +168,10 @@ export default function WarrantyManagementTab({ currentUser }: WarrantyManagemen
     setIsEditing(false);
     setShowClaimForm(false);
     populateEditForm(w);
-    setClaimHours(toErpInputString(w.currentOperatingHours || 0));
+    setClaimForm((prev) => ({
+      ...prev,
+      claimHours: toErpInputString(w.currentOperatingHours || 0),
+    }));
   };
 
   // KPIs
@@ -277,95 +226,85 @@ export default function WarrantyManagementTab({ currentUser }: WarrantyManagemen
     />
   );
 
-  // Combobox options for Manual Modal
-  const assetOptions = useMemo<SearchSelectOption[]>(() => {
-    return assets.map((a) => ({
-      value: String(a.id),
-      label: `[${a.assetNo}] ${a.modelName} ${a.serialNo ? `(차대: ${a.serialNo})` : ""}`,
-      subLabel: `${a.manufacturer || "-"} · 가동 ${formatErpNumber(a.operatingHours || 0)}hr · ${a.currentCustomer || "미배치"}`,
-      searchKeywords: [a.assetNo, a.serialNo, a.modelName, a.manufacturer, a.currentCustomer],
-    }));
-  }, [assets]);
-
-  const partnerOptions = useMemo<SearchSelectOption[]>(() => {
-    return partners.map((p) => ({
-      value: String(p.id),
-      label: p.name,
-      subLabel: p.businessNo || p.ceoName || undefined,
-      searchKeywords: [p.name, p.businessNo, p.ceoName],
-    }));
-  }, [partners]);
-
   const handleSelectAssetForAdd = (idVal: string) => {
-    setAddAssetId(idVal);
     const asset = assets.find((a) => String(a.id) === idVal);
-    if (!asset) return;
-    if (asset.serialNo) setAddChassisNo(asset.serialNo);
-    else if (!addChassisNo) setAddChassisNo(asset.assetNo || "");
-    if (asset.modelName) setAddModelName(asset.modelName);
-    if (asset.manufacturer) setAddManufacturer(asset.manufacturer);
-    if (asset.currentCustomer) setAddCustomerName(asset.currentCustomer);
-    if (asset.currentSite) setAddSiteName(asset.currentSite);
-    if (asset.acquisitionDate) setAddDeliveryDate(String(asset.acquisitionDate).slice(0, 10));
+    if (!asset) {
+      setAddForm((prev) => ({ ...prev, assetId: idVal }));
+      return;
+    }
     const start = asset.warrantyStartDate
       ? String(asset.warrantyStartDate).slice(0, 10)
       : asset.acquisitionDate
       ? String(asset.acquisitionDate).slice(0, 10)
       : todayIso;
-    setAddStartDate(start);
-    if (asset.warrantyEndDate) {
-      setAddEndDate(String(asset.warrantyEndDate).slice(0, 10));
-    } else {
-      setAddEndDate(addMonthsMinusOneDay(start, cleanErpNumber(addMonths) || 12));
-    }
-    if (asset.warrantyHours) setAddWarrantyHours(toErpInputString(asset.warrantyHours));
-    if (asset.operatingHours !== undefined) setAddOperatingHours(toErpInputString(asset.operatingHours));
+    setAddForm((prev) => ({
+      ...prev,
+      assetId: idVal,
+      chassisNo: asset.serialNo || prev.chassisNo || asset.assetNo || "",
+      modelName: asset.modelName || prev.modelName,
+      manufacturer: asset.manufacturer || prev.manufacturer,
+      customerName: asset.currentCustomer || prev.customerName,
+      siteName: asset.currentSite || prev.siteName,
+      deliveryDate: asset.acquisitionDate ? String(asset.acquisitionDate).slice(0, 10) : prev.deliveryDate,
+      startDate: start,
+      endDate: asset.warrantyEndDate
+        ? String(asset.warrantyEndDate).slice(0, 10)
+        : addMonthsMinusOneDay(start, cleanErpNumber(prev.months) || 12),
+      warrantyHours: asset.warrantyHours ? toErpInputString(asset.warrantyHours) : prev.warrantyHours,
+      operatingHours:
+        asset.operatingHours !== undefined ? toErpInputString(asset.operatingHours) : prev.operatingHours,
+    }));
   };
 
   // Manual Register Submit
   const handleCreateWarranty = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addChassisNo.trim()) {
+    if (!addForm.chassisNo.trim()) {
       showToast("차대번호는 필수 입력 항목입니다.", "error");
       return;
     }
     try {
-      const selectedAsset = addAssetId ? assets.find((a) => String(a.id) === addAssetId) : null;
+      const selectedAsset = addForm.assetId ? assets.find((a) => String(a.id) === addForm.assetId) : null;
       const res = await fetch("/api/erp/warranties", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chassisNo: addChassisNo.trim(),
-          sourceType: addAssetId ? "RENTAL_ASSET" : "MANUAL",
-          assetId: addAssetId ? Number(addAssetId) : null,
-          modelName: addModelName.trim(),
-          manufacturer: addManufacturer.trim(),
-          partnerId: addPartnerId,
-          customerName: addCustomerName.trim(),
-          siteName: addSiteName.trim(),
-          deliveryDate: addDeliveryDate || null,
-          warrantyStartDate: addStartDate || todayIso,
-          warrantyMonths: cleanErpNumber(addMonths),
-          warrantyEndDate: addEndDate || addMonthsMinusOneDay(addStartDate || todayIso, cleanErpNumber(addMonths) || 12),
-          warrantyHours: cleanErpNumber(addWarrantyHours),
-          currentOperatingHours: cleanErpNumber(addOperatingHours),
+          chassisNo: addForm.chassisNo.trim(),
+          sourceType: addForm.assetId ? "RENTAL_ASSET" : "MANUAL",
+          assetId: addForm.assetId ? Number(addForm.assetId) : null,
+          modelName: addForm.modelName.trim(),
+          manufacturer: addForm.manufacturer.trim(),
+          partnerId: addForm.partnerId,
+          customerName: addForm.customerName.trim(),
+          siteName: addForm.siteName.trim(),
+          deliveryDate: addForm.deliveryDate || null,
+          warrantyStartDate: addForm.startDate || todayIso,
+          warrantyMonths: cleanErpNumber(addForm.months),
+          warrantyEndDate:
+            addForm.endDate ||
+            addMonthsMinusOneDay(addForm.startDate || todayIso, cleanErpNumber(addForm.months) || 12),
+          warrantyHours: cleanErpNumber(addForm.warrantyHours),
+          currentOperatingHours: cleanErpNumber(addForm.operatingHours),
           attachedOptions: selectedAsset ? normalizeAttachedOptions(selectedAsset.attachedOptions) : [],
-          memo: addMemo.trim(),
+          memo: addForm.memo.trim(),
         }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "보증 등록 실패");
 
-      showToast(`차대번호 [${addChassisNo.trim().toUpperCase()}] 보증 등록 완료`);
+      showToast(`차대번호 [${addForm.chassisNo.trim().toUpperCase()}] 보증 등록 완료`);
       setShowAddModal(false);
-      setAddAssetId("");
-      setAddPartnerId(null);
-      setAddChassisNo("");
-      setAddModelName("");
-      setAddCustomerName("");
-      setAddSiteName("");
-      setAddOperatingHours("0");
-      setAddMemo("");
+      setAddForm((prev) => ({
+        ...prev,
+        assetId: "",
+        partnerId: null,
+        chassisNo: "",
+        modelName: "",
+        customerName: "",
+        siteName: "",
+        operatingHours: "0",
+        memo: "",
+      }));
       await fetchAll();
       if (data.warrantyId) setSelectedId(data.warrantyId);
     } catch (err: any) {
@@ -426,7 +365,7 @@ export default function WarrantyManagementTab({ currentUser }: WarrantyManagemen
   const handleAddClaim = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedWarranty) return;
-    if (!claimSymptom.trim()) {
+    if (!claimForm.claimSymptom.trim()) {
       showToast("증상 / 점검 내용은 필수입니다.", "error");
       return;
     }
@@ -436,28 +375,31 @@ export default function WarrantyManagementTab({ currentUser }: WarrantyManagemen
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           warrantyId: selectedWarranty.id,
-          claimDate,
-          claimType,
-          operatingHours: cleanErpNumber(claimHours),
-          symptom: claimSymptom.trim(),
-          partsUsed: claimCausePart.trim() ? [claimCausePart.trim()] : [],
-          resolution: claimResolution.trim(),
-          repairCost: cleanErpNumber(claimRepairCost),
-          billedAmount: cleanErpNumber(claimBilledAmount),
-          technicianName: claimTechName.trim(),
-          memo: claimMemo.trim(),
+          claimDate: claimForm.claimDate,
+          claimType: claimForm.claimType,
+          operatingHours: cleanErpNumber(claimForm.claimHours),
+          symptom: claimForm.claimSymptom.trim(),
+          partsUsed: claimForm.claimCausePart.trim() ? [claimForm.claimCausePart.trim()] : [],
+          resolution: claimForm.claimResolution.trim(),
+          repairCost: cleanErpNumber(claimForm.claimRepairCost),
+          billedAmount: cleanErpNumber(claimForm.claimBilledAmount),
+          technicianName: claimForm.claimTechName.trim(),
+          memo: claimForm.claimMemo.trim(),
         }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "AS 클레임 등록 실패");
       showToast("AS 클레임 및 가동시간 이력이 반영되었습니다.");
       setShowClaimForm(false);
-      setClaimSymptom("");
-      setClaimCausePart("");
-      setClaimResolution("");
-      setClaimRepairCost("0");
-      setClaimBilledAmount("0");
-      setClaimMemo("");
+      setClaimForm((prev) => ({
+        ...prev,
+        claimSymptom: "",
+        claimCausePart: "",
+        claimResolution: "",
+        claimRepairCost: "0",
+        claimBilledAmount: "0",
+        claimMemo: "",
+      }));
       await fetchAll();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -501,9 +443,6 @@ export default function WarrantyManagementTab({ currentUser }: WarrantyManagemen
       </span>
     );
   };
-
-  const inputCls =
-    "h-8 px-2.5 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white text-xs";
 
   return (
     <div className="flex flex-col gap-3 h-full text-[#0f172a] dark:text-slate-100">
@@ -799,682 +738,37 @@ export default function WarrantyManagementTab({ currentUser }: WarrantyManagemen
           </table>
         </div>
 
-        {/* Slide-Over Dossier */}
-        {selectedWarranty && (
-          <aside className="w-[460px] shrink-0 bg-[#f4efe4] border border-[#b5a894] rounded flex flex-col overflow-hidden dark:bg-slate-900 dark:border-slate-800">
-            {/* Dossier Header */}
-            <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] flex items-center justify-between gap-2 dark:bg-slate-950 dark:border-slate-800">
-              <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-mono text-xs font-bold text-[#1d4ed8] truncate">
-                    {selectedWarranty.chassisNo}
-                  </span>
-                  {renderStatusBadge(selectedWarranty.status)}
-                </div>
-                <span className="text-[11px] text-[#57534e] dark:text-slate-400 truncate">
-                  {selectedWarranty.modelName || "-"} · {selectedWarranty.warrantyNo}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-1 shrink-0">
-                {!isEditing && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      populateEditForm(selectedWarranty);
-                      setIsEditing(true);
-                    }}
-                    className="h-7 px-2 rounded bg-[#ebe5d8] hover:bg-[#dcd4c4] border border-[#b5a894] text-[11px] font-bold"
-                  >
-                    수정
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={handleDeleteWarranty}
-                  className="h-7 px-2 rounded bg-rose-500/15 hover:bg-rose-500/25 border border-rose-600/35 text-rose-800 dark:text-rose-300 text-[11px] font-bold"
-                >
-                  삭제
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="p-1 rounded hover:bg-black/10"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Dossier Body */}
-            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 text-xs">
-              {isEditing ? (
-                <form onSubmit={handleSaveWarrantyEdit} className="flex flex-col gap-2.5 p-2.5 rounded border border-[#b5a894] bg-[#ebe5d8]/70 dark:bg-slate-800/40 dark:border-slate-700">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">차대번호 *</label>
-                      <input
-                        type="text"
-                        required
-                        value={editForm.chassisNo}
-                        onChange={(e) => setEditForm({ ...editForm, chassisNo: e.target.value })}
-                        className={`${inputCls} font-mono font-bold`}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">모델명</label>
-                      <input
-                        type="text"
-                        value={editForm.modelName}
-                        onChange={(e) => setEditForm({ ...editForm, modelName: e.target.value })}
-                        className={inputCls}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">제조사</label>
-                      <input
-                        type="text"
-                        value={editForm.manufacturer}
-                        onChange={(e) => setEditForm({ ...editForm, manufacturer: e.target.value })}
-                        className={inputCls}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">납품/출고일</label>
-                      <input
-                        type="date"
-                        value={editForm.deliveryDate}
-                        onChange={(e) => setEditForm({ ...editForm, deliveryDate: e.target.value })}
-                        className={`${inputCls} font-mono`}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">고객사</label>
-                      <input
-                        type="text"
-                        value={editForm.customerName}
-                        onChange={(e) => setEditForm({ ...editForm, customerName: e.target.value })}
-                        className={inputCls}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">현장명</label>
-                      <input
-                        type="text"
-                        value={editForm.siteName}
-                        onChange={(e) => setEditForm({ ...editForm, siteName: e.target.value })}
-                        className={inputCls}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">보증 시작일</label>
-                      <input
-                        type="date"
-                        value={editForm.warrantyStartDate}
-                        onChange={(e) => {
-                          const s = e.target.value;
-                          const m = cleanErpNumber(editForm.warrantyMonths) || 12;
-                          setEditForm({
-                            ...editForm,
-                            warrantyStartDate: s,
-                            warrantyEndDate: s ? addMonthsMinusOneDay(s, m) : editForm.warrantyEndDate,
-                          });
-                        }}
-                        className={`${inputCls} font-mono`}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">보증 기간 (개월)</label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={editForm.warrantyMonths}
-                        onChange={(e) => {
-                          const val = formatErpInputNumber(e.target.value);
-                          const m = cleanErpNumber(val);
-                          setEditForm({
-                            ...editForm,
-                            warrantyMonths: val,
-                            warrantyEndDate:
-                              editForm.warrantyStartDate && m > 0
-                                ? addMonthsMinusOneDay(editForm.warrantyStartDate, m)
-                                : editForm.warrantyEndDate,
-                          });
-                        }}
-                        className={`${inputCls} font-mono text-right`}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">보증 만료일</label>
-                      <input
-                        type="date"
-                        value={editForm.warrantyEndDate}
-                        onChange={(e) => setEditForm({ ...editForm, warrantyEndDate: e.target.value })}
-                        className={`${inputCls} font-mono`}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">보증 가동시간 한도 (hr)</label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={editForm.warrantyHours}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, warrantyHours: formatErpInputNumber(e.target.value) })
-                        }
-                        className={`${inputCls} font-mono text-right`}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1 col-span-2">
-                      <label className="text-[11px] font-semibold">현재 누적 가동시간 (hr)</label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={editForm.currentOperatingHours}
-                        onChange={(e) =>
-                          setEditForm({
-                            ...editForm,
-                            currentOperatingHours: formatErpInputNumber(e.target.value),
-                          })
-                        }
-                        className={`${inputCls} font-mono text-right font-bold`}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold">메모</label>
-                    <textarea
-                      rows={2}
-                      value={editForm.memo}
-                      onChange={(e) => setEditForm({ ...editForm, memo: e.target.value })}
-                      className="p-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white text-xs"
-                    />
-                  </div>
-                  <div className="flex justify-end gap-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setIsEditing(false)}
-                      className="h-7 px-3 rounded border border-[#b5a894] bg-[#f4efe4] text-xs font-semibold"
-                    >
-                      취소
-                    </button>
-                    <button
-                      type="submit"
-                      className="h-7 px-3 rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1"
-                    >
-                      <Save className="w-3.5 h-3.5" />
-                      <span>저장</span>
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <div className="p-2.5 rounded border border-[#b5a894] bg-[#ebe5d8]/70 dark:bg-slate-800/40 dark:border-slate-700 flex flex-col gap-1.5">
-                  <div className="flex justify-between">
-                    <span className="text-[#57534e] dark:text-slate-400">출처 / 연결자산</span>
-                    <span className="font-semibold">
-                      {SOURCE_LABELS[selectedWarranty.sourceType] || selectedWarranty.sourceType}
-                      {selectedWarranty.assetNo ? ` (${selectedWarranty.assetNo})` : ""}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#57534e] dark:text-slate-400">수요처 / 현장</span>
-                    <span className="font-semibold">
-                      {selectedWarranty.customerName || "-"}
-                      {selectedWarranty.siteName ? ` / ${selectedWarranty.siteName}` : ""}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#57534e] dark:text-slate-400">납품·출고일</span>
-                    <span className="font-mono">{selectedWarranty.deliveryDate || "-"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#57534e] dark:text-slate-400">보증기간</span>
-                    <span className="font-mono font-bold">
-                      {selectedWarranty.warrantyStartDate} ~ {selectedWarranty.warrantyEndDate} (
-                      {selectedWarranty.warrantyMonths}개월)
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#57534e] dark:text-slate-400">가동시간 / 한도</span>
-                    <span className="font-mono font-bold">
-                      {formatErpNumber(selectedWarranty.currentOperatingHours)} /{" "}
-                      {formatErpNumber(selectedWarranty.warrantyHours)} hr
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#57534e] dark:text-slate-400">판정 사유</span>
-                    <span className="font-semibold text-[#334155] dark:text-slate-300">
-                      {selectedWarranty.triggerReason}
-                    </span>
-                  </div>
-                  {selectedWarranty.attachedOptions.length > 0 && (
-                    <div className="pt-1 border-t border-[#b5a894]/70 flex flex-col gap-1">
-                      <span className="text-[#57534e] dark:text-slate-400">장착 부착옵션</span>
-                      <div className="flex flex-wrap gap-1">
-                        {selectedWarranty.attachedOptions.map((opt, idx) => (
-                          <span
-                            key={idx}
-                            className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-600/30 text-amber-800 dark:text-amber-300 text-[10px] font-semibold"
-                          >
-                            {opt.optionName} ×{opt.qty}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {selectedWarranty.memo && (
-                    <div className="pt-1 border-t border-[#b5a894]/70 text-[#334155] dark:text-slate-300">
-                      {selectedWarranty.memo}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* AS / Periodic Check Claims Section */}
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 font-bold">
-                    <Wrench className="w-3.5 h-3.5 text-[#1d4ed8]" />
-                    <span>AS·정비 클레임 이력 ({selectedWarranty.claims.length}건)</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setClaimHours(toErpInputString(selectedWarranty.currentOperatingHours || 0));
-                      setShowClaimForm((prev) => !prev);
-                    }}
-                    className="h-7 px-2.5 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-[11px] font-bold flex items-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>클레임 등록</span>
-                  </button>
-                </div>
-
-                {showClaimForm && (
-                  <form
-                    onSubmit={handleAddClaim}
-                    className="p-2.5 rounded border border-[#b5a894] bg-[#ebe5d8] dark:bg-slate-800/70 dark:border-slate-700 flex flex-col gap-2"
-                  >
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-semibold">접수일</label>
-                        <input
-                          type="date"
-                          value={claimDate}
-                          onChange={(e) => setClaimDate(e.target.value)}
-                          className={`${inputCls} font-mono`}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-semibold">구분</label>
-                        <select
-                          value={claimType}
-                          onChange={(e) => setClaimType(e.target.value as any)}
-                          className={inputCls}
-                        >
-                          <option value="WARRANTY_FREE">무상보증 AS</option>
-                          <option value="PAID_REPAIR">유상수리</option>
-                          <option value="INSPECTION">정기점검</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-semibold">가동시간 (hr)</label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={claimHours}
-                          onChange={(e) => setClaimHours(formatErpInputNumber(e.target.value))}
-                          className={`${inputCls} font-mono text-right font-bold`}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">증상 / 점검내용 *</label>
-                      <input
-                        type="text"
-                        required
-                        value={claimSymptom}
-                        onChange={(e) => setClaimSymptom(e.target.value)}
-                        placeholder="예: 마스트 상승 실린더 누유 점검"
-                        className={inputCls}
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-semibold">원인부품 / 사용부품</label>
-                        <input
-                          type="text"
-                          value={claimCausePart}
-                          onChange={(e) => setClaimCausePart(e.target.value)}
-                          placeholder="예: 씰키트"
-                          className={inputCls}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-semibold">담당 기사</label>
-                        <input
-                          type="text"
-                          value={claimTechName}
-                          onChange={(e) => setClaimTechName(e.target.value)}
-                          placeholder="담당자 성명"
-                          className={inputCls}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold">조치 내역</label>
-                      <input
-                        type="text"
-                        value={claimResolution}
-                        onChange={(e) => setClaimResolution(e.target.value)}
-                        placeholder="예: 씰키트 교체 및 작동 시험 완료"
-                        className={inputCls}
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-semibold">투입원가 (원)</label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={claimRepairCost}
-                          onChange={(e) => setClaimRepairCost(formatErpInputNumber(e.target.value))}
-                          className={`${inputCls} font-mono text-right`}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-semibold">고객청구액 (원)</label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={claimBilledAmount}
-                          onChange={(e) => setClaimBilledAmount(formatErpInputNumber(e.target.value))}
-                          className={`${inputCls} font-mono text-right`}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end gap-1.5 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setShowClaimForm(false)}
-                        className="h-7 px-2.5 rounded border border-[#b5a894] bg-[#f4efe4] text-[11px] font-semibold"
-                      >
-                        취소
-                      </button>
-                      <button
-                        type="submit"
-                        className="h-7 px-3 rounded bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-bold"
-                      >
-                        AS 이력 저장
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                {selectedWarranty.claims.length === 0 ? (
-                  <div className="py-6 text-center rounded border border-dashed border-[#b5a894] text-[#57534e] dark:text-slate-400">
-                    등록된 AS 클레임 이력이 없습니다.
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    {selectedWarranty.claims.map((c) => (
-                      <div
-                        key={c.id}
-                        className="p-2.5 rounded border border-[#b5a894] bg-[#ebe5d8]/70 dark:bg-slate-800/50 dark:border-slate-700 flex flex-col gap-1"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono font-bold">{c.claimDate}</span>
-                            <span className="px-1.5 py-0.5 rounded bg-[#e2dbcd] border border-[#b5a894] text-[10px] font-bold dark:bg-slate-700">
-                              {CLAIM_TYPE_LABELS[c.claimType] || c.claimType}
-                            </span>
-                            <span className="inline-flex items-center gap-0.5 font-mono text-[10px] text-[#57534e] dark:text-slate-400">
-                              <Clock className="w-3 h-3" />
-                              {formatErpNumber(c.operatingHours)}hr
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteClaim(c.id)}
-                            className="text-rose-700 hover:text-rose-600 p-0.5"
-                            title="삭제"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        <div className="font-semibold">{c.symptom}</div>
-                        {c.resolution && (
-                          <div className="text-[11px] text-[#334155] dark:text-slate-300">
-                            조치: {c.resolution}
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between text-[10px] text-[#57534e] dark:text-slate-400 pt-0.5">
-                          <span>
-                            {Array.isArray(c.partsUsed) && c.partsUsed.length > 0
-                              ? `부품: ${c.partsUsed.join(", ")}`
-                              : ""}
-                            {c.technicianName ? ` · 담당: ${c.technicianName}` : ""}
-                          </span>
-                          <span className="font-mono">
-                            원가 {formatErpCurrency(c.repairCost)} / 청구 {formatErpCurrency(c.billedAmount)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </aside>
+        {/* Slide-Over Dossier & Manual Warranty Registration Modal (Lazy) */}
+        {Boolean(selectedWarranty || showAddModal) && (
+          <WarrantyDossierAndAddModal
+            selectedWarranty={selectedWarranty}
+            showAddModal={showAddModal}
+            isEditing={isEditing}
+            setIsEditing={setIsEditing}
+            editForm={editForm}
+            setEditForm={setEditForm}
+            populateEditForm={populateEditForm}
+            onCloseDossier={() => setSelectedId(null)}
+            onSaveWarrantyEdit={handleSaveWarrantyEdit}
+            onDeleteWarranty={handleDeleteWarranty}
+            showClaimForm={showClaimForm}
+            setShowClaimForm={setShowClaimForm}
+            claimForm={claimForm}
+            setClaimForm={setClaimForm}
+            onAddClaim={handleAddClaim}
+            onDeleteClaim={handleDeleteClaim}
+            assets={assets}
+            partners={partners}
+            addForm={addForm}
+            setAddForm={setAddForm}
+            onSelectAssetForAdd={handleSelectAssetForAdd}
+            onCreateWarranty={handleCreateWarranty}
+            onCloseAddModal={() => setShowAddModal(false)}
+            renderStatusBadge={renderStatusBadge}
+            sourceLabels={SOURCE_LABELS}
+          />
         )}
       </div>
-
-      {/* Modal: Manual Warranty Registration */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-xl max-h-[92vh] overflow-y-auto rounded border border-[#b5a894] bg-[#f4efe4] text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white p-5 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894] dark:border-slate-800">
-              <div className="flex items-center gap-2 font-bold text-sm">
-                <ShieldCheck className="w-4 h-4 text-[#1d4ed8]" />
-                <span>차대번호 보증 수동등록</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                className="text-[#57534e] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateWarranty} className="mt-4 flex flex-col gap-3 text-xs">
-              <SearchSelectCombobox
-                label="기존 렌탈자산 연동 선택 (선택)"
-                showChosungBar
-                size="sm"
-                value={addAssetId}
-                options={assetOptions}
-                onChange={handleSelectAssetForAdd}
-                placeholder="자산번호·차대번호·모델명으로 검색 시 자동입력"
-              />
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold">차대번호 *</label>
-                  <input
-                    type="text"
-                    required
-                    value={addChassisNo}
-                    onChange={(e) => setAddChassisNo(e.target.value)}
-                    placeholder="예: FBC-2026-001"
-                    className={`${inputCls} font-mono font-bold`}
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold">모델명</label>
-                  <input
-                    type="text"
-                    value={addModelName}
-                    onChange={(e) => setAddModelName(e.target.value)}
-                    placeholder="예: D30S-9"
-                    className={inputCls}
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold">제조사</label>
-                  <input
-                    type="text"
-                    value={addManufacturer}
-                    onChange={(e) => setAddManufacturer(e.target.value)}
-                    placeholder="두산 / 현대"
-                    className={inputCls}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <SearchSelectCombobox
-                  label="수요처 (고객사)"
-                  allowFreeText
-                  showChosungBar
-                  size="sm"
-                  value={addPartnerId ? String(addPartnerId) : ""}
-                  freeTextValue={addCustomerName}
-                  onFreeTextChange={(txt) => {
-                    setAddCustomerName(txt);
-                    setAddPartnerId(null);
-                  }}
-                  onChange={(val) => {
-                    if (!val) {
-                      setAddPartnerId(null);
-                      setAddCustomerName("");
-                      return;
-                    }
-                    const found = partners.find((p) => String(p.id) === val);
-                    if (found) {
-                      setAddPartnerId(found.id);
-                      setAddCustomerName(found.name);
-                    }
-                  }}
-                  options={partnerOptions}
-                  placeholder="고객사 검색 또는 직접 입력"
-                />
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold">현장명</label>
-                  <input
-                    type="text"
-                    value={addSiteName}
-                    onChange={(e) => setAddSiteName(e.target.value)}
-                    placeholder="가동 현장명"
-                    className={inputCls}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 rounded border border-[#b5a894] bg-[#ebe5d8]/70 dark:bg-slate-800/40 dark:border-slate-700">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold">납품·출고일</label>
-                  <input
-                    type="date"
-                    value={addDeliveryDate}
-                    onChange={(e) => setAddDeliveryDate(e.target.value)}
-                    className={`${inputCls} font-mono`}
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold">보증 시작일</label>
-                  <input
-                    type="date"
-                    value={addStartDate}
-                    onChange={(e) => {
-                      const s = e.target.value;
-                      setAddStartDate(s);
-                      const m = cleanErpNumber(addMonths);
-                      if (s && m > 0) setAddEndDate(addMonthsMinusOneDay(s, m));
-                    }}
-                    className={`${inputCls} font-mono`}
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold">보증 기간 (개월)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={addMonths}
-                    onChange={(e) => {
-                      const val = formatErpInputNumber(e.target.value);
-                      setAddMonths(val);
-                      const m = cleanErpNumber(val);
-                      if (addStartDate && m > 0) setAddEndDate(addMonthsMinusOneDay(addStartDate, m));
-                    }}
-                    className={`${inputCls} font-mono text-right`}
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold">보증 만료일</label>
-                  <input
-                    type="date"
-                    value={addEndDate}
-                    onChange={(e) => setAddEndDate(e.target.value)}
-                    className={`${inputCls} font-mono`}
-                  />
-                </div>
-                <div className="flex flex-col gap-1 col-span-2">
-                  <label className="text-[11px] font-semibold">보증 가동시간 한도 (hr)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={addWarrantyHours}
-                    onChange={(e) => setAddWarrantyHours(formatErpInputNumber(e.target.value))}
-                    className={`${inputCls} font-mono text-right font-bold`}
-                  />
-                </div>
-                <div className="flex flex-col gap-1 col-span-2">
-                  <label className="text-[11px] font-semibold">현재 가동시간 (hr)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={addOperatingHours}
-                    onChange={(e) => setAddOperatingHours(formatErpInputNumber(e.target.value))}
-                    className={`${inputCls} font-mono text-right font-bold`}
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-semibold">메모</label>
-                <textarea
-                  rows={2}
-                  value={addMemo}
-                  onChange={(e) => setAddMemo(e.target.value)}
-                  className="p-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white text-xs"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-[#b5a894] dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="h-8 px-3 rounded border border-[#b5a894] bg-[#ebe5d8] hover:bg-[#e2dbcd] text-xs font-semibold"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="h-8 px-4 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-xs font-bold"
-                >
-                  보증 등록 저장
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

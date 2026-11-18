@@ -1,4 +1,4 @@
-import { AttachedForkliftOption } from "@/lib/erpFormat";
+import type { AttachedForkliftOption } from "@/lib/forkliftDomain";
 
 export type AssetSubTab = "SUMMARY" | "DETAIL" | "DEPRECIATION";
 export type DepMatrixMode = "NET_PROFIT" | "REVENUE" | "DEPRECIATION";

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 import {
   RefreshCw,
   Download,
@@ -32,7 +33,14 @@ import {
 import { FinancialStatementsBoard } from "./financial-report/FinancialStatementsBoard";
 import { MonthlyAccountMatrixSection } from "./financial-report/MonthlyAccountMatrixSection";
 import { FinancialDetailLedgerSection } from "./financial-report/FinancialDetailLedgerSection";
-import { AccountingStandardModals } from "./financial-report/AccountingStandardModals";
+
+const AccountingStandardModals = dynamic(
+  () =>
+    import("./financial-report/AccountingStandardModals").then(
+      (m) => m.AccountingStandardModals
+    ),
+  { ssr: false }
+);
 
 export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
   currentUser,
@@ -119,7 +127,7 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
   const openAccountStandardModal = async (keyOrSubAccount: string, fallbackMajor?: string) => {
     const mod = await import("../data/accountSubjectStandardsMap");
     const info = mod.resolveAccountSubjectStandard(keyOrSubAccount, fallbackMajor);
-    const linked = mod.getLinkedArticlesAndCommentaries(info);
+    const linked = await mod.fetchLinkedArticlesAndCommentaries(info);
     setStandardLinkedDetail(linked);
     setStandardModalInfo(info);
   };
@@ -685,20 +693,22 @@ export const FinancialReportTab: React.FC<FinancialReportTabProps> = ({
       </div>
 
       {/* 5 & 6. 준용 중소기업회계기준 설명 모달 & 부합성 검증 총괄 보고서 모달 */}
-      <AccountingStandardModals
-        standardModalInfo={standardModalInfo}
-        standardLinkedDetail={standardLinkedDetail}
-        onCloseStandardModal={() => setStandardModalInfo(null)}
-        onOpenStandardModal={(k, maj) => {
-          void openAccountStandardModal(k, maj);
-        }}
-        showComplianceAuditModal={showComplianceAuditModal}
-        complianceAuditSummary={complianceAuditSummary}
-        onOpenComplianceAuditModal={() => {
-          void openComplianceAuditModal();
-        }}
-        onCloseComplianceAuditModal={() => setShowComplianceAuditModal(false)}
-      />
+      {(standardModalInfo || showComplianceAuditModal) && (
+        <AccountingStandardModals
+          standardModalInfo={standardModalInfo}
+          standardLinkedDetail={standardLinkedDetail}
+          onCloseStandardModal={() => setStandardModalInfo(null)}
+          onOpenStandardModal={(k, maj) => {
+            void openAccountStandardModal(k, maj);
+          }}
+          showComplianceAuditModal={showComplianceAuditModal}
+          complianceAuditSummary={complianceAuditSummary}
+          onOpenComplianceAuditModal={() => {
+            void openComplianceAuditModal();
+          }}
+          onCloseComplianceAuditModal={() => setShowComplianceAuditModal(false)}
+        />
+      )}
     </div>
   );
 };

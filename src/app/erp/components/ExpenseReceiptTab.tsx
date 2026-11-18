@@ -1,68 +1,34 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo } from "react";
+import dynamic from "next/dynamic";
 import {
   Receipt,
   Plus,
   Check,
-  X,
   Trash2,
   RefreshCw,
-  Upload,
-  FileText,
   Eye,
   ChevronLeft,
   ChevronRight,
   Download,
   Lock,
-  Sparkles,
 } from "lucide-react";
-import {
-  formatErpCurrency,
-  formatErpNumber,
-  formatErpInputNumber,
-  cleanErpNumber,
-  toErpInputString,
-  sortErpItems,
-} from "@/lib/erpFormat";
+import { formatErpCurrency, formatErpNumber, cleanErpNumber, sortErpItems } from "@/lib/erpFormat";
 import { SortableTh, useErpTableSort } from "./SortableTh";
+import type {
+  ExpenseReceiptItem,
+  EmployeeOption,
+  ExpenseCreateFormState,
+} from "./expenses/ExpenseCreateAndPreviewModals";
 
-interface ExpenseReceiptItem {
-  id: number;
-  employee_id: number;
-  employee_no: string;
-  employee_name: string;
-  department: string;
-  position: string;
-  duty?: string;
-  expense_date: string;
-  year_month: string;
-  category: string;
-  merchant_name: string;
-  amount: number;
-  payment_method: string;
-  description: string;
-  receipt_file_name?: string;
-  receipt_r2_key?: string;
-  receipt_file_url?: string;
-  hasReceipt?: boolean;
-  has_receipt?: boolean;
-  status: "PENDING" | "APPROVED" | "REJECTED";
-  approved_by?: string;
-  approved_at?: string;
-  payroll_included?: boolean;
-  created_at?: string;
-}
-
-interface EmployeeOption {
-  id: number;
-  employee_no: string;
-  name: string;
-  department: string;
-  position: string;
-  duty?: string;
-  status: string;
-}
+const ExpenseCreateAndPreviewModals = dynamic(
+  () =>
+    import("./expenses/ExpenseCreateAndPreviewModals").then(
+      (m) => m.ExpenseCreateAndPreviewModals
+    ),
+  { ssr: false }
+);
 
 interface DeptOption {
   id: number;
@@ -111,16 +77,21 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
 
   // 등록 모달 상태
   const [modalOpen, setModalOpen] = useState(false);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
-  const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [yearMonth, setYearMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]);
-  const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0]);
-  const [merchantName, setMerchantName] = useState("");
-  const [amountInput, setAmountInput] = useState("");
-  const [descPreset, setDescPreset] = useState(DESCRIPTION_PRESETS[0]);
-  const [description, setDescription] = useState(DESCRIPTION_PRESETS[0]);
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [createForm, setCreateForm] = useState<ExpenseCreateFormState>(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return {
+      selectedEmployeeId: "",
+      expenseDate: today,
+      yearMonth: today.slice(0, 7),
+      category: EXPENSE_CATEGORIES[0],
+      paymentMethod: PAYMENT_METHODS[0],
+      merchantName: "",
+      amountInput: "",
+      descPreset: DESCRIPTION_PRESETS[0],
+      description: DESCRIPTION_PRESETS[0],
+      receiptFile: null,
+    };
+  });
   const [submitting, setSubmitting] = useState(false);
 
   // 영수증 스캔본 미리보기 모달
@@ -149,8 +120,6 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
         .catch(() => {});
     }
   }, [previewItem?.id, previewItem?.hasReceipt, previewItem?.has_receipt, previewItem?.receipt_file_url, previewItem?.receipt_r2_key]);
-
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [toastMessage, setToastMessage] = useState<{
     text: string;
@@ -357,49 +326,55 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
   // 기본 선택 사원 세팅
   useEffect(() => {
     if (selectableEmployees.length > 0) {
-      const exists = selectableEmployees.some((e) => String(e.id) === String(selectedEmployeeId));
-      if (!selectedEmployeeId || !exists) {
+      const exists = selectableEmployees.some(
+        (e) => String(e.id) === String(createForm.selectedEmployeeId)
+      );
+      if (!createForm.selectedEmployeeId || !exists) {
         const defaultEmp =
           selectableEmployees.find((e) => currentEmployee && Number(e.id) === Number(currentEmployee.id)) ||
           selectableEmployees[0];
         if (defaultEmp) {
-          setSelectedEmployeeId(String(defaultEmp.id));
+          setCreateForm((prev) => ({ ...prev, selectedEmployeeId: String(defaultEmp.id) }));
         }
       }
     }
-  }, [selectableEmployees, currentEmployee, selectedEmployeeId]);
+  }, [selectableEmployees, currentEmployee, createForm.selectedEmployeeId]);
 
   // 사용일자 변경 시 급여 귀속월 자동 연동
   const handleDateChange = (dateStr: string) => {
-    setExpenseDate(dateStr);
-    if (dateStr && dateStr.length >= 7) {
-      setYearMonth(dateStr.slice(0, 7));
-    }
+    setCreateForm((prev) => ({
+      ...prev,
+      expenseDate: dateStr,
+      yearMonth: dateStr && dateStr.length >= 7 ? dateStr.slice(0, 7) : prev.yearMonth,
+    }));
   };
 
   const handleOpenCreateModal = () => {
     const today = new Date().toISOString().slice(0, 10);
-    setExpenseDate(today);
-    setYearMonth(selectedMonth || today.slice(0, 7));
-    setCategory(EXPENSE_CATEGORIES[0]);
-    setPaymentMethod(PAYMENT_METHODS[0]);
-    setMerchantName("");
-    setAmountInput("");
-    setDescPreset(DESCRIPTION_PRESETS[0]);
-    setDescription(DESCRIPTION_PRESETS[0]);
-    setReceiptFile(null);
+    setCreateForm((prev) => ({
+      ...prev,
+      expenseDate: today,
+      yearMonth: selectedMonth || today.slice(0, 7),
+      category: EXPENSE_CATEGORIES[0],
+      paymentMethod: PAYMENT_METHODS[0],
+      merchantName: "",
+      amountInput: "",
+      descPreset: DESCRIPTION_PRESETS[0],
+      description: DESCRIPTION_PRESETS[0],
+      receiptFile: null,
+    }));
     setModalOpen(true);
   };
 
   const handleSubmitReceipt = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEmployeeId) {
+    if (!createForm.selectedEmployeeId) {
       showToast("대상 임직원을 선택해주세요.", "error");
       return;
     }
 
-    const numericAmount = cleanErpNumber(amountInput);
-    if (numericAmount <= 0 && !receiptFile) {
+    const numericAmount = cleanErpNumber(createForm.amountInput);
+    if (numericAmount <= 0 && !createForm.receiptFile) {
       showToast("결제 금액을 입력하거나 영수증 파일을 첨부해주세요.", "error");
       return;
     }
@@ -407,18 +382,18 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
     try {
       setSubmitting(true);
       const formData = new FormData();
-      formData.append("employee_id", String(selectedEmployeeId));
-      formData.append("expense_date", expenseDate);
-      formData.append("year_month", yearMonth);
-      formData.append("category", category);
-      formData.append("payment_method", paymentMethod);
-      formData.append("merchant_name", merchantName);
+      formData.append("employee_id", String(createForm.selectedEmployeeId));
+      formData.append("expense_date", createForm.expenseDate);
+      formData.append("year_month", createForm.yearMonth);
+      formData.append("category", createForm.category);
+      formData.append("payment_method", createForm.paymentMethod);
+      formData.append("merchant_name", createForm.merchantName);
       formData.append("amount", String(numericAmount));
-      formData.append("description", description);
+      formData.append("description", createForm.description);
       formData.append("auto_approve", isDeptHead ? "true" : "false");
       formData.append("approved_by", currentUser?.name || "관리자");
-      if (receiptFile) {
-        formData.append("file", receiptFile);
+      if (createForm.receiptFile) {
+        formData.append("file", createForm.receiptFile);
       }
 
       const res = await fetch("/api/erp/expenses", {
@@ -430,9 +405,9 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
 
       showToast(data.message || "개인경비 영수증이 등록되었습니다.");
       setModalOpen(false);
-      if (yearMonth !== selectedMonth) {
-        setSelectedMonth(yearMonth);
-        await fetchData(yearMonth);
+      if (createForm.yearMonth !== selectedMonth) {
+        setSelectedMonth(createForm.yearMonth);
+        await fetchData(createForm.yearMonth);
       } else {
         await fetchData(selectedMonth);
       }
@@ -928,389 +903,24 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
         </div>
       </div>
 
-      {/* 5. 개인경비 영수증 등록 모달 (퀵버튼 전면 적용) */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800 rounded-lg p-5 w-full max-w-2xl shadow-2xl text-[#0f172a] dark:text-slate-100 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-3 pb-2.5 border-b border-[#b5a894] dark:border-slate-800">
-              <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-[#047857]" />
-                <span>개인경비 영수증 등록 및 급여정산 연동</span>
-              </h2>
-              <button
-                type="button"
-                onClick={() => setModalOpen(false)}
-                className="p-1 hover:bg-[#ebe5d8] rounded transition"
-              >
-                <X className="w-4 h-4 text-[#475569]" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmitReceipt} className="space-y-3.5 text-xs">
-              {/* 1) 영수증 스캔본 첨부 (R2 볼트 암호화 보관 + AI 자동인식) */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[#334155] dark:text-slate-300 font-bold flex items-center justify-between">
-                  <span>영수증 사진 / PDF 첨부 (Cloudflare R2 보안 볼트 저장 · AI 금액 자동인식)</span>
-                  {receiptFile && (
-                    <button
-                      type="button"
-                      onClick={() => setReceiptFile(null)}
-                      className="text-[11px] text-[#dc2626] font-bold hover:underline"
-                    >
-                      첨부 취소
-                    </button>
-                  )}
-                </label>
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const file = e.dataTransfer.files?.[0];
-                    if (file) setReceiptFile(file);
-                  }}
-                  className="border-2 border-dashed border-[#10b981] bg-[#ecfdf5]/60 hover:bg-[#d1fae5]/60 rounded p-3 text-center cursor-pointer transition flex items-center justify-center gap-2.5"
-                >
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept="image/*,.pdf"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) setReceiptFile(f);
-                    }}
-                    className="hidden"
-                  />
-                  <Upload className="w-4 h-4 text-[#047857] shrink-0" />
-                  <div className="text-left">
-                    <p className="text-xs font-bold text-[#047857]">
-                      {receiptFile
-                        ? `첨부됨: ${receiptFile.name} (${Math.round(receiptFile.size / 1024)} KB)`
-                        : "영수증 이미지 또는 PDF를 클릭/드래그하여 첨부하세요"}
-                    </p>
-                    <p className="text-[10px] text-[#475569] flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-[#047857]" />
-                      <span>결제금액이나 가맹점명을 비워두어도 영수증 이미지에서 AI가 자동 추출합니다.</span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* 2) 대상 임직원 퀵버튼 */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[#334155] dark:text-slate-300 font-bold">
-                  대상 임직원 (퀵선택)
-                </label>
-                <div className="flex flex-wrap gap-1.5 p-2 bg-[#ebe5d8] border border-[#b5a894] rounded dark:bg-slate-950 dark:border-slate-800">
-                  {selectableEmployees.map((e) => {
-                    const isSelected = String(selectedEmployeeId) === String(e.id);
-                    return (
-                      <button
-                        key={e.id}
-                        type="button"
-                        onClick={() => setSelectedEmployeeId(String(e.id))}
-                        className={`px-2.5 py-1.5 rounded text-xs font-bold border transition whitespace-nowrap ${
-                          isSelected
-                            ? "bg-[#047857] text-white border-[#047857] shadow-sm"
-                            : "bg-[#f4efe4] text-[#334155] border-[#b5a894] hover:bg-[#e2dbcd] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                        }`}
-                      >
-                        {e.name}
-                        <span
-                          className={`ml-1 text-[10px] font-normal ${
-                            isSelected ? "text-emerald-100" : "text-[#64748b]"
-                          }`}
-                        >
-                          ({e.department} · {e.position})
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 3) 사용 일자 및 급여 정산 귀속연월 */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">
-                    영수증 결제(사용) 일자
-                  </label>
-                  <input
-                    type="date"
-                    value={expenseDate}
-                    onChange={(e) => handleDateChange(e.target.value)}
-                    className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono"
-                    required
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#047857] dark:text-emerald-400 font-bold">
-                    급여 정산 반영 귀속연월
-                  </label>
-                  <input
-                    type="month"
-                    value={yearMonth}
-                    onChange={(e) => setYearMonth(e.target.value)}
-                    className="bg-[#ecfdf5] border border-[#10b981] text-[#047857] font-bold px-2.5 py-1.5 rounded font-mono"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* 4) 경비 구분 퀵버튼 */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[#334155] dark:text-slate-300 font-bold">
-                  경비 구분 (퀵선택)
-                </label>
-                <div className="flex flex-wrap gap-1.5 p-2 bg-[#ebe5d8] border border-[#b5a894] rounded dark:bg-slate-950 dark:border-slate-800">
-                  {EXPENSE_CATEGORIES.map((cat) => {
-                    const isSelected = category === cat;
-                    return (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setCategory(cat)}
-                        className={`px-2.5 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap ${
-                          isSelected
-                            ? "bg-[#1d4ed8] text-white border-[#1d4ed8] shadow-sm"
-                            : "bg-[#f4efe4] text-[#334155] border-[#b5a894] hover:bg-[#e2dbcd]"
-                        }`}
-                      >
-                        {cat}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 5) 결제 수단 퀵버튼 */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[#334155] dark:text-slate-300 font-bold">
-                  결제 수단 (퀵선택)
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {PAYMENT_METHODS.map((pm) => {
-                    const isSelected = paymentMethod === pm;
-                    return (
-                      <button
-                        key={pm}
-                        type="button"
-                        onClick={() => setPaymentMethod(pm)}
-                        className={`px-3 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap ${
-                          isSelected
-                            ? "bg-[#0f172a] text-white border-[#0f172a]"
-                            : "bg-[#ebe5d8] text-[#334155] border-[#b5a894] hover:bg-[#e2dbcd]"
-                        }`}
-                      >
-                        {pm}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 6) 가맹점명 및 결제금액 */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">
-                    가맹점 / 사용처 상호
-                  </label>
-                  <input
-                    type="text"
-                    value={merchantName}
-                    onChange={(e) => setMerchantName(e.target.value)}
-                    placeholder="예: GS칼텍스 금천주유소, 한솥도시락"
-                    className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#047857] dark:text-emerald-400 font-bold">
-                    결제 금액 (원) [급여 비과세 정산액]
-                  </label>
-                  <input
-                    type="text"
-                    value={amountInput}
-                    onChange={(e) => setAmountInput(formatErpInputNumber(e.target.value))}
-                    placeholder="0"
-                    className="bg-[#ecfdf5] border border-[#10b981] text-[#047857] font-extrabold px-2.5 py-1.5 rounded text-right font-mono text-sm"
-                  />
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {[
-                      { label: "+1만", val: 10000 },
-                      { label: "+3만", val: 30000 },
-                      { label: "+5만", val: 50000 },
-                      { label: "+10만", val: 100000 },
-                      { label: "초기화", val: 0 },
-                    ].map((btn) => (
-                      <button
-                        key={btn.label}
-                        type="button"
-                        onClick={() => {
-                          if (btn.val === 0) {
-                            setAmountInput("");
-                          } else {
-                            const cur = cleanErpNumber(amountInput);
-                            setAmountInput(toErpInputString(cur + btn.val));
-                          }
-                        }}
-                        className="px-2 py-0.5 bg-[#e2dbcd] hover:bg-[#d5cbb8] text-[#334155] rounded border border-[#b5a894] text-[10px] font-bold"
-                      >
-                        {btn.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* 7) 사용 목적 프리셋 퀵버튼 */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[#334155] dark:text-slate-300 font-bold">
-                  사용 목적 프리셋 (퀵선택)
-                </label>
-                <div className="flex flex-wrap gap-1.5 p-2 bg-[#ebe5d8] border border-[#b5a894] rounded dark:bg-slate-950 dark:border-slate-800">
-                  {DESCRIPTION_PRESETS.map((preset) => {
-                    const isSelected = descPreset === preset;
-                    return (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => {
-                          setDescPreset(preset);
-                          if (preset !== "직접 입력") {
-                            setDescription(preset);
-                          } else {
-                            setDescription("");
-                          }
-                        }}
-                        className={`px-2.5 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap ${
-                          isSelected
-                            ? "bg-[#047857] text-white border-[#047857] shadow-sm"
-                            : "bg-[#f4efe4] text-[#334155] border-[#b5a894] hover:bg-[#e2dbcd]"
-                        }`}
-                      >
-                        {preset}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 8) 상세 사유 입력 */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[#334155] dark:text-slate-300 font-semibold">
-                  상세 사용 목적 / 메모
-                </label>
-                <input
-                  type="text"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="사용 목적을 입력하세요"
-                  className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded"
-                  required
-                />
-              </div>
-
-              <div className="pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(false)}
-                  className="px-3 py-1.5 text-xs text-[#334155] bg-[#ebe5d8] hover:bg-[#d0c6b4] rounded border border-[#b5a894]"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-[#047857] hover:bg-[#065f46] rounded shadow flex items-center gap-1.5"
-                >
-                  {submitting ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>저장 및 급여정산 반영 중...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>
-                        {isDeptHead ? "영수증 등록 및 즉시 승인 (급여반영)" : "개인경비 영수증 제출"}
-                      </span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 6. 영수증 스캔본 미리보기 모달 */}
-      {previewItem && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border border-[#b5a894] rounded-lg p-4 w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between pb-2.5 border-b border-[#b5a894]">
-              <div className="flex items-center gap-2 text-xs font-bold">
-                <FileText className="w-4 h-4 text-[#1d4ed8]" />
-                <span>
-                  영수증 증빙 조회 — {previewItem.employee_name} ({previewItem.expense_date?.slice(0, 10)} ·{" "}
-                  {previewItem.merchant_name} · {formatErpCurrency(previewItem.amount)})
-                </span>
-              </div>
-              <button
-                onClick={() => setPreviewItem(null)}
-                className="p-1 hover:bg-[#ebe5d8] rounded"
-              >
-                <X className="w-4 h-4 text-[#475569]" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-auto py-3 flex items-center justify-center bg-[#ebe5d8] rounded my-2 min-h-[380px]">
-              {previewItem.receipt_r2_key ? (
-                previewItem.receipt_file_name?.toLowerCase().endsWith(".pdf") ? (
-                  <iframe
-                    src={`/api/erp/contracts/file?key=${encodeURIComponent(previewItem.receipt_r2_key)}`}
-                    className="w-full h-[65vh] border-0"
-                    title="영수증 PDF"
-                  />
-                ) : (
-                  <img
-                    src={`/api/erp/contracts/file?key=${encodeURIComponent(previewItem.receipt_r2_key)}`}
-                    alt="영수증 스캔본"
-                    className="max-w-full max-h-[65vh] object-contain rounded shadow"
-                  />
-                )
-              ) : previewItem.receipt_file_url ? (
-                <img
-                  src={previewItem.receipt_file_url}
-                  alt="영수증 이미지"
-                  className="max-w-full max-h-[65vh] object-contain rounded shadow"
-                />
-              ) : (
-                <p className="text-xs text-[#64748b]">영수증 이미지가 없습니다.</p>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-[#b5a894]">
-              {previewItem.receipt_r2_key && (
-                <a
-                  href={`/api/erp/contracts/file?key=${encodeURIComponent(previewItem.receipt_r2_key)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-1.5 bg-[#1d4ed8] text-white text-xs font-bold rounded"
-                >
-                  새 창에서 원본 열기
-                </a>
-              )}
-              <button
-                onClick={() => setPreviewItem(null)}
-                className="px-3 py-1.5 bg-[#ebe5d8] text-[#334155] text-xs font-bold rounded border border-[#b5a894]"
-              >
-                닫기
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* 5 & 6. 개인경비 영수증 등록 모달 & 스캔본 미리보기 모달 (Lazy) */}
+      {(modalOpen || !!previewItem) && (
+        <ExpenseCreateAndPreviewModals
+          modalOpen={modalOpen}
+          onCloseCreateModal={() => setModalOpen(false)}
+          form={createForm}
+          setForm={setCreateForm}
+          selectableEmployees={selectableEmployees}
+          categories={EXPENSE_CATEGORIES}
+          paymentMethods={PAYMENT_METHODS}
+          descriptionPresets={DESCRIPTION_PRESETS}
+          isDeptHead={isDeptHead}
+          submitting={submitting}
+          onDateChange={handleDateChange}
+          onSubmitReceipt={handleSubmitReceipt}
+          previewItem={previewItem}
+          onClosePreview={() => setPreviewItem(null)}
+        />
       )}
     </div>
   );

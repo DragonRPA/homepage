@@ -1,7 +1,7 @@
 import "server-only";
 import popbill from "popbill";
 import { BUSINESS_ENTITIES, getEntityByBizNum } from "./businessEntities";
-import { selectPreferredBizItem } from "./erpFormat";
+import { selectPreferredBizItem } from "./erpContractTemplate";
 
 const linkId = process.env.POPBILL_LINK_ID;
 const secretKey = process.env.POPBILL_SECRET_KEY;

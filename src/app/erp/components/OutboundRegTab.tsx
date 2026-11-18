@@ -3,108 +3,27 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Truck,
-  Search,
   RefreshCw,
   CheckCircle2,
-  Building2,
-  Calendar,
-  Coins,
   PackageCheck,
-  Receipt,
   AlertCircle,
 } from "lucide-react";
-import {
-  formatErpNumber,
-  formatErpInputNumber,
-  toErpInputString,
-  cleanErpNumber,
-  sortErpItems,
-  RentalRateBasis,
-  RENTAL_RATE_BASIS_OPTIONS,
-  calculateAutoDailyRentalFee,
-  resolveDailyRentalFee,
-  computeRentalSupplyByBasis,
-  matchHangulAny,
-  sortCustomersByName,
-  AttachedForkliftOption,
-  calculateAttachedOptionsTotals,
-  formatAttachedOptionsSummary,
-  normalizeAttachedOptions,
-  normalizeItemClass,
-} from "@/lib/erpFormat";
-import { SortableTh, useErpTableSort } from "./SortableTh";
+import { formatErpNumber, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems } from "@/lib/erpFormat";
+import { type RentalRateBasis, RENTAL_RATE_BASIS_OPTIONS, calculateAutoDailyRentalFee, resolveDailyRentalFee, computeRentalSupplyByBasis } from "@/lib/rentalFeeUtils";
+import { matchHangulAny, sortCustomersByName } from "@/lib/hangulSearch";
+import { type AttachedForkliftOption, calculateAttachedOptionsTotals, formatAttachedOptionsSummary, normalizeAttachedOptions, normalizeItemClass } from "@/lib/forkliftDomain";
+import { useErpTableSort } from "./SortableTh";
 import { SearchSelectCombobox, SearchSelectOption } from "./SearchSelectCombobox";
 import ForkliftOptionAttachPanel, { CatalogOptionItem } from "./ForkliftOptionAttachPanel";
 import { findBlockedPartnerMatch, getPartnerTradeBlockInfo } from "@/lib/partnerStatusClient";
-
-interface RentalAssetItem {
-  id: number;
-  assetNo: string;
-  serialNo: string;
-  rentalProductId: number;
-  modelCode: string;
-  modelName: string;
-  category: string;
-  manufacturer: string;
-  standardMonthlyRate: number;
-  standardDailyRate: number;
-  productSpec: string;
-  customSpec: string;
-  ownerType: string;
-  status: string;
-  currentCustomer: string | null;
-  currentSite: string | null;
-  contractNo: string | null;
-  operatingHours?: number;
-  attachedOptions?: AttachedForkliftOption[];
-}
-
-interface BillingItem {
-  id: number;
-  billingNo: string;
-  contractId: number;
-  contractNo: string;
-  customerName: string;
-  siteName: string | null;
-  entityType: string;
-  contractStatus: string;
-  assetId: number;
-  assetNo: string;
-  serialNo: string;
-  modelName: string;
-  yearMonth: string;
-  startDate: string;
-  endDate: string;
-  operatingDays: number;
-  monthlyRate: number;
-  proRataRevenue: number;
-  depreciationCogs: number;
-  netMargin: number;
-  paymentStatus: string;
-}
-
-interface CustomerBillingSummary {
-  customerName: string;
-  assetCount: number;
-  totalMonthlyRate: number;
-  totalProRataRevenue: number;
-  items: BillingItem[];
-}
-
-interface InoutLogItem {
-  id: number;
-  assetId: number;
-  assetNo: string;
-  serialNo: string;
-  modelName: string;
-  manufacturer: string;
-  eventType: string;
-  eventDate: string;
-  customerName: string;
-  siteName: string | null;
-  memo: string | null;
-  createdAt: string;
-}
+import {
+  OutboundBillingAndLogsPanel,
+  type BillingItem,
+  type CustomerBillingSummary,
+  type InoutLogItem,
+  type OutboundActiveView,
+  type RentalAssetItem,
+} from "./outbound/OutboundBillingAndLogsPanel";
 
 export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
   const todayStr = useMemo(() => {
@@ -148,7 +67,7 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
   const [memo, setMemo] = useState("");
 
   // Active Grid View Tab
-  const [activeView, setActiveView] = useState<"BILLINGS" | "AVAILABLE_ASSETS" | "LOGS">("BILLINGS");
+  const [activeView, setActiveView] = useState<OutboundActiveView>("BILLINGS");
   const [customerFilter, setCustomerFilter] = useState<string>("ALL");
   const [searchKeyword, setSearchKeyword] = useState<string>("");
 
@@ -458,57 +377,6 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
       setSubmitting(false);
     }
   };
-
-  const renderSortHeader = (
-    label: string,
-    colKey: string,
-    align: "left" | "right" | "center" = "left"
-  ) => (
-    <SortableTh
-      label={label}
-      colKey={colKey}
-      sortKey={sortKey}
-      sortDir={sortDir}
-      onSort={handleSort}
-      align={align}
-      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-800/60"
-      iconClassName="w-3.5 h-3.5"
-    />
-  );
-
-  const renderAvailSortHeader = (
-    label: string,
-    colKey: string,
-    align: "left" | "right" | "center" = "left"
-  ) => (
-    <SortableTh
-      label={label}
-      colKey={colKey}
-      sortKey={availSort.sortKey}
-      sortDir={availSort.sortDir}
-      onSort={availSort.handleSort}
-      align={align}
-      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-800/60"
-      iconClassName="w-3.5 h-3.5"
-    />
-  );
-
-  const renderLogSortHeader = (
-    label: string,
-    colKey: string,
-    align: "left" | "right" | "center" = "left"
-  ) => (
-    <SortableTh
-      label={label}
-      colKey={colKey}
-      sortKey={logsSort.sortKey}
-      sortDir={logsSort.sortDir}
-      onSort={logsSort.handleSort}
-      align={align}
-      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-800/60"
-      iconClassName="w-3.5 h-3.5"
-    />
-  );
 
   const filteredBillings = useMemo(() => {
     const list = billings.filter((b) => {
@@ -919,354 +787,28 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
         </form>
 
         {/* Right: Customer Monthly Billing Reflection & Assets / Logs Grid */}
-        <div className="lg:col-span-8 space-y-3">
-          {/* Customer Monthly Billing Summary Cards */}
-          <div className="bg-[#f4efe4] border border-[#b5a894] rounded-xl p-3.5 dark:bg-slate-900/70 dark:border-slate-800">
-            <div className="flex items-center justify-between mb-2.5">
-              <div className="flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-[#047857] dark:text-emerald-400" />
-                <span className="text-xs font-bold text-[#0f172a] dark:text-white whitespace-nowrap">
-                  [{yearMonth}] 고객사별 당월 청구액 집계 현황
-                </span>
-              </div>
-              {customerFilter !== "ALL" && (
-                <button
-                  onClick={() => setCustomerFilter("ALL")}
-                  className="text-[11px] text-[#1d4ed8] hover:underline whitespace-nowrap dark:text-blue-400"
-                >
-                  전체 고객사 보기
-                </button>
-              )}
-            </div>
-
-            {customerSummary.length === 0 ? (
-              <div className="py-4 text-center text-xs text-[#475569] dark:text-slate-500">
-                해당 연월({yearMonth})에 청구 반영된 출고 내역이 없습니다.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 max-h-44 overflow-y-auto pr-1">
-                {customerSummary.map((cs) => {
-                  const isSelected = customerFilter === cs.customerName;
-                  return (
-                    <button
-                      key={cs.customerName}
-                      type="button"
-                      onClick={() => {
-                        setCustomerFilter(isSelected ? "ALL" : cs.customerName);
-                        setActiveView("BILLINGS");
-                      }}
-                      className={`p-2.5 rounded-lg border text-left transition flex flex-col justify-between gap-1.5 ${
-                        isSelected
-                          ? "bg-[#dbeafe] border-[#2563eb] text-[#1e40af] dark:bg-blue-950/50 dark:border-blue-500 dark:text-white"
-                          : "bg-[#ebe5d8] border-[#b5a894] hover:bg-[#f4efe4] text-[#0f172a] dark:bg-slate-950/70 dark:border-slate-800 dark:hover:border-slate-700 dark:text-slate-200"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold truncate">{cs.customerName}</span>
-                        <span className="px-1.5 py-0.5 rounded bg-[#f4efe4] border border-[#b5a894] text-[10px] font-mono text-[#1d4ed8] whitespace-nowrap shrink-0 dark:bg-slate-800 dark:border-transparent dark:text-blue-400">
-                          {formatErpNumber(cs.assetCount)}대
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] pt-1 border-t border-[#b5a894] dark:border-slate-800/80">
-                        <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">당월 청구액</span>
-                        <span className="font-mono font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap">
-                          ₩{formatErpNumber(cs.totalProRataRevenue)}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Sub-Tabs & Search Bar */}
-          <div className="bg-[#ebe5d8] border border-[#b5a894] rounded-xl overflow-hidden dark:bg-slate-900/70 dark:border-slate-800">
-            <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] flex flex-wrap items-center justify-between gap-2 dark:bg-slate-900 dark:border-slate-800">
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setActiveView("BILLINGS")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${
-                    activeView === "BILLINGS"
-                      ? "bg-[#1d4ed8] text-white shadow-sm"
-                      : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
-                  }`}
-                >
-                  당월 청구 반영 명세 ({formatErpNumber(filteredBillings.length)}건)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveView("AVAILABLE_ASSETS")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${
-                    activeView === "AVAILABLE_ASSETS"
-                      ? "bg-[#1d4ed8] text-white shadow-sm"
-                      : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
-                  }`}
-                >
-                  임대가능 자산 선택 ({formatErpNumber(availableAssets.length)}대)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveView("LOGS")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${
-                    activeView === "LOGS"
-                      ? "bg-[#1d4ed8] text-white shadow-sm"
-                      : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
-                  }`}
-                >
-                  출고 이력 대장 ({formatErpNumber(logs.length)}건)
-                </button>
-              </div>
-
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-[#475569] dark:text-slate-400 absolute left-2.5 top-2" />
-                <input
-                  type="text"
-                  value={searchKeyword}
-                  onChange={(e) => setSearchKeyword(e.target.value)}
-                  placeholder="고객사 / 자산번호 / S/N 검색"
-                  className="pl-8 pr-3 py-1 bg-[#f4efe4] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] w-52 dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
-                />
-              </div>
-            </div>
-
-            {/* Table Area */}
-            <div className="overflow-x-auto max-h-[480px]">
-              {activeView === "BILLINGS" && (
-                <table className="w-full text-xs text-left border-collapse">
-                  <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800">
-                    <tr>
-                      {renderSortHeader("고객사명", "customerName")}
-                      {renderSortHeader("자산번호", "assetNo")}
-                      {renderSortHeader("제조번호(S/N)", "serialNo")}
-                      {renderSortHeader("기종 모델명", "modelName")}
-                      {renderSortHeader("청구 시작일", "startDate", "center")}
-                      {renderSortHeader("정산 종료일", "endDate", "center")}
-                      {renderSortHeader("가동일수", "operatingDays", "right")}
-                      {renderSortHeader("월 단가", "monthlyRate", "right")}
-                      {renderSortHeader("당월 청구액", "proRataRevenue", "right")}
-                      {renderSortHeader("상태", "paymentStatus", "center")}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/70">
-                    {filteredBillings.length === 0 ? (
-                      <tr>
-                        <td colSpan={10} className="py-10 text-center text-[#475569] dark:text-slate-500">
-                          조회된 당월 청구 내역이 없습니다.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredBillings.map((b) => (
-                        <tr key={b.id} className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40 transition">
-                          <td className="py-2.5 px-3 font-bold text-[#0f172a] dark:text-white whitespace-nowrap">
-                            {b.customerName}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
-                            {b.assetNo}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono text-[#475569] dark:text-slate-300 whitespace-nowrap">
-                            {b.serialNo || "-"}
-                          </td>
-                          <td className="py-2.5 px-3 text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
-                            {b.modelName || "-"}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono text-center text-[#334155] dark:text-slate-300 whitespace-nowrap">
-                            {b.startDate}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono text-center text-[#475569] dark:text-slate-400 whitespace-nowrap">
-                            {b.endDate}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono text-right text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
-                            {formatErpNumber(b.operatingDays)}일
-                          </td>
-                          <td className="py-2.5 px-3 font-mono text-right text-[#334155] dark:text-slate-300 whitespace-nowrap">
-                            ₩{formatErpNumber(b.monthlyRate)}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-right text-[#047857] dark:text-emerald-400 whitespace-nowrap">
-                            ₩{formatErpNumber(b.proRataRevenue)}
-                          </td>
-                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                b.paymentStatus === "PAID"
-                                  ? "bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0] dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-transparent"
-                                  : "bg-[#fffbeb] text-[#b45309] border border-[#fde68a] dark:bg-amber-500/20 dark:text-amber-400 dark:border-transparent"
-                              }`}
-                            >
-                              {b.paymentStatus === "PAID" ? "수납완료" : "청구대기"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              )}
-
-              {activeView === "AVAILABLE_ASSETS" && (
-                <table className="w-full text-xs text-left border-collapse">
-                  <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800">
-                    <tr>
-                      <th className="py-2.5 px-3 whitespace-nowrap">출고 선택</th>
-                      {renderAvailSortHeader("자산번호", "assetNo")}
-                      {renderAvailSortHeader("제조번호(S/N)", "serialNo")}
-                      {renderAvailSortHeader("기종 모델명", "modelName")}
-                      {renderAvailSortHeader("제조사", "manufacturer")}
-                      {renderAvailSortHeader("분류", "category")}
-                      {renderAvailSortHeader("기준 월단가", "standardMonthlyRate", "right")}
-                      {renderAvailSortHeader("기준 일단가", "standardDailyRate", "right")}
-                      {renderAvailSortHeader("상태", "status", "center")}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/70">
-                    {sortedAvailableAssets.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="py-10 text-center text-[#475569] dark:text-slate-500">
-                          임대가능 상태인 자산이 없습니다.
-                        </td>
-                      </tr>
-                    ) : (
-                      sortedAvailableAssets.map((a) => {
-                        const isChosen = String(a.id) === String(selectedAssetId);
-                        const resolvedDaily = resolveDailyRentalFee(
-                          a.standardMonthlyRate,
-                          a.standardDailyRate
-                        );
-                        return (
-                          <tr
-                            key={a.id}
-                            onClick={() => handleSelectAsset(a)}
-                            className={`cursor-pointer transition ${
-                              isChosen ? "bg-[#dbeafe] dark:bg-blue-950/50" : "hover:bg-[#f4efe4] dark:hover:bg-slate-800/40"
-                            }`}
-                          >
-                            <td className="py-2 px-3 whitespace-nowrap">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleSelectAsset(a);
-                                }}
-                                className={`px-2.5 py-1 rounded text-[11px] font-bold transition ${
-                                  isChosen
-                                    ? "bg-[#1d4ed8] text-white"
-                                    : "bg-[#e2dbcd] hover:bg-[#1d4ed8] text-[#0f172a] hover:text-white border border-[#b5a894] dark:bg-slate-800 dark:border-transparent dark:hover:bg-blue-600/80 dark:text-slate-200"
-                                }`}
-                              >
-                                {isChosen ? "선택됨" : "선택 ➔"}
-                              </button>
-                            </td>
-                            <td className="py-2 px-3 font-mono font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
-                              {a.assetNo}
-                            </td>
-                            <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-200 whitespace-nowrap">
-                              {a.serialNo || "-"}
-                            </td>
-                            <td className="py-2 px-3 font-semibold text-[#0f172a] dark:text-white whitespace-nowrap">
-                              {a.modelName || "-"}
-                            </td>
-                            <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">
-                              {a.manufacturer || "-"}
-                            </td>
-                            <td className="py-2 px-3 text-[#475569] dark:text-slate-400 whitespace-nowrap">
-                              {a.category || "-"}
-                            </td>
-                            <td className="py-2 px-3 font-mono font-bold text-right text-[#047857] dark:text-emerald-400 whitespace-nowrap">
-                              ₩{formatErpNumber(a.standardMonthlyRate)}
-                            </td>
-                            <td className="py-2 px-3 font-mono font-bold text-right text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
-                              ₩{formatErpNumber(resolvedDaily)}
-                            </td>
-                            <td className="py-2 px-3 text-center whitespace-nowrap">
-                              <span className="px-2 py-0.5 rounded bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0] text-[10px] font-bold dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-transparent">
-                                임대가능
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              )}
-
-              {activeView === "LOGS" && (
-                <table className="w-full text-xs text-left border-collapse">
-                  <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800">
-                    <tr>
-                      {renderLogSortHeader("출고(청구시작)일", "eventDate", "center")}
-                      {renderLogSortHeader("자산번호", "assetNo")}
-                      {renderLogSortHeader("제조번호(S/N)", "serialNo")}
-                      {renderLogSortHeader("기종 모델명", "modelName")}
-                      {renderLogSortHeader("출고 고객사", "customerName")}
-                      {renderLogSortHeader("비고", "memo")}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/70">
-                    {sortedLogs.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="py-10 text-center text-[#475569] dark:text-slate-500">
-                          출고 이력이 없습니다.
-                        </td>
-                      </tr>
-                    ) : (
-                      sortedLogs.map((l) => (
-                        <tr key={l.id} className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40 transition">
-                          <td className="py-2.5 px-3 font-mono text-center text-[#475569] dark:text-slate-300 whitespace-nowrap">
-                            {l.eventDate}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
-                            {l.assetNo}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono text-[#475569] dark:text-slate-300 whitespace-nowrap">
-                            {l.serialNo || "-"}
-                          </td>
-                          <td className="py-2.5 px-3 text-[#0f172a] dark:text-white whitespace-nowrap">
-                            {l.modelName || "-"}
-                          </td>
-                          <td className="py-2.5 px-3 font-bold text-[#047857] dark:text-emerald-400 whitespace-nowrap">
-                            {l.customerName || "-"}
-                          </td>
-                          <td className="py-2.5 px-3 text-[#475569] dark:text-slate-400 whitespace-nowrap">
-                            {l.memo || "-"}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            {/* Bottom Reconciliation Bar (Gutenberg Z-Pattern Terminal Summary) */}
-            <div className="p-3 bg-[#e2dbcd] border-t border-[#b5a894] flex flex-wrap items-center justify-between gap-3 text-xs dark:bg-slate-950 dark:border-slate-800">
-              <div className="flex items-center gap-2 text-[#475569] dark:text-slate-400">
-                <Receipt className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
-                <span className="whitespace-nowrap">
-                  [{yearMonth}] 청구 대상 건수:{" "}
-                  <strong className="text-[#0f172a] dark:text-white font-mono">
-                    {formatErpNumber(filteredBillings.length)}건
-                  </strong>
-                </span>
-              </div>
-              <div className="flex items-center gap-4 font-mono">
-                <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">
-                  월 계약단가 합계:{" "}
-                  <strong className="text-[#0f172a] dark:text-slate-200">
-                    ₩{formatErpNumber(totalMonthContractRate)}
-                  </strong>
-                </span>
-                <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">
-                  당월 청구 총액:{" "}
-                  <strong className="text-[#047857] dark:text-emerald-400 text-sm font-extrabold">
-                    ₩{formatErpNumber(totalMonthRevenue)}
-                  </strong>
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <OutboundBillingAndLogsPanel
+          yearMonth={yearMonth}
+          customerSummary={customerSummary}
+          customerFilter={customerFilter}
+          onCustomerFilterChange={setCustomerFilter}
+          activeView={activeView}
+          onActiveViewChange={setActiveView}
+          searchKeyword={searchKeyword}
+          onSearchKeywordChange={setSearchKeyword}
+          filteredBillings={filteredBillings}
+          availableAssetCount={availableAssets.length}
+          sortedAvailableAssets={sortedAvailableAssets}
+          totalLogsCount={logs.length}
+          sortedLogs={sortedLogs}
+          selectedAssetId={selectedAssetId}
+          onSelectAsset={handleSelectAsset}
+          billingSort={{ sortKey, sortDir, onSort: handleSort }}
+          availSort={{ sortKey: availSort.sortKey, sortDir: availSort.sortDir, onSort: availSort.handleSort }}
+          logsSort={{ sortKey: logsSort.sortKey, sortDir: logsSort.sortDir, onSort: logsSort.handleSort }}
+          totalMonthContractRate={totalMonthContractRate}
+          totalMonthRevenue={totalMonthRevenue}
+        />
       </div>
     </div>
   );

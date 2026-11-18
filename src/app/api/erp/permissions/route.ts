@@ -18,44 +18,17 @@ async function ensurePermissionsSchema(pool: ReturnType<typeof getErpPool>) {
     `);
     await pool.query(`
       INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'cloud_share', true, true, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO NOTHING
-    `);
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'work_improvement', true, true, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO NOTHING
-    `);
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'gov_support', true, true, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO NOTHING
-    `);
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'obsidian_vault', true, true, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO NOTHING
-    `);
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'rental_biz_dir', true, true, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO NOTHING
-    `);
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'warranty', true, true, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO NOTHING
-    `);
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'rental_maintenance', true, true, false
-      FROM erp_custom_roles
+      SELECT r.role_code, m.menu_key, true, true, false
+      FROM erp_custom_roles r
+      CROSS JOIN (VALUES
+        ('cloud_share'),
+        ('work_improvement'),
+        ('gov_support'),
+        ('obsidian_vault'),
+        ('rental_biz_dir'),
+        ('warranty'),
+        ('rental_maintenance')
+      ) AS m(menu_key)
       ON CONFLICT (role_code, menu_key) DO NOTHING
     `);
   });

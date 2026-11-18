@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
-import { selectPreferredBizItem } from "@/lib/erpFormat";
+import { selectPreferredBizItem } from "@/lib/erpContractTemplate";
 import { ensurePartnerStatusSchema } from "@/lib/partnerStatusService";
 import { decryptPii, encryptPii } from "@/lib/piiCrypto";
 import { ensureErpCoreIndexes } from "@/lib/erpSchemaCache";

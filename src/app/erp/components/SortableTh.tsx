@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from "react";
 import { ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
-import { cycleErpSort, ErpSortState, SortDirection } from "@/lib/erpFormat";
+import { cycleErpSort, type ErpSortState, type SortDirection } from "@/lib/erpFormat";
 
 /**
  * 전사 3단계 테이블 정렬 훅 (오름차순 ➔ 내림차순 ➔ 정렬안함)

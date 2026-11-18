@@ -3,7 +3,8 @@
 import React from "react";
 import { CheckCircle2, DollarSign, Edit, FileUp, Layers, Plus, Trash2, X } from "lucide-react";
 import { SearchSelectCombobox, type SearchSelectOption } from "../SearchSelectCombobox";
-import { cleanErpNumber, formatErpInputNumber, formatErpNumber, normalizeItemClass, toErpInputString, type AttachedForkliftOption } from "@/lib/erpFormat";
+import { cleanErpNumber, formatErpInputNumber, formatErpNumber, toErpInputString } from "@/lib/erpFormat";
+import { normalizeItemClass, type AttachedForkliftOption } from "@/lib/forkliftDomain";
 import ForkliftOptionAttachPanel, { type CatalogOptionItem } from "../ForkliftOptionAttachPanel";
 import { ContractTaxInvoiceSection, type BuyerTaxSpec } from "../ContractTaxInvoiceSection";
 

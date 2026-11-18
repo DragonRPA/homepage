@@ -7,6 +7,10 @@ import {
   formatAttachedOptionsSummary,
   normalizeAttachedOptions,
 } from "@/lib/forkliftDomain";
+import {
+  upsertForkliftWarrantiesBatchTx,
+  type ForkliftWarrantyUpsertInput,
+} from "@/lib/forkliftWarrantyService";
 import { parseNumericInput } from "@/lib/rentalFeeUtils";
 import {
   computeAssetAccumDeprecAsOf,
@@ -352,46 +356,36 @@ export async function POST(request: Request) {
           warrantyHours: parsedWarrantyHours,
           currentOperatingHours: parsedOperatingHours,
         });
+        const warrantyInputs: ForkliftWarrantyUpsertInput[] = [];
         for (const ca of createdAssets) {
           const chassis = String(ca.serialNo || "").trim().toUpperCase();
           if (!chassis) continue;
           const wNo = `WR${wStart.slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
-          await client.query(
-            `INSERT INTO erp_forklift_warranties
-             (warranty_no, chassis_no, source_type, asset_id, product_id, model_name, manufacturer,
-              customer_name, site_name, delivery_date, warranty_start_date, warranty_months,
-              warranty_end_date, warranty_hours, current_operating_hours, attached_options, status, memo)
-             VALUES ($1, $2, 'RENTAL_ASSET', $3, $4, $5, $6,
-                     $7, $8, $9, $10, 12,
-                     $11, $12, $13, $14::jsonb, $15, $16)
-             ON CONFLICT (chassis_no) DO UPDATE SET
-               asset_id = EXCLUDED.asset_id,
-               warranty_start_date = EXCLUDED.warranty_start_date,
-               warranty_end_date = EXCLUDED.warranty_end_date,
-               warranty_hours = EXCLUDED.warranty_hours,
-               current_operating_hours = GREATEST(erp_forklift_warranties.current_operating_hours, EXCLUDED.current_operating_hours),
-               attached_options = EXCLUDED.attached_options,
-               status = EXCLUDED.status,
-               updated_at = NOW()`,
-            [
-              wNo,
-              chassis,
-              ca.id,
-              ca.rentalProductId,
-              ca.modelName || "",
-              ca.manufacturer || "",
-              ca.currentCustomer || "",
-              ca.currentSite || "",
-              dateStr,
-              wStart,
-              cleanWarrantyEnd,
-              parsedWarrantyHours,
-              parsedOperatingHours,
-              JSON.stringify(normalizedAttachedOptions),
-              wComputed.status,
-              memo || "",
-            ]
-          );
+          warrantyInputs.push({
+            warrantyNo: wNo,
+            chassisNo: chassis,
+            sourceType: "RENTAL_ASSET",
+            sourceId: null,
+            assetId: Number(ca.id),
+            productId: ca.rentalProductId ? Number(ca.rentalProductId) : null,
+            modelName: ca.modelName || "",
+            manufacturer: ca.manufacturer || "",
+            partnerId: null,
+            customerName: ca.currentCustomer || "",
+            siteName: ca.currentSite || "",
+            deliveryDate: dateStr,
+            warrantyStartDate: wStart,
+            warrantyMonths: 12,
+            warrantyEndDate: cleanWarrantyEnd,
+            warrantyHours: parsedWarrantyHours,
+            currentOperatingHours: parsedOperatingHours,
+            attachedOptionsJson: JSON.stringify(normalizedAttachedOptions),
+            status: wComputed.status,
+            memo: memo || "",
+          });
+        }
+        if (warrantyInputs.length > 0) {
+          await upsertForkliftWarrantiesBatchTx(client, warrantyInputs);
         }
       }
 

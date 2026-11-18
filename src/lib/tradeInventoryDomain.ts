@@ -1,4 +1,4 @@
-import { matchHangulAny } from "@/lib/erpFormat";
+import { matchHangulAny } from "@/lib/hangulSearch";
 import {
   ForkliftItemClass,
   ForkliftSpecData,

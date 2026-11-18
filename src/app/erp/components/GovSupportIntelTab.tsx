@@ -13,16 +13,14 @@ import {
   Settings,
   Check,
   X,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   FileText,
   Sparkles,
   BookOpen,
   Eye,
   Download,
 } from "lucide-react";
-import { sortErpItems, SortDirection, formatErpNumber } from "@/lib/erpFormat";
+import { sortErpItems, formatErpNumber } from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
 
 interface GovSupportItem {
   id: number;
@@ -129,8 +127,7 @@ export const GovSupportIntelTab: React.FC<{ currentUser: any }> = ({ currentUser
   const [bookmarkOnly, setBookmarkOnly] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [discoverTopic, setDiscoverTopic] = useState<string>("");
-  const [sortKey, setSortKey] = useState<string>("fitScore");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+  const { sortKey, sortDir, handleSort } = useErpTableSort("fitScore", "desc");
 
   // Selected Item & Right Dossier View Mode ('SUMMARY' | 'ORIGINAL')
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
@@ -252,47 +249,21 @@ export const GovSupportIntelTab: React.FC<{ currentUser: any }> = ({ currentUser
     return { total, supportCount, bookmarkedCount, appliedCount };
   }, [items]);
 
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
-  };
-
   const renderSortTh = (
     label: string,
     colKey: string,
     align: "left" | "right" | "center" = "left"
   ) => (
-    <th
-      onClick={() => handleSort(colKey)}
-      className={`py-2 px-2.5 whitespace-nowrap cursor-pointer select-none transition ${
-        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
-      } hover:bg-[#d0c6b4]`}
-    >
-      <div
-        className={`inline-flex items-center gap-1 ${
-          align === "right"
-            ? "justify-end"
-            : align === "center"
-            ? "justify-center"
-            : "justify-start"
-        }`}
-      >
-        <span>{label}</span>
-        {sortKey === colKey ? (
-          sortDir === "asc" ? (
-            <ArrowUp className="w-3 h-3 text-[#1d4ed8]" />
-          ) : (
-            <ArrowDown className="w-3 h-3 text-[#1d4ed8]" />
-          )
-        ) : (
-          <ArrowUpDown className="w-3 h-3 opacity-30" />
-        )}
-      </div>
-    </th>
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2 px-2.5 hover:bg-[#d0c6b4]"
+      iconClassName="w-3 h-3 text-[#1d4ed8]"
+    />
   );
 
   // Google AI 실시간 탐색 실행

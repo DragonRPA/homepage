@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Building2, Lock, User, KeyRound, AlertCircle } from "lucide-react";
+import { Lock, User, KeyRound, AlertCircle } from "lucide-react";
 import "../erp-theme.css";
 
 interface ErpLoginProps {
@@ -40,8 +40,6 @@ export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess, theme = "lig
         throw new Error(data.error || "로그인 실패");
       }
 
-      // Save user session in localStorage
-      localStorage.setItem("dragonrpa_erp_user", JSON.stringify(data.user));
       onLoginSuccess(data.user);
     } catch (err: any) {
       setErrorMsg(err.message || "로그인 처리 중 오류 발생");
@@ -84,7 +82,7 @@ export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess, theme = "lig
               type="text"
               value={loginId}
               onChange={(e) => setLoginId(e.target.value)}
-              placeholder="아이디 입력 (예: admin)"
+              placeholder="아이디 입력"
               autoComplete="username"
               className="h-10 px-3 rounded text-xs transition"
             />
@@ -99,7 +97,7 @@ export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess, theme = "lig
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="비밀번호 입력 (초기: 1111)"
+              placeholder="비밀번호 입력"
               autoComplete="current-password"
               className="h-10 px-3 rounded text-xs transition"
             />
@@ -115,12 +113,6 @@ export const ErpLogin: React.FC<ErpLoginProps> = ({ onLoginSuccess, theme = "lig
             <span className="text-white">{loading ? "인증 확인 중..." : "시스템 로그인"}</span>
           </button>
         </form>
-
-        <div className="mt-6 pt-4 border-t text-center">
-          <p className="text-[11px] opacity-70 font-mono">
-            초기 관리자 계정: admin / 초기 비밀번호: 1111
-          </p>
-        </div>
       </div>
     </div>
   );

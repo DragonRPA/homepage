@@ -4,10 +4,50 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Package, Plus, ShoppingCart, TrendingUp, RefreshCw, 
   Search, Download, DollarSign, Layers, FileText, CheckCircle2, AlertCircle, X,
-  ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Edit, Trash2
+  FileUp, Edit, Trash2
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection, resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
+import {
+  formatErpNumber,
+  formatErpCurrency,
+  formatErpQty,
+  formatErpInputNumber,
+  toErpInputString,
+  cleanErpNumber,
+  matchHangulAny,
+  sortCustomersByName,
+  sortErpItems,
+  SortDirection,
+  cycleErpSort,
+  resolveContractItemTemplate,
+  resolveContractTaxItemsTemplate,
+  ForkliftItemClass,
+  ForkliftSpecData,
+  FORKLIFT_ITEM_CLASS_OPTIONS,
+  AttachedForkliftOption,
+  calculateAttachedOptionsTotals,
+  getItemClassLabel,
+  normalizeItemClass,
+  parseForkliftSpecData,
+  summarizeForkliftSpec,
+  formatAttachedOptionsSummary,
+} from "@/lib/erpFormat";
+import {
+  AGING_TIER_LABELS,
+  AgingTier,
+  TradeInventoryLotRow,
+  filterTradeInventoryItems,
+  getTodayKstDateString,
+  parseDaysBoundInput,
+} from "@/lib/tradeInventoryDomain";
+import { SortableTh } from "./SortableTh";
+import { SearchSelectCombobox, SearchSelectOption } from "./SearchSelectCombobox";
 import { ContractTaxInvoiceSection, BuyerTaxSpec, createDefaultTaxSpec, extractPartnerTaxSpec } from "./ContractTaxInvoiceSection";
+import ForkliftSpecEditor from "./ForkliftSpecEditor";
+import ForkliftOptionAttachPanel, { CatalogOptionItem } from "./ForkliftOptionAttachPanel";
+import { findBlockedPartnerMatch, getPartnerTradeBlockInfo } from "@/lib/partnerStatusClient";
+import { PurchasesSubTab, SalesSubTab, BillingsSubTab, SettlementSubTab } from "./trade/TradeSalesBillingSubTabs";
+import { ProductModal, PurchaseModal } from "./trade/TradeProductPurchaseModals";
+import { AddSaleModal, EditSaleModal, AddBillingModal } from "./trade/TradeSaleBillingModals";
 
 interface TradeTabProps {
   currentUser: any;
@@ -20,11 +60,13 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     currentUser?.roleCode === "ADMIN" ||
     currentUser?.loginId === "admin" ||
     Boolean(currentUser?.canBill);
-  const [subTab, setSubTab] = useState<"products" | "purchases" | "sales" | "billings" | "settlement">("sales");
+  const [subTab, setSubTab] = useState<"inventory" | "products" | "purchases" | "sales" | "billings" | "settlement">("inventory");
   const [loading, setLoading] = useState(false);
 
   // Data States
   const [products, setProducts] = useState<any[]>([]);
+  const [inventoryLots, setInventoryLots] = useState<TradeInventoryLotRow[]>([]);
+  const [inventoryRefDate, setInventoryRefDate] = useState<string>(getTodayKstDateString());
   const [purchases, setPurchases] = useState<any[]>([]);
   const [sales, setSales] = useState<any[]>([]);
   const [billings, setBillings] = useState<any[]>([]);
@@ -36,41 +78,35 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   const [searchTerm, setSearchTerm] = useState("");
   const [startDate, setStartDate] = useState("2026-01-01");
   const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const [inventoryViewMode, setInventoryViewMode] = useState<"SUMMARY" | "LOT">("SUMMARY");
+  const [stockScopeFilter, setStockScopeFilter] = useState<"IN_STOCK" | "ALL" | "LOW_STOCK">("IN_STOCK");
+  const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
+  const [manufacturerFilter, setManufacturerFilter] = useState<string>("");
+  const [modelFilter, setModelFilter] = useState<string>("");
+  const [minElapsedDaysInput, setMinElapsedDaysInput] = useState<string>("");
+  const [maxElapsedDaysInput, setMaxElapsedDaysInput] = useState<string>("");
 
-  // Sorting State
-  const [sortKey, setSortKey] = useState<string>("id");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+  // Sorting State (전사 3단계 순환: 오름차순 ➔ 내림차순 ➔ 정렬안함)
+  const [sortKey, setSortKey] = useState<string>("");
+  const [sortDir, setSortDir] = useState<SortDirection>(null);
 
   const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
+    const next = cycleErpSort(sortKey, sortDir, key);
+    setSortKey(next.key);
+    setSortDir(next.dir);
   };
 
-  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
-    const isActive = sortKey === key;
-    return (
-      <th
-        onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-[#d0c6b4] dark:hover:bg-slate-800 transition text-${align} ${isActive ? "text-[#1d4ed8] dark:text-blue-400 font-bold" : ""}`}
-        title={`${label} 기준 정렬`}
-      >
-        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
-          <span>{label}</span>
-          <span className="shrink-0">
-            {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
-            ) : (
-              <ArrowUpDown className="w-3 h-3 opacity-30" />
-            )}
-          </span>
-        </div>
-      </th>
-    );
-  };
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => (
+    <SortableTh
+      label={label}
+      colKey={key}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2.5 px-3"
+    />
+  );
 
   // Modals
   const [showAddProductModal, setShowAddProductModal] = useState(false);
@@ -102,15 +138,28 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   }, [selectedEntity]);
 
   // Add Product Form
+  const [prodItemClassFilter, setProdItemClassFilter] = useState<"ALL" | ForkliftItemClass>("ALL");
+  const [prodItemClass, setProdItemClass] = useState<ForkliftItemClass>("FORKLIFT");
   const [skuCode, setSkuCode] = useState("");
   const [prodName, setProdName] = useState("");
-  const [prodCategory, setProdCategory] = useState("완제품");
+  const [prodManufacturer, setProdManufacturer] = useState("두산");
+  const [prodCategory, setProdCategory] = useState("지게차 완제품");
   const [prodSpec, setProdSpec] = useState("");
+  const [prodSpecData, setProdSpecData] = useState<ForkliftSpecData>({});
+  const [prodPartNo, setProdPartNo] = useState("");
+  const [prodInstallFee, setProdInstallFee] = useState("0");
+  const [prodAddonMonthly, setProdAddonMonthly] = useState("0");
+  const [prodAddonDaily, setProdAddonDaily] = useState("0");
+  const [prodWarrantyMonths, setProdWarrantyMonths] = useState("12");
+  const [prodWarrantyHours, setProdWarrantyHours] = useState("2,000");
   const [prodUnit, setProdUnit] = useState("EA");
   const [prodStandardCost, setProdStandardCost] = useState("0");
   const [prodStandardPrice, setProdStandardPrice] = useState("0");
   const [prodSafetyStock, setProdSafetyStock] = useState("10");
   const [prodInitialStock, setProdInitialStock] = useState("0");
+  const [prodInboundDate, setProdInboundDate] = useState(getTodayKstDateString());
+  const [editProdId, setEditProdId] = useState<number | null>(null);
+  const [showEditProductModal, setShowEditProductModal] = useState(false);
 
   // Add Purchase Form
   const [poVendor, setPoVendor] = useState("");
@@ -225,10 +274,14 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
   }, [poInputMode, poVatIncluded, poQty, poUnitCost, poTotalInput]);
 
   // Add Sale Form (Multi-product per outbound contract)
+  const [soSaleCategory, setSoSaleCategory] = useState<"FORKLIFT_SALE" | "PART_SALE" | "GENERAL">("FORKLIFT_SALE");
+  const [soSiteName, setSoSiteName] = useState("");
+  const [soChassisNumbers, setSoChassisNumbers] = useState<string[]>([""]);
+  const [soInstalledOptions, setSoInstalledOptions] = useState<AttachedForkliftOption[]>([]);
+  const [soWarrantyMonths, setSoWarrantyMonths] = useState("12");
+  const [soWarrantyHours, setSoWarrantyHours] = useState("2,000");
   const [soPartnerId, setSoPartnerId] = useState<number | null>(null);
   const [soCustomer, setSoCustomer] = useState("");
-  const [soCustomerSearch, setSoCustomerSearch] = useState("");
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [soProductId, setSoProductId] = useState("");
   const [soQty, setSoQty] = useState("1");
   const [soUnitPrice, setSoUnitPrice] = useState("0");
@@ -303,7 +356,11 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       const seData = await setRes.json();
       const partData = await partRes.json();
 
-      if (pData.success) setProducts(pData.products);
+      if (pData.success) {
+        setProducts(pData.products || []);
+        setInventoryLots(pData.inventoryLots || []);
+        if (pData.referenceDate) setInventoryRefDate(pData.referenceDate);
+      }
       if (puData.success) setPurchases(puData.purchases);
       if (sData.success) setSales(sData.sales);
       if (bData.success) setBillings(bData.billings || []);
@@ -324,52 +381,420 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     fetchData();
   }, [startDate, endDate, selectedEntity]);
 
-  // Sorted Data Lists
+  // Filter Option Lists for Trade Inventory & Catalog
+  const productFilterMetadata = useMemo(() => {
+    const classScoped =
+      prodItemClassFilter === "ALL"
+        ? products
+        : products.filter((p) => normalizeItemClass(p.item_class, p.category) === prodItemClassFilter);
+
+    const categorySet = new Set<string>();
+    const mfgSet = new Set<string>();
+    for (const p of classScoped) {
+      if (p.category && String(p.category).trim()) categorySet.add(String(p.category).trim());
+      if (p.manufacturer && String(p.manufacturer).trim()) mfgSet.add(String(p.manufacturer).trim());
+    }
+
+    const categories = Array.from(categorySet).sort((a, b) => a.localeCompare(b, "ko"));
+    const manufacturerOptions: SearchSelectOption[] = Array.from(mfgSet)
+      .sort((a, b) => a.localeCompare(b, "ko"))
+      .map((m) => ({
+        value: m,
+        label: m,
+        searchKeywords: [m],
+      }));
+
+    const modelScoped = classScoped.filter((p) => {
+      if (categoryFilter !== "ALL" && String(p.category || "").trim() !== categoryFilter) {
+        return false;
+      }
+      if (manufacturerFilter.trim() && !matchHangulAny([p.manufacturer], manufacturerFilter)) {
+        return false;
+      }
+      return true;
+    });
+
+    const modelOptions: SearchSelectOption[] = modelScoped.map((p) => ({
+      value: String(p.model_name || p.name || ""),
+      label: String(p.model_name || p.name || ""),
+      subLabel: [p.manufacturer, p.spec, p.part_no].filter(Boolean).join(" | "),
+      badgeText: getItemClassLabel(normalizeItemClass(p.item_class, p.category)),
+      badgeColor: "slate",
+      searchKeywords: [p.name, p.model_name, p.spec, p.part_no, p.sku_code, p.manufacturer],
+    }));
+
+    return { categories, manufacturerOptions, modelOptions };
+  }, [products, prodItemClassFilter, categoryFilter, manufacturerFilter]);
+
+  const clearTradeFilters = () => {
+    setProdItemClassFilter("ALL");
+    setCategoryFilter("ALL");
+    setManufacturerFilter("");
+    setModelFilter("");
+    setMinElapsedDaysInput("");
+    setMaxElapsedDaysInput("");
+    setSearchTerm("");
+    if (subTab === "inventory") {
+      setStockScopeFilter("IN_STOCK");
+    }
+  };
+
+  const hasActiveTradeFilters =
+    prodItemClassFilter !== "ALL" ||
+    categoryFilter !== "ALL" ||
+    manufacturerFilter.trim() !== "" ||
+    modelFilter.trim() !== "" ||
+    minElapsedDaysInput.trim() !== "" ||
+    maxElapsedDaysInput.trim() !== "" ||
+    searchTerm.trim() !== "";
+
+  // Sorted & Filtered Data Lists
+  const sortedInventorySummary = useMemo(() => {
+    const withDerived = products.map((p) => ({
+      ...p,
+      margin: Number(p.standard_price || 0) - Number(p.standard_cost || 0),
+    }));
+    const filtered = filterTradeInventoryItems(withDerived, {
+      minElapsedDaysText: minElapsedDaysInput,
+      maxElapsedDaysText: maxElapsedDaysInput,
+      itemClass: prodItemClassFilter,
+      category: categoryFilter,
+      manufacturer: manufacturerFilter,
+      modelKeyword: modelFilter,
+      stockScope: stockScopeFilter,
+      searchTerm,
+    });
+    return sortErpItems(filtered, sortKey, sortDir);
+  }, [
+    products,
+    minElapsedDaysInput,
+    maxElapsedDaysInput,
+    prodItemClassFilter,
+    categoryFilter,
+    manufacturerFilter,
+    modelFilter,
+    stockScopeFilter,
+    searchTerm,
+    sortKey,
+    sortDir,
+  ]);
+
+  const sortedInventoryLots = useMemo(() => {
+    const filtered = filterTradeInventoryItems(inventoryLots, {
+      minElapsedDaysText: minElapsedDaysInput,
+      maxElapsedDaysText: maxElapsedDaysInput,
+      itemClass: prodItemClassFilter,
+      category: categoryFilter,
+      manufacturer: manufacturerFilter,
+      modelKeyword: modelFilter,
+      stockScope: stockScopeFilter === "ALL" ? "IN_STOCK" : stockScopeFilter,
+      searchTerm,
+    });
+    return sortErpItems(filtered, sortKey, sortDir);
+  }, [
+    inventoryLots,
+    minElapsedDaysInput,
+    maxElapsedDaysInput,
+    prodItemClassFilter,
+    categoryFilter,
+    manufacturerFilter,
+    modelFilter,
+    stockScopeFilter,
+    searchTerm,
+    sortKey,
+    sortDir,
+  ]);
+
+  const inventoryStats = useMemo(() => {
+    let totalQty = 0;
+    let totalValue = 0;
+    let tierNormal = 0;
+    let tierWatch = 0;
+    let tierCaution = 0;
+    let tierLong = 0;
+    if (inventoryViewMode === "SUMMARY") {
+      for (const p of sortedInventorySummary) {
+        totalQty += Number(p.current_stock || 0);
+        totalValue += Number(p.inventory_value || 0);
+        const tier = p.aging_tier as AgingTier;
+        if (tier === "NORMAL") tierNormal++;
+        else if (tier === "WATCH") tierWatch++;
+        else if (tier === "CAUTION") tierCaution++;
+        else if (tier === "LONG_TERM") tierLong++;
+      }
+      return {
+        rowCount: sortedInventorySummary.length,
+        totalQty,
+        totalValue,
+        tierNormal,
+        tierWatch,
+        tierCaution,
+        tierLong,
+      };
+    }
+    for (const lot of sortedInventoryLots) {
+      totalQty += Number(lot.remainingQty || 0);
+      totalValue += Number(lot.stockValue || 0);
+      if (lot.agingTier === "NORMAL") tierNormal++;
+      else if (lot.agingTier === "WATCH") tierWatch++;
+      else if (lot.agingTier === "CAUTION") tierCaution++;
+      else if (lot.agingTier === "LONG_TERM") tierLong++;
+    }
+    return {
+      rowCount: sortedInventoryLots.length,
+      totalQty,
+      totalValue,
+      tierNormal,
+      tierWatch,
+      tierCaution,
+      tierLong,
+    };
+  }, [inventoryViewMode, sortedInventorySummary, sortedInventoryLots]);
+
   const sortedProducts = useMemo(() => {
-    return sortErpItems(
-      products,
-      sortKey === "id" ? "name" : sortKey,
-      sortKey === "id" ? "asc" : sortDir
-    );
-  }, [products, sortKey, sortDir]);
+    const withMargin = products.map((p) => ({
+      ...p,
+      margin: Number(p.standard_price || 0) - Number(p.standard_cost || 0),
+    }));
+    const filtered = filterTradeInventoryItems(withMargin, {
+      minElapsedDaysText: minElapsedDaysInput,
+      maxElapsedDaysText: maxElapsedDaysInput,
+      itemClass: prodItemClassFilter,
+      category: categoryFilter,
+      manufacturer: manufacturerFilter,
+      modelKeyword: modelFilter,
+      stockScope: "ALL",
+      searchTerm,
+    });
+    return sortErpItems(filtered, sortKey, sortDir);
+  }, [
+    products,
+    minElapsedDaysInput,
+    maxElapsedDaysInput,
+    prodItemClassFilter,
+    categoryFilter,
+    manufacturerFilter,
+    modelFilter,
+    searchTerm,
+    sortKey,
+    sortDir,
+  ]);
+
+  const tradeOptionCatalog = useMemo<CatalogOptionItem[]>(() => {
+    return products
+      .filter((p) => normalizeItemClass(p.item_class, p.category) === "OPTION")
+      .map((p) => ({
+        id: p.id,
+        source: "TRADE" as const,
+        skuCode: p.sku_code || p.skuCode || undefined,
+        name: p.name,
+        spec: p.spec || undefined,
+        unitPrice: Number(p.standard_price || 0),
+        installFee: Number(p.install_fee || 0),
+        monthlyAddonRate: Number(p.addon_monthly_rate || 0),
+        dailyAddonRate: Number(p.addon_daily_rate || 0),
+      }));
+  }, [products]);
+
+  const resetProductForm = () => {
+    setEditProdId(null);
+    setProdItemClass("FORKLIFT");
+    setSkuCode("");
+    setProdName("");
+    setProdManufacturer("두산");
+    setProdCategory("지게차 완제품");
+    setProdSpec("");
+    setProdSpecData({});
+    setProdPartNo("");
+    setProdInstallFee("0");
+    setProdAddonMonthly("0");
+    setProdAddonDaily("0");
+    setProdWarrantyMonths("12");
+    setProdWarrantyHours("2,000");
+    setProdUnit("EA");
+    setProdStandardCost("0");
+    setProdStandardPrice("0");
+    setProdSafetyStock("10");
+    setProdInitialStock("0");
+    setProdInboundDate(getTodayKstDateString());
+  };
+
+  const openEditTradeProduct = (p: any) => {
+    const ic = normalizeItemClass(p.item_class, p.category);
+    setEditProdId(p.id);
+    setProdItemClass(ic);
+    setSkuCode(p.sku_code || p.skuCode || "");
+    setProdName(p.name || "");
+    setProdManufacturer(p.manufacturer || "");
+    setProdCategory(p.category || getItemClassLabel(ic));
+    setProdSpec(p.spec || "");
+    setProdSpecData(parseForkliftSpecData(p.spec_data));
+    setProdPartNo(p.part_no || "");
+    setProdInstallFee(toErpInputString(p.install_fee || 0));
+    setProdAddonMonthly(toErpInputString(p.addon_monthly_rate || 0));
+    setProdAddonDaily(toErpInputString(p.addon_daily_rate || 0));
+    setProdWarrantyMonths(toErpInputString(p.warranty_months ?? (ic === "FORKLIFT" ? 12 : 0)));
+    setProdWarrantyHours(toErpInputString(p.warranty_hours ?? (ic === "FORKLIFT" ? 2000 : 0)));
+    setProdUnit(p.unit || "EA");
+    setProdStandardCost(toErpInputString(p.standard_cost || 0));
+    setProdStandardPrice(toErpInputString(p.standard_price || 0));
+    setProdSafetyStock(toErpInputString(p.safety_stock || 0));
+    setProdInitialStock(toErpInputString(p.current_stock || 0));
+    setProdInboundDate(p.inbound_date || p.oldest_inbound_date || p.created_date || "");
+    setShowEditProductModal(true);
+  };
 
   const sortedPurchases = useMemo(() => {
-    return sortErpItems(purchases, sortKey, sortDir);
-  }, [purchases, sortKey, sortDir]);
+    const prodById = new Map<number, any>(products.map((p) => [Number(p.id), p]));
+    const enriched = purchases.map((pu) => {
+      const prod = prodById.get(Number(pu.productId));
+      return {
+        ...pu,
+        itemClass: pu.itemClass || prod?.item_class || "GENERAL",
+        category: pu.category || prod?.category || "",
+        manufacturer: pu.manufacturer || prod?.manufacturer || "",
+        partNo: pu.partNo || prod?.part_no || "",
+        spec: pu.spec || prod?.spec || "",
+        specData: pu.specData || prod?.spec_data || {},
+      };
+    });
+    const filtered = filterTradeInventoryItems(enriched, {
+      minElapsedDaysText: minElapsedDaysInput,
+      maxElapsedDaysText: maxElapsedDaysInput,
+      itemClass: prodItemClassFilter,
+      category: categoryFilter,
+      manufacturer: manufacturerFilter,
+      modelKeyword: modelFilter,
+      stockScope: "ALL",
+      searchTerm,
+    });
+    return sortErpItems(filtered, sortKey, sortDir);
+  }, [
+    purchases,
+    products,
+    minElapsedDaysInput,
+    maxElapsedDaysInput,
+    prodItemClassFilter,
+    categoryFilter,
+    manufacturerFilter,
+    modelFilter,
+    searchTerm,
+    sortKey,
+    sortDir,
+  ]);
 
   const sortedSales = useMemo(() => {
-    return sortErpItems(sales, sortKey, sortDir);
-  }, [sales, sortKey, sortDir]);
+    const filtered = searchTerm.trim()
+      ? sales.filter((s) =>
+          matchHangulAny(
+            [
+              s.saleNo,
+              s.customerName,
+              s.siteName,
+              s.productName,
+              s.productSpec,
+              s.skuCode,
+              s.memo,
+              s.taxInvoiceNo,
+              ...(Array.isArray(s.chassisNumbers) ? s.chassisNumbers : []),
+            ],
+            searchTerm
+          )
+        )
+      : sales;
+    return sortErpItems(filtered, sortKey, sortDir);
+  }, [sales, searchTerm, sortKey, sortDir]);
 
   const sortedBillings = useMemo(() => {
-    return sortErpItems(billings, sortKey, sortDir);
-  }, [billings, sortKey, sortDir]);
+    const filtered = searchTerm.trim()
+      ? billings.filter((b) =>
+          matchHangulAny(
+            [b.billingNo, b.saleNo, b.customerName, b.productName, b.milestoneName],
+            searchTerm
+          )
+        )
+      : billings;
+    return sortErpItems(filtered, sortKey, sortDir);
+  }, [billings, searchTerm, sortKey, sortDir]);
 
   const sortedCustomerBreakdown = useMemo(() => {
-    return sortErpItems(customerBreakdown, sortKey, sortDir);
-  }, [customerBreakdown, sortKey, sortDir]);
+    const filtered = searchTerm.trim()
+      ? customerBreakdown.filter((c) =>
+          matchHangulAny([c.customerName, c.businessNo], searchTerm)
+        )
+      : customerBreakdown;
+    return sortErpItems(filtered, sortKey, sortDir);
+  }, [customerBreakdown, searchTerm, sortKey, sortDir]);
 
   const customerPartners = useMemo(() => {
-    return registeredPartners.filter((p) => p.partnerType === "CUSTOMER" || p.partnerType === "BOTH");
+    return sortCustomersByName(
+      registeredPartners.filter((p) => p.partnerType === "CUSTOMER" || p.partnerType === "BOTH")
+    );
   }, [registeredPartners]);
 
-  const filteredCustomerPartners = useMemo(() => {
-    const q = soCustomerSearch.trim().toLowerCase();
-    if (!q) return customerPartners;
-    return customerPartners.filter((p) => {
-      const hay = [p.name, p.businessNo, p.ceoName, p.partnerCode]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
+  const vendorPartners = useMemo(() => {
+    return sortCustomersByName(
+      registeredPartners.filter((p) => p.partnerType === "VENDOR" || p.partnerType === "BOTH")
+    );
+  }, [registeredPartners]);
+
+  const vendorPartnerOptions = useMemo<SearchSelectOption[]>(() => {
+    return vendorPartners.map((p) => {
+      const block = getPartnerTradeBlockInfo(p);
+      return {
+        value: p.name,
+        label: p.name,
+        subLabel: [p.partnerCode, p.bizType || p.businessNo, p.managerName ? `담당: ${p.managerName}` : null]
+          .filter(Boolean)
+          .join(" | "),
+        badgeText: block.blocked ? block.badgeText : (p.partnerCode || undefined),
+        badgeColor: block.blocked ? "rose" : "slate",
+        searchKeywords: [p.name, p.businessNo, p.ceoName, p.partnerCode, p.managerName],
+        disabled: block.blocked,
+      };
     });
-  }, [customerPartners, soCustomerSearch]);
+  }, [vendorPartners]);
+
+  const customerPartnerOptions = useMemo<SearchSelectOption[]>(() => {
+    return customerPartners.map((p) => {
+      const block = getPartnerTradeBlockInfo(p);
+      return {
+        value: String(p.id),
+        label: p.name,
+        subLabel: `사업자: ${p.businessNo || "-"} | 대표: ${p.ceoName || "-"} | ${p.taxEmail || p.managerEmail || "-"}`,
+        badgeText: block.blocked ? block.badgeText : (p.partnerCode || undefined),
+        badgeColor: block.blocked ? "rose" : "blue",
+        searchKeywords: [p.name, p.businessNo, p.ceoName, p.partnerCode],
+        disabled: block.blocked,
+      };
+    });
+  }, [customerPartners]);
+
+  const tradeProductOptions = useMemo<SearchSelectOption[]>(() => {
+    return products.map((p) => ({
+      value: String(p.id),
+      label: `${p.name}${p.spec ? ` (${p.spec})` : ""}`,
+      subLabel: `매입 ${formatErpCurrency(Number(p.standard_cost || 0))} / 판매 ${formatErpCurrency(Number(p.standard_price || 0))}`,
+      badgeText: p.unit || undefined,
+      badgeColor: "slate",
+      searchKeywords: [p.name, p.spec, p.skuCode, p.sku, p.category],
+    }));
+  }, [products]);
+
+  const tradeSaleOptions = useMemo<SearchSelectOption[]>(() => {
+    return sales.map((s) => ({
+      value: String(s.id),
+      label: `[${s.saleNo}] ${s.customerName} - ${s.productName}`,
+      subLabel: `${s.qty}${s.unit || "EA"} / ${formatErpCurrency(s.totalAmount)}`,
+      badgeText: s.entityType === "INDIVIDUAL" ? "개인" : "법인",
+      badgeColor: s.entityType === "INDIVIDUAL" ? "amber" : "blue",
+      searchKeywords: [s.saleNo, s.customerName, s.productName, s.productSpec, s.skuCode],
+    }));
+  }, [sales]);
 
   const handleSelectSaleCustomer = (p: any) => {
     setSoPartnerId(p.id);
     setSoCustomer(p.name);
-    setSoCustomerSearch(p.name);
-    setShowCustomerDropdown(false);
     setSoTaxSpec((prev) => extractPartnerTaxSpec(p, prev));
   };
 
@@ -433,25 +858,50 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       return;
     }
     try {
-      const res = await fetch("/api/erp/trade/products", {
-        method: "POST",
+      const computedSpec = summarizeForkliftSpec(prodItemClass, prodSpecData, prodSpec);
+      const url = "/api/erp/trade/products";
+      const method = editProdId ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(editProdId ? { id: editProdId } : {}),
+          skuCode: skuCode.trim() || undefined,
           name: prodName.trim(),
+          itemClass: prodItemClass,
+          manufacturer: prodManufacturer.trim(),
+          partNo: prodPartNo.trim(),
           category: prodCategory,
-          spec: prodSpec,
+          spec: computedSpec,
+          specData: prodSpecData,
           unit: prodUnit,
           standardCost: cleanErpNumber(prodStandardCost),
           standardPrice: cleanErpNumber(prodStandardPrice),
+          installFee: cleanErpNumber(prodInstallFee),
+          addonMonthlyRate: cleanErpNumber(prodAddonMonthly),
+          addonDailyRate: cleanErpNumber(prodAddonDaily),
+          warrantyMonths: cleanErpNumber(prodWarrantyMonths),
+          warrantyHours: cleanErpNumber(prodWarrantyHours),
+          safetyStock: cleanErpNumber(prodSafetyStock),
+          currentStock: cleanErpNumber(prodInitialStock),
+          inboundDate: prodInboundDate.trim() || (editProdId ? "" : undefined),
         }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "상품 등록 실패");
+      if (!res.ok || !data.success) throw new Error(data.error || "상품 저장 실패");
 
-      showToast(`상품 [${prodName}] 등록 완료`);
+      showToast(editProdId ? `상품 [${prodName}] 수정 완료` : `상품 [${prodName}] 등록 완료`);
       setShowAddProductModal(false);
+      setShowEditProductModal(false);
+      setEditProdId(null);
+      setSkuCode("");
       setProdName("");
       setProdSpec("");
+      setProdSpecData({});
+      setProdPartNo("");
+      setProdInstallFee("0");
+      setProdAddonMonthly("0");
+      setProdAddonDaily("0");
       setProdStandardCost("0");
       setProdStandardPrice("0");
       await fetchData();
@@ -465,6 +915,14 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     e.preventDefault();
     if (!poVendor || !poProductId || poSplitPreview.qty <= 0 || poSplitPreview.rows.length === 0) {
       showToast("매입처, 상품, 수량 및 금액을 확인해 주십시오.", "error");
+      return;
+    }
+    const blockedVendor = findBlockedPartnerMatch(registeredPartners, { name: poVendor });
+    if (blockedVendor) {
+      showToast(
+        `[${blockedVendor.name}] ${getPartnerTradeBlockInfo(blockedVendor).reason}`,
+        "error"
+      );
       return;
     }
     try {
@@ -499,11 +957,15 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     }
   };
 
-  // Sync multi-product rows (soItems) to soTaxSpec.taxItems
-  const syncSoItemsToTaxSpec = (rows: Array<{ productId: string; qty: string; unitPrice: string; vatAmount: string }>, dateStr = soDate) => {
+  // Sync multi-product rows (soItems + soInstalledOptions) to soTaxSpec.taxItems
+  const syncSoItemsToTaxSpec = (
+    rows: Array<{ productId: string; qty: string; unitPrice: string; vatAmount: string }>,
+    dateStr = soDate,
+    installedOpts: AttachedForkliftOption[] = soInstalledOptions
+  ) => {
     const mm = dateStr ? dateStr.slice(5, 7) : "";
     const dd = dateStr ? dateStr.slice(8, 10) : "";
-    const nextTaxItems = rows.map((r) => {
+    const primaryTaxItems = rows.map((r) => {
       const prod = products.find((p) => String(p.id) === String(r.productId));
       const q = cleanErpNumber(r.qty) || 1;
       const u = cleanErpNumber(r.unitPrice) || 0;
@@ -521,6 +983,24 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
         note: "",
       };
     });
+    const optionTaxItems = installedOpts.map((opt) => {
+      const q = Math.max(1, Number(opt.qty || 1));
+      const u = Math.max(0, Number(opt.unitPrice || 0)) + Math.max(0, Number(opt.installFee || 0));
+      const sup = q * u;
+      const vat = Math.round(sup * 0.1);
+      return {
+        month: mm,
+        day: dd,
+        itemName: `[옵션설치] ${opt.optionName}`,
+        spec: opt.specSummary || (Number(opt.installFee || 0) > 0 ? `공임 ${formatErpCurrency(Number(opt.installFee || 0))}` : ""),
+        qty: q,
+        unitCost: u,
+        supplyAmount: sup,
+        vatAmount: vat,
+        note: Number(opt.installFee || 0) > 0 ? "설치공임 포함" : "",
+      };
+    });
+    const nextTaxItems = [...primaryTaxItems, ...optionTaxItems];
     const firstRow = rows[0] || { productId: "", qty: "1", unitPrice: "0", vatAmount: "0" };
     setSoProductId(firstRow.productId);
     setSoQty(firstRow.qty);
@@ -534,7 +1014,7 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
     }));
   };
 
-  // Handle Add Sale (Supports multiple products per single outbound sale contract)
+  // Handle Add Sale (Supports multiple products + add-on options + chassis warranty registration)
   const handleAddSale = async (e: React.FormEvent) => {
     e.preventDefault();
     const validRows = soItems.filter((r) => r.productId && cleanErpNumber(r.qty) > 0);
@@ -542,6 +1022,19 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       showToast("고객사와 최소 1개 이상의 출고 제품 및 수량을 입력해 주십시오.", "error");
       return;
     }
+    const blockedCust = findBlockedPartnerMatch(registeredPartners, {
+      partnerId: soPartnerId,
+      name: soCustomer,
+      businessNo: soTaxSpec.customerBizNo,
+    });
+    if (blockedCust) {
+      showToast(`[${blockedCust.name}] ${getPartnerTradeBlockInfo(blockedCust).reason}`, "error");
+      return;
+    }
+    const cleanChassisList =
+      soSaleCategory === "FORKLIFT_SALE"
+        ? soChassisNumbers.map((c) => c.trim()).filter(Boolean)
+        : [];
     try {
       const payloadItems = validRows.map((r) => {
         const prod = products.find((p) => String(p.id) === String(r.productId));
@@ -560,6 +1053,27 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
         };
       });
 
+      const optionPayloadItems =
+        soSaleCategory === "FORKLIFT_SALE"
+          ? soInstalledOptions.map((opt) => {
+              const q = Math.max(1, Number(opt.qty || 1));
+              const u = Math.max(0, Number(opt.unitPrice || 0)) + Math.max(0, Number(opt.installFee || 0));
+              const sup = q * u;
+              const vat = Math.round(sup * 0.1);
+              return {
+                productId: opt.source === "TRADE" && opt.optionId ? Number(opt.optionId) : null,
+                itemName: `[옵션설치] ${opt.optionName}`,
+                spec: opt.specSummary || "",
+                qty: q,
+                unitPrice: u,
+                supplyAmount: sup,
+                vatAmount: vat,
+              };
+            })
+          : [];
+
+      const allPayloadItems = [...payloadItems, ...optionPayloadItems];
+
       const res = await fetch("/api/erp/trade/sales", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -568,11 +1082,17 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           partnerId: soPartnerId,
           saleDate: soDate,
           customerName: soCustomer,
-          productId: payloadItems[0].productId,
-          qty: payloadItems.reduce((acc, it) => acc + it.qty, 0),
-          unitPrice: payloadItems[0].unitPrice,
-          vatAmount: payloadItems.reduce((acc, it) => acc + it.vatAmount, 0),
-          items: payloadItems,
+          saleCategory: soSaleCategory,
+          siteName: soSiteName.trim() || null,
+          chassisNumbers: cleanChassisList,
+          installedOptions: soSaleCategory === "FORKLIFT_SALE" ? soInstalledOptions : [],
+          warrantyMonths: soSaleCategory === "FORKLIFT_SALE" ? cleanErpNumber(soWarrantyMonths) : 0,
+          warrantyHours: soSaleCategory === "FORKLIFT_SALE" ? cleanErpNumber(soWarrantyHours) : 0,
+          productId: allPayloadItems[0].productId,
+          qty: allPayloadItems.reduce((acc, it) => acc + it.qty, 0),
+          unitPrice: allPayloadItems[0].unitPrice,
+          vatAmount: allPayloadItems.reduce((acc, it) => acc + it.vatAmount, 0),
+          items: allPayloadItems,
           memo: soMemo,
           contractFileUrl: soFileUrl || null,
           contractFileName: soFileName || null,
@@ -592,14 +1112,21 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       if (!res.ok || !data.success) throw new Error(data.error || "판매 등록 실패");
 
       showToast(
-        payloadItems.length > 1
-          ? `판매 출고 계약(${payloadItems.length}종 제품 포함) 등록 완료`
-          : `판매 출고 완료 (재고 차감 및 마진 산출)`
+        cleanChassisList.length > 0
+          ? `판매 출고 완료 (차대번호 ${cleanChassisList.length}대 보증 자동등록)`
+          : allPayloadItems.length > 1
+            ? `판매 출고 계약(${allPayloadItems.length}종 항목 포함) 등록 완료`
+            : `판매 출고 완료 (재고 차감 및 마진 산출)`
       );
       setShowAddSaleModal(false);
+      setSoSaleCategory("FORKLIFT_SALE");
+      setSoSiteName("");
+      setSoChassisNumbers([""]);
+      setSoInstalledOptions([]);
+      setSoWarrantyMonths("12");
+      setSoWarrantyHours("2,000");
       setSoPartnerId(null);
       setSoCustomer("");
-      setSoCustomerSearch("");
       setSoItems([{ productId: "", qty: "1", unitPrice: "0", vatAmount: "0" }]);
       setSoMemo("");
       setSoFileUrl("");
@@ -996,11 +1523,30 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       )}
 
       {/* Sub Tabs */}
-      <div className="flex items-center justify-between border-b border-[#b5a894] dark:border-slate-800 pb-2">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between border-b border-[#b5a894] dark:border-slate-800 pb-2 flex-wrap gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <button
-            onClick={() => setSubTab("products")}
-            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
+            onClick={() => {
+              setSubTab("inventory");
+              setSortKey("");
+              setSortDir(null);
+            }}
+            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap ${
+              subTab === "inventory"
+                ? "bg-[#1d4ed8] text-white shadow"
+                : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>유통재고 현황 ({products.filter((p) => Number(p.current_stock || 0) > 0).length})</span>
+          </button>
+          <button
+            onClick={() => {
+              setSubTab("products");
+              setSortKey("");
+              setSortDir(null);
+            }}
+            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap ${
               subTab === "products" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
@@ -1008,8 +1554,12 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
             <span>상품 마스터 ({products.length})</span>
           </button>
           <button
-            onClick={() => setSubTab("purchases")}
-            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
+            onClick={() => {
+              setSubTab("purchases");
+              setSortKey("");
+              setSortDir(null);
+            }}
+            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap ${
               subTab === "purchases" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
@@ -1017,8 +1567,12 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
             <span>구매 / 입고 대장 ({purchases.length})</span>
           </button>
           <button
-            onClick={() => setSubTab("sales")}
-            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
+            onClick={() => {
+              setSubTab("sales");
+              setSortKey("");
+              setSortDir(null);
+            }}
+            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap ${
               subTab === "sales" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
@@ -1026,8 +1580,12 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
             <span>유통/판매 계약 대장 ({sales.length})</span>
           </button>
           <button
-            onClick={() => setSubTab("billings")}
-            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
+            onClick={() => {
+              setSubTab("billings");
+              setSortKey("");
+              setSortDir(null);
+            }}
+            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap ${
               subTab === "billings" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
@@ -1035,9 +1593,13 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
             <span>유통 청구 & 세금계산서 ({billings.length})</span>
           </button>
           <button
-            onClick={() => setSubTab("settlement")}
-            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-              subTab === "settlement" ? "bg-blue-600 text-white shadow" : "bg-slate-900 text-slate-400 hover:text-white"
+            onClick={() => {
+              setSubTab("settlement");
+              setSortKey("");
+              setSortDir(null);
+            }}
+            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap ${
+              subTab === "settlement" ? "bg-[#1d4ed8] text-white shadow" : "bg-[#f4efe4] text-[#334155] border border-[#b5a894] hover:bg-[#ebe5d8] dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border-transparent"
             }`}
           >
             <TrendingUp className="w-3.5 h-3.5" />
@@ -1046,20 +1608,43 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
         </div>
 
         {/* Action Buttons (Pipeline) */}
-        <div className="flex items-center gap-2">
-          {subTab === "products" && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative flex items-center">
+            <Search className="w-3.5 h-3.5 text-[#78716c] dark:text-slate-400 absolute left-2.5 pointer-events-none" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="품목·거래처 통합검색 (초성)"
+              className="h-8 w-48 sm:w-56 pl-8 pr-7 bg-[#ebe5d8] dark:bg-slate-900 border border-[#b5a894] dark:border-slate-700 rounded text-xs text-[#0f172a] dark:text-white placeholder-[#78716c] focus:outline-none focus:border-blue-600"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm("")}
+                className="absolute right-2 text-[#78716c] hover:text-[#0f172a] dark:hover:text-white"
+                title="검색어 초기화"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {(subTab === "inventory" || subTab === "products") && (
             <button
-              onClick={() => setShowAddProductModal(true)}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
+              onClick={() => {
+                resetProductForm();
+                setShowAddProductModal(true);
+              }}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>상품 등록</span>
             </button>
           )}
-          {subTab === "purchases" && (
+          {(subTab === "inventory" || subTab === "purchases") && (
             <button
               onClick={() => setShowAddPurchaseModal(true)}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>구매 입고 등록</span>
@@ -1124,7 +1709,226 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
         </div>
       </div>
 
-      {/* Scope / Filter Bar (Z-Pattern ①) */}
+      {/* Scope / Filter Bar (Z-Pattern ①: 상하 스택 레이아웃 & 무수식어 건조한 명사) */}
+      {(subTab === "inventory" || subTab === "products" || subTab === "purchases") && (
+        <div className="bg-[#f4efe4] dark:bg-slate-900/70 px-3 py-2.5 rounded border border-[#b5a894] dark:border-slate-800 text-xs flex flex-col gap-2">
+          <div className="flex flex-wrap items-end justify-between gap-2.5">
+            <div className="flex flex-wrap items-end gap-2">
+              {subTab === "inventory" && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-bold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                    조회기준
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInventoryViewMode("SUMMARY");
+                        setSortKey("");
+                        setSortDir(null);
+                      }}
+                      className={`h-8 px-2.5 rounded border text-xs font-semibold whitespace-nowrap transition ${
+                        inventoryViewMode === "SUMMARY"
+                          ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
+                          : "bg-[#ebe5d8] text-[#334155] border-[#b5a894] hover:bg-[#e2dbcd] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                      }`}
+                    >
+                      품목별 재고
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInventoryViewMode("LOT");
+                        setSortKey("");
+                        setSortDir(null);
+                      }}
+                      className={`h-8 px-2.5 rounded border text-xs font-semibold whitespace-nowrap transition ${
+                        inventoryViewMode === "LOT"
+                          ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
+                          : "bg-[#ebe5d8] text-[#334155] border-[#b5a894] hover:bg-[#e2dbcd] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                      }`}
+                    >
+                      입고건별 재고
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {subTab === "inventory" && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-bold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                    재고범위
+                  </label>
+                  <select
+                    value={stockScopeFilter}
+                    onChange={(e) => setStockScopeFilter(e.target.value as any)}
+                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-xs font-semibold text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                  >
+                    <option value="IN_STOCK">보유재고</option>
+                    <option value="ALL">전체 품목</option>
+                    <option value="LOW_STOCK">안전재고 미달</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-bold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                  제품유형
+                </label>
+                <select
+                  value={prodItemClassFilter}
+                  onChange={(e) => {
+                    setProdItemClassFilter(e.target.value as any);
+                    setCategoryFilter("ALL");
+                  }}
+                  className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-xs font-semibold text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                >
+                  <option value="ALL">전체 ({products.length})</option>
+                  {FORKLIFT_ITEM_CLASS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label} ({products.filter((p) => normalizeItemClass(p.item_class, p.category) === opt.value).length})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-bold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                  세부분류
+                </label>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-xs font-semibold text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                >
+                  <option value="ALL">전체</option>
+                  {productFilterMetadata.categories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1 w-40">
+                <SearchSelectCombobox
+                  label="제조사"
+                  allowFreeText
+                  size="sm"
+                  value={manufacturerFilter}
+                  freeTextValue={manufacturerFilter}
+                  onFreeTextChange={setManufacturerFilter}
+                  onChange={(val) => setManufacturerFilter(val)}
+                  options={productFilterMetadata.manufacturerOptions}
+                  placeholder="제조사 전체"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1 w-48">
+                <SearchSelectCombobox
+                  label="모델"
+                  allowFreeText
+                  size="sm"
+                  value={modelFilter}
+                  freeTextValue={modelFilter}
+                  onFreeTextChange={setModelFilter}
+                  onChange={(val) => setModelFilter(val)}
+                  options={productFilterMetadata.modelOptions}
+                  placeholder="모델명·규격·품번"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-bold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                  입고 경과일수
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={minElapsedDaysInput}
+                      onChange={(e) => setMinElapsedDaysInput(e.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="0"
+                      className="h-8 w-16 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-right font-mono font-bold text-xs text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    />
+                    <span className="text-[11px] font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                      일 이상
+                    </span>
+                  </div>
+                  <span className="text-[#78716c]">~</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={maxElapsedDaysInput}
+                      onChange={(e) => setMaxElapsedDaysInput(e.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="999"
+                      className="h-8 w-16 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-right font-mono font-bold text-xs text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    />
+                    <span className="text-[11px] font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                      일 이하
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-bold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                  경과구간
+                </label>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {[
+                    { label: "전체", min: "", max: "" },
+                    { label: "30일 이하", min: "", max: "30" },
+                    { label: "30일 이상", min: "30", max: "" },
+                    { label: "60일 이상", min: "60", max: "" },
+                    { label: "90일 이상", min: "90", max: "" },
+                  ].map((preset) => {
+                    const active =
+                      minElapsedDaysInput === preset.min && maxElapsedDaysInput === preset.max;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          setMinElapsedDaysInput(preset.min);
+                          setMaxElapsedDaysInput(preset.max);
+                        }}
+                        className={`h-8 px-2 rounded border text-[11px] font-semibold whitespace-nowrap transition ${
+                          active
+                            ? "bg-[#1d4ed8] text-white border-[#1d4ed8]"
+                            : "bg-[#ebe5d8] text-[#334155] border-[#b5a894] hover:bg-[#e2dbcd] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                  {hasActiveTradeFilters && (
+                    <button
+                      type="button"
+                      onClick={clearTradeFilters}
+                      className="h-8 px-2 rounded border border-[#b5a894] bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] dark:bg-slate-700 dark:text-slate-200 dark:border-slate-600 text-[11px] font-bold whitespace-nowrap"
+                    >
+                      초기화
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-[11px] font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap self-end">
+              {subTab === "inventory"
+                ? `기준일 ${inventoryRefDate} | 조회 ${inventoryViewMode === "SUMMARY" ? sortedInventorySummary.length : sortedInventoryLots.length}건`
+                : subTab === "products"
+                  ? `조회 ${sortedProducts.length}건`
+                  : `조회 ${sortedPurchases.length}건`}
+            </div>
+          </div>
+        </div>
+      )}
+
       {subTab === "settlement" && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-900/60 p-2.5 rounded border border-slate-800 text-xs">
           <div className="flex flex-col gap-1">
@@ -1157,15 +1961,263 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
       )}
 
       {/* Main Inspection Grid (Z-Pattern ③) */}
-      <div className="flex-1 bg-[#f4efe4] border border-[#b5a894] rounded overflow-auto shadow-inner dark:bg-slate-900 dark:border-slate-800">
+      <div className="flex-1 bg-[#f4efe4] border border-[#b5a894] rounded overflow-auto shadow-inner dark:bg-slate-900 dark:border-slate-800 flex flex-col">
+        {subTab === "inventory" && (
+          <>
+            <div className="flex-1 overflow-auto">
+              {inventoryViewMode === "SUMMARY" ? (
+                <table className="w-full text-left text-xs whitespace-nowrap">
+                  <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
+                    <tr>
+                      <th className="py-2.5 px-3 text-center whitespace-nowrap">관리</th>
+                      {renderSortTh("SKU 코드", "sku_code")}
+                      {renderSortTh("제품유형", "item_class")}
+                      {renderSortTh("세부분류", "category")}
+                      {renderSortTh("제조사", "manufacturer")}
+                      {renderSortTh("모델 / 상품명", "name")}
+                      {renderSortTh("규격 / 품번", "spec")}
+                      {renderSortTh("최선입 입고일", "oldest_inbound_date", "center")}
+                      {renderSortTh("최근 입고일", "latest_inbound_date", "center")}
+                      {renderSortTh("경과일수", "elapsed_days", "right")}
+                      {renderSortTh("현재재고", "current_stock", "right")}
+                      {renderSortTh("안전재고", "safety_stock", "right")}
+                      {renderSortTh("기준매입단가", "standard_cost", "right")}
+                      {renderSortTh("재고자산액", "inventory_value", "right")}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
+                    {sortedInventorySummary.length === 0 ? (
+                      <tr>
+                        <td colSpan={14} className="py-10 text-center text-[#78716c] dark:text-slate-500">
+                          조회 조건에 해당하는 유통재고가 없습니다.
+                        </td>
+                      </tr>
+                    ) : (
+                      sortedInventorySummary.map((p) => {
+                        const ic = normalizeItemClass(p.item_class, p.category);
+                        const stock = Number(p.current_stock || 0);
+                        const safety = Number(p.safety_stock || 0);
+                        const isLowStock = safety > 0 && stock <= safety;
+                        const elapsed = p.elapsed_days;
+                        const tier = (p.aging_tier || "NONE") as AgingTier;
+                        const agingBadge =
+                          tier === "LONG_TERM"
+                            ? "bg-rose-500/15 text-rose-700 border-rose-500/40 dark:text-rose-300"
+                            : tier === "CAUTION"
+                              ? "bg-amber-500/15 text-amber-700 border-amber-500/40 dark:text-amber-300"
+                              : tier === "WATCH"
+                                ? "bg-blue-500/15 text-blue-700 border-blue-500/40 dark:text-blue-300"
+                                : tier === "NORMAL"
+                                  ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/40 dark:text-emerald-300"
+                                  : "bg-[#e2dbcd] text-[#64748b] border-[#b5a894] dark:bg-slate-800 dark:text-slate-400";
+                        return (
+                          <tr key={p.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
+                            <td className="py-2 px-3 text-center whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPoProductId(String(p.id));
+                                    setPoUnitCost(formatErpInputNumber(String(Number(p.standard_cost || 0))));
+                                    setShowAddPurchaseModal(true);
+                                  }}
+                                  className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] whitespace-nowrap"
+                                >
+                                  입고
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditTradeProduct(p)}
+                                  className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] whitespace-nowrap"
+                                >
+                                  수정
+                                </button>
+                              </div>
+                            </td>
+                            <td className="py-2 px-3 font-mono text-[#334155] dark:text-slate-300">{p.sku_code}</td>
+                            <td className="py-2 px-3">{getItemClassLabel(ic)}</td>
+                            <td className="py-2 px-3 text-[#334155] dark:text-slate-300">{p.category || "-"}</td>
+                            <td className="py-2 px-3 font-semibold text-[#0f172a] dark:text-slate-200">{p.manufacturer || "-"}</td>
+                            <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-white">
+                              <div>{p.name}</div>
+                              {p.model_name && p.model_name !== p.name && (
+                                <div className="text-[10px] font-normal text-[#57534e] dark:text-slate-400">
+                                  모델: {p.model_name}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-[#57534e] dark:text-slate-400">
+                              <span>{p.spec || "-"}</span>
+                              {p.part_no && <span className="ml-1 font-mono text-[10px]">[{p.part_no}]</span>}
+                            </td>
+                            <td className="py-2 px-3 text-center font-mono text-[#0f172a] dark:text-slate-200">
+                              {p.oldest_inbound_date || "-"}
+                            </td>
+                            <td className="py-2 px-3 text-center font-mono text-[#57534e] dark:text-slate-400">
+                              {p.latest_inbound_date || "-"}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono">
+                              {elapsed !== null && elapsed !== undefined ? (
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border font-bold text-[11px] ${agingBadge}`}>
+                                  {formatErpNumber(elapsed)}일
+                                </span>
+                              ) : (
+                                <span className="text-[#78716c]">-</span>
+                              )}
+                            </td>
+                            <td className={`py-2 px-3 text-right font-mono font-bold ${isLowStock ? "text-rose-700 dark:text-rose-400" : "text-[#0f172a] dark:text-slate-100"}`}>
+                              {formatErpQty(stock, p.unit)}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-[#57534e] dark:text-slate-400">
+                              {formatErpQty(safety, p.unit)}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-[#334155] dark:text-slate-300">
+                              {formatErpCurrency(Number(p.standard_cost || 0))}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-[#1d4ed8] dark:text-blue-400">
+                              {formatErpCurrency(Number(p.inventory_value || 0))}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="w-full text-left text-xs whitespace-nowrap">
+                  <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
+                    <tr>
+                      <th className="py-2.5 px-3 text-center whitespace-nowrap">관리</th>
+                      {renderSortTh("입고일", "inboundDate", "center")}
+                      {renderSortTh("경과일수", "elapsedDays", "right")}
+                      {renderSortTh("입고번호 / 구분", "lotRefNo")}
+                      {renderSortTh("매입처", "vendorName")}
+                      {renderSortTh("제품유형", "itemClass")}
+                      {renderSortTh("제조사", "manufacturer")}
+                      {renderSortTh("모델 / 상품명", "productName")}
+                      {renderSortTh("규격 / 품번", "spec")}
+                      {renderSortTh("잔여수량", "remainingQty", "right")}
+                      {renderSortTh("입고수량", "originalQty", "right")}
+                      {renderSortTh("입고단가", "unitCost", "right")}
+                      {renderSortTh("로트 자산액", "stockValue", "right")}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
+                    {sortedInventoryLots.length === 0 ? (
+                      <tr>
+                        <td colSpan={13} className="py-10 text-center text-[#78716c] dark:text-slate-500">
+                          조회 조건에 해당하는 입고 로트가 없습니다.
+                        </td>
+                      </tr>
+                    ) : (
+                      sortedInventoryLots.map((lot) => {
+                        const agingBadge =
+                          lot.agingTier === "LONG_TERM"
+                            ? "bg-rose-500/15 text-rose-700 border-rose-500/40 dark:text-rose-300"
+                            : lot.agingTier === "CAUTION"
+                              ? "bg-amber-500/15 text-amber-700 border-amber-500/40 dark:text-amber-300"
+                              : lot.agingTier === "WATCH"
+                                ? "bg-blue-500/15 text-blue-700 border-blue-500/40 dark:text-blue-300"
+                                : "bg-emerald-500/15 text-emerald-700 border-emerald-500/40 dark:text-emerald-300";
+                        const targetProd = products.find((p) => Number(p.id) === Number(lot.productId));
+                        return (
+                          <tr key={lot.lotKey} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
+                            <td className="py-2 px-3 text-center whitespace-nowrap">
+                              {targetProd && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditTradeProduct(targetProd)}
+                                  className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px]"
+                                >
+                                  상품수정
+                                </button>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-center font-mono font-bold text-[#0f172a] dark:text-slate-100">
+                              {lot.inboundDate}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border font-bold text-[11px] ${agingBadge}`}>
+                                {formatErpNumber(lot.elapsedDays)}일
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 font-mono text-[#1d4ed8] dark:text-blue-400">
+                              {lot.lotRefNo}
+                            </td>
+                            <td className="py-2 px-3 text-[#334155] dark:text-slate-300">
+                              {lot.vendorName || "-"}
+                            </td>
+                            <td className="py-2 px-3">{lot.itemClassLabel}</td>
+                            <td className="py-2 px-3 font-semibold">{lot.manufacturer || "-"}</td>
+                            <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-white">
+                              {lot.productName}
+                            </td>
+                            <td className="py-2 px-3 text-[#57534e] dark:text-slate-400">
+                              <span>{lot.spec || "-"}</span>
+                              {lot.partNo && <span className="ml-1 font-mono text-[10px]">[{lot.partNo}]</span>}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-[#0f172a] dark:text-white">
+                              {formatErpQty(lot.remainingQty, lot.unit)}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-[#57534e] dark:text-slate-400">
+                              {formatErpQty(lot.originalQty, lot.unit)}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-[#334155] dark:text-slate-300">
+                              {formatErpCurrency(lot.unitCost)}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-[#1d4ed8] dark:text-blue-400">
+                              {formatErpCurrency(lot.stockValue)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Bottom-Right Terminal Summary Strip (헌장 3.5④) */}
+            <div className="px-3 py-2 border-t border-[#b5a894] dark:border-slate-800 bg-[#ebe5d8] dark:bg-slate-950 flex flex-wrap items-center justify-end gap-4 text-xs font-mono shrink-0">
+              <span className="whitespace-nowrap">
+                대상 <strong>{formatErpNumber(inventoryStats.rowCount)}</strong>{inventoryViewMode === "SUMMARY" ? "종" : "건"}
+              </span>
+              <span className="whitespace-nowrap">
+                재고수량 합계 <strong>{formatErpNumber(inventoryStats.totalQty)}</strong>
+              </span>
+              <span className="whitespace-nowrap text-emerald-700 dark:text-emerald-400">
+                {AGING_TIER_LABELS.NORMAL} <strong>{inventoryStats.tierNormal}</strong>
+              </span>
+              <span className="whitespace-nowrap text-blue-700 dark:text-blue-400">
+                {AGING_TIER_LABELS.WATCH} <strong>{inventoryStats.tierWatch}</strong>
+              </span>
+              <span className="whitespace-nowrap text-amber-700 dark:text-amber-400">
+                {AGING_TIER_LABELS.CAUTION} <strong>{inventoryStats.tierCaution}</strong>
+              </span>
+              <span className="whitespace-nowrap text-rose-700 dark:text-rose-400">
+                {AGING_TIER_LABELS.LONG_TERM} <strong>{inventoryStats.tierLong}</strong>
+              </span>
+              <span className="whitespace-nowrap font-bold text-[#0f172a] dark:text-white">
+                재고자산 합계 <strong>{formatErpCurrency(inventoryStats.totalValue)}</strong>
+              </span>
+            </div>
+          </>
+        )}
+
         {subTab === "products" && (
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
               <tr>
+                <th className="py-2.5 px-3 text-center">관리</th>
+                {renderSortTh("품목구분", "item_class")}
                 {renderSortTh("상품명", "name")}
+                {renderSortTh("제조사 / 품번", "manufacturer")}
                 {renderSortTh("분류", "category")}
-                {renderSortTh("규격 / 버전", "spec")}
+                {renderSortTh("규격 / 제원", "spec")}
                 {renderSortTh("단위", "unit", "center")}
+                {renderSortTh("현재재고", "current_stock", "right")}
+                {renderSortTh("최선입 입고일", "oldest_inbound_date", "center")}
+                {renderSortTh("경과일수", "elapsed_days", "right")}
                 {renderSortTh("기준매입단가", "standard_cost", "right")}
                 {renderSortTh("기준판매단가", "standard_price", "right")}
                 {renderSortTh("예상마진", "margin", "right")}
@@ -1175,30 +2227,85 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-500">
+                  <td colSpan={14} className="py-8 text-center text-[#78716c] dark:text-slate-500">
                     등록된 판매 상품이 없습니다.
                   </td>
                 </tr>
               ) : (
                 sortedProducts.map((p) => {
+                  const ic = normalizeItemClass(p.item_class, p.category);
                   const cost = Number(p.standard_cost || 0);
                   const price = Number(p.standard_price || 0);
                   const margin = price - cost;
                   const marginRate = price > 0 ? ((margin / price) * 100).toFixed(1) : "0.0";
+                  const badgeStyle =
+                    ic === "FORKLIFT"
+                      ? "bg-blue-500/15 text-blue-700 border-blue-500/30 dark:text-blue-300"
+                      : ic === "OPTION"
+                        ? "bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-300"
+                        : ic === "PART"
+                          ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-300"
+                          : "bg-[#e2dbcd] text-[#334155] border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700";
                   return (
                     <tr key={p.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
-                      <td className="py-2 px-3 font-bold text-slate-100">{p.name}</td>
-                      <td className="py-2 px-3 text-slate-300">{p.category}</td>
-                      <td className="py-2 px-3 text-slate-400">{p.spec || "-"}</td>
-                      <td className="py-2 px-3 text-center text-slate-400">{p.unit}</td>
-                      <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(cost)}</td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(price)}</td>
-                      <td className="py-2 px-3 text-right font-mono text-emerald-400">
+                      <td className="py-2 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => openEditTradeProduct(p)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 border border-blue-700 text-white font-bold text-[11px] shadow-xs transition"
+                        >
+                          <Edit className="w-3 h-3" />
+                          <span>수정</span>
+                        </button>
+                      </td>
+                      <td className="py-2 px-3">
+                        <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${badgeStyle}`}>
+                          {getItemClassLabel(ic)}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100">{p.name}</td>
+                      <td className="py-2 px-3 text-[#334155] dark:text-slate-300">
+                        <span>{p.manufacturer || "-"}</span>
+                        {p.part_no && (
+                          <span className="ml-1.5 font-mono text-[10px] text-[#57534e] dark:text-slate-400">
+                            [{p.part_no}]
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-[#334155] dark:text-slate-300">{p.category}</td>
+                      <td className="py-2 px-3 text-[#57534e] dark:text-slate-400">
+                        <div>{p.spec || "-"}</div>
+                        {ic === "OPTION" && (Number(p.install_fee || 0) > 0 || Number(p.addon_monthly_rate || 0) > 0) && (
+                          <div className="text-[10px] text-amber-700 dark:text-amber-300 font-mono">
+                            공임 {formatErpCurrency(Number(p.install_fee || 0))} / 렌탈월 +{formatErpCurrency(Number(p.addon_monthly_rate || 0))}
+                          </div>
+                        )}
+                        {ic === "FORKLIFT" && Number(p.warranty_months || 0) > 0 && (
+                          <div className="text-[10px] text-blue-700 dark:text-blue-300 font-mono">
+                            보증 {p.warranty_months}개월 / {formatErpNumber(p.warranty_hours || 0)}hr
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-center text-[#57534e] dark:text-slate-400">{p.unit}</td>
+                      <td className="py-2 px-3 text-right font-mono font-bold text-[#0f172a] dark:text-slate-100">
+                        {formatErpQty(Number(p.current_stock || 0), p.unit)}
+                      </td>
+                      <td className="py-2 px-3 text-center font-mono text-[#334155] dark:text-slate-300">
+                        {p.oldest_inbound_date || "-"}
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono text-[#334155] dark:text-slate-300">
+                        {p.elapsed_days !== null && p.elapsed_days !== undefined ? `${formatErpNumber(p.elapsed_days)}일` : "-"}
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono text-[#334155] dark:text-slate-300">{formatErpCurrency(cost)}</td>
+                      <td className="py-2 px-3 text-right font-mono font-bold text-[#0f172a] dark:text-slate-100">{formatErpCurrency(price)}</td>
+                      <td className="py-2 px-3 text-right font-mono text-emerald-700 dark:text-emerald-400">
                         {formatErpCurrency(margin)} ({marginRate}%)
                       </td>
                       <td className="py-2 px-3 text-center">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                          p.status === "ACTIVE" ? "bg-emerald-950 text-emerald-400 border border-emerald-800" : "bg-slate-800 text-slate-400"
+                          p.status === "ACTIVE"
+                            ? "bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800"
+                            : "bg-[#e2dbcd] text-[#57534e] dark:bg-slate-800 dark:text-slate-400"
                         }`}>
                           {p.status === "ACTIVE" ? "판매중" : "단종"}
                         </span>
@@ -1211,1461 +2318,211 @@ export const TradeTab: React.FC<TradeTabProps> = ({ currentUser, selectedEntity 
           </table>
         )}
 
-        {subTab === "purchases" && (
-          <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
-              <tr>
-                {renderSortTh("구매번호", "purchaseNo")}
-                {renderSortTh("구매일자", "purchaseDate")}
-                {renderSortTh("매입처(공급자)", "vendorName")}
-                {renderSortTh("상품명", "productName")}
-                {renderSortTh("수량", "qty", "right")}
-                {renderSortTh("매입단가", "unitCost", "right")}
-                {renderSortTh("총 매입금액", "totalAmount", "right")}
-                <th className="py-2.5 px-3 text-center">입고상태</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
-              {sortedPurchases.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-500">
-                    구매 입고 내역이 없습니다.
-                  </td>
-                </tr>
-              ) : (
-                sortedPurchases.map((pu) => (
-                  <tr key={pu.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
-                    <td className="py-2 px-3 font-mono text-blue-400">{pu.purchaseNo}</td>
-                    <td className="py-2 px-3 font-mono text-slate-300">{pu.purchaseDate}</td>
-                    <td className="py-2 px-3 font-bold text-slate-100">{pu.vendorName}</td>
-                    <td className="py-2 px-3 text-slate-200">{pu.productName}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-200">{formatErpQty(pu.qty, pu.unit)}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(pu.unitCost)}</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-amber-400">{formatErpCurrency(pu.totalAmount)}</td>
-                    <td className="py-2 px-3 text-center">
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-bold">
-                        입고완료
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        )}
+      <PurchasesSubTab
+        renderSortTh={renderSortTh}
+        sortedPurchases={sortedPurchases}
+        subTab={subTab}
+      />
 
-        {subTab === "sales" && (
-          <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
-              <tr>
-                <th className="py-2.5 px-2 text-center w-8">
-                  <input
-                    type="checkbox"
-                    checked={sortedSales.length > 0 && selectedSaleIds.length === sortedSales.length}
-                    onChange={(e) => {
-                      if (e.target.checked) setSelectedSaleIds(sortedSales.map((s) => s.id));
-                      else setSelectedSaleIds([]);
-                    }}
-                    className="rounded border-slate-700"
-                    title="전체 선택 (묶음 청구 생성용)"
-                  />
-                </th>
-                <th className="py-2.5 px-3 text-center">관리</th>
-                {renderSortTh("귀속 사업자", "entityType")}
-                {renderSortTh("판매번호", "saleNo")}
-                {renderSortTh("판매일자", "saleDate")}
-                {renderSortTh("고객사(수요처)", "customerName")}
-                {renderSortTh("판매상품 (출고품목)", "productName")}
-                {renderSortTh("수량", "qty", "right")}
-                {renderSortTh("판매단가", "unitPrice", "right")}
-                {renderSortTh("공급가액", "totalAmount", "right")}
-                {renderSortTh("매출원가", "cogsAmount", "right")}
-                {renderSortTh("마진(이익률)", "marginAmount", "right")}
-                <th className="py-2.5 px-3 text-center">계약서</th>
-                <th className="py-2.5 px-3 text-center">청구 / 계산서</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
-              {sortedSales.length === 0 ? (
-                <tr>
-                  <td colSpan={14} className="py-8 text-center text-slate-500">
-                    판매 계약 내역이 없습니다.
-                  </td>
-                </tr>
-              ) : (
-                sortedSales.map((s) => {
-                  const itemCount = Array.isArray(s.taxItems) ? s.taxItems.length : 1;
-                  const firstItemName =
-                    (Array.isArray(s.taxItems) && s.taxItems[0]?.itemName) || s.productName || "판매상품";
-                  return (
-                    <tr key={s.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
-                      <td className="py-2 px-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedSaleIds.includes(s.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) setSelectedSaleIds((prev) => [...prev, s.id]);
-                            else setSelectedSaleIds((prev) => prev.filter((id) => id !== s.id));
-                          }}
-                          className="rounded border-slate-700"
-                        />
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        <div className="inline-flex items-center gap-1">
-                          {canBill && (
-                            <button
-                              onClick={() => handleOpenBillingFromSale(s)}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 border border-emerald-700 text-white font-bold text-[11px] shadow-xs transition"
-                              title="이 판매 계약의 항목을 끌어와 청구서 생성"
-                            >
-                              <Plus className="w-3 h-3" />
-                              <span>청구생성</span>
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleOpenEditSale(s)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 border border-blue-700 text-white font-bold text-[11px] shadow-xs transition"
-                            title="판매 계약 및 세금계산서 제원 수정"
-                          >
-                            <Edit className="w-3 h-3" />
-                            <span>수정</span>
-                          </button>
-                          <button
-                            onClick={() => handleDeleteSale(s)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 border border-rose-700 text-white font-bold text-[11px] shadow-xs transition"
-                            title="판매 계약 삭제"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            <span>삭제</span>
-                          </button>
-                        </div>
-                      </td>
-                      <td className="py-2 px-3">
-                        {s.entityType === "INDIVIDUAL" ? (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                            개인
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                            법인
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 font-mono text-blue-400">{s.saleNo}</td>
-                      <td className="py-2 px-3 font-mono text-slate-300">{s.saleDate ? String(s.saleDate).slice(0, 10) : "-"}</td>
-                      <td className="py-2 px-3">
-                        <div className="flex flex-col">
-                          <span className="font-bold text-slate-100">{s.customerName}</span>
-                          {s.customerBizNo && (
-                            <span className="text-[10px] font-mono text-slate-400">
-                              {s.customerBizNo} {s.customerEmail ? `| ${s.customerEmail}` : ""}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2 px-3 text-slate-200">
-                        <div className="flex items-center gap-1.5">
-                          <span>{firstItemName}</span>
-                          {itemCount > 1 && (
-                            <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-[10px] font-bold">
-                              외 {itemCount - 1}종 (총 {itemCount}종)
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono text-slate-200">{formatErpQty(s.qty, s.unit)}</td>
-                      <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(s.unitPrice)}</td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(s.totalAmount)}</td>
-                      <td className="py-2 px-3 text-right font-mono text-slate-400">{formatErpCurrency(s.cogsAmount)}</td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
-                        {formatErpCurrency(s.marginAmount)} ({s.marginRate}%)
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        {s.hasContractFile ? (
-                          <button
-                            onClick={() => handleOpenSaleFile(s)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-500/40 text-indigo-300 rounded text-[11px] font-semibold transition"
-                          >
-                            <FileText className="w-3 h-3" />
-                            <span>열람</span>
-                          </button>
-                        ) : (
-                          <span className="text-[11px] text-slate-500">미첨부</span>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        {s.taxInvoiceId ? (
-                          <span className="px-2 py-0.5 bg-emerald-700 text-white rounded text-[11px] font-semibold font-mono">
-                            발행완료 ({s.taxInvoiceNo || `#${s.taxInvoiceId}`})
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-slate-500">미청구</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        )}
+      <SalesSubTab
+        canBill={canBill}
+        handleDeleteSale={handleDeleteSale}
+        handleOpenBillingFromSale={handleOpenBillingFromSale}
+        handleOpenEditSale={handleOpenEditSale}
+        handleOpenSaleFile={handleOpenSaleFile}
+        renderSortTh={renderSortTh}
+        selectedSaleIds={selectedSaleIds}
+        setSelectedSaleIds={setSelectedSaleIds}
+        sortedSales={sortedSales}
+        subTab={subTab}
+      />
 
-        {subTab === "billings" && (
-          <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800 font-semibold select-none z-10">
-              <tr>
-                <th className="py-2.5 px-2 text-center w-8">
-                  <input
-                    type="checkbox"
-                    checked={
-                      sortedBillings.filter((b) => !b.taxInvoiceId).length > 0 &&
-                      selectedBillingIds.length === sortedBillings.filter((b) => !b.taxInvoiceId).length
-                    }
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedBillingIds(sortedBillings.filter((b) => !b.taxInvoiceId).map((b) => b.id));
-                      } else {
-                        setSelectedBillingIds([]);
-                      }
-                    }}
-                    className="rounded border-slate-700"
-                    title="미발행 청구 전체 선택 (묶음 세금계산서 발행용)"
-                  />
-                </th>
-                <th className="py-2.5 px-3 text-center">관리</th>
-                {renderSortTh("귀속 사업자", "entityType")}
-                {renderSortTh("청구번호", "billingNo")}
-                {renderSortTh("청구일자", "billingDate")}
-                {renderSortTh("원계약번호", "saleNo")}
-                {renderSortTh("고객사(수요처)", "customerName")}
-                {renderSortTh("청구명 / 세금계산서 품목", "milestoneName")}
-                {renderSortTh("공급가액", "supplyAmount", "right")}
-                {renderSortTh("부가세액", "vatAmount", "right")}
-                {renderSortTh("합계금액", "totalAmount", "right")}
-                <th className="py-2.5 px-3 text-center">세금계산서</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
-              {sortedBillings.length === 0 ? (
-                <tr>
-                  <td colSpan={12} className="py-8 text-center text-slate-500">
-                    생성된 유통 청구 내역이 없습니다. 판매 계약 대장에서 [+ 청구생성]을 눌러 청구를 생성하세요.
-                  </td>
-                </tr>
-              ) : (
-                sortedBillings.map((b) => (
-                  <tr key={b.id} className="hover:bg-[#ebe5d8] dark:hover:bg-slate-800/50 transition">
-                    <td className="py-2 px-2 text-center">
-                      {!b.taxInvoiceId && (
-                        <input
-                          type="checkbox"
-                          checked={selectedBillingIds.includes(b.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) setSelectedBillingIds((prev) => [...prev, b.id]);
-                            else setSelectedBillingIds((prev) => prev.filter((id) => id !== b.id));
-                          }}
-                          className="rounded border-slate-700"
-                        />
-                      )}
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      <button
-                        onClick={() => handleDeleteBilling(b)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 border border-rose-700 text-white font-bold text-[11px] shadow-xs transition"
-                        title="청구 내역 삭제"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        <span>삭제</span>
-                      </button>
-                    </td>
-                    <td className="py-2 px-3">
-                      {b.entityType === "INDIVIDUAL" ? (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                          개인
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                          법인
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2 px-3 font-mono text-blue-400 font-bold">{b.billingNo}</td>
-                    <td className="py-2 px-3 font-mono text-slate-300">{b.billingDate}</td>
-                    <td className="py-2 px-3 font-mono text-slate-400">
-                      {b.saleNo}
-                      {Array.isArray(b.saleIds) && b.saleIds.length > 1 && (
-                        <span className="ml-1 px-1.5 py-0.5 rounded bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-[10px] font-bold">
-                          외 {b.saleIds.length - 1}건 묶음
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2 px-3">
-                      <div className="flex flex-col">
-                        <span className="font-bold text-slate-100">{b.customerName}</span>
-                        {b.customerBizNo && (
-                          <span className="text-[10px] font-mono text-slate-400">
-                            {b.customerBizNo} {b.customerEmail ? `| ${b.customerEmail}` : ""}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-2 px-3 text-slate-200">
-                      <div className="flex flex-col">
-                        <span className="font-semibold">{b.milestoneName || b.productName}</span>
-                        {Array.isArray(b.taxItems) && b.taxItems.length > 0 && (
-                          <span className="text-[10px] text-emerald-400">
-                            품목 {b.taxItems.length}건 ({b.taxItems[0]?.itemName}{b.taxItems.length > 1 ? ` 외 ${b.taxItems.length - 1}건` : ""})
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(b.supplyAmount)}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-400">{formatErpCurrency(b.vatAmount)}</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">{formatErpCurrency(b.totalAmount)}</td>
-                    <td className="py-2 px-3 text-center">
-                      {b.taxInvoiceId ? (
-                        <span className="px-2 py-0.5 bg-emerald-900/40 border border-emerald-500/40 text-emerald-300 rounded text-[11px] font-semibold font-mono">
-                          발행완료 (#{b.taxInvoiceId})
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => handleIssueTaxFromTradeBilling(b)}
-                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[11px] font-bold transition shadow"
-                        >
-                          계산서발행
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        )}
+      <BillingsSubTab
+        handleDeleteBilling={handleDeleteBilling}
+        handleIssueTaxFromTradeBilling={handleIssueTaxFromTradeBilling}
+        renderSortTh={renderSortTh}
+        selectedBillingIds={selectedBillingIds}
+        setSelectedBillingIds={setSelectedBillingIds}
+        sortedBillings={sortedBillings}
+        subTab={subTab}
+      />
 
-        {subTab === "settlement" && (
-          <div className="p-4 flex flex-col gap-4">
-            {/* KPI Summary Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-              <div className="p-3 bg-slate-950 border border-slate-800 rounded">
-                <span className="text-[11px] text-slate-400">총 판매 건수 / 수량</span>
-                <div className="text-base font-bold text-white mt-1">
-                  {formatErpNumber(settlementSummary?.totalOrders || 0)}건 / {formatErpQty(settlementSummary?.totalQty || 0, "개")}
-                </div>
-              </div>
-              <div className="p-3 bg-slate-950 border border-slate-800 rounded">
-                <span className="text-[11px] text-slate-400">총 매출액</span>
-                <div className="text-base font-bold text-blue-400 mt-1">
-                  {formatErpCurrency(settlementSummary?.totalRevenue || 0)}
-                </div>
-              </div>
-              <div className="p-3 bg-slate-950 border border-slate-800 rounded">
-                <span className="text-[11px] text-slate-400">총 매출원가 (COGS)</span>
-                <div className="text-base font-bold text-slate-400 mt-1">
-                  {formatErpCurrency(settlementSummary?.totalCogs || 0)}
-                </div>
-              </div>
-              <div className="p-3 bg-slate-950 border border-slate-800 rounded">
-                <span className="text-[11px] text-slate-400">총 매출총이익 (마진율)</span>
-                <div className="text-base font-bold text-emerald-400 mt-1">
-                  {formatErpCurrency(settlementSummary?.totalMargin || 0)} ({settlementSummary?.marginRate || 0}%)
-                </div>
-              </div>
-            </div>
-
-            {/* Customer Breakdown Grid */}
-            <div className="bg-slate-950 border border-slate-800 rounded overflow-hidden">
-              <div className="px-3 py-2 border-b border-slate-800 text-xs font-bold text-slate-200">
-                거래처별 매출 및 마진 집계
-              </div>
-              <table className="w-full text-left text-xs whitespace-nowrap">
-                <thead className="bg-slate-900 text-slate-400 font-semibold border-b border-slate-800">
-                  <tr>
-                    {renderSortTh("거래처명", "customerName")}
-                    {renderSortTh("주문건수", "orderCount", "right")}
-                    {renderSortTh("매출액", "revenue", "right")}
-                    {renderSortTh("매출원가", "cogs", "right")}
-                    {renderSortTh("매출총이익", "margin", "right")}
-                    {renderSortTh("마진율", "marginRate", "right")}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
-                  {sortedCustomerBreakdown.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-6 text-center text-slate-500">
-                        해당 기간 정산 데이터가 없습니다.
-                      </td>
-                    </tr>
-                  ) : (
-                    sortedCustomerBreakdown.map((c, idx) => (
-                      <tr key={idx} className="hover:bg-slate-800/40">
-                        <td className="py-2 px-3 font-bold text-slate-100">{c.customerName}</td>
-                        <td className="py-2 px-3 text-right font-mono">{formatErpNumber(c.orderCount)}건</td>
-                        <td className="py-2 px-3 text-right font-mono font-bold text-blue-400">
-                          {formatErpCurrency(c.revenue)}
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono text-slate-400">
-                          {formatErpCurrency(c.cogs)}
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
-                          {formatErpCurrency(c.margin)}
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono text-emerald-300">
-                          {c.marginRate}%
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+      <SettlementSubTab
+        renderSortTh={renderSortTh}
+        settlementSummary={settlementSummary}
+        sortedCustomerBreakdown={sortedCustomerBreakdown}
+        subTab={subTab}
+      />
       </div>
 
-      {/* Modal: Add Product */}
-      {showAddProductModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                <Package className="w-4 h-4 text-blue-400" />
-                <span>판매용 신규 상품 등록</span>
-              </h3>
-              <button onClick={() => setShowAddProductModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddProduct} className="mt-4 flex flex-col gap-3 text-xs">
-              <div className="flex flex-col gap-1">
-                <label className="text-slate-400">상품명 (필수)</label>
-                <input
-                  type="text"
-                  value={prodName}
-                  onChange={(e) => setProdName(e.target.value)}
-                  placeholder="예: 매뉴얼 스튜디오 기업용 라이선스"
-                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">분류</label>
-                  <input
-                    type="text"
-                    value={prodCategory}
-                    onChange={(e) => setProdCategory(e.target.value)}
-                    placeholder="예: 완제품 / 라이선스"
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">규격 / 버전</label>
-                  <input
-                    type="text"
-                    value={prodSpec}
-                    onChange={(e) => setProdSpec(e.target.value)}
-                    placeholder="예: v2.1.0 Nuitka-C"
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">단위</label>
-                  <input
-                    type="text"
-                    value={prodUnit}
-                    onChange={(e) => setProdUnit(e.target.value)}
-                    placeholder="EA / SET / COPY"
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">기준매입단가 (원)</label>
-                  <input
-                    type="text"
-                    value={prodStandardCost}
-                    onChange={(e) => setProdStandardCost(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    placeholder="예: 0"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">기준판매단가 (원)</label>
-                  <input
-                    type="text"
-                    value={prodStandardPrice}
-                    onChange={(e) => setProdStandardPrice(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    placeholder="예: 0"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 mt-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAddProductModal(false)}
-                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 font-bold text-white rounded"
-                >
-                  상품 등록
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Modal: Add / Edit Product */}
+      <ProductModal
+        editProdId={editProdId}
+        handleAddProduct={handleAddProduct}
+        prodAddonDaily={prodAddonDaily}
+        prodAddonMonthly={prodAddonMonthly}
+        prodCategory={prodCategory}
+        prodInboundDate={prodInboundDate}
+        prodInitialStock={prodInitialStock}
+        prodInstallFee={prodInstallFee}
+        prodItemClass={prodItemClass}
+        prodManufacturer={prodManufacturer}
+        prodName={prodName}
+        prodPartNo={prodPartNo}
+        prodSafetyStock={prodSafetyStock}
+        prodSpec={prodSpec}
+        prodSpecData={prodSpecData}
+        prodStandardCost={prodStandardCost}
+        prodStandardPrice={prodStandardPrice}
+        prodUnit={prodUnit}
+        prodWarrantyHours={prodWarrantyHours}
+        prodWarrantyMonths={prodWarrantyMonths}
+        setEditProdId={setEditProdId}
+        setProdAddonDaily={setProdAddonDaily}
+        setProdAddonMonthly={setProdAddonMonthly}
+        setProdCategory={setProdCategory}
+        setProdInboundDate={setProdInboundDate}
+        setProdInitialStock={setProdInitialStock}
+        setProdInstallFee={setProdInstallFee}
+        setProdItemClass={setProdItemClass}
+        setProdManufacturer={setProdManufacturer}
+        setProdName={setProdName}
+        setProdPartNo={setProdPartNo}
+        setProdSafetyStock={setProdSafetyStock}
+        setProdSpec={setProdSpec}
+        setProdSpecData={setProdSpecData}
+        setProdStandardCost={setProdStandardCost}
+        setProdStandardPrice={setProdStandardPrice}
+        setProdUnit={setProdUnit}
+        setProdWarrantyHours={setProdWarrantyHours}
+        setProdWarrantyMonths={setProdWarrantyMonths}
+        setShowAddProductModal={setShowAddProductModal}
+        setShowEditProductModal={setShowEditProductModal}
+        setSkuCode={setSkuCode}
+        showAddProductModal={showAddProductModal}
+        showEditProductModal={showEditProductModal}
+        skuCode={skuCode}
+      />
 
       {/* Modal: Add Purchase */}
-      {showAddPurchaseModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                <ShoppingCart className="w-4 h-4 text-blue-400" />
-                <span>구매 입고 등록 (발주)</span>
-              </h3>
-              <button onClick={() => setShowAddPurchaseModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddPurchase} className="mt-4 flex flex-col gap-3 text-xs">
-              <div className="flex flex-col gap-1">
-                <label className="text-slate-400">매입처 (공급자명) *</label>
-                <input
-                  type="text"
-                  list="vendor-datalist"
-                  value={poVendor}
-                  onChange={(e) => setPoVendor(e.target.value)}
-                  placeholder="예: (주)케이티정보통신 (등록 거래처 선택 가능)"
-                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  required
-                />
-                <datalist id="vendor-datalist">
-                  {registeredPartners
-                    .filter((p) => p.partnerType === "VENDOR" || p.partnerType === "BOTH")
-                    .map((p) => (
-                      <option key={p.id} value={p.name}>
-                        {p.partnerCode} | {p.bizType || ""} | 담당: {p.managerName || "미지정"}
-                      </option>
-                    ))}
-                </datalist>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-slate-400">입고 상품</label>
-                <select
-                  value={poProductId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setPoProductId(id);
-                    const prod = products.find(p => p.id.toString() === id);
-                    if (prod) {
-                      const stdCost = Number(prod.standard_cost || 0);
-                      setPoUnitCost(formatErpInputNumber(String(stdCost)));
-                    }
-                  }}
-                  className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  required
-                >
-                  <option value="">선택하십시오</option>
-                  {products.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}{p.spec ? ` (${p.spec})` : ""}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 입력 방식 전환 탭: 수량 × 단가 입력 vs 수량 + 총액 입력 */}
-              <div className="flex flex-col gap-1.5 p-2 rounded bg-[#ebe5d8]/70 dark:bg-slate-950 border border-[#b5a894] dark:border-slate-800">
-                <label className="text-slate-400 font-semibold text-[11px]">금액 입력 방식 선택</label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setPoInputMode("UNIT")}
-                    className={`py-1.5 px-2 rounded border text-xs font-bold transition ${
-                      poInputMode === "UNIT"
-                        ? "bg-blue-600 text-white border-blue-500 shadow"
-                        : "bg-[#f4efe4] text-[#334155] border-[#b5a894] dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800"
-                    }`}
-                  >
-                    수량 × 단가 입력
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPoInputMode("TOTAL")}
-                    className={`py-1.5 px-2 rounded border text-xs font-bold transition ${
-                      poInputMode === "TOTAL"
-                        ? "bg-blue-600 text-white border-blue-500 shadow"
-                        : "bg-[#f4efe4] text-[#334155] border-[#b5a894] dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800"
-                    }`}
-                  >
-                    수량 + 총액 입력
-                  </button>
-                </div>
-
-                {poInputMode === "TOTAL" && (
-                  <div className="flex items-center justify-between pt-1 mt-1 border-t border-[#c4b6a0] dark:border-slate-800">
-                    <span className="text-[11px] text-slate-400 font-semibold">입력 총액 부가세(VAT) 구분</span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setPoVatIncluded(true)}
-                        className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
-                          poVatIncluded
-                            ? "bg-emerald-600 text-white border-emerald-500"
-                            : "bg-[#f4efe4] text-[#334155] border-[#b5a894] dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700"
-                        }`}
-                      >
-                        부가세 포함 (결제총액)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPoVatIncluded(false)}
-                        className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
-                          !poVatIncluded
-                            ? "bg-amber-600 text-white border-amber-500"
-                            : "bg-[#f4efe4] text-[#334155] border-[#b5a894] dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700"
-                        }`}
-                      >
-                        부가세 별도 (공급가액)
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {poInputMode === "UNIT" ? (
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400">입고 수량</label>
-                    <input
-                      type="text"
-                      value={poQty}
-                      onChange={(e) => setPoQty(formatErpInputNumber(e.target.value))}
-                      className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                      placeholder="예: 1"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400">매입 단가 (공급가, 원)</label>
-                    <input
-                      type="text"
-                      value={poUnitCost}
-                      onChange={(e) => setPoUnitCost(formatErpInputNumber(e.target.value))}
-                      className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                      placeholder="예: 0"
-                      required
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400">입고 수량</label>
-                    <input
-                      type="text"
-                      value={poQty}
-                      onChange={(e) => setPoQty(formatErpInputNumber(e.target.value))}
-                      className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                      placeholder="예: 1"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-slate-400">
-                      {poVatIncluded ? "매입 총액 (부가세 포함, 원)" : "매입 총액 (부가세 별도, 원)"}
-                    </label>
-                    <input
-                      type="text"
-                      value={poTotalInput}
-                      onChange={(e) => setPoTotalInput(formatErpInputNumber(e.target.value))}
-                      className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                      placeholder="예: 100,000"
-                      required
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* 산출 요약 및 소수점 발생 시 수량분할 정수단가 미리보기 */}
-              {poSplitPreview.qty > 0 && poSplitPreview.supplyTotal > 0 && (
-                <div className="p-2.5 rounded bg-[#ebe5d8] dark:bg-slate-950 border border-[#b5a894] dark:border-slate-800 space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-400 font-semibold">산출 공급가액 합계</span>
-                    <span className="font-mono font-bold text-[#0f172a] dark:text-white">
-                      {formatErpCurrency(poSplitPreview.supplyTotal)}
-                      <span className="text-slate-400 font-normal ml-1">
-                        (VAT {formatErpCurrency(poSplitPreview.vatTotal)} / 합계 {formatErpCurrency(poSplitPreview.grandTotal)})
-                      </span>
-                    </span>
-                  </div>
-
-                  {poSplitPreview.hasRemainder ? (
-                    <div className="pt-1.5 border-t border-dashed border-[#b5a894] dark:border-slate-800 space-y-1">
-                      <div className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
-                        단가 소수점 방지를 위해 아래와 같이 정수 단가로 수량 분할 입고됩니다:
-                      </div>
-                      {poSplitPreview.rows.map((r, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between text-[11px] font-mono bg-[#f4efe4] dark:bg-slate-900 px-2 py-1 rounded border border-[#c4b6a0] dark:border-slate-800"
-                        >
-                          <span>
-                            #{idx + 1}) 수량 <strong>{r.qty}</strong>개 × 정수단가{" "}
-                            <strong className="text-blue-600 dark:text-blue-400">
-                              {formatErpCurrency(r.unitCost)}
-                            </strong>
-                          </span>
-                          <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                            = {formatErpCurrency(r.rowTotal)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between text-[11px] pt-1 border-t border-dashed border-[#b5a894] dark:border-slate-800 font-mono">
-                      <span className="text-slate-400">적용 정수 매입단가</span>
-                      <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                        {poSplitPreview.qty}개 × {formatErpCurrency(poSplitPreview.rows[0]?.unitCost || 0)} ={" "}
-                        {formatErpCurrency(poSplitPreview.supplyTotal)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="flex flex-col gap-1">
-                <label className="text-slate-400">구매일자</label>
-                <input
-                  type="date"
-                  value={poDate}
-                  onChange={(e) => setPoDate(e.target.value)}
-                  className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 mt-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAddPurchaseModal(false)}
-                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 font-bold text-white rounded"
-                >
-                  입고 확정
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <PurchaseModal
+        handleAddPurchase={handleAddPurchase}
+        poDate={poDate}
+        poInputMode={poInputMode}
+        poProductId={poProductId}
+        poQty={poQty}
+        poSplitPreview={poSplitPreview}
+        poTotalInput={poTotalInput}
+        poUnitCost={poUnitCost}
+        poVatIncluded={poVatIncluded}
+        poVendor={poVendor}
+        products={products}
+        setPoDate={setPoDate}
+        setPoInputMode={setPoInputMode}
+        setPoProductId={setPoProductId}
+        setPoQty={setPoQty}
+        setPoTotalInput={setPoTotalInput}
+        setPoUnitCost={setPoUnitCost}
+        setPoVatIncluded={setPoVatIncluded}
+        setPoVendor={setPoVendor}
+        setShowAddPurchaseModal={setShowAddPurchaseModal}
+        showAddPurchaseModal={showAddPurchaseModal}
+        tradeProductOptions={tradeProductOptions}
+        vendorPartnerOptions={vendorPartnerOptions}
+      />
 
       {/* Modal: Add Sale */}
-      {showAddSaleModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-3xl rounded shadow-2xl p-5 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-emerald-400" />
-                <span>판매 출고 계약 등록 (수주 및 세금계산서 제원)</span>
-              </h3>
-              <button onClick={() => setShowAddSaleModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddSale} className="mt-4 flex flex-col gap-3 text-xs">
-              {/* 귀속 사업자 선택 */}
-              <div className="flex flex-col gap-1 p-2 rounded bg-slate-950 border border-slate-800">
-                <label className="text-slate-400 font-semibold text-[11px]">매출 귀속 사업자 선택</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSoEntityType("CORP")}
-                    className={`p-2 rounded border text-left transition ${
-                      soEntityType === "CORP"
-                        ? "border-blue-500 bg-blue-500/20 text-blue-300 font-bold"
-                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <div>(주)드래곤알피에이 [법인]</div>
-                    <div className="font-mono text-[10px] opacity-75">806-88-03266</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSoEntityType("INDIVIDUAL")}
-                    className={`p-2 rounded border text-left transition ${
-                      soEntityType === "INDIVIDUAL"
-                        ? "border-amber-500 bg-amber-500/20 text-amber-300 font-bold"
-                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <div>드래곤알피에이 [개인]</div>
-                    <div className="font-mono text-[10px] opacity-75">295-03-02683</div>
-                  </button>
-                </div>
-              </div>
-
-              {/* 고객사 조회 선택 */}
-              <div className="flex flex-col gap-1 relative">
-                <label className="text-slate-400 font-bold">등록 고객사 조회 선택 *</label>
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                  <input
-                    type="text"
-                    value={soCustomerSearch}
-                    onFocus={() => setShowCustomerDropdown(true)}
-                    onChange={(e) => {
-                      setSoCustomerSearch(e.target.value);
-                      setSoCustomer(e.target.value);
-                      setSoPartnerId(null);
-                      setShowCustomerDropdown(true);
-                    }}
-                    placeholder="고객사명, 사업자번호, 대표자 검색하여 선택"
-                    className="w-full h-8 pl-8 pr-8 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white font-semibold"
-                    required
-                  />
-                  {soCustomerSearch && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSoCustomerSearch("");
-                        setSoCustomer("");
-                        setSoPartnerId(null);
-                        setShowCustomerDropdown(true);
-                      }}
-                      className="absolute right-2 top-2 text-slate-400 hover:text-white"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {showCustomerDropdown && (
-                  <div className="absolute top-[56px] left-0 right-0 z-30 max-h-48 overflow-y-auto rounded border border-[#b5a894] bg-[#f4efe4] dark:bg-slate-900 dark:border-slate-700 shadow-xl divide-y divide-[#d0c6b4] dark:divide-slate-800">
-                    {filteredCustomerPartners.length === 0 ? (
-                      <div className="p-2.5 text-slate-400 text-[11px] flex items-center justify-between">
-                        <span>검색 결과가 없습니다. 입력한 상호명으로 등록됩니다.</span>
-                        <button
-                          type="button"
-                          onClick={() => setShowCustomerDropdown(false)}
-                          className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold"
-                        >
-                          직접입력 확인
-                        </button>
-                      </div>
-                    ) : (
-                      filteredCustomerPartners.map((p) => (
-                        <button
-                          type="button"
-                          key={p.id}
-                          onClick={() => handleSelectSaleCustomer(p)}
-                          className="w-full px-3 py-2 text-left hover:bg-[#e2dbcd] dark:hover:bg-slate-800 flex items-center justify-between gap-2 transition"
-                        >
-                          <div className="flex flex-col">
-                            <div className="font-bold text-[#0f172a] dark:text-white flex items-center gap-1.5">
-                              <Building2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                              <span>{p.name}</span>
-                              <span className="text-[10px] font-mono text-blue-600 dark:text-blue-400">({p.partnerCode})</span>
-                            </div>
-                            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                              사업자: {p.businessNo || "-"} | 대표: {p.ceoName || "-"} | 이메일: {p.taxEmail || p.managerEmail || "-"}
-                            </div>
-                          </div>
-                          <span className="px-2 py-0.5 rounded bg-blue-600/20 text-blue-600 dark:text-blue-300 font-bold text-[10px] shrink-0">
-                            선택
-                          </span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* 판매일자 & 다중 제품 출고 선택 섹션 */}
-              <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-950/60 border border-slate-800">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-emerald-400 font-bold text-xs">출고 제품 목록 (1건의 계약에 여러 종의 제품 포함 가능)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-slate-400 font-bold text-[11px]">판매(출고)일자</label>
-                    <input
-                      type="date"
-                      value={soDate}
-                      onChange={(e) => {
-                        setSoDate(e.target.value);
-                        syncSoItemsToTaxSpec(soItems, e.target.value);
-                      }}
-                      className="h-7 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white font-mono text-xs"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = [...soItems, { productId: "", qty: "1", unitPrice: "0", vatAmount: "0" }];
-                        setSoItems(next);
-                        syncSoItemsToTaxSpec(next);
-                      }}
-                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-bold flex items-center gap-1"
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>제품 행 추가</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  {soItems.map((row, rIdx) => {
-                    const rowSupply = (cleanErpNumber(row.qty) || 0) * (cleanErpNumber(row.unitPrice) || 0);
-                    return (
-                      <div key={rIdx} className="grid grid-cols-12 gap-1.5 items-end bg-slate-900/70 p-2 rounded border border-slate-800">
-                        <div className="col-span-5 flex flex-col gap-1">
-                          <label className="text-[10px] text-slate-400 font-semibold">제품 #{rIdx + 1} *</label>
-                          <select
-                            value={row.productId}
-                            onChange={(e) => {
-                              const pid = e.target.value;
-                              const prod = products.find((p) => String(p.id) === pid);
-                              const unitP = prod ? Number(prod.standard_price || 0) : 0;
-                              const q = cleanErpNumber(row.qty) || 1;
-                              const sup = unitP * q;
-                              const vat = Math.round(sup * 0.1);
-                              const next = soItems.map((it, idx) =>
-                                idx === rIdx
-                                  ? {
-                                      productId: pid,
-                                      qty: formatErpInputNumber(String(q)),
-                                      unitPrice: formatErpInputNumber(String(unitP)),
-                                      vatAmount: formatErpInputNumber(String(vat)),
-                                    }
-                                  : it
-                              );
-                              setSoItems(next);
-                              syncSoItemsToTaxSpec(next);
-                            }}
-                            className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white text-xs"
-                            required
-                          >
-                            <option value="">-- 출고 제품 선택 --</option>
-                            {products.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}{p.spec ? ` (${p.spec})` : ""}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="col-span-2 flex flex-col gap-1">
-                          <label className="text-[10px] text-slate-400 font-semibold">수량 *</label>
-                          <input
-                            type="text"
-                            value={row.qty}
-                            onChange={(e) => {
-                              const formatted = formatErpInputNumber(e.target.value);
-                              const q = cleanErpNumber(formatted);
-                              const u = cleanErpNumber(row.unitPrice);
-                              const sup = q * u;
-                              const vat = Math.round(sup * 0.1);
-                              const next = soItems.map((it, idx) =>
-                                idx === rIdx
-                                  ? { ...it, qty: formatted, vatAmount: formatErpInputNumber(String(vat)) }
-                                  : it
-                              );
-                              setSoItems(next);
-                              syncSoItemsToTaxSpec(next);
-                            }}
-                            className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white text-xs"
-                            required
-                          />
-                        </div>
-
-                        <div className="col-span-2 flex flex-col gap-1">
-                          <label className="text-[10px] text-slate-400 font-semibold">단가 (원) *</label>
-                          <input
-                            type="text"
-                            value={row.unitPrice}
-                            onChange={(e) => {
-                              const formatted = formatErpInputNumber(e.target.value);
-                              const u = cleanErpNumber(formatted);
-                              const q = cleanErpNumber(row.qty);
-                              const sup = q * u;
-                              const vat = Math.round(sup * 0.1);
-                              const next = soItems.map((it, idx) =>
-                                idx === rIdx
-                                  ? { ...it, unitPrice: formatted, vatAmount: formatErpInputNumber(String(vat)) }
-                                  : it
-                              );
-                              setSoItems(next);
-                              syncSoItemsToTaxSpec(next);
-                            }}
-                            className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white text-xs"
-                            required
-                          />
-                        </div>
-
-                        <div className="col-span-2 flex flex-col gap-1">
-                          <label className="text-[10px] text-slate-400 font-semibold">공급가액</label>
-                          <div className="h-8 px-2 flex items-center justify-end bg-slate-950 border border-slate-800 rounded font-mono text-emerald-400 font-bold text-xs">
-                            {formatErpNumber(rowSupply)}
-                          </div>
-                        </div>
-
-                        <div className="col-span-1 flex items-center justify-center">
-                          {soItems.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const next = soItems.filter((_, idx) => idx !== rIdx);
-                                setSoItems(next);
-                                syncSoItemsToTaxSpec(next);
-                              }}
-                              className="h-8 w-8 flex items-center justify-center rounded bg-rose-900/40 hover:bg-rose-900/70 text-rose-300 border border-rose-700/40"
-                              title="제품 행 삭제"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 세금계산서 발행 필수 제원 및 다중 품목 명세 */}
-              <ContractTaxInvoiceSection
-                spec={soTaxSpec}
-                onChange={(next) => {
-                  setSoTaxSpec(next);
-                  const totalSup = next.taxItems.reduce((s, r) => s + Number(r.supplyAmount || 0), 0);
-                  const totalVat = next.taxItems.reduce((s, r) => s + Number(r.vatAmount || 0), 0);
-                  if (totalVat > 0) setSoVatAmount(formatErpInputNumber(String(totalVat)));
-                  if (next.taxItems.length === 1 && totalSup > 0) {
-                    const first = next.taxItems[0];
-                    if (first.qty > 0) setSoQty(formatErpInputNumber(String(first.qty)));
-                    if (first.unitCost > 0) setSoUnitPrice(formatErpInputNumber(String(first.unitCost)));
-                  }
-                }}
-                domainLabel="판매 계약"
-              />
-
-              {/* 판매 계약서 / 발주서 파일 첨부 */}
-              <div className="flex flex-col gap-1 p-2.5 rounded border border-dashed border-[#b5a894] bg-[#ebe5d8]/60 dark:bg-slate-950/60 dark:border-slate-700">
-                <label className="text-slate-400 font-bold text-[11px]">판매 계약서 / 발주서 스캔본 첨부 (선택)</label>
-                <input
-                  type="file"
-                  ref={soFileInputRef}
-                  accept=".pdf,image/*"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleSaleFileUpload(f, false);
-                  }}
-                  className="hidden"
-                />
-                <div className="flex items-center justify-between gap-2 mt-1">
-                  <div className="text-[11px] text-slate-300 truncate">
-                    {soFileName ? (
-                      <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                        <span>{soFileName}</span>
-                      </span>
-                    ) : (
-                      <span className="text-slate-500">첨부된 계약서/발주서 파일 없음 (PDF, 이미지 지원)</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {soFileName && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSoFileUrl("");
-                          setSoFileName("");
-                        }}
-                        className="px-2 py-1 rounded bg-rose-900/40 text-rose-300 text-[11px] hover:bg-rose-900/60"
-                      >
-                        제거
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => soFileInputRef.current?.click()}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600/20 border border-blue-500/40 text-blue-300 hover:bg-blue-600/30 font-semibold text-[11px]"
-                    >
-                      <FileUp className="w-3.5 h-3.5" />
-                      <span>파일 선택</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 mt-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAddSaleModal(false)}
-                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 font-bold text-white rounded"
-                >
-                  판매 계약 및 출고 확정
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AddSaleModal
+        customerPartnerOptions={customerPartnerOptions}
+        customerPartners={customerPartners}
+        handleAddSale={handleAddSale}
+        handleSaleFileUpload={handleSaleFileUpload}
+        handleSelectSaleCustomer={handleSelectSaleCustomer}
+        products={products}
+        setShowAddSaleModal={setShowAddSaleModal}
+        setSoChassisNumbers={setSoChassisNumbers}
+        setSoCustomer={setSoCustomer}
+        setSoDate={setSoDate}
+        setSoEntityType={setSoEntityType}
+        setSoFileName={setSoFileName}
+        setSoFileUrl={setSoFileUrl}
+        setSoInstalledOptions={setSoInstalledOptions}
+        setSoItems={setSoItems}
+        setSoPartnerId={setSoPartnerId}
+        setSoQty={setSoQty}
+        setSoSaleCategory={setSoSaleCategory}
+        setSoSiteName={setSoSiteName}
+        setSoTaxSpec={setSoTaxSpec}
+        setSoUnitPrice={setSoUnitPrice}
+        setSoVatAmount={setSoVatAmount}
+        setSoWarrantyHours={setSoWarrantyHours}
+        setSoWarrantyMonths={setSoWarrantyMonths}
+        showAddSaleModal={showAddSaleModal}
+        soChassisNumbers={soChassisNumbers}
+        soCustomer={soCustomer}
+        soDate={soDate}
+        soEntityType={soEntityType}
+        soFileInputRef={soFileInputRef}
+        soFileName={soFileName}
+        soInstalledOptions={soInstalledOptions}
+        soItems={soItems}
+        soPartnerId={soPartnerId}
+        soSaleCategory={soSaleCategory}
+        soSiteName={soSiteName}
+        soTaxSpec={soTaxSpec}
+        soWarrantyHours={soWarrantyHours}
+        soWarrantyMonths={soWarrantyMonths}
+        syncSoItemsToTaxSpec={syncSoItemsToTaxSpec}
+        tradeOptionCatalog={tradeOptionCatalog}
+        tradeProductOptions={tradeProductOptions}
+      />
 
       {/* Modal: Edit Sale */}
-      {showEditSaleModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-3xl rounded shadow-2xl p-5 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                <Edit className="w-4 h-4 text-blue-400" />
-                <span>판매 계약 정보 수정 [{editSoSaleNo}]</span>
-              </h3>
-              <button onClick={() => setShowEditSaleModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleUpdateSale} className="mt-4 flex flex-col gap-3 text-xs">
-              <div className="flex flex-col gap-1 p-2 rounded bg-slate-950 border border-slate-800">
-                <label className="text-slate-400 font-semibold text-[11px]">매출 귀속 사업자</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditSoEntityType("CORP")}
-                    className={`p-2 rounded border text-left transition ${
-                      editSoEntityType === "CORP"
-                        ? "border-blue-500 bg-blue-500/20 text-blue-300 font-bold"
-                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <div>(주)드래곤알피에이 [법인]</div>
-                    <div className="font-mono text-[10px] opacity-75">806-88-03266</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditSoEntityType("INDIVIDUAL")}
-                    className={`p-2 rounded border text-left transition ${
-                      editSoEntityType === "INDIVIDUAL"
-                        ? "border-amber-500 bg-amber-500/20 text-amber-300 font-bold"
-                        : "border-slate-800 text-slate-400 hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <div>드래곤알피에이 [개인]</div>
-                    <div className="font-mono text-[10px] opacity-75">295-03-02683</div>
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400 font-bold">고객사 (수요처명) *</label>
-                  <input
-                    type="text"
-                    value={editSoCustomer}
-                    onChange={(e) => setEditSoCustomer(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white font-semibold"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400 font-bold">판매일자</label>
-                  <input
-                    type="date"
-                    value={editSoDate}
-                    onChange={(e) => setEditSoDate(e.target.value)}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400 font-bold">판매 수량 *</label>
-                  <input
-                    type="text"
-                    value={editSoQty}
-                    onChange={(e) => {
-                      const formatted = formatErpInputNumber(e.target.value);
-                      setEditSoQty(formatted);
-                      const qtyN = cleanErpNumber(formatted);
-                      const unitP = cleanErpNumber(editSoUnitPrice);
-                      const sup = qtyN * unitP;
-                      const vat = Math.round(sup * 0.1);
-                      setEditSoVatAmount(formatErpInputNumber(String(vat)));
-                      setEditSoTaxSpec((prev) => ({
-                        ...prev,
-                        taxItems: prev.taxItems.map((it, idx) =>
-                          idx === 0
-                            ? { ...it, qty: qtyN, unitCost: unitP, supplyAmount: sup, vatAmount: vat }
-                            : it
-                        ),
-                      }));
-                    }}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400 font-bold">판매 단가 (원) *</label>
-                  <input
-                    type="text"
-                    value={editSoUnitPrice}
-                    onChange={(e) => {
-                      const formatted = formatErpInputNumber(e.target.value);
-                      setEditSoUnitPrice(formatted);
-                      const unitP = cleanErpNumber(formatted);
-                      const qtyN = cleanErpNumber(editSoQty);
-                      const sup = qtyN * unitP;
-                      const vat = Math.round(sup * 0.1);
-                      setEditSoVatAmount(formatErpInputNumber(String(vat)));
-                      setEditSoTaxSpec((prev) => ({
-                        ...prev,
-                        taxItems: prev.taxItems.map((it, idx) =>
-                          idx === 0
-                            ? { ...it, qty: qtyN, unitCost: unitP, supplyAmount: sup, vatAmount: vat }
-                            : it
-                        ),
-                      }));
-                    }}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400 font-bold">세액 (부가세)</label>
-                  <input
-                    type="text"
-                    value={editSoVatAmount}
-                    onChange={(e) => setEditSoVatAmount(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <ContractTaxInvoiceSection
-                spec={editSoTaxSpec}
-                onChange={(next) => {
-                  setEditSoTaxSpec(next);
-                  const totalSup = next.taxItems.reduce((s, r) => s + Number(r.supplyAmount || 0), 0);
-                  const totalVat = next.taxItems.reduce((s, r) => s + Number(r.vatAmount || 0), 0);
-                  if (totalVat > 0) setEditSoVatAmount(formatErpInputNumber(String(totalVat)));
-                  if (next.taxItems.length === 1 && totalSup > 0) {
-                    const first = next.taxItems[0];
-                    if (first.qty > 0) setEditSoQty(formatErpInputNumber(String(first.qty)));
-                    if (first.unitCost > 0) setEditSoUnitPrice(formatErpInputNumber(String(first.unitCost)));
-                  }
-                }}
-                domainLabel="판매 계약"
-              />
-
-              {/* 계약서/발주서 첨부 교체 */}
-              <div className="flex flex-col gap-1 p-2.5 rounded border border-dashed border-[#b5a894] bg-[#ebe5d8]/60 dark:bg-slate-950/60 dark:border-slate-700">
-                <label className="text-slate-400 font-bold text-[11px]">판매 계약서 / 발주서 파일</label>
-                <input
-                  type="file"
-                  ref={editSoFileInputRef}
-                  accept=".pdf,image/*"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleSaleFileUpload(f, true);
-                  }}
-                  className="hidden"
-                />
-                <div className="flex items-center justify-between gap-2 mt-1">
-                  <div className="text-[11px] text-slate-300 truncate">
-                    {editSoFileName ? (
-                      <span className="text-emerald-400 font-semibold">{editSoFileName}</span>
-                    ) : (
-                      <span className="text-slate-500">첨부된 파일 없음</span>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => editSoFileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600/20 border border-blue-500/40 text-blue-300 hover:bg-blue-600/30 font-semibold text-[11px]"
-                  >
-                    <FileUp className="w-3.5 h-3.5" />
-                    <span>파일 변경/첨부</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 mt-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowEditSaleModal(false)}
-                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 font-bold text-white rounded"
-                >
-                  수정 내용 저장
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <EditSaleModal
+        editSoCustomer={editSoCustomer}
+        editSoDate={editSoDate}
+        editSoEntityType={editSoEntityType}
+        editSoFileInputRef={editSoFileInputRef}
+        editSoFileName={editSoFileName}
+        editSoQty={editSoQty}
+        editSoSaleNo={editSoSaleNo}
+        editSoTaxSpec={editSoTaxSpec}
+        editSoUnitPrice={editSoUnitPrice}
+        editSoVatAmount={editSoVatAmount}
+        handleSaleFileUpload={handleSaleFileUpload}
+        handleUpdateSale={handleUpdateSale}
+        setEditSoCustomer={setEditSoCustomer}
+        setEditSoDate={setEditSoDate}
+        setEditSoEntityType={setEditSoEntityType}
+        setEditSoQty={setEditSoQty}
+        setEditSoTaxSpec={setEditSoTaxSpec}
+        setEditSoUnitPrice={setEditSoUnitPrice}
+        setEditSoVatAmount={setEditSoVatAmount}
+        setShowEditSaleModal={setShowEditSaleModal}
+        showEditSaleModal={showEditSaleModal}
+      />
 
       {/* Add Trade Billing Modal (Pull from Sale Contract) */}
-      {showAddBillingModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-900 dark:border-slate-700 rounded shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto">
-            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-[#f4efe4] dark:bg-slate-900 z-10">
-              <div className="flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-sm font-bold text-white">유통 판매 계약 항목 기반 청구 생성</h3>
-              </div>
-              <button onClick={() => setShowAddBillingModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <form onSubmit={handleAddBilling} className="p-4 flex flex-col gap-3 text-xs">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-950/60 p-3 rounded border border-slate-800">
-                <div className="flex flex-col gap-1 md:col-span-2">
-                  <label className="text-[11px] text-slate-400 font-semibold">대상 유통/판매 계약 선택 * (선택 시 계약의 품목/세금계산서 제원 자동 연동)</label>
-                  <select
-                    value={blSaleId}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setBlSaleId(val);
-                      const target = sales.find((s) => String(s.id) === val);
-                      if (target) {
-                        applyTradeSaleTemplateToBilling(target, blDate);
-                      }
-                    }}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white text-xs"
-                    required
-                  >
-                    <option value="">-- 유통/판매 계약 선택 --</option>
-                    {sales.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        [{s.saleNo}] {s.customerName} - {s.productName} ({s.qty}{s.unit || "EA"} / {formatErpCurrency(s.totalAmount)})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] text-slate-400 font-semibold">청구일자 (세금계산서 작성일자) *</label>
-                  <input
-                    type="date"
-                    value={blDate}
-                    onChange={(e) => {
-                      const nextDate = e.target.value;
-                      setBlDate(nextDate);
-                      const target = sales.find((s) => String(s.id) === blSaleId);
-                      if (target && nextDate) {
-                        applyTradeSaleTemplateToBilling(target, nextDate);
-                      }
-                    }}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
-                    required
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] text-slate-400 font-semibold">청구명 (비고/기성 구분)</label>
-                  <input
-                    type="text"
-                    value={blMilestoneName}
-                    onChange={(e) => setBlMilestoneName(e.target.value)}
-                    placeholder="예: 물품대금 청구"
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] text-slate-400 font-semibold">청구 공급가액 (원) *</label>
-                  <input
-                    type="text"
-                    value={blSupplyAmount}
-                    onChange={(e) => {
-                      const formatted = formatErpInputNumber(e.target.value);
-                      setBlSupplyAmount(formatted);
-                      const num = cleanErpNumber(formatted);
-                      setBlVatAmount(toErpInputString(Math.round(num * 0.1)));
-                    }}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white font-mono text-right"
-                    required
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] text-slate-400 font-semibold">부가세액 (원)</label>
-                  <input
-                    type="text"
-                    value={blVatAmount}
-                    onChange={(e) => setBlVatAmount(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2 bg-slate-800 border border-slate-700 rounded text-white font-mono text-right"
-                  />
-                </div>
-              </div>
-
-              {blSaleId && (
-                <ContractTaxInvoiceSection
-                  spec={blTaxSpec}
-                  onChange={(next) => {
-                    setBlTaxSpec(next);
-                    const sumSupply = (next.taxItems || []).reduce((acc, it) => acc + (Number(it.supplyAmount) || 0), 0);
-                    const sumVat = (next.taxItems || []).reduce((acc, it) => acc + (Number(it.vatAmount) || 0), 0);
-                    if (sumSupply > 0) {
-                      setBlSupplyAmount(toErpInputString(sumSupply));
-                      setBlVatAmount(toErpInputString(sumVat));
-                    }
-                    if (next.taxMemo) {
-                      setBlMilestoneName(next.taxMemo);
-                    }
-                  }}
-                  domainLabel="유통 청구 세금계산서 품목 명세 (계약 항목 자동 연동 및 편집)"
-                />
-              )}
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAddBillingModal(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 font-bold text-white rounded"
-                >
-                  청구 생성
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AddBillingModal
+        applyTradeSaleTemplateToBilling={applyTradeSaleTemplateToBilling}
+        blDate={blDate}
+        blMilestoneName={blMilestoneName}
+        blSaleId={blSaleId}
+        blSupplyAmount={blSupplyAmount}
+        blTaxSpec={blTaxSpec}
+        blVatAmount={blVatAmount}
+        handleAddBilling={handleAddBilling}
+        sales={sales}
+        setBlDate={setBlDate}
+        setBlMilestoneName={setBlMilestoneName}
+        setBlSaleId={setBlSaleId}
+        setBlSupplyAmount={setBlSupplyAmount}
+        setBlTaxSpec={setBlTaxSpec}
+        setBlVatAmount={setBlVatAmount}
+        setShowAddBillingModal={setShowAddBillingModal}
+        showAddBillingModal={showAddBillingModal}
+        tradeSaleOptions={tradeSaleOptions}
+      />
 
       {/* Document Viewer Modal */}
       {activeDocViewer && (

@@ -5,37 +5,39 @@ import {
   putErpPrivateObject,
   deleteErpPrivateObject,
 } from "@/lib/r2ErpVault";
+import { runSchemaInitOnce } from "@/lib/erpSchemaCache";
 
 async function ensureObsidianTables() {
-  const pool = getErpPool();
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS erp_obsidian_notes (
-      id SERIAL PRIMARY KEY,
-      file_path VARCHAR(500) UNIQUE NOT NULL,
-      folder_path VARCHAR(300) NOT NULL DEFAULT '',
-      title VARCHAR(300) NOT NULL,
-      content TEXT NOT NULL DEFAULT '',
-      tags TEXT[] DEFAULT '{}',
-      frontmatter JSONB DEFAULT '{}'::jsonb,
-      is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
-      r2_key TEXT,
-      source_type VARCHAR(50) NOT NULL DEFAULT 'ERP_EDITOR',
-      author_name VARCHAR(100) DEFAULT '이정용 대표이사',
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    ALTER TABLE erp_obsidian_notes ENABLE ROW LEVEL SECURITY;
-  `);
+  await runSchemaInitOnce("erp_obsidian_schema_v1", async () => {
+    const pool = getErpPool();
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_obsidian_notes (
+        id SERIAL PRIMARY KEY,
+        file_path VARCHAR(500) UNIQUE NOT NULL,
+        folder_path VARCHAR(300) NOT NULL DEFAULT '',
+        title VARCHAR(300) NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        tags TEXT[] DEFAULT '{}',
+        frontmatter JSONB DEFAULT '{}'::jsonb,
+        is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+        r2_key TEXT,
+        source_type VARCHAR(50) NOT NULL DEFAULT 'ERP_EDITOR',
+        author_name VARCHAR(100) DEFAULT '이정용 대표이사',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      ALTER TABLE erp_obsidian_notes ENABLE ROW LEVEL SECURITY;
+    `);
 
-  // 초기 기본 노트 시드 (비어있을 때만)
-  const countRes = await pool.query(`SELECT COUNT(*)::int AS cnt FROM erp_obsidian_notes`);
-  if ((countRes.rows[0]?.cnt || 0) === 0) {
-    const seedNotes = [
-      {
-        file_path: "00_인박스/옵시디언 PC-모바일-ERP 통합 가이드.md",
-        folder_path: "00_인박스",
-        title: "옵시디언 PC-모바일-ERP 통합 가이드",
-        content: `---
+    // 초기 기본 노트 시드 (비어있을 때만)
+    const countRes = await pool.query(`SELECT COUNT(*)::int AS cnt FROM erp_obsidian_notes`);
+    if ((countRes.rows[0]?.cnt || 0) === 0) {
+      const seedNotes = [
+        {
+          file_path: "00_인박스/옵시디언 PC-모바일-ERP 통합 가이드.md",
+          folder_path: "00_인박스",
+          title: "옵시디언 PC-모바일-ERP 통합 가이드",
+          content: `---
 title: 옵시디언 PC-모바일-ERP 통합 가이드
 tags: [옵시디언, 동기화, 업무매뉴얼, ERP]
 created: 2026-11-07
@@ -54,14 +56,14 @@ created: 2026-11-07
 - [[2026년 정부지원사업 및 R&D 핵심 전략]]
 - [[렌탈 자산 운영 및 ERP 고도화 메모]]
 `,
-        tags: ["옵시디언", "동기화", "업무매뉴얼", "ERP"],
-        is_pinned: true,
-      },
-      {
-        file_path: "01_정부지원_전략/2026년 정부지원사업 및 R&D 핵심 전략.md",
-        folder_path: "01_정부지원_전략",
-        title: "2026년 정부지원사업 및 R&D 핵심 전략",
-        content: `---
+          tags: ["옵시디언", "동기화", "업무매뉴얼", "ERP"],
+          is_pinned: true,
+        },
+        {
+          file_path: "01_정부지원_전략/2026년 정부지원사업 및 R&D 핵심 전략.md",
+          folder_path: "01_정부지원_전략",
+          title: "2026년 정부지원사업 및 R&D 핵심 전략",
+          content: `---
 title: 2026년 정부지원사업 및 R&D 핵심 전략
 tags: [정부지원사업, 스마트서비스, AI바우처, 드래곤알피에이]
 created: 2026-11-07
@@ -80,14 +82,14 @@ created: 2026-11-07
 
 > **Tip**: ERP 좌측 메뉴의 **[정부지원·뉴스·트렌드]** 화면에서 원하는 공고나 원문을 선택한 뒤 **[옵시디언 노트로 보내기]** 버튼을 누르면 이 폴더에 자동으로 마크다운 노트가 생성됩니다.
 `,
-        tags: ["정부지원사업", "스마트서비스", "AI바우처", "드래곤알피에이"],
-        is_pinned: true,
-      },
-      {
-        file_path: "02_업무노트/렌탈 자산 운영 및 ERP 고도화 메모.md",
-        folder_path: "02_업무노트",
-        title: "렌탈 자산 운영 및 ERP 고도화 메모",
-        content: `---
+          tags: ["정부지원사업", "스마트서비스", "AI바우처", "드래곤알피에이"],
+          is_pinned: true,
+        },
+        {
+          file_path: "02_업무노트/렌탈 자산 운영 및 ERP 고도화 메모.md",
+          folder_path: "02_업무노트",
+          title: "렌탈 자산 운영 및 ERP 고도화 메모",
+          content: `---
 title: 렌탈 자산 운영 및 ERP 고도화 메모
 tags: [렌탈운영, 현대렌탈서비스, 업무메모]
 created: 2026-11-07
@@ -102,21 +104,22 @@ created: 2026-11-07
 
 - 상위 문서: [[옵시디언 PC-모바일-ERP 통합 가이드]]
 `,
-        tags: ["렌탈운영", "현대렌탈서비스", "업무메모"],
-        is_pinned: false,
-      },
-    ];
+          tags: ["렌탈운영", "현대렌탈서비스", "업무메모"],
+          is_pinned: false,
+        },
+      ];
 
-    for (const n of seedNotes) {
-      await pool.query(
-        `INSERT INTO erp_obsidian_notes (
-          file_path, folder_path, title, content, tags, is_pinned, source_type, author_name
-        ) VALUES ($1, $2, $3, $4, $5, $6, 'SEED', '이정용 대표이사')
-        ON CONFLICT (file_path) DO NOTHING`,
-        [n.file_path, n.folder_path, n.title, n.content, n.tags, n.is_pinned]
-      );
+      for (const n of seedNotes) {
+        await pool.query(
+          `INSERT INTO erp_obsidian_notes (
+            file_path, folder_path, title, content, tags, is_pinned, source_type, author_name
+          ) VALUES ($1, $2, $3, $4, $5, $6, 'SEED', '이정용 대표이사')
+          ON CONFLICT (file_path) DO NOTHING`,
+          [n.file_path, n.folder_path, n.title, n.content, n.tags, n.is_pinned]
+        );
+      }
     }
-  }
+  });
 }
 
 function normalizeFilePath(folderPath: string, titleOrFile: string): {
@@ -204,17 +207,17 @@ export async function GET(request: Request) {
       const bucket = process.env.R2_ERP_BUCKET_NAME?.trim() || "dragonrpa-erp-private";
       const accessKeyId = process.env.R2_ERP_ACCESS_KEY_ID?.trim() || "";
       const secretAccessKey = process.env.R2_ERP_SECRET_ACCESS_KEY?.trim() || "";
-      const endpoint = accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "";
+      const endpointMasked = accountId
+        ? `https://${accountId.slice(0, 4)}••••${accountId.slice(-4)}.r2.cloudflarestorage.com`
+        : "";
 
       return NextResponse.json({
         success: true,
         r2Config: {
           hasCredentials: Boolean(accountId && accessKeyId && secretAccessKey),
-          endpoint,
+          endpointMasked,
           region: "auto",
           bucket,
-          accessKeyId,
-          secretAccessKey,
           vaultPrefix: "obsidian-vault",
         },
       });

@@ -14,8 +14,8 @@ if (!linkId || !secretKey) {
 
 // Popbill SDK Global Configuration (Server-Side Only)
 popbill.config({
-  LinkID: linkId || "DRAGONRP",
-  SecretKey: secretKey || "BZL4UVISXlJur3SHxVIBEQ3ZYMFyyM+DtDFFRd21wZI=",
+  LinkID: linkId || "",
+  SecretKey: secretKey || "",
   IsTest: isTestMode,
   defaultErrorHandler: function (err: any) {
     console.error("Popbill SDK Error:", err);

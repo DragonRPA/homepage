@@ -1,53 +1,56 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { runSchemaInitOnce } from "@/lib/erpSchemaCache";
 
 async function ensureWorkImprovementsTable() {
-  const pool = getErpPool();
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS erp_work_improvements (
-      id SERIAL PRIMARY KEY,
-      report_no VARCHAR(50) UNIQUE NOT NULL,
-      summary_target TEXT NOT NULL,
-      summary_date VARCHAR(20) NOT NULL,
-      department VARCHAR(100) NOT NULL DEFAULT '현장개선팀',
-      improve_types JSONB NOT NULL DEFAULT '[]'::jsonb,
-      author_id INTEGER,
-      role_author VARCHAR(50) NOT NULL DEFAULT '담당',
-      name_author VARCHAR(100) NOT NULL DEFAULT '',
-      reviewer_id INTEGER,
-      role_reviewer VARCHAR(50) NOT NULL DEFAULT '팀장',
-      name_reviewer VARCHAR(100) NOT NULL DEFAULT '',
-      status_reviewer VARCHAR(30) NOT NULL DEFAULT '대기중',
-      date_reviewer VARCHAR(30) NOT NULL DEFAULT '',
-      comment_reviewer TEXT NOT NULL DEFAULT '',
-      approver_id INTEGER,
-      role_approver VARCHAR(50) NOT NULL DEFAULT '부서장',
-      name_approver VARCHAR(100) NOT NULL DEFAULT '',
-      status_approver VARCHAR(30) NOT NULL DEFAULT '대기중',
-      date_approver VARCHAR(30) NOT NULL DEFAULT '',
-      comment_approver TEXT NOT NULL DEFAULT '',
-      numbered_items JSONB NOT NULL DEFAULT '{}'::jsonb,
-      photos JSONB NOT NULL DEFAULT '[]'::jsonb,
-      attached_files JSONB NOT NULL DEFAULT '[]'::jsonb,
-      overall_status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
-      approval_request_id INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
+  await runSchemaInitOnce("erp_work_improvements_schema_v1", async () => {
+    const pool = getErpPool();
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_work_improvements (
+        id SERIAL PRIMARY KEY,
+        report_no VARCHAR(50) UNIQUE NOT NULL,
+        summary_target TEXT NOT NULL,
+        summary_date VARCHAR(20) NOT NULL,
+        department VARCHAR(100) NOT NULL DEFAULT '현장개선팀',
+        improve_types JSONB NOT NULL DEFAULT '[]'::jsonb,
+        author_id INTEGER,
+        role_author VARCHAR(50) NOT NULL DEFAULT '담당',
+        name_author VARCHAR(100) NOT NULL DEFAULT '',
+        reviewer_id INTEGER,
+        role_reviewer VARCHAR(50) NOT NULL DEFAULT '팀장',
+        name_reviewer VARCHAR(100) NOT NULL DEFAULT '',
+        status_reviewer VARCHAR(30) NOT NULL DEFAULT '대기중',
+        date_reviewer VARCHAR(30) NOT NULL DEFAULT '',
+        comment_reviewer TEXT NOT NULL DEFAULT '',
+        approver_id INTEGER,
+        role_approver VARCHAR(50) NOT NULL DEFAULT '부서장',
+        name_approver VARCHAR(100) NOT NULL DEFAULT '',
+        status_approver VARCHAR(30) NOT NULL DEFAULT '대기중',
+        date_approver VARCHAR(30) NOT NULL DEFAULT '',
+        comment_approver TEXT NOT NULL DEFAULT '',
+        numbered_items JSONB NOT NULL DEFAULT '{}'::jsonb,
+        photos JSONB NOT NULL DEFAULT '[]'::jsonb,
+        attached_files JSONB NOT NULL DEFAULT '[]'::jsonb,
+        overall_status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+        approval_request_id INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
 
-  // RLS 보안 정책 보장
-  await pool.query(`
-    ALTER TABLE erp_work_improvements ENABLE ROW LEVEL SECURITY;
-  `);
+    // RLS 보안 정책 보장
+    await pool.query(`
+      ALTER TABLE erp_work_improvements ENABLE ROW LEVEL SECURITY;
+    `);
 
-  // 결재선 규칙(WORK_IMPROVEMENT) 자동 시딩 (부서장 전결)
-  await pool.query(`
-    INSERT INTO erp_approval_rules (event_type, event_name, category, required_tier, description)
-    VALUES ('WORK_IMPROVEMENT', '업무개선활동 보고서', '업무개선', 2, '소속 부서장 전결 (대표이사 결재 제외)')
-    ON CONFLICT (event_type) DO UPDATE SET description = '소속 부서장 전결 (대표이사 결재 제외)', required_tier = 2;
-  `);
+    // 결재선 규칙(WORK_IMPROVEMENT) 자동 시딩 (부서장 전결)
+    await pool.query(`
+      INSERT INTO erp_approval_rules (event_type, event_name, category, required_tier, description)
+      VALUES ('WORK_IMPROVEMENT', '업무개선활동 보고서', '업무개선', 2, '소속 부서장 전결 (대표이사 결재 제외)')
+      ON CONFLICT (event_type) DO UPDATE SET description = '소속 부서장 전결 (대표이사 결재 제외)', required_tier = 2;
+    `);
+  });
 }
 
 function computeOverallStatus(

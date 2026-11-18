@@ -11,12 +11,31 @@ import {
   Coins,
   PackageCheck,
   Receipt,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   AlertCircle,
 } from "lucide-react";
-import { formatErpNumber, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import {
+  formatErpNumber,
+  formatErpInputNumber,
+  toErpInputString,
+  cleanErpNumber,
+  sortErpItems,
+  RentalRateBasis,
+  RENTAL_RATE_BASIS_OPTIONS,
+  calculateAutoDailyRentalFee,
+  resolveDailyRentalFee,
+  computeRentalSupplyByBasis,
+  matchHangulAny,
+  sortCustomersByName,
+  AttachedForkliftOption,
+  calculateAttachedOptionsTotals,
+  formatAttachedOptionsSummary,
+  normalizeAttachedOptions,
+  normalizeItemClass,
+} from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
+import { SearchSelectCombobox, SearchSelectOption } from "./SearchSelectCombobox";
+import ForkliftOptionAttachPanel, { CatalogOptionItem } from "./ForkliftOptionAttachPanel";
+import { findBlockedPartnerMatch, getPartnerTradeBlockInfo } from "@/lib/partnerStatusClient";
 
 interface RentalAssetItem {
   id: number;
@@ -36,6 +55,8 @@ interface RentalAssetItem {
   currentCustomer: string | null;
   currentSite: string | null;
   contractNo: string | null;
+  operatingHours?: number;
+  attachedOptions?: AttachedForkliftOption[];
 }
 
 interface BillingItem {
@@ -98,7 +119,17 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
   const [billings, setBillings] = useState<BillingItem[]>([]);
   const [customerSummary, setCustomerSummary] = useState<CustomerBillingSummary[]>([]);
   const [logs, setLogs] = useState<InoutLogItem[]>([]);
-  const [partners, setPartners] = useState<{ customerName: string; businessNo: string }[]>([]);
+  const [partners, setPartners] = useState<
+    {
+      id?: number;
+      customerName: string;
+      businessNo: string;
+      ceoName?: string;
+      status?: string;
+      ntsBizState?: string | null;
+      ntsClosedDate?: string | null;
+    }[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -106,11 +137,14 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
   const [customerName, setCustomerName] = useState("");
   const [siteName, setSiteName] = useState("");
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
-  const [assetFilterQuery, setAssetFilterQuery] = useState("");
   const [billingStartDate, setBillingStartDate] = useState<string>(todayStr);
+  const [rateBasis, setRateBasis] = useState<RentalRateBasis>("MONTHLY");
   const [monthlyRate, setMonthlyRate] = useState<string>("");
+  const [dailyRate, setDailyRate] = useState<string>("");
   const [entityType, setEntityType] = useState<"CORP" | "INDIVIDUAL">("CORP");
   const [useProRata, setUseProRata] = useState<boolean>(false); // 원칙: 월 임대료는 출고 시 입력한 단가로 정함 (특수한 경우에만 일할)
+  const [attachedOptions, setAttachedOptions] = useState<AttachedForkliftOption[]>([]);
+  const [optionCatalog, setOptionCatalog] = useState<CatalogOptionItem[]>([]);
   const [memo, setMemo] = useState("");
 
   // Active Grid View Tab
@@ -118,9 +152,10 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
   const [customerFilter, setCustomerFilter] = useState<string>("ALL");
   const [searchKeyword, setSearchKeyword] = useState<string>("");
 
-  // Sorting State
-  const [sortKey, setSortKey] = useState<string>("id");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+  // Sorting State (3단계: asc ➔ desc ➔ null 정렬안함)
+  const { sortKey, sortDir, handleSort } = useErpTableSort("id", "desc");
+  const availSort = useErpTableSort("assetNo", "asc");
+  const logsSort = useErpTableSort("eventDate", "desc");
 
   // Feedback Modal / Toast
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(
@@ -138,7 +173,11 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
     const ym = targetYm || yearMonth;
     setLoading(true);
     try {
-      const res = await fetch(`/api/erp/inout?yearMonth=${encodeURIComponent(ym)}`, { cache: "no-store" });
+      const [res, prodRes, tradeRes] = await Promise.all([
+        fetch(`/api/erp/inout?yearMonth=${encodeURIComponent(ym)}`, { cache: "no-store" }),
+        fetch("/api/erp/products", { cache: "no-store" }).catch(() => null),
+        fetch("/api/erp/trade/products", { cache: "no-store" }).catch(() => null),
+      ]);
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || "데이터 로드 실패");
@@ -148,6 +187,45 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
       setCustomerSummary(data.customerBillingSummary || []);
       setLogs((data.logs || []).filter((l: InoutLogItem) => l.eventType === "OUTBOUND"));
       setPartners(data.partners || []);
+
+      const catalogList: CatalogOptionItem[] = [];
+      const prodData = prodRes ? await prodRes.json().catch(() => null) : null;
+      const tradeData = tradeRes ? await tradeRes.json().catch(() => null) : null;
+      if (prodData?.success && Array.isArray(prodData.products)) {
+        for (const p of prodData.products) {
+          if (normalizeItemClass(p.itemClass || p.item_class, p.category) === "OPTION") {
+            catalogList.push({
+              id: p.id,
+              source: "RENTAL",
+              skuCode: p.modelCode || p.model_code || undefined,
+              name: p.modelName || p.model_name || p.name,
+              spec: p.spec || undefined,
+              unitPrice: 0,
+              installFee: Number(p.installFee ?? p.install_fee ?? 0),
+              monthlyAddonRate: Number(p.standardMonthlyRate ?? p.standard_monthly_rate ?? 0),
+              dailyAddonRate: Number(p.standardDailyRate ?? p.standard_daily_rate ?? 0),
+            });
+          }
+        }
+      }
+      if (tradeData?.success && Array.isArray(tradeData.products)) {
+        for (const p of tradeData.products) {
+          if (normalizeItemClass(p.item_class, p.category) === "OPTION") {
+            catalogList.push({
+              id: p.id,
+              source: "TRADE",
+              skuCode: p.sku_code || undefined,
+              name: p.name,
+              spec: p.spec || undefined,
+              unitPrice: Number(p.standard_price || 0),
+              installFee: Number(p.install_fee || 0),
+              monthlyAddonRate: Number(p.addon_monthly_rate || 0),
+              dailyAddonRate: Number(p.addon_daily_rate || 0),
+            });
+          }
+        }
+      }
+      setOptionCatalog(catalogList);
     } catch (err: any) {
       showFeedback(err.message, "error");
     } finally {
@@ -164,38 +242,83 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
     return assets.filter((a) => a.status === "AVAILABLE");
   }, [assets]);
 
-  const filteredAvailableAssets = useMemo(() => {
-    if (!assetFilterQuery.trim()) return availableAssets;
-    const q = assetFilterQuery.trim().toLowerCase();
-    return availableAssets.filter(
-      (a) =>
-        (a.assetNo || "").toLowerCase().includes(q) ||
-        (a.serialNo || "").toLowerCase().includes(q) ||
-        (a.modelName || "").toLowerCase().includes(q) ||
-        (a.manufacturer || "").toLowerCase().includes(q)
-    );
-  }, [availableAssets, assetFilterQuery]);
+  const availableAssetComboboxOptions = useMemo<SearchSelectOption[]>(() => {
+    return availableAssets.map((a) => {
+      const resolvedDaily = resolveDailyRentalFee(a.standardMonthlyRate, a.standardDailyRate);
+      return {
+        value: String(a.id),
+        label: `[${a.assetNo}] ${a.modelName || "기종미상"}`,
+        subLabel: `S/N: ${a.serialNo || "-"} · 월 ${formatErpNumber(a.standardMonthlyRate)}원 · 일 ${formatErpNumber(resolvedDaily)}원`,
+        badgeText: a.manufacturer || undefined,
+        badgeColor: "slate",
+        searchKeywords: [a.assetNo, a.serialNo, a.modelCode, a.modelName, a.manufacturer],
+      };
+    });
+  }, [availableAssets]);
+
+  const customerComboboxOptions = useMemo<SearchSelectOption[]>(() => {
+    const partnerMap = new Map<string, (typeof partners)[number]>();
+    for (const p of partners) {
+      if (p.customerName) {
+        partnerMap.set(p.customerName, p);
+      }
+    }
+    for (const c of customerSummary) {
+      if (c.customerName && !partnerMap.has(c.customerName)) {
+        partnerMap.set(c.customerName, { customerName: c.customerName, businessNo: "" });
+      }
+    }
+    const items = Array.from(partnerMap.entries()).map(([name, partner]) => ({
+      name,
+      partner,
+    }));
+    return sortCustomersByName(items).map((item) => {
+      const block = getPartnerTradeBlockInfo(item.partner);
+      return {
+        value: item.name,
+        label: item.name,
+        subLabel: item.partner.businessNo ? `사업자번호: ${item.partner.businessNo}` : undefined,
+        badgeText: block.blocked ? block.badgeText : undefined,
+        badgeColor: block.blocked ? "rose" : undefined,
+        searchKeywords: [item.name, item.partner.businessNo],
+        disabled: block.blocked,
+      };
+    });
+  }, [partners, customerSummary]);
 
   const selectedAssetObj = useMemo(() => {
     if (!selectedAssetId) return null;
     return assets.find((a) => String(a.id) === String(selectedAssetId)) || null;
   }, [assets, selectedAssetId]);
 
+  const optionTotals = useMemo(
+    () => calculateAttachedOptionsTotals(attachedOptions),
+    [attachedOptions]
+  );
+
   const handleSelectAsset = (asset: RentalAssetItem) => {
     setSelectedAssetId(String(asset.id));
-    if (asset.standardMonthlyRate && Number(asset.standardMonthlyRate) > 0) {
-      setMonthlyRate(String(Math.round(Number(asset.standardMonthlyRate))));
+    setAttachedOptions(normalizeAttachedOptions(asset.attachedOptions));
+    const monthly = Number(asset.standardMonthlyRate || 0);
+    if (monthly > 0) {
+      setMonthlyRate(toErpInputString(Math.round(monthly)));
+    }
+    if (rateBasis !== "DAILY_MANUAL") {
+      setDailyRate(toErpInputString(resolveDailyRentalFee(monthly, asset.standardDailyRate)));
     }
   };
 
   // Real-time billing calculation preview for the billing start month
   const proRataPreview = useMemo(() => {
-    const rate = Number(String(monthlyRate).replace(/,/g, "")) || 0;
-    if (!billingStartDate || rate <= 0) {
+    const rate = cleanErpNumber(monthlyRate) + optionTotals.totalMonthlyAddon;
+    const manualDaily = cleanErpNumber(dailyRate) + optionTotals.totalDailyAddon;
+    const applyDaily = rateBasis === "DAILY_MANUAL" || rateBasis === "DAILY_AUTO" || useProRata;
+    if (!billingStartDate || (rate <= 0 && (!applyDaily || manualDaily <= 0))) {
       return {
         targetYm: billingStartDate ? billingStartDate.slice(0, 7) : yearMonth,
         monthEnd: "-",
         operatingDays: 30,
+        effectiveDailyRate: resolveDailyRentalFee(rate, manualDaily),
         proRataAmount: 0,
       };
     }
@@ -205,11 +328,12 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
     const lastDay = new Date(y, m, 0).getDate();
     const monthEnd = `${ym}-${String(lastDay).padStart(2, "0")}`;
 
-    if (!useProRata) {
+    if (!applyDaily) {
       return {
         targetYm: ym,
         monthEnd,
         operatingDays: 30,
+        effectiveDailyRate: resolveDailyRentalFee(rate, manualDaily),
         proRataAmount: Math.round(rate),
       };
     }
@@ -221,34 +345,48 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
       Math.round((eDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
     );
     const isFullMonth = billingStartDate === monthStart;
-    const proRataAmount = isFullMonth
-      ? Math.round(rate)
-      : Math.min(Math.round(rate), Math.round((rate / 30) * operatingDays));
+    if (rateBasis === "MONTHLY" && isFullMonth && rate > 0) {
+      return {
+        targetYm: ym,
+        monthEnd,
+        operatingDays,
+        effectiveDailyRate: resolveDailyRentalFee(rate, manualDaily),
+        proRataAmount: Math.round(rate),
+      };
+    }
+    const computed = computeRentalSupplyByBasis({
+      monthlyRate: rate,
+      dailyRate: manualDaily,
+      rateBasis,
+      operatingDays,
+      useProRata: true,
+    });
+    const proRataAmount =
+      rateBasis === "MONTHLY" && rate > 0
+        ? Math.min(Math.round(rate), computed.supplyAmount)
+        : computed.supplyAmount;
 
     return {
       targetYm: ym,
       monthEnd,
       operatingDays,
+      effectiveDailyRate: computed.effectiveDailyRate,
       proRataAmount,
     };
-  }, [billingStartDate, monthlyRate, yearMonth, useProRata]);
-
-  // Unique customer suggestions from partners + existing billings
-  const customerSuggestions = useMemo(() => {
-    const set = new Set<string>();
-    partners.forEach((p) => {
-      if (p.customerName) set.add(p.customerName);
-    });
-    customerSummary.forEach((c) => {
-      if (c.customerName) set.add(c.customerName);
-    });
-    return Array.from(set).sort();
-  }, [partners, customerSummary]);
+  }, [billingStartDate, monthlyRate, dailyRate, rateBasis, yearMonth, useProRata, optionTotals]);
 
   const handleSubmitOutbound = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerName.trim()) {
       showFeedback("고객사명을 입력해 주십시오.", "error");
+      return;
+    }
+    const blockedCust = findBlockedPartnerMatch(partners, { name: customerName.trim() });
+    if (blockedCust) {
+      showFeedback(
+        `[${blockedCust.customerName}] ${getPartnerTradeBlockInfo(blockedCust).reason}`,
+        "error"
+      );
       return;
     }
     if (!selectedAssetId) {
@@ -259,11 +397,15 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
       showFeedback("청구 시작일을 선택해 주십시오.", "error");
       return;
     }
-    const cleanRate = Number(String(monthlyRate).replace(/,/g, ""));
-    if (!monthlyRate || isNaN(cleanRate) || cleanRate <= 0) {
-      showFeedback("월 단가를 0원보다 크게 입력해 주십시오.", "error");
+    const cleanRate = cleanErpNumber(monthlyRate) + optionTotals.totalMonthlyAddon;
+    const cleanDaily = cleanErpNumber(dailyRate) + optionTotals.totalDailyAddon;
+    if (cleanRate <= 0 && !(rateBasis !== "MONTHLY" && cleanDaily > 0)) {
+      showFeedback("월단가 또는 일단가를 0원보다 크게 입력해 주십시오.", "error");
       return;
     }
+
+    const effectiveUseProRata =
+      rateBasis === "DAILY_MANUAL" || rateBasis === "DAILY_AUTO" || useProRata;
 
     setSubmitting(true);
     try {
@@ -276,8 +418,11 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
           customerName: customerName.trim(),
           siteName: siteName.trim(),
           billingStartDate,
+          rateBasis,
           monthlyRate: cleanRate,
-          useProRata,
+          dailyRate: cleanDaily,
+          useProRata: effectiveUseProRata,
+          attachedOptions,
           entityType,
           memo: memo.trim(),
           actorName: currentUser?.name || "출고담당자",
@@ -293,14 +438,18 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
       await fetchInoutData(targetYm);
 
       showFeedback(
-        `[${customerName.trim()}] 단일 임대계약에 자산(${data.assetNo}) 출고 가산(+) 완료 (출고단가 ₩${formatErpNumber(
+        `[${customerName.trim()}] 단일 임대계약에 자산(${data.assetNo}) 출고 가산(+) 완료 (월단가 ₩${formatErpNumber(
           cleanRate
-        )} ➔ 고객 총 ${data.activeAssetCount || 1}대 / 월 ₩${formatErpNumber(data.totalContractMonthlyRate || cleanRate)})`
+        )} · 일단가 ₩${formatErpNumber(
+          cleanDaily || calculateAutoDailyRentalFee(cleanRate)
+        )} ➔ 고객 총 ${data.activeAssetCount || 1}대)`
       );
 
       // Reset asset selection & memo while preserving customer/date for consecutive dispatch convenience
       setSelectedAssetId("");
       setMonthlyRate("");
+      setDailyRate("");
+      setAttachedOptions([]);
       setMemo("");
       setActiveView("BILLINGS");
     } catch (err: any) {
@@ -310,60 +459,64 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
     }
   };
 
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
-
   const renderSortHeader = (
     label: string,
     colKey: string,
     align: "left" | "right" | "center" = "left"
   ) => (
-    <th
-      onClick={() => handleSort(colKey)}
-      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none transition ${
-        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
-      } hover:bg-[#d0c6b4] dark:hover:bg-slate-800/60`}
-    >
-      <div
-        className={`inline-flex items-center gap-1 ${
-          align === "right"
-            ? "justify-end"
-            : align === "center"
-            ? "justify-center"
-            : "justify-start"
-        } ${sortKey === colKey ? "text-[#1d4ed8] dark:text-blue-400 font-bold" : ""}`}
-      >
-        <span>{label}</span>
-        {sortKey === colKey ? (
-          sortDir === "asc" ? (
-            <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold shrink-0" />
-          ) : (
-            <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold shrink-0" />
-          )
-        ) : (
-          <ArrowUpDown className="w-3.5 h-3.5 opacity-30 shrink-0" />
-        )}
-      </div>
-    </th>
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-800/60"
+      iconClassName="w-3.5 h-3.5"
+    />
+  );
+
+  const renderAvailSortHeader = (
+    label: string,
+    colKey: string,
+    align: "left" | "right" | "center" = "left"
+  ) => (
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={availSort.sortKey}
+      sortDir={availSort.sortDir}
+      onSort={availSort.handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-800/60"
+      iconClassName="w-3.5 h-3.5"
+    />
+  );
+
+  const renderLogSortHeader = (
+    label: string,
+    colKey: string,
+    align: "left" | "right" | "center" = "left"
+  ) => (
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={logsSort.sortKey}
+      sortDir={logsSort.sortDir}
+      onSort={logsSort.handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-800/60"
+      iconClassName="w-3.5 h-3.5"
+    />
   );
 
   const filteredBillings = useMemo(() => {
     const list = billings.filter((b) => {
       if (customerFilter !== "ALL" && b.customerName !== customerFilter) return false;
       if (searchKeyword.trim()) {
-        const q = searchKeyword.trim().toLowerCase();
-        return (
-          (b.customerName || "").toLowerCase().includes(q) ||
-          (b.assetNo || "").toLowerCase().includes(q) ||
-          (b.serialNo || "").toLowerCase().includes(q) ||
-          (b.modelName || "").toLowerCase().includes(q) ||
-          (b.siteName || "").toLowerCase().includes(q)
+        return matchHangulAny(
+          [b.customerName, b.assetNo, b.serialNo, b.modelName, b.siteName],
+          searchKeyword
         );
       }
       return true;
@@ -372,26 +525,27 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
   }, [billings, customerFilter, searchKeyword, sortKey, sortDir]);
 
   const sortedAvailableAssets = useMemo(() => {
-    return sortErpItems(
-      filteredAvailableAssets,
-      sortKey === "id" ? "assetNo" : sortKey,
-      sortKey === "id" ? "asc" : sortDir
-    );
-  }, [filteredAvailableAssets, sortKey, sortDir]);
+    const list = searchKeyword.trim()
+      ? availableAssets.filter((a) =>
+          matchHangulAny(
+            [a.assetNo, a.serialNo, a.modelName, a.modelCode, a.manufacturer, a.category],
+            searchKeyword
+          )
+        )
+      : availableAssets;
+    return sortErpItems(list, availSort.sortKey, availSort.sortDir);
+  }, [availableAssets, searchKeyword, availSort.sortKey, availSort.sortDir]);
 
   const sortedLogs = useMemo(() => {
     const list = logs.filter((l) => {
       if (!searchKeyword.trim()) return true;
-      const q = searchKeyword.trim().toLowerCase();
-      return (
-        (l.customerName || "").toLowerCase().includes(q) ||
-        (l.assetNo || "").toLowerCase().includes(q) ||
-        (l.serialNo || "").toLowerCase().includes(q) ||
-        (l.modelName || "").toLowerCase().includes(q)
+      return matchHangulAny(
+        [l.customerName, l.assetNo, l.serialNo, l.modelName, l.siteName],
+        searchKeyword
       );
     });
-    return sortErpItems(list, sortKey, sortDir);
-  }, [logs, searchKeyword, sortKey, sortDir]);
+    return sortErpItems(list, logsSort.sortKey, logsSort.sortDir);
+  }, [logs, searchKeyword, logsSort.sortKey, logsSort.sortDir]);
 
   const totalMonthRevenue = useMemo(
     () => filteredBillings.reduce((acc, cur) => acc + Number(cur.proRataRevenue || 0), 0),
@@ -494,23 +648,19 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
           {/* 1. 고객사명 & 계약주체 */}
           <div className="grid grid-cols-3 gap-2.5">
             <div className="col-span-2 flex flex-col gap-1">
-              <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
-                출고 고객사명 *
-              </label>
-              <input
-                type="text"
-                list="outbound-customer-list"
+              <SearchSelectCombobox
+                label="출고 고객사명"
                 required
+                size="sm"
+                allowFreeText
+                showChosungBar
+                options={customerComboboxOptions}
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="고객사명 입력 또는 선택"
-                className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
+                freeTextValue={customerName}
+                onFreeTextChange={(val) => setCustomerName(val)}
+                onChange={(nextVal) => setCustomerName(nextVal)}
+                placeholder="고객사명·초성·사업자번호 검색"
               />
-              <datalist id="outbound-customer-list">
-                {customerSuggestions.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
             </div>
 
             <div className="flex flex-col gap-1">
@@ -530,60 +680,53 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
 
           {/* 2. 출고 렌탈자산 검색 및 선택 */}
           <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
-                출고 자산 선택 (임대가능 {formatErpNumber(availableAssets.length)}대) *
-              </label>
-              <button
-                type="button"
-                onClick={() => setActiveView("AVAILABLE_ASSETS")}
-                className="text-[11px] text-[#1d4ed8] hover:underline dark:text-blue-400 font-semibold whitespace-nowrap"
-              >
-                목록에서 선택 ➔
-              </button>
-            </div>
-            <input
-              type="text"
-              value={assetFilterQuery}
-              onChange={(e) => setAssetFilterQuery(e.target.value)}
-              placeholder="자산번호 / 제조번호(S/N) / 모델명 필터"
-              className="w-full px-3 py-1.5 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] placeholder-[#94a3b8] focus:outline-none focus:border-[#1d4ed8] mb-1 dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200 dark:focus:border-blue-500"
-            />
-            <select
+            <SearchSelectCombobox
+              label={`출고 자산 선택 (임대가능 ${formatErpNumber(availableAssets.length)}대)`}
               required
+              size="sm"
+              showChosungBar
+              options={availableAssetComboboxOptions}
               value={selectedAssetId}
-              onChange={(e) => {
-                const idVal = e.target.value;
+              onChange={(idVal) => {
                 setSelectedAssetId(idVal);
                 const found = assets.find((a) => String(a.id) === idVal);
-                if (found && found.standardMonthlyRate) {
-                  setMonthlyRate(String(Math.round(Number(found.standardMonthlyRate))));
+                if (found) {
+                  handleSelectAsset(found);
                 }
               }}
-              className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
-            >
-              <option value="">-- 출고할 렌탈자산 선택 --</option>
-              {filteredAvailableAssets.map((a) => (
-                <option key={a.id} value={a.id}>
-                  [{a.assetNo}] {a.modelName || "기종미상"} | S/N: {a.serialNo || "-"} | 기준단가:{" "}
-                  {formatErpNumber(a.standardMonthlyRate)}원
-                </option>
-              ))}
-            </select>
+              placeholder="자산번호·제조번호·모델명·초성 검색"
+              headerRight={
+                <button
+                  type="button"
+                  onClick={() => setActiveView("AVAILABLE_ASSETS")}
+                  className="text-[11px] text-[#1d4ed8] hover:underline dark:text-blue-400 font-semibold whitespace-nowrap shrink-0"
+                >
+                  목록 보기
+                </button>
+              }
+            />
             {selectedAssetObj && (
-              <div className="mt-1 px-2.5 py-1.5 rounded bg-[#ebe5d8] border border-[#b5a894] text-[11px] text-[#334155] flex items-center justify-between dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300">
+              <div className="mt-1 px-2.5 py-1.5 rounded bg-[#ebe5d8] border border-[#b5a894] text-[11px] text-[#334155] flex items-center justify-between gap-2 flex-wrap dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300">
                 <span className="whitespace-nowrap">
                   선택자산: <strong className="text-[#1d4ed8] dark:text-blue-400 font-mono">{selectedAssetObj.assetNo}</strong>{" "}
                   ({selectedAssetObj.modelName})
+                  {attachedOptions.length > 0 && (
+                    <span
+                      className="ml-1.5 px-1.5 py-0.2 rounded bg-amber-500/15 border border-amber-500/30 text-amber-800 text-[10px] font-bold"
+                      title={formatAttachedOptionsSummary(attachedOptions)}
+                    >
+                      부착옵션 {attachedOptions.length}종
+                    </span>
+                  )}
                 </span>
                 <span className="font-mono text-[#475569] dark:text-slate-400 whitespace-nowrap">
-                  S/N: {selectedAssetObj.serialNo || "-"}
+                  차대/S/N: {selectedAssetObj.serialNo || "-"}
                 </span>
               </div>
             )}
           </div>
 
-          {/* 3. 언제부터 청구할 것인지 (청구 시작일) & 4. 월 단가 */}
+          {/* 3. 청구 시작일 · 과금 기준 · 월단가 · 일단가 */}
           <div className="grid grid-cols-2 gap-2.5">
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
@@ -600,17 +743,85 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
 
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
-                월 단가 (원, VAT별도) *
+                과금 기준 *
+              </label>
+              <select
+                value={rateBasis}
+                onChange={(e) => {
+                  const nextBasis = e.target.value as RentalRateBasis;
+                  setRateBasis(nextBasis);
+                  setUseProRata(nextBasis === "DAILY_MANUAL" || nextBasis === "DAILY_AUTO");
+                  if (nextBasis === "DAILY_AUTO" || (nextBasis === "MONTHLY" && !dailyRate)) {
+                    setDailyRate(
+                      toErpInputString(calculateAutoDailyRentalFee(cleanErpNumber(monthlyRate)))
+                    );
+                  }
+                }}
+                className="w-full px-2.5 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] font-semibold focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-blue-500"
+              >
+                {RENTAL_RATE_BASIS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                월단가 (원, VAT별도) *
               </label>
               <input
-                type="number"
-                required
-                min={0}
-                step={1000}
+                type="text"
+                inputMode="numeric"
+                required={rateBasis === "MONTHLY"}
                 value={monthlyRate}
-                onChange={(e) => setMonthlyRate(e.target.value)}
-                placeholder="예: 600000"
+                onChange={(e) => {
+                  const formatted = formatErpInputNumber(e.target.value);
+                  setMonthlyRate(formatted);
+                  if (rateBasis !== "DAILY_MANUAL") {
+                    setDailyRate(
+                      toErpInputString(calculateAutoDailyRentalFee(cleanErpNumber(formatted)))
+                    );
+                  }
+                }}
+                placeholder="600,000"
                 className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#047857] font-mono font-bold text-right focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-emerald-400 dark:focus:border-blue-500"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-1">
+                <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                  일단가 (원)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRateBasis("DAILY_AUTO");
+                    setUseProRata(true);
+                    setDailyRate(
+                      toErpInputString(calculateAutoDailyRentalFee(cleanErpNumber(monthlyRate)))
+                    );
+                  }}
+                  className="text-[11px] font-bold text-[#1d4ed8] hover:underline whitespace-nowrap shrink-0"
+                >
+                  자동계산
+                </button>
+              </div>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={dailyRate}
+                onChange={(e) => {
+                  setRateBasis("DAILY_MANUAL");
+                  setUseProRata(true);
+                  setDailyRate(formatErpInputNumber(e.target.value));
+                }}
+                placeholder="20,000"
+                className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#1d4ed8] font-mono font-bold text-right focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-blue-400 dark:focus:border-blue-500"
               />
             </div>
           </div>
@@ -629,31 +840,64 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
             />
           </div>
 
-          {/* 당월 청구 반영액 자동 계산 요약 (고객단위 가산 & 월 단가 정액 원칙) */}
+          {/* 부착옵션 추가 및 렌탈 과금 합산 */}
+          <ForkliftOptionAttachPanel
+            mode="RENTAL"
+            options={attachedOptions}
+            onChange={setAttachedOptions}
+            catalogOptions={optionCatalog}
+            title="부착옵션 선택 및 출고 반영"
+          />
+
+          {/* 당월 청구 반영액 계산 요약 */}
           <div className="p-3 rounded-lg bg-[#ebe5d8] border border-[#b5a894] space-y-1.5 dark:bg-slate-950 dark:border-slate-800">
             <div className="flex items-center justify-between text-xs pb-1 border-b border-[#b5a894]/60 dark:border-slate-800">
-              <span className="font-semibold text-[#1e40af] dark:text-blue-400">
-                고객별 단일 임대계약 자동 가산(+)
+              <span className="font-semibold text-[#1e40af] dark:text-blue-400 whitespace-nowrap">
+                당월 청구 예상액
               </span>
-              <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-[#475569] dark:text-slate-400">
+              <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-[#475569] dark:text-slate-400 whitespace-nowrap">
                 <input
                   type="checkbox"
                   checked={useProRata}
-                  onChange={(e) => setUseProRata(e.target.checked)}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setUseProRata(checked);
+                    if (checked && rateBasis === "MONTHLY") {
+                      setRateBasis("DAILY_AUTO");
+                      setDailyRate(
+                        toErpInputString(calculateAutoDailyRentalFee(cleanErpNumber(monthlyRate)))
+                      );
+                    } else if (!checked) {
+                      setRateBasis("MONTHLY");
+                    }
+                  }}
                   className="rounded border-[#b5a894]"
                 />
-                <span>특수 일할계산 적용</span>
+                <span>일할 계산 적용</span>
               </label>
             </div>
+            {optionTotals.totalMonthlyAddon > 0 && (
+              <div className="flex items-center justify-between text-[11px] text-amber-800 dark:text-amber-300 font-semibold">
+                <span className="whitespace-nowrap">적용 월단가 합산 (기본 + 옵션)</span>
+                <span className="font-mono whitespace-nowrap">
+                  ₩{formatErpNumber(cleanErpNumber(monthlyRate))} + ₩{formatErpNumber(optionTotals.totalMonthlyAddon)} = ₩
+                  {formatErpNumber(cleanErpNumber(monthlyRate) + optionTotals.totalMonthlyAddon)}
+                </span>
+              </div>
+            )}
             <div className="flex items-center justify-between text-xs">
-              <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">당월 청구 대상 연월</span>
+              <span className="text-[#475569] dark:text-slate-400 whitespace-nowrap">적용 기준 / 일수</span>
               <span className="font-mono font-bold text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
-                {proRataPreview.targetYm} ({useProRata ? `${proRataPreview.operatingDays}일 일할` : "월 단가 정액"})
+                {proRataPreview.targetYm} (
+                {rateBasis !== "MONTHLY" || useProRata
+                  ? `일 ₩${formatErpNumber(proRataPreview.effectiveDailyRate)} × ${proRataPreview.operatingDays}일`
+                  : "월단가 정액"}
+                )
               </span>
             </div>
             <div className="pt-1.5 border-t border-[#b5a894] dark:border-slate-800 flex items-center justify-between">
               <span className="text-xs font-bold text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
-                고객 계약 가산 월임대료
+                청구 반영 공급가
               </span>
               <span className="text-sm font-extrabold font-mono text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                 + ₩{formatErpNumber(proRataPreview.proRataAmount)}
@@ -865,25 +1109,30 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                   <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800">
                     <tr>
                       <th className="py-2.5 px-3 whitespace-nowrap">출고 선택</th>
-                      {renderSortHeader("자산번호", "assetNo")}
-                      {renderSortHeader("제조번호(S/N)", "serialNo")}
-                      {renderSortHeader("기종 모델명", "modelName")}
-                      {renderSortHeader("제조사", "manufacturer")}
-                      {renderSortHeader("분류", "category")}
-                      {renderSortHeader("기준 월단가", "standardMonthlyRate", "right")}
-                      {renderSortHeader("상태", "status", "center")}
+                      {renderAvailSortHeader("자산번호", "assetNo")}
+                      {renderAvailSortHeader("제조번호(S/N)", "serialNo")}
+                      {renderAvailSortHeader("기종 모델명", "modelName")}
+                      {renderAvailSortHeader("제조사", "manufacturer")}
+                      {renderAvailSortHeader("분류", "category")}
+                      {renderAvailSortHeader("기준 월단가", "standardMonthlyRate", "right")}
+                      {renderAvailSortHeader("기준 일단가", "standardDailyRate", "right")}
+                      {renderAvailSortHeader("상태", "status", "center")}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/70">
                     {sortedAvailableAssets.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-10 text-center text-[#475569] dark:text-slate-500">
+                        <td colSpan={9} className="py-10 text-center text-[#475569] dark:text-slate-500">
                           임대가능 상태인 자산이 없습니다.
                         </td>
                       </tr>
                     ) : (
                       sortedAvailableAssets.map((a) => {
                         const isChosen = String(a.id) === String(selectedAssetId);
+                        const resolvedDaily = resolveDailyRentalFee(
+                          a.standardMonthlyRate,
+                          a.standardDailyRate
+                        );
                         return (
                           <tr
                             key={a.id}
@@ -926,6 +1175,9 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                             <td className="py-2 px-3 font-mono font-bold text-right text-[#047857] dark:text-emerald-400 whitespace-nowrap">
                               ₩{formatErpNumber(a.standardMonthlyRate)}
                             </td>
+                            <td className="py-2 px-3 font-mono font-bold text-right text-[#1d4ed8] dark:text-blue-400 whitespace-nowrap">
+                              ₩{formatErpNumber(resolvedDaily)}
+                            </td>
                             <td className="py-2 px-3 text-center whitespace-nowrap">
                               <span className="px-2 py-0.5 rounded bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0] text-[10px] font-bold dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-transparent">
                                 임대가능
@@ -943,12 +1195,12 @@ export function OutboundRegTab({ currentUser }: { currentUser?: any }) {
                 <table className="w-full text-xs text-left border-collapse">
                   <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800">
                     <tr>
-                      {renderSortHeader("출고(청구시작)일", "eventDate", "center")}
-                      {renderSortHeader("자산번호", "assetNo")}
-                      {renderSortHeader("제조번호(S/N)", "serialNo")}
-                      {renderSortHeader("기종 모델명", "modelName")}
-                      {renderSortHeader("출고 고객사", "customerName")}
-                      {renderSortHeader("비고", "memo")}
+                      {renderLogSortHeader("출고(청구시작)일", "eventDate", "center")}
+                      {renderLogSortHeader("자산번호", "assetNo")}
+                      {renderLogSortHeader("제조번호(S/N)", "serialNo")}
+                      {renderLogSortHeader("기종 모델명", "modelName")}
+                      {renderLogSortHeader("출고 고객사", "customerName")}
+                      {renderLogSortHeader("비고", "memo")}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/70">

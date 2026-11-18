@@ -2,7 +2,18 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { supabaseErp, getErpPool } from "@/lib/supabaseErp";
 import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
-import { encryptPii, decryptPii, hashPassword } from "@/lib/piiCrypto";
+import {
+  encryptPii,
+  decryptPii,
+  hashPassword,
+  maskBankAccount,
+  maskResidentRegNo,
+} from "@/lib/piiCrypto";
+import {
+  getClientIpFromRequest,
+  getErpSessionFromRequest,
+  logSecurityAuditEvent,
+} from "@/lib/erpSecurityAudit";
 
 function normalizeStatusToEbro(rawStatus: string | null | undefined, leaveDate?: string | null): "ACTIVE" | "LEAVE_OF_ABSENCE" | "RETIRED" {
   if (leaveDate && String(leaveDate).trim() !== "") return "RETIRED";
@@ -21,9 +32,19 @@ function normalizeStatusToDb(rawStatus: string | null | undefined, leaveDate?: s
 }
 
 // GET: List all employees with calculated leave balance & department_id mapping
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const pool = getErpPool();
+    const { searchParams } = new URL(request.url);
+    const includePii = searchParams.get("includePii") === "1";
+    const session = await getErpSessionFromRequest(request);
+
+    if (!session) {
+      return NextResponse.json({ error: "인증 세션이 필요합니다." }, { status: 401 });
+    }
+
+    const isPrivilegedRole = session.roleCode === "ADMIN" || session.roleCode === "MANAGER";
+
     const query = `
       SELECT 
         e.id, 
@@ -39,7 +60,7 @@ export async function GET() {
         e.role, 
         e.role_code as "roleCode",
         e.base_salary as "baseSalary",
-        COALESCE(e.hourly_wage, ROUND(COALESCE(e.base_salary, 3500000) / 209.0))::numeric as "hourlyWage",
+        COALESCE(e.hourly_wage, 0)::numeric as "hourlyWage",
         COALESCE(e.meal_allowance, 200000)::numeric as "mealAllowance",
         COALESCE(e.vehicle_allowance, 0)::numeric as "vehicleAllowance",
         COALESCE(e.ins_national_pension, TRUE) as "insNationalPension",
@@ -73,7 +94,21 @@ export async function GET() {
       ORDER BY e.id ASC
     `;
 
-    const result = await pool.query(query);
+    const [result, permRes] = await Promise.all([
+      pool.query(query),
+      includePii && !isPrivilegedRole && session.roleCode
+        ? pool.query(
+            `SELECT 1 FROM erp_role_permissions
+             WHERE role_code = $1
+               AND menu_key IN ('employees', 'organization', 'employment_contracts', 'payroll')
+               AND can_view = true
+             LIMIT 1`,
+            [session.roleCode]
+          )
+        : Promise.resolve({ rows: [] as any[] }),
+    ]);
+
+    const canReadAllPii = isPrivilegedRole || (includePii && permRes.rows.length > 0);
     const targetYear = new Date().getFullYear();
 
     for (const row of result.rows) {
@@ -91,13 +126,38 @@ export async function GET() {
       }
     }
 
-    const employees = result.rows.map((row: any) => ({
-      ...row,
-      salaryAccountNo: decryptPii(row.salaryAccountNo),
-      residentRegNo: decryptPii(row.residentRegNo),
-      status: normalizeStatusToEbro(row.employmentStatus, row.leaveDate),
-      employmentStatus: normalizeStatusToDb(row.employmentStatus, row.leaveDate),
-    }));
+    if (includePii && canReadAllPii) {
+      await logSecurityAuditEvent({
+        eventType: "PII_READ",
+        actorId: session.uid,
+        actorLoginId: session.loginId,
+        actorName: session.name,
+        targetResource: "/api/erp/employees",
+        ipAddress: getClientIpFromRequest(request),
+        userAgent: request.headers.get("user-agent") || "",
+        detail: { count: result.rows.length },
+      });
+    }
+
+    const employees = result.rows.map((row: any) => {
+      const isSelf = Number(row.id) === session.uid;
+      const revealRowPii = includePii && (canReadAllPii || isSelf);
+      const plainAcct = decryptPii(row.salaryAccountNo);
+      const plainRrn = decryptPii(row.residentRegNo);
+
+      return {
+        ...row,
+        salaryAccountNo: revealRowPii ? plainAcct : maskBankAccount(plainAcct),
+        residentRegNo: revealRowPii ? plainRrn : maskResidentRegNo(plainRrn),
+        baseSalary: canReadAllPii || isSelf ? row.baseSalary : 0,
+        hourlyWage: canReadAllPii || isSelf ? row.hourlyWage : 0,
+        mealAllowance: canReadAllPii || isSelf ? row.mealAllowance : 0,
+        vehicleAllowance: canReadAllPii || isSelf ? row.vehicleAllowance : 0,
+        serviceContractAmount: canReadAllPii || isSelf ? row.serviceContractAmount : 0,
+        status: normalizeStatusToEbro(row.employmentStatus, row.leaveDate),
+        employmentStatus: normalizeStatusToDb(row.employmentStatus, row.leaveDate),
+      };
+    });
 
     return NextResponse.json({ success: true, employees });
   } catch (error: any) {
@@ -141,6 +201,7 @@ export async function POST(request: Request) {
       salaryBankName,
       salaryAccountNo,
       salaryAccountHolder,
+      residentRegNo,
       joinDate,
       leaveDate,
       grantDays,
@@ -204,11 +265,11 @@ export async function POST(request: Request) {
         department: resolvedDeptName,
         role: role || "USER",
         role_code: roleCode || (role === "ADMIN" ? "ADMIN" : role === "MANAGER" ? "MANAGER" : "EMPLOYEE"),
-        base_salary: baseSalary !== undefined ? parseFloat(baseSalary) || 0 : 3500000,
+        base_salary: baseSalary !== undefined ? parseFloat(String(baseSalary).replace(/,/g, "")) || 0 : 3500000,
         hourly_wage:
-          hourlyWage !== undefined && hourlyWage !== null && hourlyWage !== "" && !isNaN(Number(hourlyWage))
-            ? Number(hourlyWage)
-            : Math.round((baseSalary !== undefined ? parseFloat(baseSalary) || 3500000 : 3500000) / 209),
+          hourlyWage !== undefined && hourlyWage !== null && hourlyWage !== ""
+            ? Math.round(Number(String(hourlyWage).replace(/,/g, "")) || 0)
+            : 0,
         meal_allowance: mealAllowance !== undefined ? parseFloat(mealAllowance) || 0 : 200000,
         vehicle_allowance: vehicleAllowance !== undefined ? parseFloat(vehicleAllowance) || 0 : 0,
         ins_national_pension: insNationalPension !== undefined ? Boolean(insNationalPension) : true,
@@ -218,6 +279,7 @@ export async function POST(request: Request) {
         salary_bank_name: salaryBankName ? String(salaryBankName).trim() : null,
         salary_account_no: salaryAccountNo ? encryptPii(String(salaryAccountNo).trim()) : null,
         salary_account_holder: salaryAccountHolder ? String(salaryAccountHolder).trim() : null,
+        resident_reg_no: residentRegNo ? encryptPii(String(residentRegNo).trim()) : null,
         email: email ? String(email).trim() : null,
         phone: phone ? String(phone).trim() : null,
         birth_date: birthDate || null,
@@ -242,10 +304,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    const { password_hash: _ph, salary_account_no: _san, resident_reg_no: _rrn, ...safeData } = data;
     return NextResponse.json({
       success: true,
       employee: {
-        ...data,
+        ...safeData,
         id: data.id,
         employeeNo: data.employee_no,
         loginId: data.login_id,
@@ -256,7 +319,7 @@ export async function POST(request: Request) {
         status: normalizeStatusToEbro(data.employment_status),
         employmentStatus: normalizeStatusToDb(data.employment_status),
         baseSalary: Number(data.base_salary ?? 3500000),
-        hourlyWage: Number(data.hourly_wage ?? Math.round(Number(data.base_salary ?? 3500000) / 209)),
+        hourlyWage: Number(data.hourly_wage ?? 0),
         mealAllowance: Number(data.meal_allowance ?? 200000),
         vehicleAllowance: Number(data.vehicle_allowance ?? 0),
         insNationalPension: data.ins_national_pension ?? true,
@@ -266,6 +329,7 @@ export async function POST(request: Request) {
         salaryBankName: data.salary_bank_name || "",
         salaryAccountNo: decryptPii(data.salary_account_no) || "",
         salaryAccountHolder: data.salary_account_holder || "",
+        residentRegNo: decryptPii(data.resident_reg_no) || "",
         profileImageUrl: data.profile_image_url || undefined,
       },
     });
@@ -311,6 +375,7 @@ export async function PUT(request: Request) {
       salaryBankName,
       salaryAccountNo,
       salaryAccountHolder,
+      residentRegNo,
       status,
       employmentStatus,
       leaveDate,
@@ -372,8 +437,11 @@ export async function PUT(request: Request) {
       }
     }
     if (address !== undefined) updatePayload.address = address || null;
-    if (baseSalary !== undefined) updatePayload.base_salary = parseFloat(baseSalary) || 0;
-    if (hourlyWage !== undefined) updatePayload.hourly_wage = parseFloat(hourlyWage) || 0;
+    if (baseSalary !== undefined) updatePayload.base_salary = parseFloat(String(baseSalary).replace(/,/g, "")) || 0;
+    if (hourlyWage !== undefined && hourlyWage !== null) {
+      const parsedHw = Number(String(hourlyWage).replace(/,/g, ""));
+      updatePayload.hourly_wage = isNaN(parsedHw) ? 0 : Math.round(parsedHw);
+    }
     if (mealAllowance !== undefined) updatePayload.meal_allowance = parseFloat(mealAllowance) || 0;
     if (vehicleAllowance !== undefined) updatePayload.vehicle_allowance = parseFloat(vehicleAllowance) || 0;
     if (insNationalPension !== undefined) updatePayload.ins_national_pension = Boolean(insNationalPension);
@@ -381,8 +449,23 @@ export async function PUT(request: Request) {
     if (insEmploymentInsurance !== undefined) updatePayload.ins_employment_insurance = Boolean(insEmploymentInsurance);
     if (insIndustrialAccident !== undefined) updatePayload.ins_industrial_accident = Boolean(insIndustrialAccident);
     if (salaryBankName !== undefined) updatePayload.salary_bank_name = salaryBankName ? String(salaryBankName).trim() : null;
-    if (salaryAccountNo !== undefined) updatePayload.salary_account_no = salaryAccountNo ? encryptPii(String(salaryAccountNo).trim()) : null;
+    if (salaryAccountNo !== undefined) {
+      const rawAcc = String(salaryAccountNo).trim();
+      if (!rawAcc) {
+        updatePayload.salary_account_no = null;
+      } else if (!rawAcc.includes("****")) {
+        updatePayload.salary_account_no = encryptPii(rawAcc);
+      }
+    }
     if (salaryAccountHolder !== undefined) updatePayload.salary_account_holder = salaryAccountHolder ? String(salaryAccountHolder).trim() : null;
+    if (residentRegNo !== undefined) {
+      const rawRrn = String(residentRegNo).trim();
+      if (!rawRrn) {
+        updatePayload.resident_reg_no = null;
+      } else if (!rawRrn.includes("****")) {
+        updatePayload.resident_reg_no = encryptPii(rawRrn);
+      }
+    }
     if (status !== undefined || employmentStatus !== undefined) {
       updatePayload.employment_status = normalizeStatusToDb(status ?? employmentStatus);
     }
@@ -401,10 +484,11 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    const { password_hash: _ph, salary_account_no: _san, resident_reg_no: _rrn, ...safeData } = data;
     return NextResponse.json({
       success: true,
       employee: {
-        ...data,
+        ...safeData,
         id: data.id,
         employeeNo: data.employee_no,
         loginId: data.login_id,
@@ -415,7 +499,7 @@ export async function PUT(request: Request) {
         status: normalizeStatusToEbro(data.employment_status),
         employmentStatus: normalizeStatusToDb(data.employment_status),
         baseSalary: Number(data.base_salary ?? 3500000),
-        hourlyWage: Number(data.hourly_wage ?? Math.round(Number(data.base_salary ?? 3500000) / 209)),
+        hourlyWage: Number(data.hourly_wage ?? 0),
         mealAllowance: Number(data.meal_allowance ?? 200000),
         vehicleAllowance: Number(data.vehicle_allowance ?? 0),
         insNationalPension: data.ins_national_pension ?? true,
@@ -425,6 +509,7 @@ export async function PUT(request: Request) {
         salaryBankName: data.salary_bank_name || "",
         salaryAccountNo: decryptPii(data.salary_account_no) || "",
         salaryAccountHolder: data.salary_account_holder || "",
+        residentRegNo: decryptPii(data.resident_reg_no) || "",
         profileImageUrl: data.profile_image_url || undefined,
       },
     });

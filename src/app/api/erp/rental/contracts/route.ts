@@ -1,6 +1,19 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { ensureRentalRateSchema } from "@/lib/rentalSchemaInit";
+import { ensureForkliftSchema } from "@/lib/forkliftSchemaInit";
+import { assertPartnerTradable, PartnerTradeBlockedError } from "@/lib/partnerStatusService";
+import {
+  formatAttachedOptionsSummary,
+  normalizeAttachedOptions,
+} from "@/lib/forkliftDomain";
+import {
+  calculateAutoDailyRentalFee,
+  inferRentalRateBasis,
+  parseNumericInput,
+  resolveDailyRentalFee,
+} from "@/lib/rentalFeeUtils";
 
 // GET: List all rental contracts (optionally filter by entityType, or id for single contract file)
 export async function GET(request: Request) {
@@ -10,6 +23,8 @@ export async function GET(request: Request) {
     const entityType = searchParams.get("entityType");
 
     const pool = getErpPool();
+    await ensureRentalRateSchema(pool);
+    await ensureForkliftSchema(pool);
 
     if (idParam) {
       const singleRes = await pool.query(
@@ -50,6 +65,7 @@ export async function GET(request: Request) {
         c.end_date as "endDate",
         c.monthly_rate as "monthlyRate",
         c.daily_rate as "dailyRate",
+        COALESCE(c.rate_basis, 'MONTHLY') as "rateBasis",
         c.vat_amount as "vatAmount",
         c.deposit,
         COALESCE(c.billing_day, 25) as "billingDay",
@@ -65,6 +81,7 @@ export async function GET(request: Request) {
         COALESCE(c.tax_purpose, '청구') as "taxPurpose",
         COALESCE(c.tax_memo, '{1번째 아이템} 외') as "taxMemo",
         COALESCE(c.tax_items, '[]'::jsonb) as "taxItems",
+        COALESCE(c.attached_options, '[]'::jsonb) as "attachedOptions",
         c.contract_file_name as "contractFileName",
         (c.contract_file_url IS NOT NULL AND c.contract_file_url <> '') as "hasContractFile",
         c.created_at as "createdAt"
@@ -85,6 +102,9 @@ export async function GET(request: Request) {
               'modelCode', rprod.model_code,
               'modelName', rprod.model_name,
               'monthlyRate', COALESCE(NULLIF(ra.current_monthly_rate, 0), rprod.standard_monthly_rate, 0),
+              'dailyRate', COALESCE(NULLIF(ra.current_daily_rate, 0), rprod.standard_daily_rate, 0),
+              'attachedOptions', COALESCE(ra.attached_options, '[]'::jsonb),
+              'operatingHours', COALESCE(ra.operating_hours, 0),
               'outboundDate', TO_CHAR(ra.outbound_date, 'YYYY-MM-DD')
             ) ORDER BY ra.outbound_date ASC NULLS LAST, ra.id ASC
           ) AS rented_assets
@@ -102,7 +122,18 @@ export async function GET(request: Request) {
     query += " ORDER BY c.start_date DESC, c.id DESC";
 
     const res = await pool.query(query, params);
-    return NextResponse.json({ success: true, contracts: res.rows });
+    const normalizedContracts = res.rows.map((r: any) => {
+      const mRate = Math.round(parseNumericInput(r.monthlyRate));
+      const dRate = resolveDailyRentalFee(mRate, r.dailyRate);
+      const rBasis = inferRentalRateBasis(mRate, dRate, r.rateBasis);
+      return {
+        ...r,
+        monthlyRate: mRate,
+        dailyRate: dRate,
+        rateBasis: rBasis,
+      };
+    });
+    return NextResponse.json({ success: true, contracts: normalizedContracts });
   } catch (error: any) {
     console.error("GET Rental Contracts Error:", error);
     return NextResponse.json({ error: "임대계약 목록 조회 실패" }, { status: 500 });
@@ -118,8 +149,8 @@ async function buildGroupedTaxItemsForContract(
   fallbackItems: any[] = []
 ) {
   const rentedRes = await client.query(
-    `SELECT a.id, a.asset_no, a.rental_product_id, a.current_monthly_rate, a.outbound_date,
-            rp.model_code, rp.model_name, rp.standard_monthly_rate
+    `SELECT a.id, a.asset_no, a.rental_product_id, a.current_monthly_rate, a.current_daily_rate, a.outbound_date,
+            rp.model_code, rp.model_name, rp.standard_monthly_rate, rp.standard_daily_rate
      FROM erp_rental_assets a
      LEFT JOIN erp_rental_products rp ON a.rental_product_id = rp.id
      WHERE a.status = 'RENTED' AND (a.current_contract_id = $1 OR a.current_customer = $2)
@@ -143,6 +174,7 @@ async function buildGroupedTaxItemsForContract(
       modelCode: string;
       modelName: string;
       unitCost: number;
+      dailyCost: number;
       qty: number;
       assetIds: number[];
       assetNos: string[];
@@ -152,6 +184,7 @@ async function buildGroupedTaxItemsForContract(
 
   for (const ra of rentedList) {
     const unitCost = Math.round(Number(ra.current_monthly_rate || ra.standard_monthly_rate || 0));
+    const dailyCost = resolveDailyRentalFee(unitCost, ra.current_daily_rate || ra.standard_daily_rate);
     const pid = ra.rental_product_id ? Number(ra.rental_product_id) : null;
     const mName = ra.model_name || "임대장비";
     const mCode = ra.model_code || "";
@@ -161,6 +194,7 @@ async function buildGroupedTaxItemsForContract(
     const existing = groupMap.get(key);
     if (existing) {
       existing.qty += 1;
+      existing.dailyCost += dailyCost;
       existing.assetIds.push(ra.id);
       existing.assetNos.push(ra.asset_no);
     } else {
@@ -169,6 +203,7 @@ async function buildGroupedTaxItemsForContract(
         modelCode: mCode,
         modelName: mName,
         unitCost,
+        dailyCost,
         qty: 1,
         assetIds: [ra.id],
         assetNos: [ra.asset_no],
@@ -194,6 +229,7 @@ async function buildGroupedTaxItemsForContract(
       spec: g.modelCode || `${g.qty}대`,
       qty: g.qty,
       unitCost: g.unitCost,
+      dailyRate: g.qty > 0 ? Math.round(g.dailyCost / g.qty) : calculateAutoDailyRentalFee(g.unitCost),
       supplyAmount,
       vatAmount,
       note: assetSummary,
@@ -218,6 +254,7 @@ export async function POST(request: Request) {
       endDate,
       monthlyRate,
       dailyRate,
+      rateBasis,
       vatAmount,
       deposit,
       billingDay,
@@ -242,6 +279,8 @@ export async function POST(request: Request) {
     }
 
     const pool = getErpPool();
+    await ensureRentalRateSchema(pool);
+    await ensureForkliftSchema(pool);
     const client = await pool.connect();
 
     try {
@@ -289,6 +328,12 @@ export async function POST(request: Request) {
         partnerRow = pRes.rows[0] || null;
       }
 
+      await assertPartnerTradable(client, {
+        partnerId: targetPartnerId,
+        customerName: cleanCustomer,
+        businessNo: customerBizNo,
+      });
+
       const assignedEntity =
         entityType === "INDIVIDUAL"
           ? "INDIVIDUAL"
@@ -296,14 +341,15 @@ export async function POST(request: Request) {
           ? "CORP"
           : existingCt?.entity_type || "CORP";
 
-      // 2. 배정할 자산 목록 확보 (rentalItems: [{ productId, qty, unitCost }] 또는 단일 assetId)
-      const assetsToAssign: Array<{ id: number; asset_no: string; model_name: string; unitCost: number }> = [];
+      // 2. 배정할 자산 목록 확보 (rentalItems: [{ productId, qty, unitCost, dailyRate }] 또는 단일 assetId)
+      const assetsToAssign: Array<{ id: number; asset_no: string; model_name: string; unitCost: number; dailyCost: number }> = [];
 
       if (Array.isArray(rentalItems) && rentalItems.length > 0) {
         for (const item of rentalItems) {
           const prodId = parseInt(String(item.productId || "0"), 10);
           const reqQty = Math.max(0, parseInt(String(item.qty || "0"), 10));
-          const unitCost = Math.round(parseFloat(String(item.unitCost ?? item.unitPrice ?? "0")) || 0);
+          const unitCost = Math.round(parseNumericInput(item.unitCost ?? item.unitPrice ?? "0"));
+          const itemDailyCost = resolveDailyRentalFee(unitCost, item.dailyRate);
           if (!prodId || reqQty <= 0) continue;
 
           const availRes = await client.query(
@@ -334,6 +380,7 @@ export async function POST(request: Request) {
               asset_no: row.asset_no,
               model_name: row.model_name || "임대장비",
               unitCost,
+              dailyCost: itemDailyCost,
             });
           }
         }
@@ -351,19 +398,29 @@ export async function POST(request: Request) {
         if (assetCheck.rows[0].status === "RENTED") {
           throw new Error("해당 자산은 이미 타 계약에서 대여중(RENTED)입니다.");
         }
+        const singleMonthly = Math.round(parseNumericInput(monthlyRate));
         assetsToAssign.push({
           id: assetCheck.rows[0].id,
           asset_no: assetCheck.rows[0].asset_no,
           model_name: assetCheck.rows[0].model_name || "임대장비",
-          unitCost: Math.round(parseFloat(monthlyRate || "0")),
+          unitCost: singleMonthly,
+          dailyCost: resolveDailyRentalFee(singleMonthly, dailyRate),
         });
       }
 
-      const parsedMonthly = Math.round(parseFloat(monthlyRate || "0"));
+      const parsedMonthly = Math.round(parseNumericInput(monthlyRate));
+      const initialBasis = inferRentalRateBasis(parsedMonthly, dailyRate, rateBasis);
+      const initialDaily =
+        initialBasis === "DAILY_AUTO"
+          ? calculateAutoDailyRentalFee(parsedMonthly)
+          : resolveDailyRentalFee(parsedMonthly, dailyRate);
       const parsedVat =
         vatAmount !== undefined && vatAmount !== null && vatAmount !== ""
-          ? Math.round(parseFloat(vatAmount))
+          ? Math.round(parseNumericInput(vatAmount))
           : Math.round(parsedMonthly * 0.1);
+
+      const normalizedAttachedOptions = normalizeAttachedOptions(body.attachedOptions);
+      const optionSummary = formatAttachedOptionsSummary(normalizedAttachedOptions);
 
       let savedContract: any = null;
       let targetContractId: number;
@@ -382,12 +439,12 @@ export async function POST(request: Request) {
         const insRes = await client.query(
           `INSERT INTO erp_rental_contracts
            (contract_no, entity_type, partner_id, customer_name, site_name, asset_id, start_date, end_date,
-            monthly_rate, daily_rate, vat_amount, deposit, billing_day, status, memo,
+            monthly_rate, daily_rate, rate_basis, vat_amount, deposit, billing_day, status, memo,
             customer_biz_no, customer_ceo_name, customer_address, customer_biz_type, customer_biz_class,
             customer_email, customer_email2, tax_purpose, tax_memo, tax_items,
-            contract_file_url, contract_file_name)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'ACTIVE', $14,
-                   $15, $16, $17, $18, $19, $20, $21, $22, $23, '[]'::jsonb, $24, $25)
+            attached_options, contract_file_url, contract_file_name)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ACTIVE', $15,
+                   $16, $17, $18, $19, $20, $21, $22, $23, $24, '[]'::jsonb, $25::jsonb, $26, $27)
            RETURNING id, contract_no AS "contractNo", customer_name AS "customerName"`,
           [
             targetContractNo,
@@ -399,9 +456,10 @@ export async function POST(request: Request) {
             startDate,
             endDate,
             parsedMonthly,
-            parseFloat(dailyRate || String(Math.round(parsedMonthly / 30))),
+            initialDaily,
+            initialBasis,
             parsedVat,
-            parseFloat(deposit || "0"),
+            parseNumericInput(deposit || "0"),
             parseInt(billingDay || "25", 10),
             memo || "",
             customerBizNo || partnerRow?.business_no || "",
@@ -413,6 +471,7 @@ export async function POST(request: Request) {
             customerEmail2 || partnerRow?.sub_email || "",
             taxPurpose || "청구",
             taxMemo || "{1번째 아이템} 외",
+            JSON.stringify(normalizedAttachedOptions),
             contractFileUrl || null,
             contractFileName || null,
           ]
@@ -431,10 +490,21 @@ export async function POST(request: Request) {
                contract_no = $2,
                current_contract_id = $3,
                current_monthly_rate = $4,
-               outbound_date = $5,
+               current_daily_rate = $5,
+               outbound_date = $6,
+               attached_options = CASE WHEN jsonb_array_length($7::jsonb) > 0 THEN $7::jsonb ELSE attached_options END,
                updated_at = NOW()
-           WHERE id = $6`,
-          [cleanCustomer, targetContractNo, targetContractId, ast.unitCost, startDate, ast.id]
+           WHERE id = $8`,
+          [
+            cleanCustomer,
+            targetContractNo,
+            targetContractId,
+            ast.unitCost,
+            ast.dailyCost,
+            startDate,
+            JSON.stringify(normalizedAttachedOptions),
+            ast.id,
+          ]
         );
 
         await client.query(
@@ -446,13 +516,15 @@ export async function POST(request: Request) {
             ast.asset_no,
             startDate,
             cleanCustomer,
-            `임대계약(${targetContractNo}) 제품 배정 출고 (단가: ₩${ast.unitCost.toLocaleString()})`,
+            `임대계약(${targetContractNo}) 제품 배정 출고 (월단가: ₩${ast.unitCost.toLocaleString()} / 일단가: ₩${ast.dailyCost.toLocaleString()})${
+              optionSummary ? ` [부착옵션: ${optionSummary}]` : ""
+            }`,
           ]
         );
       }
 
       // 4. 계약에 속한 전체 RENTED 자산을 제품+단가 기준으로 그룹핑하여 계약 금액 및 tax_items 최신화
-      const { rentedList, taxItems: groupedItems } = await buildGroupedTaxItemsForContract(
+      const { rentedList, taxItems: baseGroupedItems } = await buildGroupedTaxItemsForContract(
         client,
         targetContractId,
         cleanCustomer,
@@ -460,10 +532,43 @@ export async function POST(request: Request) {
         Array.isArray(taxItems) && taxItems.length > 0 ? taxItems : existingCt?.tax_items || []
       );
 
+      const mergedContractOptions =
+        normalizedAttachedOptions.length > 0
+          ? normalizedAttachedOptions
+          : normalizeAttachedOptions(existingCt?.attached_options);
+
+      const optionTaxRows = mergedContractOptions
+        .filter((o) => Number(o.monthlyAddonRate || 0) > 0)
+        .map((o) => {
+          const unitAddon = Math.round(Number(o.monthlyAddonRate || 0));
+          const q = Math.max(1, Number(o.qty || 1));
+          const sup = unitAddon * q;
+          return {
+            month: String(startDate || "").slice(5, 7),
+            day: String(startDate || "").slice(8, 10),
+            itemName: `[부착옵션] ${o.optionName}`,
+            spec: o.specSummary || "장비 부착 임대옵션",
+            qty: q,
+            unitCost: unitAddon,
+            dailyRate: Math.round(Number(o.dailyAddonRate || 0)),
+            supplyAmount: sup,
+            vatAmount: Math.round(sup * 0.1),
+            note: "옵션 추가 임대료",
+          };
+        });
+
+      const groupedItems = [...baseGroupedItems, ...optionTaxRows];
+
       const sumSupply =
         groupedItems.reduce((acc: number, it: any) => acc + Number(it.supplyAmount || 0), 0) || parsedMonthly;
       const sumVat =
         groupedItems.reduce((acc: number, it: any) => acc + Number(it.vatAmount || 0), 0) || parsedVat;
+
+      const finalBasis = inferRentalRateBasis(sumSupply, dailyRate, rateBasis || existingCt?.rate_basis);
+      const finalDailyRate =
+        finalBasis === "DAILY_AUTO"
+          ? calculateAutoDailyRentalFee(sumSupply)
+          : resolveDailyRentalFee(sumSupply, dailyRate);
 
       const partnerAddr = partnerRow
         ? [partnerRow.address, partnerRow.address_detail].filter(Boolean).join(" ")
@@ -479,24 +584,26 @@ export async function POST(request: Request) {
              end_date = $6,
              monthly_rate = $7,
              daily_rate = $8,
-             vat_amount = $9,
-             deposit = $10,
-             billing_day = $11,
+             rate_basis = $9,
+             vat_amount = $10,
+             deposit = $11,
+             billing_day = $12,
              status = 'ACTIVE',
-             memo = COALESCE(NULLIF($12, ''), memo),
-             customer_biz_no = COALESCE(NULLIF($13, ''), customer_biz_no),
-             customer_ceo_name = COALESCE(NULLIF($14, ''), customer_ceo_name),
-             customer_address = COALESCE(NULLIF($15, ''), customer_address),
-             customer_biz_type = COALESCE(NULLIF($16, ''), customer_biz_type),
-             customer_biz_class = COALESCE(NULLIF($17, ''), customer_biz_class),
-             customer_email = COALESCE(NULLIF($18, ''), customer_email),
-             customer_email2 = COALESCE(NULLIF($19, ''), customer_email2),
-             tax_purpose = COALESCE(NULLIF($20, ''), tax_purpose, '청구'),
-             tax_memo = COALESCE(NULLIF($21, ''), tax_memo, '{1번째 아이템} 외'),
-             tax_items = $22::jsonb,
-             contract_file_url = COALESCE($23, contract_file_url),
-             contract_file_name = COALESCE($24, contract_file_name)
-         WHERE id = $25
+             memo = COALESCE(NULLIF($13, ''), memo),
+             customer_biz_no = COALESCE(NULLIF($14, ''), customer_biz_no),
+             customer_ceo_name = COALESCE(NULLIF($15, ''), customer_ceo_name),
+             customer_address = COALESCE(NULLIF($16, ''), customer_address),
+             customer_biz_type = COALESCE(NULLIF($17, ''), customer_biz_type),
+             customer_biz_class = COALESCE(NULLIF($18, ''), customer_biz_class),
+             customer_email = COALESCE(NULLIF($19, ''), customer_email),
+             customer_email2 = COALESCE(NULLIF($20, ''), customer_email2),
+             tax_purpose = COALESCE(NULLIF($21, ''), tax_purpose, '청구'),
+             tax_memo = COALESCE(NULLIF($22, ''), tax_memo, '{1번째 아이템} 외'),
+             tax_items = $23::jsonb,
+             contract_file_url = COALESCE($24, contract_file_url),
+             contract_file_name = COALESCE($25, contract_file_name),
+             attached_options = CASE WHEN jsonb_array_length($27::jsonb) > 0 THEN $27::jsonb ELSE attached_options END
+         WHERE id = $26
          RETURNING id, contract_no AS "contractNo", customer_name AS "customerName"`,
         [
           assignedEntity,
@@ -506,9 +613,10 @@ export async function POST(request: Request) {
           startDate,
           endDate,
           sumSupply,
-          Math.round(sumSupply / 30),
+          finalDailyRate,
+          finalBasis,
           sumVat,
-          parseFloat(deposit || "0"),
+          parseNumericInput(deposit || "0"),
           parseInt(billingDay || "25", 10),
           memo || "",
           customerBizNo || partnerRow?.business_no || "",
@@ -524,6 +632,7 @@ export async function POST(request: Request) {
           contractFileUrl || null,
           contractFileName || null,
           targetContractId,
+          JSON.stringify(mergedContractOptions),
         ]
       );
       savedContract = updRes.rows[0];
@@ -575,6 +684,9 @@ export async function POST(request: Request) {
       client.release();
     }
   } catch (error: any) {
+    if (error instanceof PartnerTradeBlockedError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+    }
     console.error("POST Rental Contract Error:", error);
     return NextResponse.json({ error: "임대계약 등록 실패: " + error.message }, { status: 500 });
   }
@@ -594,6 +706,7 @@ export async function PUT(request: Request) {
       endDate,
       monthlyRate,
       dailyRate,
+      rateBasis,
       vatAmount,
       deposit,
       billingDay,
@@ -623,13 +736,15 @@ export async function PUT(request: Request) {
     }
 
     const pool = getErpPool();
+    await ensureRentalRateSchema(pool);
+    await ensureForkliftSchema(pool);
     const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
 
       const contractRes = await client.query(
-        "SELECT id, contract_no, customer_name, asset_id, entity_type, tax_items FROM erp_rental_contracts WHERE id = $1 FOR UPDATE",
+        "SELECT id, contract_no, customer_name, asset_id, entity_type, tax_items, rate_basis FROM erp_rental_contracts WHERE id = $1 FOR UPDATE",
         [parseInt(String(id), 10)]
       );
       if (contractRes.rows.length === 0) {
@@ -639,12 +754,18 @@ export async function PUT(request: Request) {
       const existing = contractRes.rows[0];
       const cleanCustomer = customerName.trim();
 
+      const normalizedPutOptions =
+        body.attachedOptions !== undefined ? normalizeAttachedOptions(body.attachedOptions) : null;
+      const putOptionSummary =
+        normalizedPutOptions !== null ? formatAttachedOptionsSummary(normalizedPutOptions) : "";
+
       // 추가 배정할 재고 제품(rentalItems)이 전달된 경우 가용 자산에서 수량만큼 RENTED 전환
       if (Array.isArray(rentalItems) && rentalItems.length > 0) {
         for (const item of rentalItems) {
           const prodId = parseInt(String(item.productId || "0"), 10);
           const reqQty = Math.max(0, parseInt(String(item.qty || "0"), 10));
-          const unitCost = Math.round(parseFloat(String(item.unitCost ?? item.unitPrice ?? "0")) || 0);
+          const unitCost = Math.round(parseNumericInput(item.unitCost ?? item.unitPrice ?? "0"));
+          const itemDailyCost = resolveDailyRentalFee(unitCost, item.dailyRate);
           if (!prodId || reqQty <= 0) continue;
 
           const availRes = await client.query(
@@ -678,10 +799,21 @@ export async function PUT(request: Request) {
                    contract_no = $2,
                    current_contract_id = $3,
                    current_monthly_rate = $4,
-                   outbound_date = $5,
+                   current_daily_rate = $5,
+                   outbound_date = $6,
+                   attached_options = CASE WHEN $7::jsonb IS NOT NULL AND jsonb_array_length($7::jsonb) > 0 THEN $7::jsonb ELSE attached_options END,
                    updated_at = NOW()
-               WHERE id = $6`,
-              [cleanCustomer, existing.contract_no, existing.id, unitCost, startDate, row.id]
+               WHERE id = $8`,
+              [
+                cleanCustomer,
+                existing.contract_no,
+                existing.id,
+                unitCost,
+                itemDailyCost,
+                startDate,
+                normalizedPutOptions ? JSON.stringify(normalizedPutOptions) : null,
+                row.id,
+              ]
             );
 
             await client.query(
@@ -693,7 +825,9 @@ export async function PUT(request: Request) {
                 row.asset_no,
                 startDate,
                 cleanCustomer,
-                `임대계약(${existing.contract_no}) 추가 제품 배정 출고 (단가: ₩${unitCost.toLocaleString()})`,
+                `임대계약(${existing.contract_no}) 추가 제품 배정 출고 (월단가: ₩${unitCost.toLocaleString()} / 일단가: ₩${itemDailyCost.toLocaleString()})${
+                  putOptionSummary ? ` [부착옵션: ${putOptionSummary}]` : ""
+                }`,
               ]
             );
           }
@@ -702,26 +836,53 @@ export async function PUT(request: Request) {
 
       const assignedEntity = entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
       let finalTaxItems = Array.isArray(taxItems) ? taxItems : existing.tax_items || [];
-      let parsedMonthly = parseFloat(monthlyRate || "0");
+      let parsedMonthly = Math.round(parseNumericInput(monthlyRate || "0"));
       let parsedVat =
         vatAmount !== undefined && vatAmount !== null && vatAmount !== ""
-          ? parseFloat(vatAmount)
+          ? Math.round(parseNumericInput(vatAmount))
           : Math.round(parsedMonthly * 0.1);
 
       if (Array.isArray(rentalItems) && rentalItems.length > 0) {
-        const { taxItems: groupedItems } = await buildGroupedTaxItemsForContract(
+        const { taxItems: baseGroupedItems } = await buildGroupedTaxItemsForContract(
           client,
           existing.id,
           cleanCustomer,
           startDate,
           finalTaxItems
         );
+        const putOpts = normalizedPutOptions ?? [];
+        const optRows = putOpts
+          .filter((o) => Number(o.monthlyAddonRate || 0) > 0)
+          .map((o) => {
+            const unitAddon = Math.round(Number(o.monthlyAddonRate || 0));
+            const q = Math.max(1, Number(o.qty || 1));
+            const sup = unitAddon * q;
+            return {
+              month: String(startDate || "").slice(5, 7),
+              day: String(startDate || "").slice(8, 10),
+              itemName: `[부착옵션] ${o.optionName}`,
+              spec: o.specSummary || "장비 부착 임대옵션",
+              qty: q,
+              unitCost: unitAddon,
+              dailyRate: Math.round(Number(o.dailyAddonRate || 0)),
+              supplyAmount: sup,
+              vatAmount: Math.round(sup * 0.1),
+              note: "옵션 추가 임대료",
+            };
+          });
+        const groupedItems = [...baseGroupedItems, ...optRows];
         if (groupedItems.length > 0) {
           finalTaxItems = groupedItems;
           parsedMonthly = groupedItems.reduce((acc: number, it: any) => acc + Number(it.supplyAmount || 0), 0);
           parsedVat = groupedItems.reduce((acc: number, it: any) => acc + Number(it.vatAmount || 0), 0);
         }
       }
+
+      const resolvedBasis = inferRentalRateBasis(parsedMonthly, dailyRate, rateBasis || existing.rate_basis);
+      const resolvedDaily =
+        resolvedBasis === "DAILY_AUTO"
+          ? calculateAutoDailyRentalFee(parsedMonthly)
+          : resolveDailyRentalFee(parsedMonthly, dailyRate);
 
       const normalizedTaxItems = Array.isArray(finalTaxItems) ? JSON.stringify(finalTaxItems) : null;
 
@@ -737,24 +898,26 @@ export async function PUT(request: Request) {
           end_date = $6,
           monthly_rate = $7,
           daily_rate = $8,
-          vat_amount = $9,
-          deposit = $10,
-          billing_day = COALESCE($11, billing_day),
-          status = COALESCE($12, status),
-          memo = $13,
-          customer_biz_no = COALESCE($14, customer_biz_no),
-          customer_ceo_name = COALESCE($15, customer_ceo_name),
-          customer_address = COALESCE($16, customer_address),
-          customer_biz_type = COALESCE($17, customer_biz_type),
-          customer_biz_class = COALESCE($18, customer_biz_class),
-          customer_email = COALESCE($19, customer_email),
-          customer_email2 = COALESCE($20, customer_email2),
-          tax_purpose = COALESCE($21, tax_purpose),
-          tax_memo = COALESCE($22, tax_memo),
-          tax_items = COALESCE($23::jsonb, tax_items),
-          contract_file_url = CASE WHEN $24::text = '__DELETE__' THEN NULL ELSE COALESCE($24, contract_file_url) END,
-          contract_file_name = CASE WHEN $24::text = '__DELETE__' THEN NULL ELSE COALESCE($25, contract_file_name) END
-        WHERE id = $26
+          rate_basis = $9,
+          vat_amount = $10,
+          deposit = $11,
+          billing_day = COALESCE($12, billing_day),
+          status = COALESCE($13, status),
+          memo = $14,
+          customer_biz_no = COALESCE($15, customer_biz_no),
+          customer_ceo_name = COALESCE($16, customer_ceo_name),
+          customer_address = COALESCE($17, customer_address),
+          customer_biz_type = COALESCE($18, customer_biz_type),
+          customer_biz_class = COALESCE($19, customer_biz_class),
+          customer_email = COALESCE($20, customer_email),
+          customer_email2 = COALESCE($21, customer_email2),
+          tax_purpose = COALESCE($22, tax_purpose),
+          tax_memo = COALESCE($23, tax_memo),
+          tax_items = COALESCE($24::jsonb, tax_items),
+          contract_file_url = CASE WHEN $25::text = '__DELETE__' THEN NULL ELSE COALESCE($25, contract_file_url) END,
+          contract_file_name = CASE WHEN $25::text = '__DELETE__' THEN NULL ELSE COALESCE($26, contract_file_name) END,
+          attached_options = COALESCE($28::jsonb, attached_options)
+        WHERE id = $27
         RETURNING id, contract_no AS "contractNo", customer_name AS "customerName", site_name AS "siteName"
         `,
         [
@@ -765,9 +928,10 @@ export async function PUT(request: Request) {
           startDate,
           endDate,
           parsedMonthly,
-          parseFloat(dailyRate || String(Math.round(parsedMonthly / 30))),
+          resolvedDaily,
+          resolvedBasis,
           parsedVat,
-          parseFloat(deposit || "0"),
+          parseNumericInput(deposit || "0"),
           billingDay ? parseInt(String(billingDay), 10) : null,
           status || null,
           memo || "",
@@ -784,6 +948,7 @@ export async function PUT(request: Request) {
           contractFileUrl || null,
           contractFileName || null,
           parseInt(String(id), 10),
+          normalizedPutOptions ? JSON.stringify(normalizedPutOptions) : null,
         ]
       );
 
@@ -896,6 +1061,7 @@ export async function DELETE(request: Request) {
              contract_no = NULL,
              current_contract_id = NULL,
              current_monthly_rate = 0,
+             current_daily_rate = 0,
              outbound_date = NULL,
              updated_at = NOW()
          WHERE current_contract_id = $1 OR id = $2 OR current_customer = $3`,
@@ -965,6 +1131,7 @@ export async function PATCH(request: Request) {
              contract_no = NULL,
              current_contract_id = NULL,
              current_monthly_rate = 0,
+             current_daily_rate = 0,
              outbound_date = NULL,
              updated_at = NOW()
          WHERE current_contract_id = $1 OR id = $2 OR current_customer = $3`,

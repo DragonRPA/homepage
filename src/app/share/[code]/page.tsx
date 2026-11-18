@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import {
   FolderOpen,
@@ -18,6 +18,8 @@ import {
   FileImage,
   File,
 } from "lucide-react";
+import { sortErpItems } from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "@/app/erp/components/SortableTh";
 
 interface SharedFileItem {
   id: number;
@@ -203,10 +205,15 @@ export default function PublicShareFolderPage() {
     });
   };
 
-  const filteredFiles = files.filter((f) => {
-    if (!searchQuery.trim()) return true;
-    return f.fileName.toLowerCase().includes(searchQuery.trim().toLowerCase());
-  });
+  const fileSort = useErpTableSort("", null);
+
+  const filteredFiles = useMemo(() => {
+    const raw = files.filter((f) => {
+      if (!searchQuery.trim()) return true;
+      return f.fileName.toLowerCase().includes(searchQuery.trim().toLowerCase());
+    });
+    return sortErpItems(raw, fileSort.sortKey, fileSort.sortDir);
+  }, [files, searchQuery, fileSort.sortKey, fileSort.sortDir]);
 
   const totalSize = filteredFiles.reduce((acc, cur) => acc + Number(cur.fileSize || 0), 0);
 
@@ -358,9 +365,9 @@ export default function PublicShareFolderPage() {
                   <thead className="bg-[#e2dbcd] text-[#0f172a] font-bold border-b border-[#b5a894]">
                     <tr>
                       <th className="py-2.5 px-3 whitespace-nowrap w-36">다운로드</th>
-                      <th className="py-2.5 px-3 whitespace-nowrap">파일명</th>
-                      <th className="py-2.5 px-3 whitespace-nowrap text-right w-28">파일 크기</th>
-                      <th className="py-2.5 px-3 whitespace-nowrap text-center w-40">업로드 일시</th>
+                      <SortableTh label="파일명" colKey="fileName" sortKey={fileSort.sortKey} sortDir={fileSort.sortDir} onSort={fileSort.handleSort} className="py-2.5 px-3" />
+                      <SortableTh label="파일 크기" colKey="fileSize" sortKey={fileSort.sortKey} sortDir={fileSort.sortDir} onSort={fileSort.handleSort} align="right" className="py-2.5 px-3 w-28" />
+                      <SortableTh label="업로드 일시" colKey="createdAt" sortKey={fileSort.sortKey} sortDir={fileSort.sortDir} onSort={fileSort.handleSort} align="center" className="py-2.5 px-3 w-40" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#c4b6a0]">

@@ -9,9 +9,6 @@ import {
   RefreshCw,
   Search,
   Download,
-  ArrowUp,
-  ArrowDown,
-  ArrowUpDown,
   Check,
   X,
   FileText,
@@ -31,103 +28,49 @@ import {
   Landmark,
   Copy,
   ExternalLink,
-  Printer
+  Printer,
+  ShieldAlert,
+  Ban,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  Save,
 } from "lucide-react";
-import { formatErpNumber, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { formatErpNumber, matchHangulAny, sortErpItems } from "@/lib/erpFormat";
+import { invalidateMasterData } from "@/lib/erpMasterDataBus";
+import { SortableTh, useErpTableSort } from "./SortableTh";
+import {
+  getNtsBizStateBadgeLabel,
+  getPartnerTradeBlockInfo,
+  isPartnerTradeBlocked,
+  normalizeBizNoDigits,
+} from "@/lib/partnerStatusClient";
+import { KOREAN_BANKS, type ActiveDocumentViewer, type PartnerContact, type Partner } from "./partners/partnerTypes";
+import {
+  extractPdfImageAndTextFromSource,
+  resizeImageToBase64,
+  exportPartnersToCsv,
+  readFileAsDataUrl,
+  isPdfDocument,
+  processBankCopyOcr,
+  extractBizCertOcrFromFile,
+  queryNtsByBizNoClient,
+} from "./partners/partnerPdfUtils";
+import { PartnerListPanel } from "./partners/PartnerListPanel";
+import { PartnerDossierPanel } from "./partners/PartnerDossierPanel";
+import { PartnerFormModal } from "./partners/PartnerFormModal";
+import { BizCertOcrModal } from "./partners/BizCertOcrModal";
+import { BankCopyOcrModal } from "./partners/BankCopyOcrModal";
+import { ContactFormModal } from "./partners/ContactFormModal";
+import { BizStatusBatchModal } from "./partners/BizStatusBatchModal";
+import { PartnerDocViewerModal } from "./partners/PartnerDocViewerModal";
 
-export const KOREAN_BANKS = [
-  "KB국민은행",
-  "신한은행",
-  "우리은행",
-  "하나은행",
-  "IBK기업은행",
-  "NH농협은행",
-  "SC제일은행",
-  "한국씨티은행",
-  "카카오뱅크",
-  "토스뱅크",
-  "케이뱅크",
-  "KDB산업은행",
-  "Sh수협은행",
-  "우체국",
-  "새마을금고",
-  "신협",
-  "상호저축은행",
-  "산림조합",
-];
-
-export interface ActiveDocumentViewer {
-  title: string;
-  partnerName: string;
-  url: string;
-  fileName?: string;
-}
-
-export interface PartnerContact {
-  id: number;
-  partnerId: number;
-  name: string;
-  department?: string | null;
-  position?: string | null;
-  mobile?: string | null;
-  email?: string | null;
-  telephone?: string | null;
-  isPrimary: boolean;
-  businessCardFrontUrl?: string | null;
-  businessCardBackUrl?: string | null;
-  memo?: string | null;
-  createdAt?: string;
-}
-
-export interface Partner {
-  id: number;
-  partnerType: "CUSTOMER" | "VENDOR" | "BOTH";
-  partnerCode: string;
-  name: string;
-  businessNo?: string | null;
-  corporateNo?: string | null;
-  ceoName?: string | null;
-  bizType?: string | null;
-  bizItem?: string | null;
-  address?: string | null;
-  addressDetail?: string | null;
-  mainPhone?: string | null;
-  mainEmail?: string | null;
-  subEmail?: string | null;
-  faxNo?: string | null;
-  managerEmployeeId?: number | null;
-  managerName?: string | null;
-  statementClosingDay: string;
-  taxInvoiceClosingDay: string;
-  paymentDueDay: string;
-  status: "ACTIVE" | "INACTIVE" | "DORMANT";
-  memo?: string | null;
-  bizCertFileUrl?: string | null;
-  bizCertFileName?: string | null;
-  hasBizCert?: boolean;
-  bankName?: string | null;
-  bankAccountNo?: string | null;
-  bankAccountHolder?: string | null;
-  bankCopyFileUrl?: string | null;
-  bankCopyFileName?: string | null;
-  hasBankCopy?: boolean;
-  contractFileUrl?: string | null;
-  contractFileName?: string | null;
-  hasContractFile?: boolean;
-  contactCount?: number;
-  primaryContact?: {
-    id: number;
-    name: string;
-    position?: string;
-    department?: string;
-    mobile?: string;
-    email?: string;
-    telephone?: string;
-    businessCardFrontUrl?: string;
-  } | null;
-  createdAt: string;
-  updatedAt: string;
-}
+export {
+  KOREAN_BANKS,
+  type ActiveDocumentViewer,
+  type PartnerContact,
+  type Partner,
+} from "./partners/partnerTypes";
 
 interface PartnerManagementTabProps {
   currentUser: any;
@@ -159,6 +102,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     customerCount: 0,
     vendorCount: 0,
     activeCount: 0,
+    blockedCount: 0,
     withBizCertCount: 0,
     withContractCount: 0,
   });
@@ -180,9 +124,9 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   >({});
   const [docFetching, setDocFetching] = useState<boolean>(false);
 
-  // Sorting
-  const [sortKey, setSortKey] = useState<string>("id");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+  // Sorting (3단계: asc ➔ desc ➔ null 정렬안함)
+  const { sortKey, sortDir, handleSort } = useErpTableSort("id", "desc");
+  const ntsSort = useErpTableSort("", null);
 
   // Modals
   const [showPartnerModal, setShowPartnerModal] = useState<boolean>(false);
@@ -202,17 +146,44 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   const bankCopyInputRef = useRef<HTMLInputElement>(null);
   const directBizCertInputRef = useRef<HTMLInputElement>(null);
   const directContractInputRef = useRef<HTMLInputElement>(null);
+  const dossierBizCertInputRef = useRef<HTMLInputElement>(null);
   const dossierContractInputRef = useRef<HTMLInputElement>(null);
+  const viewerReplaceFileInputRef = useRef<HTMLInputElement>(null);
   const [isBankCopyDragging, setIsBankCopyDragging] = useState<boolean>(false);
   const [isDirectBizCertDragging, setIsDirectBizCertDragging] = useState<boolean>(false);
   const [isDirectContractDragging, setIsDirectContractDragging] = useState<boolean>(false);
+  const [isDossierBizCertDragging, setIsDossierBizCertDragging] = useState<boolean>(false);
   const [isDossierContractDragging, setIsDossierContractDragging] = useState<boolean>(false);
+  const [dossierBizCertSaving, setDossierBizCertSaving] = useState<boolean>(false);
   const [dossierContractSaving, setDossierContractSaving] = useState<boolean>(false);
+  const [directBizCertOcrLoading, setDirectBizCertOcrLoading] = useState<boolean>(false);
+  const [directBizCertSuggestion, setDirectBizCertSuggestion] = useState<any>(null);
+  const [singleNtsCheckingId, setSingleNtsCheckingId] = useState<number | null>(null);
+  const [formNtsChecking, setFormNtsChecking] = useState<boolean>(false);
+
+  // Split Document Viewer + Inline Customer Info Edit States
+  const [viewerZoom, setViewerZoom] = useState<number>(1);
+  const [viewerRotation, setViewerRotation] = useState<number>(0);
+  const [isViewerDragging, setIsViewerDragging] = useState<boolean>(false);
+  const [resolvedPdfBlobUrl, setResolvedPdfBlobUrl] = useState<string | null>(null);
+  const [viewerForm, setViewerForm] = useState<any>(null);
+  const [viewerSaving, setViewerSaving] = useState<boolean>(false);
+  const [viewerOcrLoading, setViewerOcrLoading] = useState<boolean>(false);
+  const [viewerNtsLoading, setViewerNtsLoading] = useState<boolean>(false);
+
+  // Batch Business Status Lookup Modal States
+  const [showBizStatusBatchModal, setShowBizStatusBatchModal] = useState<boolean>(false);
+  const [batchScope, setBatchScope] = useState<"CUSTOMER" | "FILTERED" | "ALL">("CUSTOMER");
+  const [batchAutoBlock, setBatchAutoBlock] = useState<boolean>(true);
+  const [batchLoading, setBatchLoading] = useState<boolean>(false);
+  const [batchResult, setBatchResult] = useState<{ summary: any; results: any[] } | null>(null);
 
   // OCR Processing States (Business Registration Certificate)
   const [ocrLoading, setOcrLoading] = useState<boolean>(false);
   const [ocrResult, setOcrResult] = useState<any>(null);
   const [ocrPreviewFileUrl, setOcrPreviewFileUrl] = useState<string>("");
+  const [ocrPreviewThumbUrl, setOcrPreviewThumbUrl] = useState<string>("");
+  const [ocrNtsStatus, setOcrNtsStatus] = useState<any>(null);
   const [ocrFileName, setOcrFileName] = useState<string>("");
 
   // Bankbook OCR Modal & Processing States
@@ -337,22 +308,36 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
 
   // On-demand fetch for heavy Base64 document files (bizCertFileUrl, bankCopyFileUrl, contractFileUrl)
   const ensurePartnerFiles = async (
-    p: Partner
+    p: Partner,
+    requiredDocType?: "BIZ_CERT" | "BANK_COPY" | "CONTRACT"
   ): Promise<{
     bizCertFileUrl?: string | null;
     bankCopyFileUrl?: string | null;
     contractFileUrl?: string | null;
   }> => {
-    if (p.bizCertFileUrl || p.bankCopyFileUrl || p.contractFileUrl) {
-      const cached = filesCacheRef.current[p.id] || {};
-      return {
-        bizCertFileUrl: p.bizCertFileUrl || cached.bizCertFileUrl || null,
-        bankCopyFileUrl: p.bankCopyFileUrl || cached.bankCopyFileUrl || null,
-        contractFileUrl: p.contractFileUrl || cached.contractFileUrl || null,
-      };
+    const cached = filesCacheRef.current[p.id] || {};
+    const merged = {
+      bizCertFileUrl: p.bizCertFileUrl || cached.bizCertFileUrl || null,
+      bankCopyFileUrl: p.bankCopyFileUrl || cached.bankCopyFileUrl || null,
+      contractFileUrl: p.contractFileUrl || cached.contractFileUrl || null,
+    };
+
+    const hasNeeded =
+      requiredDocType === "BIZ_CERT"
+        ? Boolean(merged.bizCertFileUrl)
+        : requiredDocType === "BANK_COPY"
+        ? Boolean(merged.bankCopyFileUrl)
+        : requiredDocType === "CONTRACT"
+        ? Boolean(merged.contractFileUrl)
+        : Boolean(
+            (!p.hasBizCert || merged.bizCertFileUrl) &&
+              (!p.hasBankCopy || merged.bankCopyFileUrl) &&
+              (!p.hasContractFile || merged.contractFileUrl)
+          );
+
+    if (hasNeeded) {
+      return merged;
     }
-    const cached = filesCacheRef.current[p.id];
-    if (cached) return cached;
 
     setDocFetching(true);
     try {
@@ -376,7 +361,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     } finally {
       setDocFetching(false);
     }
-    return { bizCertFileUrl: null, bankCopyFileUrl: null, contractFileUrl: null };
+    return merged;
   };
 
   const handleOpenPartnerDoc = async (
@@ -384,7 +369,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     docType: "BIZ_CERT" | "BANK_COPY" | "CONTRACT",
     mode: "VIEW" | "DOWNLOAD" = "VIEW"
   ) => {
-    const files = await ensurePartnerFiles(p);
+    const files = await ensurePartnerFiles(p, docType);
     const url =
       docType === "BIZ_CERT"
         ? files.bizCertFileUrl
@@ -422,6 +407,8 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       partnerName: p.name,
       url,
       fileName,
+      partnerId: p.id,
+      docType,
     });
   };
 
@@ -463,6 +450,109 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       setEditingDossierEmail(false);
     }
   }, [selectedPartner?.id, selectedPartner?.mainEmail, selectedPartner?.subEmail]);
+
+  // Split Viewer Sync & Chrome/Edge Safe PDF Blob URL
+  useEffect(() => {
+    setViewerZoom(1);
+    setViewerRotation(0);
+    setIsViewerDragging(false);
+
+    let createdBlobUrl: string | null = null;
+    if (activeDocument?.url && activeDocument.url.startsWith("data:application/pdf")) {
+      try {
+        const commaIdx = activeDocument.url.indexOf(",");
+        const base64Str = commaIdx >= 0 ? activeDocument.url.slice(commaIdx + 1) : "";
+        const binaryStr = atob(base64Str);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        createdBlobUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+        setResolvedPdfBlobUrl(createdBlobUrl);
+      } catch {
+        setResolvedPdfBlobUrl(null);
+      }
+    } else {
+      setResolvedPdfBlobUrl(null);
+    }
+
+    if (activeDocument?.partnerId) {
+      const target =
+        partners.find((p) => p.id === activeDocument.partnerId) || selectedPartner;
+      if (target && target.id === activeDocument.partnerId) {
+        setViewerForm({
+          id: target.id,
+          partnerType: target.partnerType || "CUSTOMER",
+          partnerCode: target.partnerCode || "",
+          name: target.name || "",
+          businessNo: target.businessNo || "",
+          corporateNo: target.corporateNo || "",
+          ceoName: target.ceoName || "",
+          bizType: target.bizType || "",
+          bizItem: target.bizItem || "",
+          address: target.address || "",
+          addressDetail: target.addressDetail || "",
+          mainPhone: target.mainPhone || "",
+          mainEmail: target.mainEmail || "",
+          subEmail: target.subEmail || "",
+          faxNo: target.faxNo || "",
+          managerEmployeeId: target.managerEmployeeId ? String(target.managerEmployeeId) : "",
+          managerName: target.managerName || "",
+          statementClosingDay: target.statementClosingDay || "매월 25일",
+          taxInvoiceClosingDay: target.taxInvoiceClosingDay || "익월 10일",
+          paymentDueDay: target.paymentDueDay || "익월 15일",
+          status: target.status || "ACTIVE",
+          ntsBizState: target.ntsBizState || null,
+          ntsTaxType: target.ntsTaxType || null,
+          ntsClosedDate: target.ntsClosedDate || null,
+          ntsStatusMsg: target.ntsStatusMsg || null,
+          ntsCheckedAt: target.ntsCheckedAt || null,
+          memo: target.memo || "",
+          bankName: target.bankName || "",
+          bankAccountNo: target.bankAccountNo || "",
+          bankAccountHolder: target.bankAccountHolder || "",
+        });
+      }
+    } else {
+      setViewerForm(null);
+    }
+
+    return () => {
+      if (createdBlobUrl) {
+        URL.revokeObjectURL(createdBlobUrl);
+      }
+    };
+  }, [activeDocument?.url, activeDocument?.partnerId]);
+
+  /** 거래처 PUT 요청용 공통 페이로드 생성기 */
+  const buildPartnerPutPayload = (p: Partner, overrides: Record<string, any> = {}) => ({
+    id: p.id,
+    name: p.name,
+    partnerType: p.partnerType,
+    partnerCode: p.partnerCode,
+    businessNo: p.businessNo || "",
+    corporateNo: p.corporateNo || "",
+    ceoName: p.ceoName || "",
+    bizType: p.bizType || "",
+    bizItem: p.bizItem || "",
+    address: p.address || "",
+    addressDetail: p.addressDetail || "",
+    mainPhone: p.mainPhone || "",
+    mainEmail: p.mainEmail || "",
+    subEmail: p.subEmail || "",
+    faxNo: p.faxNo || "",
+    managerEmployeeId: p.managerEmployeeId ? String(p.managerEmployeeId) : "",
+    managerName: p.managerName || "",
+    statementClosingDay: p.statementClosingDay || "매월 25일",
+    taxInvoiceClosingDay: p.taxInvoiceClosingDay || "익월 10일",
+    paymentDueDay: p.paymentDueDay || "익월 15일",
+    status: p.status || "ACTIVE",
+    memo: p.memo || "",
+    bankName: p.bankName || "",
+    bankAccountNo: p.bankAccountNo || "",
+    bankAccountHolder: p.bankAccountHolder || "",
+    ...overrides,
+  });
 
   const handleSaveDossierEmail = async () => {
     if (!selectedPartner) return;
@@ -512,32 +602,17 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     }
   };
 
-  // Handle Sort
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
-
   const renderSortTh = (label: string, colKey: string, align: "left" | "right" | "center" = "left") => (
-    <th
-      onClick={() => handleSort(colKey)}
-      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none transition ${
-        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
-      } hover:bg-[#d9d1c1] dark:hover:bg-slate-700/60`}
-    >
-      <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"}`}>
-        <span>{label}</span>
-        {sortKey === colKey ? (
-          sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400 font-bold" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400 font-bold" />
-        ) : (
-          <ArrowUpDown className="w-3.5 h-3.5 opacity-30" />
-        )}
-      </div>
-    </th>
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d9d1c1] dark:hover:bg-slate-700/60"
+      iconClassName="w-3.5 h-3.5"
+    />
   );
 
   // Instant 0ms client-side filtering across tabs, status, manager, and search query
@@ -557,18 +632,21 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
         return false;
       }
       if (q) {
-        const hay = [
-          p.name,
-          p.businessNo,
-          p.ceoName,
-          p.managerName,
-          p.partnerCode,
-          p.primaryContact?.name,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!hay.includes(q)) return false;
+        if (
+          !matchHangulAny(
+            [
+              p.name,
+              p.businessNo,
+              p.ceoName,
+              p.managerName,
+              p.partnerCode,
+              p.primaryContact?.name,
+            ],
+            q
+          )
+        ) {
+          return false;
+        }
       }
       return true;
     });
@@ -597,6 +675,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   // Open Create Modal
   const openCreateModal = () => {
     setPartnerModalMode("CREATE");
+    setDirectBizCertSuggestion(null);
     setPartnerForm({
       id: 0,
       partnerType: partnerTypeTab === "ALL" ? "CUSTOMER" : partnerTypeTab,
@@ -619,6 +698,11 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       taxInvoiceClosingDay: "익월 10일",
       paymentDueDay: "익월 15일",
       status: "ACTIVE",
+      ntsBizState: null,
+      ntsTaxType: null,
+      ntsClosedDate: null,
+      ntsStatusMsg: null,
+      ntsCheckedAt: null,
       memo: "",
       bizCertFileUrl: "",
       bizCertFileName: "",
@@ -636,6 +720,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   // Open Edit Modal
   const openEditModal = async (p: Partner) => {
     setPartnerModalMode("EDIT");
+    setDirectBizCertSuggestion(null);
     const hasBiz = Boolean(p.hasBizCert || p.bizCertFileUrl);
     const hasBank = Boolean(p.hasBankCopy || p.bankCopyFileUrl);
     const hasContract = Boolean(p.hasContractFile || p.contractFileUrl);
@@ -661,6 +746,11 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       taxInvoiceClosingDay: p.taxInvoiceClosingDay || "익월 10일",
       paymentDueDay: p.paymentDueDay || "익월 15일",
       status: p.status,
+      ntsBizState: p.ntsBizState || null,
+      ntsTaxType: p.ntsTaxType || null,
+      ntsClosedDate: p.ntsClosedDate || null,
+      ntsStatusMsg: p.ntsStatusMsg || null,
+      ntsCheckedAt: p.ntsCheckedAt || null,
       memo: p.memo || "",
       bizCertFileUrl: p.bizCertFileUrl || "",
       bizCertFileName: p.bizCertFileName || "",
@@ -727,6 +817,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       if (partnerForm.id) {
         delete filesCacheRef.current[partnerForm.id];
       }
+      invalidateMasterData("partners");
       showToast(data.message || "거래처가 성공적으로 저장되었습니다.");
       setShowPartnerModal(false);
       await fetchPartners();
@@ -746,6 +837,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
 
       delete filesCacheRef.current[id];
       delete contactsCacheRef.current[id];
+      invalidateMasterData("partners");
       showToast("거래처가 삭제되었습니다.");
       if (selectedPartner?.id === id) setSelectedPartner(null);
       await fetchPartners();
@@ -846,257 +938,10 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     }
   };
 
-  // Export to CSV
   const handleExportCsv = () => {
-    const headers = [
-      "거래처코드",
-      "구분",
-      "상호명",
-      "사업자등록번호",
-      "대표자",
-      "업태",
-      "종목",
-      "본사주소",
-      "대표전화",
-      "대표이메일",
-      "본사담당직원",
-      "거래명세서마감일",
-      "세금계산서마감일",
-      "약정납기일(결제일)",
-      "거래상태",
-      "대표담당자",
-      "대표담당자휴대폰",
-    ];
-
-    const rows = sortedPartners.map((p) => [
-      p.partnerCode,
-      p.partnerType === "CUSTOMER" ? "고객" : p.partnerType === "VENDOR" ? "매입거래처" : "고객/매입겸용",
-      p.name,
-      p.businessNo || "-",
-      p.ceoName || "-",
-      p.bizType || "-",
-      p.bizItem || "-",
-      `${p.address || ""} ${p.addressDetail || ""}`.trim() || "-",
-      p.mainPhone || "-",
-      p.mainEmail || "-",
-      p.managerName || "-",
-      p.statementClosingDay,
-      p.taxInvoiceClosingDay,
-      p.paymentDueDay,
-      p.status === "ACTIVE" ? "정상" : p.status === "INACTIVE" ? "중지" : "휴면",
-      p.primaryContact?.name || "-",
-      p.primaryContact?.mobile || "-",
-    ]);
-
-    const csvContent =
-      "data:text/csv;charset=utf-8,\uFEFF" +
-      [headers.join(","), ...rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))].join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `거래처대장_${partnerTypeTab}_${new Date().toISOString().substring(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportPartnersToCsv(sortedPartners, partnerTypeTab);
   };
-
-  // Helper: Load pdf.js from CDN in browser and extract Page 1 JPEG + Text Hint
-  const extractPdfImageAndText = async (
-    file: File
-  ): Promise<{ imageBase64: string; textHint: string }> => {
-    if (typeof window === "undefined") {
-      return { imageBase64: "", textHint: "" };
-    }
-
-    const w = window as any;
-    if (!w.pdfjsLib) {
-      await new Promise<void>((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src =
-          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-        script.async = true;
-        script.onload = () => resolve();
-        script.onerror = () =>
-          reject(new Error("PDF 렌더링 엔진 로드에 실패했습니다."));
-        document.head.appendChild(script);
-      });
-    }
-
-    const pdfjsLib = w.pdfjsLib;
-    if (pdfjsLib.GlobalWorkerOptions) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    }
-
-    const arrayBuffer = await file.arrayBuffer();
-    const loadingTask = pdfjsLib.getDocument({
-      data: arrayBuffer,
-      cMapUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/",
-      cMapPacked: true,
-      standardFontDataUrl:
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/standard_fonts/",
-    });
-
-    const pdfDoc = await loadingTask.promise;
-    const page = await pdfDoc.getPage(1);
-
-    // 1. Extract text content preserving line order
-    let textHint = "";
-    try {
-      const textContent = await page.getTextContent();
-      const items = (textContent.items || []) as any[];
-      let lastY: number | null = null;
-      const parts: string[] = [];
-      for (const item of items) {
-        const y = item.transform ? Math.round(item.transform[5]) : null;
-        if (lastY !== null && y !== null && Math.abs(y - lastY) > 5) {
-          parts.push("\n");
-        } else if (parts.length > 0) {
-          parts.push(" ");
-        }
-        parts.push(item.str || "");
-        if (y !== null) lastY = y;
-      }
-      textHint = parts.join("");
-    } catch (e) {
-      console.warn("PDF textContent extraction warning:", e);
-    }
-
-    // 2. Render Page 1 onto high-res Canvas -> JPEG base64
-    const viewport = page.getViewport({ scale: 2.0 });
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(64, Math.round(viewport.width));
-    canvas.height = Math.max(64, Math.round(viewport.height));
-    const ctx = canvas.getContext("2d");
-    let imageBase64 = "";
-    if (ctx) {
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvasContext: ctx, viewport }).promise;
-      imageBase64 = canvas.toDataURL("image/jpeg", 0.88);
-    }
-
-    return { imageBase64, textHint };
-  };
-
-  // Helper: Resize image file onto Canvas -> JPEG base64
-  const resizeImageToBase64 = (file: File, maxDim = 1800): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(new Error("이미지 파일 읽기 실패"));
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string;
-        const img = new Image();
-        img.onerror = () => resolve(dataUrl);
-        img.onload = () => {
-          let { width, height } = img;
-          if (width > maxDim || height > maxDim) {
-            if (width > height) {
-              height = Math.round((height * maxDim) / width);
-              width = maxDim;
-            } else {
-              width = Math.round((width * maxDim) / height);
-              height = maxDim;
-            }
-          }
-          width = Math.max(64, width);
-          height = Math.max(64, height);
-          const canvas = document.createElement("canvas");
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) {
-            resolve(dataUrl);
-            return;
-          }
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL("image/jpeg", 0.88));
-        };
-        img.src = dataUrl;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  // Universal Helper: Read any image or PDF file to Data URL
-  const readFileAsDataUrl = async (file: File): Promise<string> => {
-    if (file.type.startsWith("image/")) {
-      try {
-        return await resizeImageToBase64(file, 1800);
-      } catch {
-        // fallback
-      }
-    }
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve((e.target?.result as string) || "");
-      reader.onerror = () => reject(new Error("파일 읽기 실패"));
-      reader.readAsDataURL(file);
-    });
-  };
-
-  // Helper: Check if document is PDF
-  const isPdfDocument = (url?: string | null, fileName?: string | null) => {
-    if (!url && !fileName) return false;
-    if (url && (url.startsWith("data:application/pdf") || url.toLowerCase().includes(".pdf"))) return true;
-    if (fileName && fileName.toLowerCase().endsWith(".pdf")) return true;
-    return false;
-  };
-
-  // Universal Bankbook Copy OCR Processor
-  const processBankCopyOcr = async (file: File): Promise<{
-    bankName: string;
-    bankAccountNo: string;
-    bankAccountHolder: string;
-    branchName?: string;
-    previewUrl: string;
-  }> => {
-    const isPdf =
-      file.type === "application/pdf" ||
-      file.name.toLowerCase().endsWith(".pdf");
-
-    let imageBase64 = "";
-    let textHint = "";
-
-    if (isPdf) {
-      try {
-        const pdfOut = await extractPdfImageAndText(file);
-        imageBase64 = pdfOut.imageBase64;
-        textHint = pdfOut.textHint;
-      } catch (pdfErr) {
-        console.warn("Client PDF render fallback for bank copy:", pdfErr);
-      }
-    } else {
-      imageBase64 = await resizeImageToBase64(file, 1800);
-    }
-
-    const rawUrl = await readFileAsDataUrl(file);
-
-    const res = await fetch("/api/erp/partners/ocr-bank", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        imageBase64: imageBase64 || undefined,
-        rawText: textHint || undefined,
-        fileName: file.name,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.success || !data.parsed) {
-      throw new Error(data?.error || "통장사본 OCR 판독에 실패했습니다.");
-    }
-
-    return {
-      bankName: data.parsed.bankName || "",
-      bankAccountNo: data.parsed.bankAccountNo || "",
-      bankAccountHolder: data.parsed.bankAccountHolder || "",
-      branchName: data.parsed.branchName || "",
-      previewUrl: rawUrl,
-    };
-  };
+  const extractPdfImageAndText = (file: File) => extractPdfImageAndTextFromSource(file);
 
   // Re-run OCR on currently uploaded bank copy fileData
   const handleReRunBankOcr = async () => {
@@ -1261,19 +1106,175 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     showToast("통장사본 정보가 매입거래처 등록 양식에 자동 입력되었습니다.");
   };
 
-  // Direct Business Registration Certificate Upload
+
+  // Direct Business Registration Certificate Upload (Partner Modal: Browse & Drag-Drop + Auto OCR & NTS Check)
   const handleDirectBizCertUpload = async (file: File) => {
     if (!file) return;
+    const isPdf =
+      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf && !file.type.startsWith("image/")) {
+      showToast("PDF 또는 이미지 형식의 사업자등록증 파일을 선택해주세요.", "error");
+      return;
+    }
+
+    setDirectBizCertOcrLoading(true);
+    setDirectBizCertSuggestion(null);
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const { rawDataUrl, parsed } = await extractBizCertOcrFromFile(file);
+      let ntsRes: any = null;
+      if (parsed?.businessNo && normalizeBizNoDigits(parsed.businessNo).length === 10) {
+        ntsRes = await queryNtsByBizNoClient(parsed.businessNo).catch(() => null);
+      }
+
+      setPartnerForm((prev: any) => {
+        const next: any = {
+          ...prev,
+          bizCertFileUrl: rawDataUrl,
+          bizCertFileName: file.name,
+          hasBizCert: true,
+        };
+        if (parsed) {
+          const isCreatePristine =
+            partnerModalMode === "CREATE" && !prev.name?.trim() && !prev.businessNo?.trim();
+          const applyField = (key: string, val?: string) => {
+            if (!val) return;
+            if (isCreatePristine || !prev[key] || !String(prev[key]).trim()) {
+              next[key] = val;
+            }
+          };
+          applyField("name", parsed.name);
+          applyField("businessNo", parsed.businessNo);
+          applyField("corporateNo", parsed.corporateNo);
+          applyField("ceoName", parsed.ceoName);
+          applyField("bizType", parsed.bizType);
+          applyField("bizItem", parsed.bizItem);
+          applyField("address", parsed.address);
+          applyField("mainPhone", parsed.mainPhone);
+          applyField("mainEmail", parsed.email);
+        }
+        if (ntsRes) {
+          next.ntsBizState = ntsRes.ntsBizState;
+          next.ntsTaxType = ntsRes.ntsTaxType;
+          next.ntsClosedDate = ntsRes.ntsClosedDate;
+          next.ntsStatusMsg = ntsRes.ntsStatusMsg;
+          next.ntsCheckedAt = new Date().toISOString();
+          if (ntsRes.shouldBlockTrade) {
+            next.status = "BLOCKED";
+          }
+        }
+        return next;
+      });
+
+      if (parsed) {
+        setDirectBizCertSuggestion(parsed);
+        if (ntsRes?.shouldBlockTrade) {
+          showToast(
+            `사업자등록증 인식 완료 — 국세청 ${ntsRes.ntsBizState === "CLOSED" ? "폐업자" : "휴업자"}로 확인되어 거래불가로 지정되었습니다.`,
+            "error"
+          );
+        } else {
+          showToast(`사업자등록증(${file.name}) 첨부 및 자동 인식이 완료되었습니다.`);
+        }
+      } else {
+        showToast(`사업자등록증(${file.name}) 파일이 첨부되었습니다.`);
+      }
+    } catch (err: any) {
+      showToast(err.message || "사업자등록증 파일 처리 실패", "error");
+    } finally {
+      setDirectBizCertOcrLoading(false);
+    }
+  };
+
+  // Re-run OCR on currently attached partnerForm bizCertFileUrl
+  const handlePartnerFormReRunOcr = async () => {
+    if (!partnerForm.bizCertFileUrl || partnerForm.bizCertFileUrl === "__DELETE__") return;
+    setDirectBizCertOcrLoading(true);
+    try {
+      const isPdf = isPdfDocument(partnerForm.bizCertFileUrl, partnerForm.bizCertFileName);
+      let imageBase64 = "";
+      let textHint = "";
+      if (isPdf) {
+        const pdfOut = await extractPdfImageAndTextFromSource(partnerForm.bizCertFileUrl);
+        imageBase64 = pdfOut.imageBase64;
+        textHint = pdfOut.textHint;
+      } else {
+        imageBase64 = partnerForm.bizCertFileUrl;
+      }
+      const res = await fetch("/api/erp/partners/ocr-biz-cert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: imageBase64 || undefined,
+          rawText: textHint || undefined,
+          fileName: partnerForm.bizCertFileName || "biz-cert",
+        }),
+      });
+      const data = await res.json();
+      if (!data.success || !data.parsed) {
+        throw new Error(data.error || "사업자등록증 판독 실패");
+      }
+      setDirectBizCertSuggestion(data.parsed);
+      showToast("사업자등록증 재인식이 완료되었습니다. 반영할 경우 [인식값 반영]을 선택하세요.");
+    } catch (err: any) {
+      showToast(err.message || "사업자등록증 재인식 실패", "error");
+    } finally {
+      setDirectBizCertOcrLoading(false);
+    }
+  };
+
+  // Apply OCR Suggestion onto partnerForm
+  const handleApplyDirectBizCertSuggestion = () => {
+    if (!directBizCertSuggestion) return;
+    const p = directBizCertSuggestion;
+    setPartnerForm((prev: any) => ({
+      ...prev,
+      name: p.name || prev.name,
+      businessNo: p.businessNo || prev.businessNo,
+      corporateNo: p.corporateNo || prev.corporateNo,
+      ceoName: p.ceoName || prev.ceoName,
+      bizType: p.bizType || prev.bizType,
+      bizItem: p.bizItem || prev.bizItem,
+      address: p.address || prev.address,
+      mainPhone: p.mainPhone || prev.mainPhone,
+      mainEmail: p.email || prev.mainEmail,
+    }));
+    setDirectBizCertSuggestion(null);
+    showToast("사업자등록증 인식값이 입력 양식에 반영되었습니다.");
+  };
+
+  // Partner Modal Single NTS Check
+  const handleFormCheckNtsStatus = async () => {
+    const digits = normalizeBizNoDigits(partnerForm.businessNo);
+    if (digits.length !== 10) {
+      showToast("10자리 사업자등록번호를 먼저 입력해주세요.", "error");
+      return;
+    }
+    setFormNtsChecking(true);
+    try {
+      const res = await queryNtsByBizNoClient(partnerForm.businessNo);
+      if (!res) throw new Error("국세청 휴·폐업 조회 실패");
       setPartnerForm((prev: any) => ({
         ...prev,
-        bizCertFileUrl: dataUrl,
-        bizCertFileName: file.name,
+        businessNo: res.businessNo || prev.businessNo,
+        ntsBizState: res.ntsBizState,
+        ntsTaxType: res.ntsTaxType,
+        ntsClosedDate: res.ntsClosedDate,
+        ntsStatusMsg: res.ntsStatusMsg,
+        ntsCheckedAt: new Date().toISOString(),
+        status: res.shouldBlockTrade ? "BLOCKED" : prev.status,
       }));
-      showToast(`사업자등록증(${file.name})이 첨부되었습니다.`);
+      if (res.shouldBlockTrade) {
+        showToast(
+          `국세청 확인: ${res.ntsBizState === "CLOSED" ? "폐업자" : "휴업자"} — 거래불가 상태로 전환되었습니다.`,
+          "error"
+        );
+      } else {
+        showToast(`국세청 확인: ${getNtsBizStateBadgeLabel(res.ntsBizState)} (${res.ntsTaxType})`);
+      }
     } catch (err: any) {
-      showToast("사업자등록증 파일 읽기 실패", "error");
+      showToast(err.message || "국세청 휴·폐업 조회 실패", "error");
+    } finally {
+      setFormNtsChecking(false);
     }
   };
 
@@ -1300,6 +1301,101 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     }
   };
 
+  // Direct Business Cert Upload & Immediate DB Save from Right-Hand Dossier Panel
+  const handleDossierBizCertUpload = async (file: File) => {
+    if (!file || !selectedPartner) return;
+    const isPdf =
+      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf && !file.type.startsWith("image/")) {
+      showToast("PDF 또는 이미지 형식의 사업자등록증 파일을 업로드해주세요.", "error");
+      return;
+    }
+    setDossierBizCertSaving(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const res = await fetch("/api/erp/partners", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          buildPartnerPutPayload(selectedPartner, {
+            bizCertFileUrl: dataUrl,
+            bizCertFileName: file.name,
+          })
+        ),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "사업자등록증 저장 실패");
+      }
+      const targetId = selectedPartner.id;
+      const prevCache = filesCacheRef.current[targetId] || {};
+      filesCacheRef.current[targetId] = { ...prevCache, bizCertFileUrl: dataUrl };
+      setPartners((prev) =>
+        prev.map((item) =>
+          item.id === targetId
+            ? { ...item, bizCertFileUrl: dataUrl, bizCertFileName: file.name, hasBizCert: true }
+            : item
+        )
+      );
+      setSelectedPartner((prev) =>
+        prev && prev.id === targetId
+          ? { ...prev, bizCertFileUrl: dataUrl, bizCertFileName: file.name, hasBizCert: true }
+          : prev
+      );
+      showToast(`[${selectedPartner.name}] 사업자등록증(${file.name})이 저장되었습니다.`);
+      await fetchPartners();
+    } catch (err: any) {
+      showToast(err.message || "사업자등록증 저장 실패", "error");
+    } finally {
+      setDossierBizCertSaving(false);
+    }
+  };
+
+  // Delete Business Cert directly from Right-Hand Dossier Panel
+  const handleDossierBizCertDelete = async () => {
+    if (!selectedPartner) return;
+    if (!confirm(`[${selectedPartner.name}] 등록된 사업자등록증 파일을 삭제하시겠습니까?`)) return;
+    setDossierBizCertSaving(true);
+    try {
+      const res = await fetch("/api/erp/partners", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          buildPartnerPutPayload(selectedPartner, {
+            bizCertFileUrl: "__DELETE__",
+            bizCertFileName: "",
+          })
+        ),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "사업자등록증 삭제 실패");
+      }
+      const targetId = selectedPartner.id;
+      if (filesCacheRef.current[targetId]) {
+        filesCacheRef.current[targetId].bizCertFileUrl = null;
+      }
+      setPartners((prev) =>
+        prev.map((item) =>
+          item.id === targetId
+            ? { ...item, bizCertFileUrl: null, bizCertFileName: null, hasBizCert: false }
+            : item
+        )
+      );
+      setSelectedPartner((prev) =>
+        prev && prev.id === targetId
+          ? { ...prev, bizCertFileUrl: null, bizCertFileName: null, hasBizCert: false }
+          : prev
+      );
+      showToast(`[${selectedPartner.name}] 사업자등록증 파일이 삭제되었습니다.`);
+      await fetchPartners();
+    } catch (err: any) {
+      showToast(err.message || "사업자등록증 삭제 실패", "error");
+    } finally {
+      setDossierBizCertSaving(false);
+    }
+  };
+
   // Direct Contract PDF Upload & Immediate DB Save from Right-Hand Dossier Panel
   const handleDossierContractUpload = async (file: File) => {
     if (!file || !selectedPartner) return;
@@ -1315,34 +1411,12 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       const res = await fetch("/api/erp/partners", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: selectedPartner.id,
-          name: selectedPartner.name,
-          partnerType: selectedPartner.partnerType,
-          partnerCode: selectedPartner.partnerCode,
-          businessNo: selectedPartner.businessNo,
-          corporateNo: selectedPartner.corporateNo,
-          ceoName: selectedPartner.ceoName,
-          bizType: selectedPartner.bizType,
-          bizItem: selectedPartner.bizItem,
-          address: selectedPartner.address,
-          addressDetail: selectedPartner.addressDetail,
-          mainPhone: selectedPartner.mainPhone,
-          mainEmail: selectedPartner.mainEmail,
-          faxNo: selectedPartner.faxNo,
-          managerEmployeeId: selectedPartner.managerEmployeeId,
-          managerName: selectedPartner.managerName,
-          statementClosingDay: selectedPartner.statementClosingDay,
-          taxInvoiceClosingDay: selectedPartner.taxInvoiceClosingDay,
-          paymentDueDay: selectedPartner.paymentDueDay,
-          status: selectedPartner.status,
-          memo: selectedPartner.memo,
-          bankName: selectedPartner.bankName,
-          bankAccountNo: selectedPartner.bankAccountNo,
-          bankAccountHolder: selectedPartner.bankAccountHolder,
-          contractFileUrl: dataUrl,
-          contractFileName: file.name,
-        }),
+        body: JSON.stringify(
+          buildPartnerPutPayload(selectedPartner, {
+            contractFileUrl: dataUrl,
+            contractFileName: file.name,
+          })
+        ),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -1395,34 +1469,12 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       const res = await fetch("/api/erp/partners", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: selectedPartner.id,
-          name: selectedPartner.name,
-          partnerType: selectedPartner.partnerType,
-          partnerCode: selectedPartner.partnerCode,
-          businessNo: selectedPartner.businessNo,
-          corporateNo: selectedPartner.corporateNo,
-          ceoName: selectedPartner.ceoName,
-          bizType: selectedPartner.bizType,
-          bizItem: selectedPartner.bizItem,
-          address: selectedPartner.address,
-          addressDetail: selectedPartner.addressDetail,
-          mainPhone: selectedPartner.mainPhone,
-          mainEmail: selectedPartner.mainEmail,
-          faxNo: selectedPartner.faxNo,
-          managerEmployeeId: selectedPartner.managerEmployeeId,
-          managerName: selectedPartner.managerName,
-          statementClosingDay: selectedPartner.statementClosingDay,
-          taxInvoiceClosingDay: selectedPartner.taxInvoiceClosingDay,
-          paymentDueDay: selectedPartner.paymentDueDay,
-          status: selectedPartner.status,
-          memo: selectedPartner.memo,
-          bankName: selectedPartner.bankName,
-          bankAccountNo: selectedPartner.bankAccountNo,
-          bankAccountHolder: selectedPartner.bankAccountHolder,
-          contractFileUrl: "__DELETE__",
-          contractFileName: "",
-        }),
+        body: JSON.stringify(
+          buildPartnerPutPayload(selectedPartner, {
+            contractFileUrl: "__DELETE__",
+            contractFileName: "",
+          })
+        ),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -1464,44 +1516,166 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
     }
   };
 
-  // Business Registration Certificate Drag & Drop / File Processing
-  const handleBizCertFileUpload = async (file: File) => {
-    if (!file) return;
-    setOcrLoading(true);
-    setOcrFileName(file.name);
-    setOcrResult(null);
-
+  // Single Partner Immediate NTS Lookup
+  const handleRunSingleNtsCheck = async (partner: Partner, autoUnblockActive = false) => {
+    if (!partner?.id) return;
+    if (normalizeBizNoDigits(partner.businessNo).length !== 10) {
+      showToast("유효한 10자리 사업자등록번호가 등록되어 있지 않습니다.", "error");
+      return;
+    }
+    setSingleNtsCheckingId(partner.id);
     try {
-      const isPdf =
-        file.type === "application/pdf" ||
-        file.name.toLowerCase().endsWith(".pdf");
-
-      let imageBase64 = "";
-      let textHint = "";
-
-      if (isPdf) {
-        try {
-          const pdfOut = await extractPdfImageAndText(file);
-          imageBase64 = pdfOut.imageBase64;
-          textHint = pdfOut.textHint;
-        } catch (pdfErr) {
-          console.warn("Client PDF render fallback:", pdfErr);
+      const res = await fetch("/api/erp/partners/check-biz-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          partnerId: partner.id,
+          autoBlock: true,
+          autoUnblockActive,
+          actorName: currentUser?.name || "ADMIN",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "국세청 휴·폐업 조회 실패");
+      }
+      const item = data.results?.[0];
+      await fetchPartners();
+      if (item) {
+        if (viewerForm && viewerForm.id === partner.id) {
+          setViewerForm((prev: any) => ({
+            ...prev,
+            status: item.nextStatus,
+            ntsBizState: item.ntsBizState,
+            ntsTaxType: item.ntsTaxType,
+            ntsClosedDate: item.ntsClosedDate,
+            ntsStatusMsg: item.ntsStatusMsg,
+            ntsCheckedAt: item.ntsCheckedAt,
+          }));
         }
+        if (item.ntsBizState === "CLOSED" || item.ntsBizState === "SUSPENDED") {
+          showToast(
+            `[${partner.name}] ${getNtsBizStateBadgeLabel(item.ntsBizState)} 확인 — 거래불가 처리되었습니다.`,
+            "error"
+          );
+        } else {
+          showToast(
+            `[${partner.name}] 국세청 상태: ${getNtsBizStateBadgeLabel(item.ntsBizState)} (${item.ntsTaxType})`
+          );
+        }
+      }
+    } catch (err: any) {
+      showToast(err.message || "휴·폐업 조회 실패", "error");
+    } finally {
+      setSingleNtsCheckingId(null);
+    }
+  };
+
+  // Batch NTS Lookup Handler
+  const handleRunBatchBizStatusCheck = async () => {
+    setBatchLoading(true);
+    try {
+      const payload: Record<string, any> = {
+        autoBlock: batchAutoBlock,
+        actorName: currentUser?.name || "ADMIN",
+      };
+      if (batchScope === "FILTERED") {
+        payload.partnerIds = sortedPartners.map((p) => p.id);
       } else {
-        imageBase64 = await resizeImageToBase64(file, 1800);
+        payload.scope = batchScope;
       }
 
-      if (imageBase64) {
-        setOcrPreviewFileUrl(imageBase64);
+      const res = await fetch("/api/erp/partners/check-biz-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "국세청 일괄조회 실패");
+      }
+      setBatchResult({ summary: data.summary, results: data.results || [] });
+      await fetchPartners();
+      const s = data.summary || {};
+      showToast(
+        `조회 완료: ${s.checkedCount || 0}건 확인 (휴업 ${s.suspendedCount || 0} / 폐업 ${s.closedCount || 0} / 거래불가 전환 ${s.newlyBlockedCount || 0}건)`
+      );
+    } catch (err: any) {
+      showToast(err.message || "일괄조회 처리 실패", "error");
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  // Split Viewer File Replace (Browse & Drag-Drop)
+  const handleViewerFileReplace = async (file: File) => {
+    if (!file || !activeDocument) return;
+    const isPdf =
+      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf && !file.type.startsWith("image/")) {
+      showToast("PDF 또는 이미지 파일을 선택해주세요.", "error");
+      return;
+    }
+
+    setViewerOcrLoading(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const docType = activeDocument.docType || "BIZ_CERT";
+      const pid = activeDocument.partnerId;
+
+      if (pid) {
+        const target = partners.find((p) => p.id === pid) || selectedPartner;
+        if (target) {
+          const overrideFields =
+            docType === "BIZ_CERT"
+              ? { bizCertFileUrl: dataUrl, bizCertFileName: file.name }
+              : docType === "BANK_COPY"
+              ? { bankCopyFileUrl: dataUrl, bankCopyFileName: file.name }
+              : { contractFileUrl: dataUrl, contractFileName: file.name };
+
+          const res = await fetch("/api/erp/partners", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(buildPartnerPutPayload(target, overrideFields)),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) {
+            throw new Error(data.error || "파일 교체 저장 실패");
+          }
+          const prevCache = filesCacheRef.current[pid] || {};
+          if (docType === "BIZ_CERT") prevCache.bizCertFileUrl = dataUrl;
+          else if (docType === "BANK_COPY") prevCache.bankCopyFileUrl = dataUrl;
+          else prevCache.contractFileUrl = dataUrl;
+          filesCacheRef.current[pid] = prevCache;
+          await fetchPartners();
+        }
+      }
+
+      setActiveDocument((prev) =>
+        prev ? { ...prev, url: dataUrl, fileName: file.name } : prev
+      );
+      showToast(`파일(${file.name})이 교체 저장되었습니다.`);
+    } catch (err: any) {
+      showToast(err.message || "파일 교체 실패", "error");
+    } finally {
+      setViewerOcrLoading(false);
+    }
+  };
+
+  // Split Viewer Re-run OCR on Current Document
+  const handleViewerReRunOcr = async () => {
+    if (!activeDocument?.url || !viewerForm) return;
+    setViewerOcrLoading(true);
+    try {
+      const isPdf = isPdfDocument(activeDocument.url, activeDocument.fileName);
+      let imageBase64 = "";
+      let textHint = "";
+      if (isPdf) {
+        const pdfOut = await extractPdfImageAndTextFromSource(activeDocument.url);
+        imageBase64 = pdfOut.imageBase64;
+        textHint = pdfOut.textHint;
       } else {
-        // Fallback: read raw file data URL
-        const rawUrl = await new Promise<string>((resolve) => {
-          const r = new FileReader();
-          r.onload = () => resolve((r.result as string) || "");
-          r.onerror = () => resolve("");
-          r.readAsDataURL(file);
-        });
-        setOcrPreviewFileUrl(rawUrl);
+        imageBase64 = activeDocument.url;
       }
 
       const res = await fetch("/api/erp/partners/ocr-biz-cert", {
@@ -1510,16 +1684,131 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
         body: JSON.stringify({
           imageBase64: imageBase64 || undefined,
           rawText: textHint || undefined,
-          fileName: file.name,
+          fileName: activeDocument.fileName || "biz-cert",
         }),
       });
       const data = await res.json();
-      if (data.success && data.parsed) {
-        setOcrResult(data.parsed);
-        showToast(data.message || "사업자등록증 정보가 자동 분석되었습니다.");
+      if (!data.success || !data.parsed) {
+        throw new Error(data.error || "서류 판독 실패");
+      }
+      const p = data.parsed;
+      setViewerForm((prev: any) => ({
+        ...prev,
+        name: p.name || prev.name,
+        businessNo: p.businessNo || prev.businessNo,
+        corporateNo: p.corporateNo || prev.corporateNo,
+        ceoName: p.ceoName || prev.ceoName,
+        bizType: p.bizType || prev.bizType,
+        bizItem: p.bizItem || prev.bizItem,
+        address: p.address || prev.address,
+        mainPhone: p.mainPhone || prev.mainPhone,
+        mainEmail: p.email || prev.mainEmail,
+      }));
+      showToast("서류 판독 결과가 우측 양식에 반영되었습니다. 확인 후 저장하세요.");
+    } catch (err: any) {
+      showToast(err.message || "서류 재판독 실패", "error");
+    } finally {
+      setViewerOcrLoading(false);
+    }
+  };
+
+  // Split Viewer Single NTS Lookup
+  const handleViewerNtsCheck = async () => {
+    if (!viewerForm) return;
+    const digits = normalizeBizNoDigits(viewerForm.businessNo);
+    if (digits.length !== 10) {
+      showToast("10자리 사업자등록번호를 입력해주세요.", "error");
+      return;
+    }
+    setViewerNtsLoading(true);
+    try {
+      const ntsRes = await queryNtsByBizNoClient(viewerForm.businessNo);
+      if (!ntsRes) throw new Error("국세청 휴·폐업 조회 실패");
+
+      setViewerForm((prev: any) => ({
+        ...prev,
+        businessNo: ntsRes.businessNo || prev.businessNo,
+        ntsBizState: ntsRes.ntsBizState,
+        ntsTaxType: ntsRes.ntsTaxType,
+        ntsClosedDate: ntsRes.ntsClosedDate,
+        ntsStatusMsg: ntsRes.ntsStatusMsg,
+        ntsCheckedAt: new Date().toISOString(),
+        status: ntsRes.shouldBlockTrade ? "BLOCKED" : prev.status,
+      }));
+      if (ntsRes.shouldBlockTrade) {
+        showToast(
+          `국세청 확인: ${getNtsBizStateBadgeLabel(ntsRes.ntsBizState)} — [정보 저장] 시 거래불가로 반영됩니다.`,
+          "error"
+        );
       } else {
         showToast(
-          data.error || "자동 분석을 완료할 수 없습니다. 파일을 확인해주세요.",
+          `국세청 상태: ${getNtsBizStateBadgeLabel(ntsRes.ntsBizState)} (${ntsRes.ntsTaxType})`
+        );
+      }
+    } catch (err: any) {
+      showToast(err.message || "국세청 조회 실패", "error");
+    } finally {
+      setViewerNtsLoading(false);
+    }
+  };
+
+  // Split Viewer Save Inline Partner Edits
+  const handleViewerSavePartner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!viewerForm || !viewerForm.id) return;
+    if (!viewerForm.name || !String(viewerForm.name).trim()) {
+      showToast("상호명(법인명)을 입력해주세요.", "error");
+      return;
+    }
+    setViewerSaving(true);
+    try {
+      const res = await fetch("/api/erp/partners", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(viewerForm),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "거래처 정보 수정 실패");
+      }
+
+      setActiveDocument((prev) =>
+        prev ? { ...prev, partnerName: String(viewerForm.name).trim() } : prev
+      );
+      showToast("원본 대조 수정사항이 저장되었습니다.");
+      await fetchPartners();
+    } catch (err: any) {
+      showToast(err.message || "수정사항 저장 실패", "error");
+    } finally {
+      setViewerSaving(false);
+    }
+  };
+
+  // Business Registration Certificate Drag & Drop / File Processing (Simple OCR Modal)
+  const handleBizCertFileUpload = async (file: File) => {
+    if (!file) return;
+    setOcrLoading(true);
+    setOcrFileName(file.name);
+    setOcrResult(null);
+    setOcrNtsStatus(null);
+
+    try {
+      const { rawDataUrl, thumbUrl, parsed, errorMessage } =
+        await extractBizCertOcrFromFile(file);
+
+      setOcrPreviewFileUrl(rawDataUrl);
+      setOcrPreviewThumbUrl(thumbUrl);
+
+      if (parsed) {
+        setOcrResult(parsed);
+        if (parsed.businessNo && normalizeBizNoDigits(parsed.businessNo).length === 10) {
+          const ntsRes = await queryNtsByBizNoClient(parsed.businessNo).catch(() => null);
+          if (ntsRes) setOcrNtsStatus(ntsRes);
+        }
+        showToast("사업자등록증 정보가 자동 분석되었습니다.");
+      } else {
+        showToast(
+          errorMessage || "자동 분석을 완료할 수 없습니다. 파일을 확인해주세요.",
           "error"
         );
       }
@@ -1557,6 +1846,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
   const handleApplyOcrToForm = () => {
     if (!ocrResult) return;
     setPartnerModalMode("CREATE");
+    setDirectBizCertSuggestion(null);
     setPartnerForm({
       id: 0,
       partnerType: partnerTypeTab === "ALL" ? "CUSTOMER" : partnerTypeTab,
@@ -1571,13 +1861,19 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       addressDetail: "",
       mainPhone: ocrResult.mainPhone || "",
       mainEmail: ocrResult.email || "",
+      subEmail: "",
       faxNo: "",
       managerEmployeeId: currentUser?.id ? String(currentUser.id) : "",
       managerName: currentUser?.name || "",
       statementClosingDay: "매월 25일",
       taxInvoiceClosingDay: "익월 10일",
       paymentDueDay: "익월 15일",
-      status: "ACTIVE",
+      status: ocrNtsStatus?.shouldBlockTrade ? "BLOCKED" : "ACTIVE",
+      ntsBizState: ocrNtsStatus?.ntsBizState || null,
+      ntsTaxType: ocrNtsStatus?.ntsTaxType || null,
+      ntsClosedDate: ocrNtsStatus?.ntsClosedDate || null,
+      ntsStatusMsg: ocrNtsStatus?.ntsStatusMsg || null,
+      ntsCheckedAt: ocrNtsStatus ? new Date().toISOString() : null,
       memo: `사업자등록증 기반 등록 (${ocrFileName})`,
       bizCertFileUrl: ocrPreviewFileUrl || "",
       bizCertFileName: ocrFileName || "",
@@ -1648,8 +1944,11 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
           <div className="flex items-center gap-1 bg-[#dcd4c4] dark:bg-slate-800 p-1 rounded border border-[#b5a894] dark:border-slate-700">
             <button
               onClick={() => {
-                setPartnerTypeTab("CUSTOMER");
-                onSelectTypeTab?.("CUSTOMER");
+                if (onSelectTypeTab && initialType !== "CUSTOMER") {
+                  onSelectTypeTab("CUSTOMER");
+                } else {
+                  setPartnerTypeTab("CUSTOMER");
+                }
               }}
               className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1.5 transition ${
                 partnerTypeTab === "CUSTOMER"
@@ -1665,8 +1964,11 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
             </button>
             <button
               onClick={() => {
-                setPartnerTypeTab("VENDOR");
-                onSelectTypeTab?.("VENDOR");
+                if (onSelectTypeTab && initialType !== "VENDOR") {
+                  onSelectTypeTab("VENDOR");
+                } else {
+                  setPartnerTypeTab("VENDOR");
+                }
               }}
               className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1.5 transition ${
                 partnerTypeTab === "VENDOR"
@@ -1704,6 +2006,7 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
             >
               <option value="ALL">전체 상태</option>
               <option value="ACTIVE">정상 거래</option>
+              <option value="BLOCKED">거래불가</option>
               <option value="INACTIVE">거래 중지</option>
               <option value="DORMANT">휴면</option>
             </select>
@@ -1755,15 +2058,29 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
             <span>엑셀 내보내기</span>
           </button>
 
+          <button
+            onClick={() => {
+              setBatchResult(null);
+              setShowBizStatusBatchModal(true);
+            }}
+            className="px-3 py-1.5 bg-[#991b1b] hover:bg-[#7f1d1d] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition whitespace-nowrap shrink-0"
+            title="국세청 사업자 휴폐업 일괄 조회"
+          >
+            <ShieldAlert className="w-3.5 h-3.5" />
+            <span>휴폐업 일괄조회</span>
+          </button>
+
           {/* 사업자등록증 간편 등록 버튼 */}
           <button
             onClick={() => {
               setOcrResult(null);
               setOcrPreviewFileUrl("");
+              setOcrPreviewThumbUrl("");
+              setOcrNtsStatus(null);
               setOcrFileName("");
               setShowBizCertOcrModal(true);
             }}
-            className="px-3 py-1.5 bg-[#6d28d9] hover:bg-[#5b21b6] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition"
+            className="px-3 py-1.5 bg-[#6d28d9] hover:bg-[#5b21b6] text-white text-xs font-bold rounded flex items-center gap-1.5 shadow transition whitespace-nowrap shrink-0"
           >
             <FileUp className="w-3.5 h-3.5" />
             <span>사업자등록증 간편등록</span>
@@ -1800,843 +2117,58 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       {/* Main Workspace (Gutenberg Z-Pattern ③ & ④) */}
       <div className="flex-1 grid grid-cols-12 gap-3 p-3 overflow-hidden">
         {/* Left: High-Density Partner Grid (7~8 cols) */}
-        <div className="col-span-12 lg:col-span-7 xl:col-span-8 bg-[#ebe5d8] border border-[#b5a894] rounded flex flex-col overflow-hidden shadow-xs dark:bg-slate-900 dark:border-slate-800">
-          {/* Header Summary */}
-          <div className="p-2.5 bg-[#e2dbcd] border-b border-[#b5a894] text-xs font-bold text-[#0f172a] flex items-center justify-between dark:bg-slate-800/80 dark:border-slate-700 dark:text-slate-300">
-            <div className="flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
-              <span>
-                {partnerTypeTab === "CUSTOMER"
-                  ? "고객 (매출처) 대장"
-                  : partnerTypeTab === "VENDOR"
-                  ? "매입거래처 대장"
-                  : "전체 거래처 대장"}
-              </span>
-              <span className="text-[#475569] font-normal dark:text-slate-400">
-                (조회 {formatErpNumber(sortedPartners.length)}개사)
-              </span>
-            </div>
-
-            <div className="flex items-center gap-3 text-[11px] text-[#475569] dark:text-slate-400 font-mono">
-              <span>계약서 보관: <strong className="text-[#1d4ed8] dark:text-blue-400">{formatErpNumber(kpi.withContractCount || 0)}</strong>개사</span>
-              <span>사업자등록증 보관: <strong className="text-[#6d28d9] dark:text-purple-300">{formatErpNumber(kpi.withBizCertCount)}</strong>개사</span>
-              <span>정상거래: <strong className="text-[#047857] dark:text-emerald-400">{formatErpNumber(kpi.activeCount)}</strong>개사</span>
-            </div>
-          </div>
-
-          {/* Table Container */}
-          <div className="flex-1 overflow-auto">
-            <table className="w-full text-xs text-left border-collapse">
-              <thead className="bg-[#e2dbcd] text-[#0f172a] uppercase tracking-wider font-semibold border-b-2 border-[#a89a84] sticky top-0 z-10 select-none dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
-                <tr>
-                  <th className="py-2.5 px-3 text-center whitespace-nowrap w-12">선택</th>
-                  {renderSortTh("거래처코드", "partnerCode")}
-                  {renderSortTh("상호명 (법인명)", "name")}
-                  {renderSortTh("구분", "partnerType")}
-                  {renderSortTh("사업자등록번호", "businessNo")}
-                  {renderSortTh("대표자", "ceoName")}
-                  {renderSortTh("본사 담당직원", "managerName")}
-                  {renderSortTh("거래명세서 마감", "statementClosingDay")}
-                  {renderSortTh("세금계산서 마감", "taxInvoiceClosingDay")}
-                  {renderSortTh("약정납기일(결제)", "paymentDueDay")}
-                  {renderSortTh("담당자/명함", "contactCount", "center")}
-                  {renderSortTh("상태", "status", "center")}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
-                {sortedPartners.length === 0 ? (
-                  <tr>
-                    <td colSpan={12} className="py-12 text-center text-[#475569] dark:text-slate-500">
-                      {loading ? "거래처 데이터를 불러오는 중..." : "등록된 거래처가 없습니다. 상단 [신규 등록] 또는 [사업자등록증 간편등록]을 진행하세요."}
-                    </td>
-                  </tr>
-                ) : (
-                  sortedPartners.map((p) => {
-                    const isSelected = selectedPartner?.id === p.id;
-                    return (
-                      <tr
-                        key={p.id}
-                        onClick={() => setSelectedPartner(p)}
-                        className={`cursor-pointer transition ${
-                          isSelected
-                            ? "bg-[#dcd4c4] border-l-4 border-[#1d4ed8] dark:bg-blue-950/60 dark:border-blue-500"
-                            : "hover:bg-[#f4efe4] dark:hover:bg-slate-800/40"
-                        }`}
-                      >
-                        <td className="py-2 px-3 text-center whitespace-nowrap">
-                          <input
-                            type="radio"
-                            checked={isSelected}
-                            onChange={() => setSelectedPartner(p)}
-                            className="rounded-full text-[#1d4ed8]"
-                          />
-                        </td>
-                        <td className="py-2 px-3 font-mono text-[#475569] dark:text-slate-400 font-bold whitespace-nowrap">
-                          {p.partnerCode}
-                        </td>
-                        <td className="py-2 px-3 font-bold text-[#0f172a] dark:text-slate-100 whitespace-nowrap">
-                          <div className="flex items-center gap-1.5">
-                            <span>{p.name}</span>
-                            {(p.hasBizCert || p.bizCertFileUrl) && (
-                              <button
-                                type="button"
-                                disabled={docFetching}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOpenPartnerDoc(p, "BIZ_CERT", "VIEW");
-                                }}
-                                title="사업자등록증 열기"
-                                className="px-1.5 py-0.2 rounded text-[10px] bg-[#f5f3ff] hover:bg-[#ede9fe] text-[#6d28d9] border border-[#ddd6fe] font-bold dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 flex items-center gap-1 transition"
-                              >
-                                <FileCheck className="w-3 h-3" />
-                                <span>등록증</span>
-                              </button>
-                            )}
-                            {(p.hasBankCopy || p.bankCopyFileUrl) && (
-                              <button
-                                type="button"
-                                disabled={docFetching}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOpenPartnerDoc(p, "BANK_COPY", "VIEW");
-                                }}
-                                title="통장사본 열기"
-                                className="px-1.5 py-0.2 rounded text-[10px] bg-[#ecfdf5] hover:bg-[#d1fae5] text-[#065f46] border border-[#a7f3d0] font-bold dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800 flex items-center gap-1 transition"
-                              >
-                                <Landmark className="w-3 h-3" />
-                                <span>통장</span>
-                              </button>
-                            )}
-                            {(p.hasContractFile || p.contractFileUrl) && (
-                              <button
-                                type="button"
-                                disabled={docFetching}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOpenPartnerDoc(p, "CONTRACT", "VIEW");
-                                }}
-                                title="계약서 원본 열기"
-                                className="px-1.5 py-0.2 rounded text-[10px] bg-[#dbeafe] hover:bg-[#bfdbfe] text-[#1e40af] border border-[#93c5fd] font-bold dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800 flex items-center gap-1 transition"
-                              >
-                                <FileText className="w-3 h-3" />
-                                <span>계약서</span>
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2 px-3 whitespace-nowrap">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                              p.partnerType === "CUSTOMER"
-                                ? "bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe] dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800"
-                                : p.partnerType === "VENDOR"
-                                ? "bg-[#fef3c7] text-[#92400e] border border-[#fde68a] dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800"
-                                : "bg-[#f3e8ff] text-[#6b21a8] border border-[#e9d5ff] dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800"
-                            }`}
-                          >
-                            {p.partnerType === "CUSTOMER" ? "고객" : p.partnerType === "VENDOR" ? "매입처" : "겸용"}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 font-mono text-[#0f172a] dark:text-slate-300 whitespace-nowrap">
-                          {p.businessNo || "-"}
-                        </td>
-                        <td className="py-2 px-3 text-[#0f172a] dark:text-slate-200 whitespace-nowrap">
-                          {p.ceoName || "-"}
-                        </td>
-                        <td className="py-2 px-3 font-semibold whitespace-nowrap">
-                          <span className="flex items-center gap-1 text-[#1d4ed8] dark:text-blue-300">
-                            <UserCheck className="w-3 h-3 text-[#1d4ed8] dark:text-blue-400" />
-                            {p.managerName || "미지정"}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-[#334155] dark:text-slate-300 font-medium whitespace-nowrap">
-                          {p.statementClosingDay}
-                        </td>
-                        <td className="py-2 px-3 text-[#334155] dark:text-slate-300 font-medium whitespace-nowrap">
-                          {p.taxInvoiceClosingDay}
-                        </td>
-                        <td className="py-2 px-3 font-mono text-[#b45309] dark:text-amber-300 font-bold whitespace-nowrap">
-                          {p.paymentDueDay}
-                        </td>
-                        <td className="py-2 px-3 text-center whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1 font-mono text-[11px] text-[#0f172a] dark:text-slate-300 bg-[#e2dbcd] dark:bg-slate-800 px-2 py-0.5 rounded border border-[#b5a894] dark:border-slate-700">
-                            <CreditCard className="w-3 h-3 text-[#047857] dark:text-emerald-400" />
-                            <span>{formatErpNumber(p.contactCount || 0)}명</span>
-                          </div>
-                        </td>
-                        <td className="py-2 px-3 text-center whitespace-nowrap">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                              p.status === "ACTIVE"
-                                ? "bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800"
-                                : p.status === "INACTIVE"
-                                ? "bg-[#fef2f2] text-[#991b1b] border border-[#fecaca] dark:bg-rose-950 dark:text-rose-400 dark:border-rose-800"
-                                : "bg-[#f1f5f9] text-[#475569] border border-[#cbd5e1] dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
-                            }`}
-                          >
-                            {p.status === "ACTIVE" ? "정상" : p.status === "INACTIVE" ? "중지" : "휴면"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <PartnerListPanel
+          docFetching={docFetching}
+          handleOpenPartnerDoc={handleOpenPartnerDoc}
+          kpi={kpi}
+          loading={loading}
+          partnerTypeTab={partnerTypeTab}
+          renderSortTh={renderSortTh}
+          selectedPartner={selectedPartner}
+          setSelectedPartner={setSelectedPartner}
+          sortedPartners={sortedPartners}
+        />
 
         {/* Right: Master-Detail Dossier Studio (4~5 cols) */}
         <div className="col-span-12 lg:col-span-5 xl:col-span-4 bg-[#ebe5d8] border border-[#b5a894] rounded flex flex-col overflow-hidden shadow-xs dark:bg-slate-900 dark:border-slate-800">
           {selectedPartner ? (
-            <div className="flex flex-col h-full overflow-hidden">
-              {/* Dossier Header */}
-              <div className="p-3 bg-[#e2dbcd] border-b border-[#b5a894] flex items-center justify-between shrink-0 dark:bg-slate-800/80 dark:border-slate-700">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="font-mono text-[11px] font-bold text-[#1d4ed8] dark:text-blue-400">
-                      {selectedPartner.partnerCode}
-                    </span>
-                    <span
-                      className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                        selectedPartner.partnerType === "CUSTOMER"
-                          ? "bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe]"
-                          : selectedPartner.partnerType === "VENDOR"
-                          ? "bg-[#fef3c7] text-[#92400e] border border-[#fde68a]"
-                          : "bg-[#f3e8ff] text-[#6b21a8] border border-[#e9d5ff]"
-                      }`}
-                    >
-                      {selectedPartner.partnerType === "CUSTOMER" ? "고객사" : selectedPartner.partnerType === "VENDOR" ? "매입거래처" : "겸용"}
-                    </span>
-                  </div>
-                  <h3 className="text-sm font-bold text-[#0f172a] truncate dark:text-slate-100">
-                    {selectedPartner.name}
-                  </h3>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => openEditModal(selectedPartner)}
-                    className="p-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                    title="거래처 수정"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleDeletePartner(selectedPartner.id, selectedPartner.name)}
-                      className="p-1.5 bg-[#fee2e2] hover:bg-[#fecaca] text-[#b91c1c] rounded border border-[#f87171] transition dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800"
-                      title="거래처 삭제"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Dossier Body */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-3">
-                {/* 1. 본사 관리 핵심 속성 */}
-                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2 dark:bg-slate-900 dark:border-slate-800">
-                  <span className="text-[11px] font-bold text-[#1d4ed8] dark:text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>본사 관리 및 정산 마감 조건</span>
-                  </span>
-
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="p-2 bg-[#ebe5d8] rounded border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800">
-                      <span className="text-[10px] text-[#475569] dark:text-slate-500 block mb-0.5">본사의 담당직원</span>
-                      <strong className="text-[#0f172a] dark:text-slate-200 flex items-center gap-1">
-                        <UserCheck className="w-3 h-3 text-[#1d4ed8] dark:text-blue-400" />
-                        {selectedPartner.managerName || "미배정"}
-                      </strong>
-                    </div>
-
-                    <div className="p-2 bg-[#ebe5d8] rounded border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800">
-                      <span className="text-[10px] text-[#475569] dark:text-slate-500 block mb-0.5">거래명세서 마감일</span>
-                      <strong className="text-[#0f172a] dark:text-slate-200 font-mono">
-                        {selectedPartner.statementClosingDay}
-                      </strong>
-                    </div>
-
-                    <div className="p-2 bg-[#ebe5d8] rounded border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800">
-                      <span className="text-[10px] text-[#475569] dark:text-slate-500 block mb-0.5">세금계산서 마감일</span>
-                      <strong className="text-[#0f172a] dark:text-slate-200 font-mono">
-                        {selectedPartner.taxInvoiceClosingDay}
-                      </strong>
-                    </div>
-
-                    <div className="p-2 bg-[#ebe5d8] rounded border border-[#b5a894] dark:bg-slate-900 dark:border-slate-800">
-                      <span className="text-[10px] text-[#475569] dark:text-slate-500 block mb-0.5">약정납기일 (결제일)</span>
-                      <strong className="text-[#b45309] dark:text-amber-300 font-mono font-bold">
-                        {selectedPartner.paymentDueDay}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. 본사 기본 제원 및 주소 */}
-                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-1.5 text-xs dark:bg-slate-900 dark:border-slate-800">
-                  <span className="text-[11px] font-bold text-[#475569] dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>본사 사업자 기본 제원</span>
-                  </span>
-
-                  <div className="flex justify-between py-1 border-b border-[#c4b6a0] dark:border-slate-800">
-                    <span className="text-[#475569] dark:text-slate-500">사업자등록번호</span>
-                    <span className="font-mono font-bold text-[#0f172a] dark:text-slate-200">{selectedPartner.businessNo || "-"}</span>
-                  </div>
-
-                  {selectedPartner.corporateNo && (
-                    <div className="flex justify-between py-1 border-b border-[#c4b6a0] dark:border-slate-800">
-                      <span className="text-[#475569] dark:text-slate-500">법인등록번호</span>
-                      <span className="font-mono text-[#0f172a] dark:text-slate-200">{selectedPartner.corporateNo}</span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-between py-1 border-b border-[#c4b6a0] dark:border-slate-800">
-                    <span className="text-[#475569] dark:text-slate-500">대표자 성명</span>
-                    <span className="font-semibold text-[#0f172a] dark:text-slate-200">{selectedPartner.ceoName || "-"}</span>
-                  </div>
-
-                  <div className="flex justify-between py-1 border-b border-[#c4b6a0] dark:border-slate-800">
-                    <span className="text-[#475569] dark:text-slate-500">업태 / 종목</span>
-                    <span className="text-[#0f172a] dark:text-slate-200 text-right truncate max-w-xs">
-                      {selectedPartner.bizType || "-"} / {selectedPartner.bizItem || "-"}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between py-1 border-b border-[#c4b6a0] dark:border-slate-800">
-                    <span className="text-[#475569] dark:text-slate-500">본사 사업장 소재지</span>
-                    <span className="text-[#0f172a] dark:text-slate-200 text-right truncate max-w-xs" title={`${selectedPartner.address || ""} ${selectedPartner.addressDetail || ""}`.trim()}>
-                      {`${selectedPartner.address || ""} ${selectedPartner.addressDetail || ""}`.trim() || "-"}
-                    </span>
-                  </div>
-
-                  <div className="py-1.5 border-b border-[#c4b6a0] dark:border-slate-800 space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[#475569] dark:text-slate-500 flex items-center gap-1 whitespace-nowrap">
-                        <Mail className="w-3 h-3 text-[#1d4ed8]" />
-                        <span>세금계산서 수신 이메일</span>
-                      </span>
-                      {!editingDossierEmail && (
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <div className="text-right truncate max-w-[200px]">
-                            <span className="font-mono font-bold text-[#1d4ed8] dark:text-blue-300 block truncate">
-                              {selectedPartner.mainEmail || "미등록"}
-                            </span>
-                            {selectedPartner.subEmail && (
-                              <span className="font-mono text-[10px] text-[#475569] dark:text-slate-400 block truncate">
-                                부: {selectedPartner.subEmail}
-                              </span>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDossierMainEmail(selectedPartner.mainEmail || "");
-                              setDossierSubEmail(selectedPartner.subEmail || "");
-                              setEditingDossierEmail(true);
-                            }}
-                            className="px-1.5 py-0.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[10px] font-bold shrink-0 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
-                          >
-                            {selectedPartner.mainEmail ? "변경" : "이메일 등록"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {editingDossierEmail && (
-                      <div className="p-2 bg-[#ebe5d8] rounded border border-[#b5a894] space-y-1.5 dark:bg-slate-950 dark:border-slate-700">
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] font-bold text-[#334155] dark:text-slate-400">
-                            이메일 1 (주 수신 - 세금계산서 발송 기본)
-                          </label>
-                          <input
-                            type="email"
-                            value={dossierMainEmail}
-                            onChange={(e) => setDossierMainEmail(e.target.value)}
-                            placeholder="tax@company.co.kr"
-                            className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#0f172a] font-mono text-xs focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] font-bold text-[#334155] dark:text-slate-400">
-                            이메일 2 (부 수신 - 선택)
-                          </label>
-                          <input
-                            type="email"
-                            value={dossierSubEmail}
-                            onChange={(e) => setDossierSubEmail(e.target.value)}
-                            placeholder="sub@company.co.kr"
-                            className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#0f172a] font-mono text-xs focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                          />
-                        </div>
-                        <div className="flex items-center justify-end gap-1.5 pt-1">
-                          <button
-                            type="button"
-                            disabled={savingDossierEmail}
-                            onClick={() => setEditingDossierEmail(false)}
-                            className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] font-bold"
-                          >
-                            취소
-                          </button>
-                          <button
-                            type="button"
-                            disabled={savingDossierEmail}
-                            onClick={handleSaveDossierEmail}
-                            className="px-2.5 py-1 bg-[#1d4ed8] hover:bg-[#1e40af] text-white rounded text-[11px] font-bold"
-                          >
-                            {savingDossierEmail ? "저장 중..." : "저장 (계약 동기화)"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex justify-between py-1">
-                    <span className="text-[#475569] dark:text-slate-500">본사 대표 전화</span>
-                    <span className="font-mono text-[#0f172a] dark:text-slate-200">{selectedPartner.mainPhone || "-"}</span>
-                  </div>
-                </div>
-
-                {/* 3. 사업자등록증 원본 보관함 */}
-                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2 text-xs dark:bg-slate-900 dark:border-slate-800">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-[#6d28d9] dark:text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <FileCheck className="w-3.5 h-3.5" />
-                      <span>사업자등록증 원본 서류</span>
-                    </span>
-
-                    {selectedPartner.hasBizCert || selectedPartner.bizCertFileUrl ? (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#f5f3ff] text-[#6d28d9] border border-[#ddd6fe] font-bold">
-                        보관 완료
-                      </span>
-                    ) : (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#e2dbcd] text-[#475569]">
-                        미등록
-                      </span>
-                    )}
-                  </div>
-
-                  {selectedPartner.hasBizCert || selectedPartner.bizCertFileUrl ? (
-                    <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
-                      <div className="flex items-center gap-2 truncate">
-                        <FileText className="w-4 h-4 text-[#6d28d9] dark:text-purple-400 shrink-0" />
-                        <div className="truncate">
-                          <span className="text-xs font-semibold text-[#0f172a] dark:text-slate-200 block truncate">
-                            {selectedPartner.bizCertFileName || "사업자등록증"}
-                          </span>
-                          <span className="text-[10px] text-[#475569] dark:text-slate-500 font-mono">
-                            국세청 사업자등록증 원본
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          disabled={docFetching}
-                          onClick={() => handleOpenPartnerDoc(selectedPartner, "BIZ_CERT", "VIEW")}
-                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                        >
-                          <Eye className="w-3 h-3" />
-                          <span>미리보기</span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={docFetching}
-                          onClick={() => handleOpenPartnerDoc(selectedPartner, "BIZ_CERT", "DOWNLOAD")}
-                          className="p-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                          title="다운로드"
-                        >
-                          <Download className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-[#ebe5d8] rounded border border-dashed border-[#b5a894] text-center dark:bg-slate-900 dark:border-slate-800">
-                      <p className="text-[11px] text-[#475569] dark:text-slate-500 mb-2">
-                        등록된 사업자등록증 파일이 없습니다.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => openEditModal(selectedPartner)}
-                        className="px-2.5 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] inline-flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                      >
-                        <Upload className="w-3 h-3" />
-                        <span>사업자등록증 첨부하기</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* 3-2. 매출처 계약서 원본 보관함 (PDF 즉시 업로드/미리보기/다운로드/삭제) */}
-                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2 text-xs dark:bg-slate-900 dark:border-slate-800">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-[#1d4ed8] dark:text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>계약서 원본 서류 (PDF)</span>
-                    </span>
-
-                    {selectedPartner.hasContractFile || selectedPartner.contractFileUrl ? (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe] font-bold">
-                        보관 완료
-                      </span>
-                    ) : (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#e2dbcd] text-[#475569]">
-                        미등록
-                      </span>
-                    )}
-                  </div>
-
-                  <input
-                    type="file"
-                    ref={dossierContractInputRef}
-                    accept="application/pdf,.pdf,image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleDossierContractUpload(file);
-                      e.target.value = "";
-                    }}
-                  />
-
-                  {selectedPartner.hasContractFile || selectedPartner.contractFileUrl ? (
-                    <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] flex items-center justify-between gap-2 dark:bg-slate-900 dark:border-slate-800">
-                      <div className="flex items-center gap-2 truncate">
-                        <FileText className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400 shrink-0" />
-                        <div className="truncate">
-                          <span className="text-xs font-semibold text-[#0f172a] dark:text-slate-200 block truncate">
-                            {selectedPartner.contractFileName || `${selectedPartner.name}_계약서.pdf`}
-                          </span>
-                          <span className="text-[10px] text-[#475569] dark:text-slate-500 font-mono">
-                            계약서 원본 파일 보관됨
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          disabled={docFetching || dossierContractSaving}
-                          onClick={() => handleOpenPartnerDoc(selectedPartner, "CONTRACT", "VIEW")}
-                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                        >
-                          <Eye className="w-3 h-3" />
-                          <span>미리보기</span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={docFetching || dossierContractSaving}
-                          onClick={() => handleOpenPartnerDoc(selectedPartner, "CONTRACT", "DOWNLOAD")}
-                          className="p-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                          title="다운로드"
-                        >
-                          <Download className="w-3 h-3" />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={dossierContractSaving}
-                          onClick={() => dossierContractInputRef.current?.click()}
-                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                          title="계약서 파일 교체"
-                        >
-                          <Upload className="w-3 h-3" />
-                          <span>변경</span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={dossierContractSaving}
-                          onClick={handleDossierContractDelete}
-                          className="p-1 bg-[#fee2e2] hover:bg-[#fecaca] text-[#b91c1c] rounded border border-[#f87171]"
-                          title="계약서 삭제"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      onClick={() => !dossierContractSaving && dossierContractInputRef.current?.click()}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsDossierContractDragging(true);
-                      }}
-                      onDragLeave={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsDossierContractDragging(false);
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsDossierContractDragging(false);
-                        const file = e.dataTransfer.files?.[0];
-                        if (file) handleDossierContractUpload(file);
-                      }}
-                      className={`p-3 rounded border border-dashed text-center cursor-pointer transition ${
-                        isDossierContractDragging
-                          ? "border-[#1d4ed8] bg-[#dbeafe] dark:bg-blue-950/40"
-                          : "border-[#b5a894] bg-[#ebe5d8] hover:bg-[#e2dbcd] dark:bg-slate-900 dark:border-slate-800"
-                      }`}
-                    >
-                      <p className="text-[11px] text-[#475569] dark:text-slate-400 mb-2">
-                        {dossierContractSaving
-                          ? "계약서 PDF 파일을 저장하는 중..."
-                          : "계약서 PDF 파일을 드래그하여 놓거나 버튼을 눌러 업로드하세요."}
-                      </p>
-                      <span className="px-2.5 py-1 bg-[#1d4ed8] hover:bg-[#1e40af] text-white rounded text-[11px] font-bold inline-flex items-center gap-1 shadow-xs">
-                        <Upload className="w-3 h-3" />
-                        <span>{dossierContractSaving ? "저장 중..." : "계약서 PDF 업로드"}</span>
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* 4. 대금 지급 계좌 및 통장사본 보관함 */}
-                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2 text-xs dark:bg-slate-900 dark:border-slate-800">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-[#047857] dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <Landmark className="w-3.5 h-3.5" />
-                      <span>대금 지급 계좌 및 통장사본</span>
-                    </span>
-
-                    {selectedPartner.hasBankCopy || selectedPartner.bankCopyFileUrl ? (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0] font-bold">
-                        통장사본 보관됨
-                      </span>
-                    ) : (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#e2dbcd] text-[#475569]">
-                        통장사본 미등록
-                      </span>
-                    )}
-                  </div>
-
-                  {/* 계좌 제원 요약 */}
-                  <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] space-y-1.5 dark:bg-slate-900 dark:border-slate-800">
-                    <div className="flex justify-between items-center py-0.5 border-b border-[#c4b6a0] dark:border-slate-800">
-                      <span className="text-[#475569] dark:text-slate-400">지급 은행</span>
-                      <strong className="text-[#0f172a] dark:text-slate-200">
-                        {selectedPartner.bankName || "-"}
-                      </strong>
-                    </div>
-
-                    <div className="flex justify-between items-center py-0.5 border-b border-[#c4b6a0] dark:border-slate-800">
-                      <span className="text-[#475569] dark:text-slate-400">계좌번호</span>
-                      <div className="flex items-center gap-1.5 font-mono">
-                        <strong className="text-[#1d4ed8] dark:text-blue-400 font-bold">
-                          {selectedPartner.bankAccountNo || "-"}
-                        </strong>
-                        {selectedPartner.bankAccountNo && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(selectedPartner.bankAccountNo!);
-                              showToast("계좌번호가 클립보드에 복사되었습니다.");
-                            }}
-                            className="p-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[10px] flex items-center gap-0.5 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                            title="계좌번호 복사"
-                          >
-                            <Copy className="w-2.5 h-2.5" />
-                            <span>복사</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex justify-between items-center py-0.5">
-                      <span className="text-[#475569] dark:text-slate-400">예금주</span>
-                      <strong className="text-[#0f172a] dark:text-slate-200">
-                        {selectedPartner.bankAccountHolder || "-"}
-                      </strong>
-                    </div>
-                  </div>
-
-                  {/* 통장사본 첨부 파일 */}
-                  {selectedPartner.hasBankCopy || selectedPartner.bankCopyFileUrl ? (
-                    <div className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
-                      <div className="flex items-center gap-2 truncate">
-                        <Landmark className="w-4 h-4 text-[#047857] dark:text-emerald-400 shrink-0" />
-                        <div className="truncate">
-                          <span className="text-xs font-semibold text-[#0f172a] dark:text-slate-200 block truncate">
-                            {selectedPartner.bankCopyFileName || `${selectedPartner.bankName || "은행"}_통장사본`}
-                          </span>
-                          <span className="text-[10px] text-[#475569] dark:text-slate-500 font-mono">
-                            대금 지급용 통장사본 서류
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          disabled={docFetching}
-                          onClick={() => handleOpenPartnerDoc(selectedPartner, "BANK_COPY", "VIEW")}
-                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                        >
-                          <Eye className="w-3 h-3" />
-                          <span>미리보기</span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={docFetching}
-                          onClick={() => handleOpenPartnerDoc(selectedPartner, "BANK_COPY", "DOWNLOAD")}
-                          className="p-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                          title="다운로드"
-                        >
-                          <Download className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-2.5 bg-[#ebe5d8] rounded border border-dashed border-[#b5a894] text-center dark:bg-slate-900 dark:border-slate-800">
-                      <p className="text-[11px] text-[#475569] dark:text-slate-500 mb-1.5">
-                        등록된 통장사본 파일이 없습니다.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => openEditModal(selectedPartner)}
-                        className="px-2.5 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] inline-flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                      >
-                        <Upload className="w-3 h-3" />
-                        <span>통장사본 등록하기</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* 4. 거래처 담당자 및 실물 명함 보관함 */}
-                <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] space-y-2.5 dark:bg-slate-900 dark:border-slate-800">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <CreditCard className="w-3.5 h-3.5 text-[#047857] dark:text-emerald-400" />
-                      <span className="text-[11px] font-bold text-[#047857] dark:text-emerald-400 uppercase tracking-wider">
-                        거래처 담당자 및 명함 ({partnerContacts.length}명)
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={openCreateContactModal}
-                      className="px-2 py-1 bg-[#047857] hover:bg-[#065f46] text-white rounded text-[11px] font-bold flex items-center gap-1 shadow transition"
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>명함·담당자 추가</span>
-                    </button>
-                  </div>
-
-                  {contactsLoading ? (
-                    <div className="p-4 text-center text-[#475569] text-xs">
-                      담당자 정보를 불러오는 중...
-                    </div>
-                  ) : partnerContacts.length === 0 ? (
-                    <div className="p-4 bg-[#ebe5d8] rounded border border-[#b5a894] text-center text-[#475569] text-xs dark:bg-slate-900 dark:border-slate-800">
-                      등록된 거래처 담당자가 없습니다. 상단 버튼으로 명함을 등록하세요.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {partnerContacts.map((c) => (
-                        <div
-                          key={c.id}
-                          className="p-2.5 bg-[#ebe5d8] rounded border border-[#b5a894] flex flex-col gap-1.5 dark:bg-slate-900 dark:border-slate-800"
-                        >
-                          {/* Contact Header */}
-                          <div className="flex items-start justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-xs text-[#0f172a] dark:text-slate-100">
-                                {c.name}
-                              </span>
-                              {(c.position || c.department) && (
-                                <span className="text-[11px] text-[#475569] dark:text-slate-400">
-                                  {c.department ? `${c.department} ` : ""}{c.position || ""}
-                                </span>
-                              )}
-                              {c.isPrimary && (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe]">
-                                  대표담당
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => openEditContactModal(c)}
-                                className="p-1 hover:bg-[#dcd4c4] text-[#475569] rounded dark:hover:bg-slate-800 dark:text-slate-400"
-                                title="수정"
-                              >
-                                <Edit2 className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteContact(c.id, c.name)}
-                                className="p-1 hover:bg-[#fee2e2] text-[#b91c1c] rounded"
-                                title="삭제"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Contact Details */}
-                          <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-[#334155] dark:text-slate-300 font-mono">
-                            {c.mobile && (
-                              <div className="flex items-center gap-1.5 truncate">
-                                <Phone className="w-3 h-3 text-[#047857] shrink-0" />
-                                <span className="truncate">{c.mobile}</span>
-                              </div>
-                            )}
-                            {c.email && (
-                              <div className="flex items-center gap-1.5 truncate">
-                                <Mail className="w-3 h-3 text-[#1d4ed8] shrink-0" />
-                                <span className="truncate">{c.email}</span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Business Card Preview Box */}
-                          {c.businessCardFrontUrl && (
-                            <div className="mt-1 pt-1.5 border-t border-[#c4b6a0] dark:border-slate-800 flex items-center justify-between">
-                              <div className="flex items-center gap-1.5">
-                                <ImageIcon className="w-3.5 h-3.5 text-[#6d28d9]" />
-                                <span className="text-[10px] text-[#475569] font-semibold">
-                                  실물 명함 사진 첨부됨
-                                </span>
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (c.businessCardFrontUrl) {
-                                    setActiveDocument({
-                                      title: `${c.name} ${c.position || "담당자"} 명함`,
-                                      partnerName: selectedPartner.name,
-                                      url: c.businessCardFrontUrl,
-                                      fileName: `${selectedPartner.name}_${c.name}_명함.png`,
-                                    });
-                                  }
-                                }}
-                                className="px-2 py-0.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#6d28d9] rounded border border-[#b5a894] text-[10px] flex items-center gap-1 font-semibold dark:bg-slate-800 dark:border-slate-700"
-                              >
-                                <Eye className="w-2.5 h-2.5" />
-                                <span>명함 확대보기</span>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* 5. 비고 */}
-                {selectedPartner.memo && (
-                  <div className="bg-[#f4efe4] p-3 rounded border border-[#b5a894] text-xs dark:bg-slate-900 dark:border-slate-800">
-                    <span className="text-[10px] text-[#475569] block mb-1">비고 및 특이사항</span>
-                    <p className="text-[#334155] dark:text-slate-300 whitespace-pre-wrap">{selectedPartner.memo}</p>
-                  </div>
-                )}
-              </div>
-            </div>
+          <PartnerDossierPanel
+            contactsLoading={contactsLoading}
+            docFetching={docFetching}
+            dossierBizCertInputRef={dossierBizCertInputRef}
+            dossierBizCertSaving={dossierBizCertSaving}
+            dossierContractInputRef={dossierContractInputRef}
+            dossierContractSaving={dossierContractSaving}
+            dossierMainEmail={dossierMainEmail}
+            dossierSubEmail={dossierSubEmail}
+            editingDossierEmail={editingDossierEmail}
+            handleDeleteContact={handleDeleteContact}
+            handleDeletePartner={handleDeletePartner}
+            handleDossierBizCertDelete={handleDossierBizCertDelete}
+            handleDossierBizCertUpload={handleDossierBizCertUpload}
+            handleDossierContractDelete={handleDossierContractDelete}
+            handleDossierContractUpload={handleDossierContractUpload}
+            handleOpenPartnerDoc={handleOpenPartnerDoc}
+            handleRunSingleNtsCheck={handleRunSingleNtsCheck}
+            handleSaveDossierEmail={handleSaveDossierEmail}
+            isAdmin={isAdmin}
+            isDossierBizCertDragging={isDossierBizCertDragging}
+            isDossierContractDragging={isDossierContractDragging}
+            openCreateContactModal={openCreateContactModal}
+            openEditContactModal={openEditContactModal}
+            openEditModal={openEditModal}
+            partnerContacts={partnerContacts}
+            savingDossierEmail={savingDossierEmail}
+            selectedPartner={selectedPartner}
+            setActiveDocument={setActiveDocument}
+            setDossierMainEmail={setDossierMainEmail}
+            setDossierSubEmail={setDossierSubEmail}
+            setEditingDossierEmail={setEditingDossierEmail}
+            setIsDossierBizCertDragging={setIsDossierBizCertDragging}
+            setIsDossierContractDragging={setIsDossierContractDragging}
+            showToast={showToast}
+            singleNtsCheckingId={singleNtsCheckingId}
+          />
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-[#475569] text-xs p-6 text-center">
               <Building2 className="w-8 h-8 opacity-30 mb-2 text-[#475569]" />
@@ -2650,1517 +2182,149 @@ export const PartnerManagementTab: React.FC<PartnerManagementTabProps> = ({
       {/* 1. Modal: 신규/수정 거래처 폼 (Warm Paper Aesthetic) */}
       {/* ========================================================================= */}
       {showPartnerModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#ebe5d8] border-2 border-[#b5a894] text-[#0f172a] rounded-lg p-5 w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100">
-            {/* Modal Header */}
-            <div className="pb-3 border-b border-[#b5a894] dark:border-slate-800 flex items-center justify-between shrink-0">
-              <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-[#1d4ed8]" />
-                <span>
-                  {partnerModalMode === "CREATE"
-                    ? partnerForm.partnerType === "VENDOR" ? "신규 매입거래처 등록" : "신규 거래처 등록"
-                    : `거래처 정보 수정 (${partnerForm.name})`}
-                </span>
-              </h2>
-              <button
-                onClick={() => setShowPartnerModal(false)}
-                className="text-[#475569] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Modal Form Body */}
-            <form onSubmit={handleSavePartner} className="flex-1 overflow-y-auto py-3 space-y-3.5 text-xs">
-              {/* 구분 & 코드 */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">거래처 구분 *</label>
-                  <select
-                    value={partnerForm.partnerType}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, partnerType: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  >
-                    <option value="CUSTOMER">고객 (매출처)</option>
-                    <option value="VENDOR">매입거래처 (공급처)</option>
-                    <option value="BOTH">고객 및 매입거래처 겸용</option>
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">거래처 코드 (미입력 시 자동 채번)</label>
-                  <input
-                    type="text"
-                    placeholder="예: CUST-2026-001"
-                    value={partnerForm.partnerCode}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, partnerCode: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-              </div>
-
-              {/* 상호 & 사업자번호 & 대표자 */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1 col-span-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">상호명 (법인명) *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="예: (주)한국알피에이"
-                    value={partnerForm.name}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, name: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded font-bold focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1 col-span-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">사업자등록번호</label>
-                  <input
-                    type="text"
-                    placeholder="000-00-00000"
-                    value={partnerForm.businessNo}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, businessNo: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1 col-span-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">대표자 성명</label>
-                  <input
-                    type="text"
-                    placeholder="홍길동"
-                    value={partnerForm.ceoName}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, ceoName: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-              </div>
-
-              {/* 업태 & 종목 */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">업태</label>
-                  <input
-                    type="text"
-                    placeholder="예: 정보통신업, 건설업, 도소매업"
-                    value={partnerForm.bizType}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, bizType: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">종목</label>
-                  <input
-                    type="text"
-                    placeholder="예: 소프트웨어 개발, 컴퓨터시설관리"
-                    value={partnerForm.bizItem}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, bizItem: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-              </div>
-
-              {/* 본사 주소 */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1 col-span-2">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">본사 사업장 소재지 (기본주소)</label>
-                  <input
-                    type="text"
-                    placeholder="예: 서울특별시 송파구 동남로11길 26-11"
-                    value={partnerForm.address}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, address: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1 col-span-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold">상세주소</label>
-                  <input
-                    type="text"
-                    placeholder="예: 3층 301호"
-                    value={partnerForm.addressDetail}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, addressDetail: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-              </div>
-
-              {/* 대표 연락처 & 세금계산서 수신 이메일 (주/부) */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold whitespace-nowrap">본사 대표 전화번호</label>
-                  <input
-                    type="text"
-                    placeholder="02-0000-0000"
-                    value={partnerForm.mainPhone}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, mainPhone: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold whitespace-nowrap">세금계산서 이메일 1 (주 수신)</label>
-                  <input
-                    type="email"
-                    placeholder="tax@company.co.kr"
-                    value={partnerForm.mainEmail}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, mainEmail: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] dark:text-slate-300 font-semibold whitespace-nowrap">세금계산서 이메일 2 (부 수신)</label>
-                  <input
-                    type="email"
-                    placeholder="sub@company.co.kr (선택)"
-                    value={partnerForm.subEmail || ""}
-                    onChange={(e) => setPartnerForm({ ...partnerForm, subEmail: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-              </div>
-
-              {/* 본사 관리 및 정산 마감 조건 설정 */}
-              <div className="p-3 bg-[#e2dbcd] border border-[#b5a894] rounded-lg space-y-3 dark:bg-slate-900 dark:border-slate-700">
-                <span className="text-xs font-bold text-[#1d4ed8] dark:text-blue-400 block pb-1 border-b border-[#b5a894] dark:border-slate-700">
-                  🏛️ 본사 관리 및 정산 약정 설정 (필수 항목)
-                </span>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold">본사의 담당직원 *</label>
-                    <select
-                      value={partnerForm.managerEmployeeId}
-                      onChange={(e) => {
-                        const empId = e.target.value;
-                        const emp = employees.find((x) => String(x.id) === empId);
-                        setPartnerForm({
-                          ...partnerForm,
-                          managerEmployeeId: empId,
-                          managerName: emp ? emp.name : "",
-                        });
-                      }}
-                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] font-semibold dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                    >
-                      <option value="">직접 입력 또는 선택</option>
-                      {employees.map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.name} ({emp.department} {emp.position || ""})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold">거래 상태</label>
-                    <select
-                      value={partnerForm.status}
-                      onChange={(e) => setPartnerForm({ ...partnerForm, status: e.target.value })}
-                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                    >
-                      <option value="ACTIVE">정상 거래 (ACTIVE)</option>
-                      <option value="INACTIVE">거래 중지 (INACTIVE)</option>
-                      <option value="DORMANT">휴면 (DORMANT)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold">거래명세서 마감일 *</label>
-                    <select
-                      value={partnerForm.statementClosingDay}
-                      onChange={(e) => setPartnerForm({ ...partnerForm, statementClosingDay: e.target.value })}
-                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-2 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                    >
-                      <option value="매월 25일">매월 25일 (기본)</option>
-                      <option value="당월말일">당월 말일</option>
-                      <option value="매월 20일">매월 20일</option>
-                      <option value="매월 15일">매월 15일</option>
-                      <option value="수시">수시 (건별)</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold">세금계산서 마감일 *</label>
-                    <select
-                      value={partnerForm.taxInvoiceClosingDay}
-                      onChange={(e) => setPartnerForm({ ...partnerForm, taxInvoiceClosingDay: e.target.value })}
-                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-2 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                    >
-                      <option value="익월 10일">익월 10일 (국세청 기본)</option>
-                      <option value="당월말일">당월 말일</option>
-                      <option value="매월 25일">매월 25일</option>
-                      <option value="수시">수시 (건별)</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold">약정납기일 (결제일) *</label>
-                    <select
-                      value={partnerForm.paymentDueDay}
-                      onChange={(e) => setPartnerForm({ ...partnerForm, paymentDueDay: e.target.value })}
-                      className="bg-[#f4efe4] border border-[#b5a894] text-[#b45309] font-bold px-2 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-amber-300"
-                    >
-                      <option value="익월 15일">익월 15일</option>
-                      <option value="익월말일">익월 말일</option>
-                      <option value="청구 후 30일">청구 후 30일</option>
-                      <option value="당월 25일">당월 25일</option>
-                      <option value="당월말일">당월 말일</option>
-                      <option value="익익월 10일">익익월 10일</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* 대금 지급 계좌 및 통장사본 (매입거래처 / 공급처) */}
-              <div className="p-3 bg-[#e2dbcd] border border-[#b5a894] rounded-lg space-y-3 dark:bg-slate-900 dark:border-slate-700">
-                <div className="flex items-center justify-between pb-1 border-b border-[#b5a894] dark:border-slate-700">
-                  <span className="text-xs font-bold text-[#047857] dark:text-emerald-400 flex items-center gap-1.5">
-                    <Landmark className="w-3.5 h-3.5" />
-                    <span>대금 지급 계좌 및 통장사본 관리 (매입거래처 필수)</span>
-                  </span>
-                  {partnerForm.partnerType === "CUSTOMER" && (
-                    <span className="text-[10px] text-[#475569] dark:text-slate-400">
-                      (고객사는 환불/정산용 계좌 필요 시 입력)
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold">지급 은행</label>
-                    <input
-                      type="text"
-                      list="korean-bank-list"
-                      placeholder="은행명 선택 또는 직접입력"
-                      value={partnerForm.bankName || ""}
-                      onChange={(e) => setPartnerForm({ ...partnerForm, bankName: e.target.value })}
-                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                    />
-                    <datalist id="korean-bank-list">
-                      {KOREAN_BANKS.map((b) => (
-                        <option key={b} value={b} />
-                      ))}
-                    </datalist>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold">계좌번호</label>
-                    <input
-                      type="text"
-                      placeholder="000-000000-00000"
-                      value={partnerForm.bankAccountNo || ""}
-                      onChange={(e) => setPartnerForm({ ...partnerForm, bankAccountNo: e.target.value })}
-                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold">예금주</label>
-                    <input
-                      type="text"
-                      placeholder={partnerForm.name || "상호명 또는 대표자"}
-                      value={partnerForm.bankAccountHolder || ""}
-                      onChange={(e) => setPartnerForm({ ...partnerForm, bankAccountHolder: e.target.value })}
-                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                    />
-                  </div>
-                </div>
-
-                {/* Bank OCR Loading indicator */}
-                {bankOcrLoading && (
-                  <div className="p-2.5 bg-[#ecfdf5] border border-[#a7f3d0] rounded text-[#065f46] flex items-center justify-center gap-2 text-xs font-bold dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 animate-pulse">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>통장사본 AI 판독 중... (은행명, 계좌번호, 예금주 자동 추출)</span>
-                  </div>
-                )}
-
-                {/* 통장사본 드롭존 / 첨부 파일 */}
-                <div className="pt-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[#0f172a] dark:text-slate-200 font-semibold block">
-                      통장사본 원본 파일 (PDF 또는 이미지)
-                    </label>
-                    <span className="text-[10px] text-[#047857] dark:text-emerald-400 font-bold flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" />
-                      <span>AI OCR 자동 입력 지원</span>
-                    </span>
-                  </div>
-                  <input
-                    type="file"
-                    ref={bankCopyInputRef}
-                    accept="image/*,application/pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        handleBankCopyFileUpload(e.target.files[0]);
-                      }
-                    }}
-                  />
-
-                  {partnerForm.bankCopyFileUrl && partnerForm.bankCopyFileUrl !== "__DELETE__" ? (
-                    <div className="p-2.5 bg-[#f4efe4] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-950 dark:border-slate-700">
-                      <div className="flex items-center gap-2 truncate">
-                        <Landmark className="w-4 h-4 text-[#047857] shrink-0" />
-                        <div className="truncate">
-                          <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200 block truncate">
-                            {partnerForm.bankCopyFileName || "통장사본"}
-                          </span>
-                          <span className="text-[10px] text-[#475569] dark:text-slate-500 font-mono">
-                            {isPdfDocument(partnerForm.bankCopyFileUrl, partnerForm.bankCopyFileName) ? "PDF 문서" : "이미지 서류"}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          disabled={bankOcrLoading}
-                          onClick={handleReRunBankOcr}
-                          className="px-2 py-1 bg-[#047857] hover:bg-[#065f46] disabled:opacity-50 text-white rounded text-[11px] font-bold flex items-center gap-1 transition shadow-xs"
-                          title="통장사본 OCR 재판독 및 계좌정보 자동추출"
-                        >
-                          <Sparkles className="w-3 h-3" />
-                          <span>{bankOcrLoading ? "판독 중..." : "OCR 재판독"}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveDocument({
-                              title: "통장사본 원본",
-                              partnerName: partnerForm.name || "거래처",
-                              url: partnerForm.bankCopyFileUrl,
-                              fileName: partnerForm.bankCopyFileName || "통장사본",
-                            });
-                          }}
-                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                        >
-                          <Eye className="w-3 h-3" />
-                          <span>열어보기</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => bankCopyInputRef.current?.click()}
-                          className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                        >
-                          <Upload className="w-3 h-3" />
-                          <span>파일 변경</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPartnerForm({ ...partnerForm, bankCopyFileUrl: "__DELETE__", bankCopyFileName: "", hasBankCopy: false })}
-                          className="p-1 bg-[#fee2e2] hover:bg-[#fecaca] text-[#b91c1c] rounded border border-[#f87171] transition"
-                          title="삭제"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      onClick={() => bankCopyInputRef.current?.click()}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsBankCopyDragging(true);
-                      }}
-                      onDragLeave={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsBankCopyDragging(false);
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsBankCopyDragging(false);
-                        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                          handleBankCopyFileUpload(e.dataTransfer.files[0]);
-                        }
-                      }}
-                      className={`p-3.5 border-2 border-dashed rounded text-center cursor-pointer transition ${
-                        isBankCopyDragging
-                          ? "border-[#047857] bg-[#ecfdf5] dark:bg-emerald-950/40"
-                          : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#ebe5d8] dark:border-slate-700 dark:bg-slate-950"
-                      }`}
-                    >
-                      <Landmark className="w-5 h-5 mx-auto mb-1 text-[#047857] dark:text-emerald-400" />
-                      <p className="text-xs font-semibold text-[#0f172a] dark:text-slate-200">
-                        통장사본 파일을 드래그하여 놓거나 클릭하여 선택
-                      </p>
-                      <p className="text-[10px] text-[#047857] dark:text-emerald-400 font-bold mt-0.5">
-                        ✨ 파일 첨부 즉시 AI OCR로 은행명·계좌번호·예금주 자동 추출 및 채움
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* 사업자등록증 원본 직접 첨부/수정 */}
-              <div className="p-3 bg-[#e2dbcd] border border-[#b5a894] rounded-lg space-y-2 dark:bg-slate-900 dark:border-slate-700">
-                <span className="text-xs font-bold text-[#6d28d9] dark:text-purple-400 flex items-center gap-1.5 pb-1 border-b border-[#b5a894] dark:border-slate-700">
-                  <FileCheck className="w-3.5 h-3.5" />
-                  <span>사업자등록증 원본 서류 관리</span>
-                </span>
-
-                <input
-                  type="file"
-                  ref={directBizCertInputRef}
-                  accept="image/*,application/pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      handleDirectBizCertUpload(e.target.files[0]);
-                    }
-                  }}
-                />
-
-                {partnerForm.bizCertFileUrl && partnerForm.bizCertFileUrl !== "__DELETE__" ? (
-                  <div className="p-2.5 bg-[#f4efe4] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-950 dark:border-slate-700">
-                    <div className="flex items-center gap-2 truncate">
-                      <FileText className="w-4 h-4 text-[#6d28d9] shrink-0" />
-                      <div className="truncate">
-                        <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200 block truncate">
-                          {partnerForm.bizCertFileName || "사업자등록증"}
-                        </span>
-                        <span className="text-[10px] text-[#475569] dark:text-slate-500 font-mono">
-                          {isPdfDocument(partnerForm.bizCertFileUrl, partnerForm.bizCertFileName) ? "PDF 문서" : "이미지 서류"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveDocument({
-                            title: "사업자등록증 원본",
-                            partnerName: partnerForm.name || "거래처",
-                            url: partnerForm.bizCertFileUrl,
-                            fileName: partnerForm.bizCertFileName || "사업자등록증",
-                          });
-                        }}
-                        className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                      >
-                        <Eye className="w-3 h-3" />
-                        <span>열어보기</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => directBizCertInputRef.current?.click()}
-                        className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                      >
-                        <Upload className="w-3 h-3" />
-                        <span>파일 변경</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPartnerForm({ ...partnerForm, bizCertFileUrl: "__DELETE__", bizCertFileName: "", hasBizCert: false })}
-                        className="p-1 bg-[#fee2e2] hover:bg-[#fecaca] text-[#b91c1c] rounded border border-[#f87171] transition"
-                        title="삭제"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    onClick={() => directBizCertInputRef.current?.click()}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsDirectBizCertDragging(true);
-                    }}
-                    onDragLeave={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsDirectBizCertDragging(false);
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsDirectBizCertDragging(false);
-                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                        handleDirectBizCertUpload(e.dataTransfer.files[0]);
-                      }
-                    }}
-                    className={`p-3 border-2 border-dashed rounded text-center cursor-pointer transition ${
-                      isDirectBizCertDragging
-                        ? "border-[#6d28d9] bg-[#f5f3ff] dark:bg-purple-950/40"
-                        : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#ebe5d8] dark:border-slate-700 dark:bg-slate-950"
-                    }`}
-                  >
-                    <FileUp className="w-5 h-5 mx-auto mb-1 text-[#6d28d9] dark:text-purple-400" />
-                    <p className="text-xs font-semibold text-[#0f172a] dark:text-slate-200">
-                      사업자등록증 파일을 드래그하여 놓거나 클릭하여 직접 첨부
-                    </p>
-                    <p className="text-[10px] text-[#475569] dark:text-slate-500 font-mono mt-0.5">
-                      PDF 문서, JPG, PNG 파일 지원
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* 계약서 원본 (PDF) 직접 첨부/수정 */}
-              <div className="p-3 bg-[#e2dbcd] border border-[#b5a894] rounded-lg space-y-2 dark:bg-slate-900 dark:border-slate-700">
-                <span className="text-xs font-bold text-[#1d4ed8] dark:text-blue-400 flex items-center gap-1.5 pb-1 border-b border-[#b5a894] dark:border-slate-700">
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>계약서 원본 서류 관리 (PDF)</span>
-                </span>
-
-                <input
-                  type="file"
-                  ref={directContractInputRef}
-                  accept="application/pdf,.pdf,image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      handleDirectContractUpload(e.target.files[0]);
-                    }
-                    e.target.value = "";
-                  }}
-                />
-
-                {partnerForm.contractFileUrl && partnerForm.contractFileUrl !== "__DELETE__" ? (
-                  <div className="p-2.5 bg-[#f4efe4] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-950 dark:border-slate-700">
-                    <div className="flex items-center gap-2 truncate">
-                      <FileText className="w-4 h-4 text-[#1d4ed8] shrink-0" />
-                      <div className="truncate">
-                        <span className="text-xs font-bold text-[#0f172a] dark:text-slate-200 block truncate">
-                          {partnerForm.contractFileName || "계약서.pdf"}
-                        </span>
-                        <span className="text-[10px] text-[#475569] dark:text-slate-500 font-mono">
-                          {isPdfDocument(partnerForm.contractFileUrl, partnerForm.contractFileName) ? "PDF 문서" : "이미지 서류"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveDocument({
-                            title: "계약서 원본",
-                            partnerName: partnerForm.name || "거래처",
-                            url: partnerForm.contractFileUrl,
-                            fileName: partnerForm.contractFileName || "계약서.pdf",
-                          });
-                        }}
-                        className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                      >
-                        <Eye className="w-3 h-3" />
-                        <span>열어보기</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => directContractInputRef.current?.click()}
-                        className="px-2 py-1 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-[11px] flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                      >
-                        <Upload className="w-3 h-3" />
-                        <span>파일 변경</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPartnerForm({
-                            ...partnerForm,
-                            contractFileUrl: "__DELETE__",
-                            contractFileName: "",
-                            hasContractFile: false,
-                          })
-                        }
-                        className="p-1 bg-[#fee2e2] hover:bg-[#fecaca] text-[#b91c1c] rounded border border-[#f87171] transition"
-                        title="삭제"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    onClick={() => directContractInputRef.current?.click()}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsDirectContractDragging(true);
-                    }}
-                    onDragLeave={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsDirectContractDragging(false);
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsDirectContractDragging(false);
-                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                        handleDirectContractUpload(e.dataTransfer.files[0]);
-                      }
-                    }}
-                    className={`p-3 border-2 border-dashed rounded text-center cursor-pointer transition ${
-                      isDirectContractDragging
-                        ? "border-[#1d4ed8] bg-[#dbeafe] dark:bg-blue-950/40"
-                        : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#ebe5d8] dark:border-slate-700 dark:bg-slate-950"
-                    }`}
-                  >
-                    <FileUp className="w-5 h-5 mx-auto mb-1 text-[#1d4ed8] dark:text-blue-400" />
-                    <p className="text-xs font-semibold text-[#0f172a] dark:text-slate-200">
-                      계약서 PDF 파일을 드래그하여 놓거나 클릭하여 직접 첨부
-                    </p>
-                    <p className="text-[10px] text-[#475569] dark:text-slate-500 font-mono mt-0.5">
-                      PDF 문서, JPG, PNG 파일 지원
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* 비고 */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[#334155] dark:text-slate-300 font-semibold">특이사항 및 메모</label>
-                <textarea
-                  rows={2}
-                  placeholder="거래 특이사항, 취급 품목 등"
-                  value={partnerForm.memo}
-                  onChange={(e) => setPartnerForm({ ...partnerForm, memo: e.target.value })}
-                  className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                />
-              </div>
-
-              {/* Submit Buttons */}
-              <div className="pt-2 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowPartnerModal(false)}
-                  className="px-3.5 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] text-white font-bold rounded shadow transition"
-                >
-                  {partnerModalMode === "CREATE" ? "거래처 등록 완료" : "수정사항 저장"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <PartnerFormModal
+          bankCopyInputRef={bankCopyInputRef}
+          bankOcrLoading={bankOcrLoading}
+          directBizCertInputRef={directBizCertInputRef}
+          directBizCertOcrLoading={directBizCertOcrLoading}
+          directBizCertSuggestion={directBizCertSuggestion}
+          directContractInputRef={directContractInputRef}
+          employees={employees}
+          formNtsChecking={formNtsChecking}
+          handleApplyDirectBizCertSuggestion={handleApplyDirectBizCertSuggestion}
+          handleBankCopyFileUpload={handleBankCopyFileUpload}
+          handleDirectBizCertUpload={handleDirectBizCertUpload}
+          handleDirectContractUpload={handleDirectContractUpload}
+          handleFormCheckNtsStatus={handleFormCheckNtsStatus}
+          handlePartnerFormReRunOcr={handlePartnerFormReRunOcr}
+          handleReRunBankOcr={handleReRunBankOcr}
+          handleSavePartner={handleSavePartner}
+          isBankCopyDragging={isBankCopyDragging}
+          isDirectBizCertDragging={isDirectBizCertDragging}
+          isDirectContractDragging={isDirectContractDragging}
+          partnerForm={partnerForm}
+          partnerModalMode={partnerModalMode}
+          setActiveDocument={setActiveDocument}
+          setDirectBizCertSuggestion={setDirectBizCertSuggestion}
+          setIsBankCopyDragging={setIsBankCopyDragging}
+          setIsDirectBizCertDragging={setIsDirectBizCertDragging}
+          setIsDirectContractDragging={setIsDirectContractDragging}
+          setPartnerForm={setPartnerForm}
+          setShowPartnerModal={setShowPartnerModal}
+        />
       )}
 
       {/* ========================================================================= */}
       {/* 2. Modal: 사업자등록증 OCR 간편등록 모달 (Full Drag-and-Drop & Paper Tone) */}
       {/* ========================================================================= */}
       {showBizCertOcrModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#ebe5d8] border-2 border-[#b5a894] text-[#0f172a] rounded-lg p-5 w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100">
-            {/* Header */}
-            <div className="pb-3 border-b border-[#b5a894] dark:border-slate-800 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <FileUp className="w-4 h-4 text-[#6d28d9] dark:text-purple-400" />
-                <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100">
-                  사업자등록증 자동 인식 및 간편 거래처 등록
-                </h2>
-              </div>
-              <button
-                onClick={() => setShowBizCertOcrModal(false)}
-                className="text-[#475569] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto py-3 space-y-4 text-xs">
-              {/* Spacious Full Drag & Drop Zone (샘플데이터 주입 완전 제거) */}
-              <div
-                onDragOver={handleCertDragOver}
-                onDragEnter={handleCertDragOver}
-                onDragLeave={handleCertDragLeave}
-                onDrop={handleCertDrop}
-                onClick={() => certFileInputRef.current?.click()}
-                className={`p-6 rounded-lg border-2 border-dashed transition cursor-pointer text-center flex flex-col items-center justify-center gap-3 ${
-                  isCertDragging
-                    ? "border-[#1d4ed8] bg-[#dbeafe] scale-[1.01]"
-                    : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#ede6d6] hover:border-[#1d4ed8]"
-                } dark:bg-slate-900 dark:border-slate-700`}
-              >
-                <input
-                  ref={certFileInputRef}
-                  type="file"
-                  accept=".pdf,.png,.jpg,.jpeg"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleBizCertFileUpload(file);
-                  }}
-                />
-
-                <div className="pointer-events-none flex flex-col items-center justify-center gap-3 w-full">
-                  <div className={`p-3 rounded-full ${isCertDragging ? "bg-[#1d4ed8] text-white" : "bg-[#e2dbcd] text-[#6d28d9] dark:bg-slate-800 dark:text-purple-400"}`}>
-                    <FileUp className="w-8 h-8" />
-                  </div>
-
-                  <div>
-                    <span className="font-bold text-sm text-[#0f172a] dark:text-slate-100 block mb-1">
-                      {isCertDragging
-                        ? "여기에 사업자등록증 파일을 내려놓으세요!"
-                        : "사업자등록증 파일을 여기로 드래그 앤 드롭하세요"}
-                    </span>
-                    <p className="text-xs text-[#475569] dark:text-slate-400">
-                      PDF, PNG, JPG 파일을 마우스로 끌어다 놓거나, 클릭하여 파일을 선택할 수 있습니다.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 bg-[#1d4ed8] text-white rounded font-bold text-xs shadow-xs hover:bg-[#1e40af]">
-                      파일 선택
-                    </span>
-                    {ocrFileName && (
-                      <span className="text-xs font-mono text-[#6d28d9] font-bold">
-                        선택됨: {ocrFileName}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* OCR Loading Indicator */}
-              {ocrLoading && (
-                <div className="p-6 bg-[#f4efe4] rounded border border-[#b5a894] text-center text-[#6d28d9] flex flex-col items-center justify-center gap-2 dark:bg-slate-950 dark:border-slate-800">
-                  <RefreshCw className="w-5 h-5 animate-spin" />
-                  <span className="font-bold">사업자등록증 문서를 정밀 분석하고 있습니다...</span>
-                </div>
-              )}
-
-              {/* OCR Parsing Result Preview (Editable) */}
-              {ocrResult && !ocrLoading && (
-                <div className="p-4 bg-[#f4efe4] rounded-lg border border-[#b5a894] space-y-3 dark:bg-slate-950 dark:border-slate-800">
-                  <div className="flex items-center justify-between pb-2 border-b border-[#b5a894] dark:border-slate-800">
-                    <div className="flex items-center gap-2">
-                      <FileCheck className="w-4 h-4 text-[#047857]" />
-                      <strong className="text-[#0f172a] text-sm dark:text-slate-200">
-                        {ocrResult.name || "상호명 확인 필요"}
-                      </strong>
-                      <span className="text-xs font-mono text-[#6d28d9] font-bold">
-                        [{ocrResult.businessNo || "사업자번호 확인 필요"}]
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {ocrPreviewFileUrl && ocrPreviewFileUrl.startsWith("data:image/") && (
-                        <button
-                          type="button"
-                          onClick={() => setZoomImageUrl(ocrPreviewFileUrl)}
-                          className="text-[11px] font-bold text-[#1d4ed8] hover:underline"
-                        >
-                          원본 미리보기
-                        </button>
-                      )}
-                      <span className="text-[11px] font-bold text-[#047857] bg-[#ecfdf5] px-2 py-0.5 rounded border border-[#a7f3d0]">
-                        분석 완료
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-xs">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">상호명 (법인명)</label>
-                      <input
-                        type="text"
-                        value={ocrResult.name || ""}
-                        onChange={(e) => setOcrResult({ ...ocrResult, name: e.target.value })}
-                        placeholder="상호명 입력"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-bold focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">사업자등록번호</label>
-                      <input
-                        type="text"
-                        value={ocrResult.businessNo || ""}
-                        onChange={(e) => setOcrResult({ ...ocrResult, businessNo: e.target.value })}
-                        placeholder="000-00-00000"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono font-bold focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">대표자 성명</label>
-                      <input
-                        type="text"
-                        value={ocrResult.ceoName || ""}
-                        onChange={(e) => setOcrResult({ ...ocrResult, ceoName: e.target.value })}
-                        placeholder="대표자 성명"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-semibold focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">개업연월일</label>
-                      <input
-                        type="text"
-                        value={ocrResult.openDate || ""}
-                        onChange={(e) => setOcrResult({ ...ocrResult, openDate: e.target.value })}
-                        placeholder="YYYY-MM-DD"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">업태</label>
-                      <input
-                        type="text"
-                        value={ocrResult.bizType || ""}
-                        onChange={(e) => setOcrResult({ ...ocrResult, bizType: e.target.value })}
-                        placeholder="업태"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">종목</label>
-                      <input
-                        type="text"
-                        value={ocrResult.bizItem || ""}
-                        onChange={(e) => setOcrResult({ ...ocrResult, bizItem: e.target.value })}
-                        placeholder="종목"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                    </div>
-                    <div className="col-span-2 flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">본사 사업장 소재지</label>
-                      <input
-                        type="text"
-                        value={ocrResult.address || ""}
-                        onChange={(e) => setOcrResult({ ...ocrResult, address: e.target.value })}
-                        placeholder="사업장 소재지"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">세금계산서 전용 이메일</label>
-                      <input
-                        type="text"
-                        value={ocrResult.email || ""}
-                        onChange={(e) => setOcrResult({ ...ocrResult, email: e.target.value })}
-                        placeholder="tax@company.co.kr"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#1d4ed8] px-2.5 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-blue-300"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">법인등록번호 / 전화번호</label>
-                      <input
-                        type="text"
-                        value={ocrResult.corporateNo || ocrResult.mainPhone || ""}
-                        onChange={(e) => setOcrResult({ ...ocrResult, corporateNo: e.target.value })}
-                        placeholder="-"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Footer Buttons */}
-            <div className="pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowBizCertOcrModal(false)}
-                className="px-3.5 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-xs font-semibold dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-              >
-                닫기
-              </button>
-              <button
-                type="button"
-                disabled={!ocrResult}
-                onClick={handleApplyOcrToForm}
-                className="px-4 py-1.5 bg-[#1d4ed8] hover:bg-[#1e40af] disabled:opacity-50 text-white font-bold rounded shadow text-xs flex items-center gap-1.5"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>이 정보로 거래처 등록 양식 채우기</span>
-              </button>
-            </div>
-          </div>
-        </div>
+        <BizCertOcrModal
+          certFileInputRef={certFileInputRef}
+          handleApplyOcrToForm={handleApplyOcrToForm}
+          handleBizCertFileUpload={handleBizCertFileUpload}
+          handleCertDragLeave={handleCertDragLeave}
+          handleCertDragOver={handleCertDragOver}
+          handleCertDrop={handleCertDrop}
+          isCertDragging={isCertDragging}
+          ocrFileName={ocrFileName}
+          ocrLoading={ocrLoading}
+          ocrNtsStatus={ocrNtsStatus}
+          ocrPreviewThumbUrl={ocrPreviewThumbUrl}
+          ocrResult={ocrResult}
+          setOcrResult={setOcrResult}
+          setShowBizCertOcrModal={setShowBizCertOcrModal}
+          setZoomImageUrl={setZoomImageUrl}
+        />
       )}
 
       {/* ========================================================================= */}
       {/* 2-2. Modal: 통장사본 OCR 간편등록 모달 (Bank Copy Drag-and-Drop & Paper Tone) */}
       {/* ========================================================================= */}
       {showBankOcrModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#ebe5d8] border-2 border-[#b5a894] text-[#0f172a] rounded-lg p-5 w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100">
-            {/* Header */}
-            <div className="pb-3 border-b border-[#b5a894] dark:border-slate-800 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <Landmark className="w-4 h-4 text-[#047857] dark:text-emerald-400" />
-                <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100">
-                  통장사본 자동 인식 및 간편 매입거래처 등록
-                </h2>
-              </div>
-              <button
-                onClick={() => setShowBankOcrModal(false)}
-                className="text-[#475569] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto py-3 space-y-4 text-xs">
-              {/* Spacious Full Drag & Drop Zone */}
-              <div
-                onDragOver={handleBankOcrDragOver}
-                onDragEnter={handleBankOcrDragOver}
-                onDragLeave={handleBankOcrDragLeave}
-                onDrop={handleBankOcrDrop}
-                onClick={() => bankOcrModalFileInputRef.current?.click()}
-                className={`p-6 rounded-lg border-2 border-dashed transition cursor-pointer text-center flex flex-col items-center justify-center gap-3 ${
-                  isBankOcrModalDragging
-                    ? "border-[#047857] bg-[#ecfdf5] scale-[1.01]"
-                    : "border-[#b5a894] bg-[#f4efe4] hover:bg-[#ede6d6] hover:border-[#047857]"
-                } dark:bg-slate-900 dark:border-slate-700`}
-              >
-                <input
-                  ref={bankOcrModalFileInputRef}
-                  type="file"
-                  accept=".pdf,.png,.jpg,.jpeg"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleBankModalFileUpload(file);
-                  }}
-                />
-
-                <div className="pointer-events-none flex flex-col items-center justify-center gap-3 w-full">
-                  <div
-                    className={`p-3 rounded-full ${
-                      isBankOcrModalDragging
-                        ? "bg-[#047857] text-white"
-                        : "bg-[#e2dbcd] text-[#047857] dark:bg-slate-800 dark:text-emerald-400"
-                    }`}
-                  >
-                    <Landmark className="w-8 h-8" />
-                  </div>
-
-                  <div>
-                    <span className="font-bold text-sm text-[#0f172a] dark:text-slate-100 block mb-1">
-                      {isBankOcrModalDragging
-                        ? "여기에 통장사본 파일을 내려놓으세요!"
-                        : "통장사본 파일을 여기로 드래그 앤 드롭하세요"}
-                    </span>
-                    <p className="text-xs text-[#475569] dark:text-slate-400">
-                      은행명, 계좌번호, 예금주를 AI OCR로 자동 분석하여 매입거래처 양식에 채워 넣습니다.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 bg-[#047857] text-white rounded font-bold text-xs shadow-xs hover:bg-[#065f46]">
-                      파일 선택
-                    </span>
-                    {bankOcrFileName && (
-                      <span className="text-xs font-mono text-[#047857] font-bold">
-                        선택됨: {bankOcrFileName}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* OCR Loading Indicator */}
-              {bankOcrLoading && (
-                <div className="p-6 bg-[#f4efe4] rounded border border-[#b5a894] text-center text-[#047857] flex flex-col items-center justify-center gap-2 dark:bg-slate-950 dark:border-slate-800">
-                  <RefreshCw className="w-5 h-5 animate-spin" />
-                  <span className="font-bold">통장사본을 정밀 분석하여 계좌 정보를 추출하고 있습니다...</span>
-                </div>
-              )}
-
-              {/* OCR Parsing Result Preview (Editable) */}
-              {bankOcrResult && !bankOcrLoading && (
-                <div className="p-4 bg-[#f4efe4] rounded-lg border border-[#b5a894] space-y-3 dark:bg-slate-950 dark:border-slate-800">
-                  <div className="flex items-center justify-between pb-2 border-b border-[#b5a894] dark:border-slate-800">
-                    <div className="flex items-center gap-2">
-                      <Landmark className="w-4 h-4 text-[#047857]" />
-                      <strong className="text-[#0f172a] text-sm dark:text-slate-200">
-                        {bankOcrResult.bankName || "은행 확인 필요"}
-                      </strong>
-                      <span className="text-xs font-mono text-[#1d4ed8] font-bold">
-                        [{bankOcrResult.bankAccountNo || "계좌번호 확인 필요"}]
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {bankOcrPreviewUrl && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveDocument({
-                              title: "통장사본 원본",
-                              partnerName: bankOcrResult.bankAccountHolder || "통장사본",
-                              url: bankOcrPreviewUrl,
-                              fileName: bankOcrFileName,
-                            });
-                          }}
-                          className="text-[11px] font-bold text-[#1d4ed8] hover:underline flex items-center gap-1"
-                        >
-                          <Eye className="w-3 h-3" />
-                          <span>원본 미리보기</span>
-                        </button>
-                      )}
-                      <span className="text-[11px] font-bold text-[#047857] bg-[#ecfdf5] px-2 py-0.5 rounded border border-[#a7f3d0]">
-                        분석 완료
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-xs">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">지급 은행명</label>
-                      <input
-                        type="text"
-                        list="korean-bank-list-modal"
-                        value={bankOcrResult.bankName || ""}
-                        onChange={(e) => setBankOcrResult({ ...bankOcrResult, bankName: e.target.value })}
-                        placeholder="은행명 선택 또는 입력"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-bold focus:outline-none focus:border-[#047857] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                      <datalist id="korean-bank-list-modal">
-                        {KOREAN_BANKS.map((b) => (
-                          <option key={b} value={b} />
-                        ))}
-                      </datalist>
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">계좌번호</label>
-                      <input
-                        type="text"
-                        value={bankOcrResult.bankAccountNo || ""}
-                        onChange={(e) => setBankOcrResult({ ...bankOcrResult, bankAccountNo: e.target.value })}
-                        placeholder="000-00-000000"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono font-bold focus:outline-none focus:border-[#047857] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">예금주 (상호 / 성명)</label>
-                      <input
-                        type="text"
-                        value={bankOcrResult.bankAccountHolder || ""}
-                        onChange={(e) => setBankOcrResult({ ...bankOcrResult, bankAccountHolder: e.target.value })}
-                        placeholder="예금주 입력"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-semibold focus:outline-none focus:border-[#047857] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[#475569] text-[10px] font-semibold">개설 지점 (관리점)</label>
-                      <input
-                        type="text"
-                        value={bankOcrResult.branchName || ""}
-                        onChange={(e) => setBankOcrResult({ ...bankOcrResult, branchName: e.target.value })}
-                        placeholder="지점명 (선택사항)"
-                        className="bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded focus:outline-none focus:border-[#047857] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Footer Buttons */}
-            <div className="pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowBankOcrModal(false)}
-                className="px-3.5 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-xs font-semibold dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-              >
-                닫기
-              </button>
-              <button
-                type="button"
-                disabled={!bankOcrResult}
-                onClick={handleApplyBankOcrToForm}
-                className="px-4 py-1.5 bg-[#047857] hover:bg-[#065f46] disabled:opacity-50 text-white font-bold rounded shadow text-xs flex items-center gap-1.5"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>이 정보로 매입거래처 등록 양식 채우기</span>
-              </button>
-            </div>
-          </div>
-        </div>
+        <BankCopyOcrModal
+          bankOcrFileName={bankOcrFileName}
+          bankOcrLoading={bankOcrLoading}
+          bankOcrModalFileInputRef={bankOcrModalFileInputRef}
+          bankOcrPreviewUrl={bankOcrPreviewUrl}
+          bankOcrResult={bankOcrResult}
+          handleApplyBankOcrToForm={handleApplyBankOcrToForm}
+          handleBankModalFileUpload={handleBankModalFileUpload}
+          handleBankOcrDragLeave={handleBankOcrDragLeave}
+          handleBankOcrDragOver={handleBankOcrDragOver}
+          handleBankOcrDrop={handleBankOcrDrop}
+          isBankOcrModalDragging={isBankOcrModalDragging}
+          setActiveDocument={setActiveDocument}
+          setBankOcrResult={setBankOcrResult}
+          setShowBankOcrModal={setShowBankOcrModal}
+        />
       )}
 
       {/* ========================================================================= */}
       {/* 3. Modal: 거래처 담당자 및 실물 명함 등록 모달 (Warm Paper Tone) */}
       {/* ========================================================================= */}
       {showContactModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#ebe5d8] border-2 border-[#b5a894] text-[#0f172a] rounded-lg p-5 w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100">
-            {/* Header */}
-            <div className="pb-3 border-b border-[#b5a894] dark:border-slate-800 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-[#047857]" />
-                <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100">
-                  {contactModalMode === "CREATE"
-                    ? `[${selectedPartner?.name}] 담당자 및 명함 등록`
-                    : `담당자 정보 수정 (${contactForm.name})`}
-                </h2>
-              </div>
-              <button
-                onClick={() => setShowContactModal(false)}
-                className="text-[#475569] hover:text-[#0f172a] dark:text-slate-400 dark:hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Form Body */}
-            <form onSubmit={handleSaveContact} className="flex-1 overflow-y-auto py-3 space-y-3.5 text-xs">
-              {/* Business Card Photo Upload */}
-              <div className="p-3 bg-[#f4efe4] border border-[#b5a894] rounded-lg space-y-2 dark:bg-slate-900 dark:border-slate-800">
-                <span className="text-xs font-bold text-[#047857] block flex items-center gap-1.5">
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  <span>실물 명함 사진 첨부 및 자동 문자 인식(OCR)</span>
-                </span>
-
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Front Card */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] text-[#334155] font-semibold">명함 앞면 사진</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleCardImageUpload(file, "front");
-                      }}
-                      className="text-xs text-[#0f172a] file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-[#dcd4c4] file:text-[#0f172a]"
-                    />
-                    {contactForm.businessCardFrontUrl && (
-                      <div className="mt-1 relative rounded border border-[#b5a894] overflow-hidden h-20 bg-[#ebe5d8] flex items-center justify-center">
-                        <img
-                          src={contactForm.businessCardFrontUrl}
-                          alt="명함 앞면"
-                          className="h-full object-contain cursor-pointer"
-                          onClick={() => setZoomImageUrl(contactForm.businessCardFrontUrl)}
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Back Card */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] text-[#334155] font-semibold">명함 뒷면 사진 (선택)</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleCardImageUpload(file, "back");
-                      }}
-                      className="text-xs text-[#0f172a] file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-[#dcd4c4] file:text-[#0f172a]"
-                    />
-                    {contactForm.businessCardBackUrl && (
-                      <div className="mt-1 relative rounded border border-[#b5a894] overflow-hidden h-20 bg-[#ebe5d8] flex items-center justify-center">
-                        <img
-                          src={contactForm.businessCardBackUrl}
-                          alt="명함 뒷면"
-                          className="h-full object-contain cursor-pointer"
-                          onClick={() => setZoomImageUrl(contactForm.businessCardBackUrl)}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Contact Details */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] font-semibold">담당자 성명 *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="홍길동"
-                    value={contactForm.name}
-                    onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded font-bold focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] font-semibold">소속 부서 / 직책</label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <input
-                      type="text"
-                      placeholder="구매팀"
-                      value={contactForm.department}
-                      onChange={(e) => setContactForm({ ...contactForm, department: e.target.value })}
-                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                    />
-                    <input
-                      type="text"
-                      placeholder="팀장 / 과장"
-                      value={contactForm.position}
-                      onChange={(e) => setContactForm({ ...contactForm, position: e.target.value })}
-                      className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Mobile & Tel & Email */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] font-semibold">휴대전화 번호</label>
-                  <input
-                    type="text"
-                    placeholder="010-0000-0000"
-                    value={contactForm.mobile}
-                    onChange={(e) => setContactForm({ ...contactForm, mobile: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] font-semibold">직통 유선전화</label>
-                  <input
-                    type="text"
-                    placeholder="02-0000-0000"
-                    value={contactForm.telephone}
-                    onChange={(e) => setContactForm({ ...contactForm, telephone: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#334155] font-semibold">담당자 이메일</label>
-                  <input
-                    type="email"
-                    placeholder="user@partner.co.kr"
-                    value={contactForm.email}
-                    onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-2.5 py-1.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                  />
-                </div>
-              </div>
-
-              {/* Primary Contact Toggle */}
-              <div className="p-2.5 bg-[#f4efe4] rounded border border-[#b5a894] flex items-center justify-between dark:bg-slate-950 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <UserCheck className="w-4 h-4 text-[#1d4ed8]" />
-                  <div>
-                    <span className="font-bold text-[#0f172a] dark:text-slate-200 block text-xs">대표 담당자 지정</span>
-                    <span className="text-[10px] text-[#475569] block">
-                      대장 및 거래명세서 / 세금계산서 수신자로 우선 매핑됩니다.
-                    </span>
-                  </div>
-                </div>
-
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={contactForm.isPrimary}
-                    onChange={(e) => setContactForm({ ...contactForm, isPrimary: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-9 h-5 bg-[#dcd4c4] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-[#b5a894] after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#1d4ed8]"></div>
-                </label>
-              </div>
-
-              {/* Memo */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[#334155] font-semibold">담당 업무 메모</label>
-                <textarea
-                  rows={2}
-                  placeholder="예: RPA 솔루션 계약 및 기술 창구"
-                  value={contactForm.memo}
-                  onChange={(e) => setContactForm({ ...contactForm, memo: e.target.value })}
-                  className="bg-[#f4efe4] border border-[#b5a894] text-[#0f172a] px-3 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
-                />
-              </div>
-
-              {/* Submit Buttons */}
-              <div className="pt-2 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowContactModal(false)}
-                  className="px-3.5 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white font-bold rounded shadow"
-                >
-                  {contactModalMode === "CREATE" ? "명함·담당자 저장" : "수정 완료"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <ContactFormModal
+          contactForm={contactForm}
+          contactModalMode={contactModalMode}
+          handleCardImageUpload={handleCardImageUpload}
+          handleSaveContact={handleSaveContact}
+          selectedPartner={selectedPartner}
+          setContactForm={setContactForm}
+          setShowContactModal={setShowContactModal}
+          setZoomImageUrl={setZoomImageUrl}
+        />
       )}
 
       {/* ========================================================================= */}
-      {/* 4. Modal: 통합 문서 뷰어 (Universal Document Viewer: PDF & 고해상도 이미지) */}
+      {/* 4. Modal: 국세청 휴·폐업 일괄조회 및 거래불가 연동 */}
       {/* ========================================================================= */}
-      {(activeDocument || zoomImageUrl) && (() => {
-        const doc = activeDocument || {
-          title: "서류 원본 보기",
-          partnerName: selectedPartner?.name || "등록 서류",
-          url: zoomImageUrl!,
-          fileName: undefined,
-        };
-        const isPdf = isPdfDocument(doc.url, doc.fileName);
+      {showBizStatusBatchModal && (
+        <BizStatusBatchModal
+          batchAutoBlock={batchAutoBlock}
+          batchLoading={batchLoading}
+          batchResult={batchResult}
+          batchScope={batchScope}
+          handleRunBatchBizStatusCheck={handleRunBatchBizStatusCheck}
+          handleRunSingleNtsCheck={handleRunSingleNtsCheck}
+          ntsSort={ntsSort}
+          partners={partners}
+          setBatchAutoBlock={setBatchAutoBlock}
+          setBatchResult={setBatchResult}
+          setBatchScope={setBatchScope}
+          setSelectedPartner={setSelectedPartner}
+          setShowBizStatusBatchModal={setShowBizStatusBatchModal}
+          singleNtsCheckingId={singleNtsCheckingId}
+          sortedPartners={sortedPartners}
+        />
+      )}
 
-        const handleClose = () => {
-          setActiveDocument(null);
-          setZoomImageUrl(null);
-        };
-
-        const handleOpenNewTab = () => {
-          const win = window.open();
-          if (win) {
-            if (isPdf) {
-              win.document.write(
-                `<iframe src="${doc.url}" style="width:100vw;height:100vh;border:none;margin:0;padding:0;"></iframe>`
-              );
-            } else {
-              win.document.write(
-                `<body style="margin:0;background:#1e293b;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="${doc.url}" style="max-width:100vw;max-height:100vh;object-fit:contain;" /></body>`
-              );
-            }
-          }
-        };
-
-        const handlePrint = () => {
-          const printWin = window.open("", "_blank");
-          if (printWin) {
-            printWin.document.write(`
-              <!DOCTYPE html>
-              <html>
-                <head>
-                  <title>${doc.title} - ${doc.partnerName}</title>
-                  <style>
-                    body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-                    img { max-width: 100%; max-height: 100vh; object-fit: contain; }
-                    iframe { width: 100vw; height: 100vh; border: none; }
-                  </style>
-                </head>
-                <body>
-                  ${
-                    isPdf
-                      ? `<iframe src="${doc.url}"></iframe>`
-                      : `<img src="${doc.url}" onload="window.print();" />`
-                  }
-                </body>
-              </html>
-            `);
-            if (isPdf) {
-              setTimeout(() => printWin.print(), 800);
-            }
-          }
-        };
-
-        return (
-          <div
-            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 md:p-6"
-            onClick={handleClose}
-          >
-            <div
-              className="relative w-full max-w-5xl max-h-[92vh] bg-[#ebe5d8] rounded-lg border-2 border-[#b5a894] shadow-2xl flex flex-col overflow-hidden dark:bg-slate-900 dark:border-slate-800"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="px-4 py-3 bg-[#e2dbcd] border-b border-[#b5a894] flex items-center justify-between shrink-0 dark:bg-slate-800 dark:border-slate-700">
-                <div className="min-w-0 flex items-center gap-2.5">
-                  <div className="p-1.5 bg-[#dcd4c4] rounded border border-[#b5a894] dark:bg-slate-700 dark:border-slate-600">
-                    {isPdf ? (
-                      <FileText className="w-4 h-4 text-[#b91c1c] dark:text-rose-400" />
-                    ) : (
-                      <ImageIcon className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
-                    )}
-                  </div>
-                  <div className="truncate">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 truncate">
-                        {doc.title}
-                      </h3>
-                      <span className="px-1.5 py-0.2 rounded text-[10px] bg-[#dbeafe] text-[#1e40af] border border-[#bfdbfe] font-semibold dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
-                        {doc.partnerName}
-                      </span>
-                    </div>
-                    {doc.fileName && (
-                      <span className="text-[11px] text-[#475569] dark:text-slate-400 font-mono block truncate">
-                        {doc.fileName}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Header Action Buttons */}
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleOpenNewTab}
-                    className="px-2.5 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-xs font-semibold flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                    title="새 탭 열기"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">새 탭 열기</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handlePrint}
-                    className="px-2.5 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-xs font-semibold flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                    title="인쇄"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">인쇄</span>
-                  </button>
-
-                  <a
-                    href={doc.url}
-                    download={doc.fileName || `${doc.title}.png`}
-                    className="px-2.5 py-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] text-xs font-semibold flex items-center gap-1 transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                    title="다운로드"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">다운로드</span>
-                  </a>
-
-                  <button
-                    type="button"
-                    onClick={handleClose}
-                    className="p-1.5 bg-[#dcd4c4] hover:bg-[#d0c6b4] text-[#0f172a] rounded border border-[#b5a894] transition dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
-                    title="닫기"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Viewer Body: PDF Iframe or High-Res Image */}
-              <div className="flex-1 overflow-auto p-3 flex items-center justify-center bg-[#f4efe4] dark:bg-slate-950">
-                {isPdf ? (
-                  <iframe
-                    src={doc.url}
-                    className="w-full h-[76vh] rounded border border-[#b5a894] bg-[#fdfbf7] dark:bg-slate-900 dark:border-slate-800 shadow-sm"
-                    title={doc.title}
-                  />
-                ) : (
-                  <div className="w-full h-full max-h-[76vh] flex items-center justify-center overflow-auto p-2">
-                    <img
-                      src={doc.url}
-                      alt={doc.title}
-                      className="max-h-[72vh] max-w-full object-contain rounded border border-[#b5a894] shadow-md dark:border-slate-800"
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {/* ========================================================================= */}
+      {/* 5. Modal: 통합 문서 뷰어 & 원본 대조 거래처 수정 스튜디오 */}
+      {/* ========================================================================= */}
+      <PartnerDocViewerModal
+        activeDocument={activeDocument}
+        handleViewerFileReplace={handleViewerFileReplace}
+        handleViewerNtsCheck={handleViewerNtsCheck}
+        handleViewerReRunOcr={handleViewerReRunOcr}
+        handleViewerSavePartner={handleViewerSavePartner}
+        isViewerDragging={isViewerDragging}
+        resolvedPdfBlobUrl={resolvedPdfBlobUrl}
+        selectedPartner={selectedPartner}
+        setActiveDocument={setActiveDocument}
+        setIsViewerDragging={setIsViewerDragging}
+        setViewerForm={setViewerForm}
+        setViewerRotation={setViewerRotation}
+        setViewerZoom={setViewerZoom}
+        setZoomImageUrl={setZoomImageUrl}
+        viewerForm={viewerForm}
+        viewerNtsLoading={viewerNtsLoading}
+        viewerOcrLoading={viewerOcrLoading}
+        viewerReplaceFileInputRef={viewerReplaceFileInputRef}
+        viewerRotation={viewerRotation}
+        viewerSaving={viewerSaving}
+        viewerZoom={viewerZoom}
+        zoomImageUrl={zoomImageUrl}
+      />
     </div>
   );
 };

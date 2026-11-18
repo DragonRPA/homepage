@@ -7,15 +7,24 @@ import {
   RefreshCw,
   CheckCircle2,
   Building2,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   AlertCircle,
   Barcode,
   Wrench,
   RotateCcw,
 } from "lucide-react";
-import { formatErpNumber, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import {
+  formatErpNumber,
+  formatErpInputNumber,
+  toErpInputString,
+  cleanErpNumber,
+  sortErpItems,
+  matchHangulAny,
+  AttachedForkliftOption,
+  formatAttachedOptionsSummary,
+  normalizeAttachedOptions,
+} from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
+import { SearchSelectCombobox, SearchSelectOption } from "./SearchSelectCombobox";
 
 interface RentalAssetItem {
   id: number;
@@ -43,6 +52,8 @@ interface RentalAssetItem {
   activeStartDate: string | null;
   activeEndDate: string | null;
   activeMonthlyRate: number;
+  operatingHours?: number;
+  attachedOptions?: AttachedForkliftOption[];
 }
 
 interface InoutLogItem {
@@ -78,13 +89,14 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null);
   const [inboundDate, setInboundDate] = useState<string>(todayStr);
   const [nextStatus, setNextStatus] = useState<"AVAILABLE" | "REPAIRING">("AVAILABLE");
+  const [operatingHours, setOperatingHours] = useState("");
   const [memo, setMemo] = useState("");
 
   // Grid View State
   const [activeView, setActiveView] = useState<"RENTED_ASSETS" | "INBOUND_LOGS">("RENTED_ASSETS");
   const [searchKeyword, setSearchKeyword] = useState("");
-  const [sortKey, setSortKey] = useState<string>("assetNo");
-  const [sortDir, setSortDir] = useState<SortDirection>("asc");
+  const { sortKey, sortDir, handleSort } = useErpTableSort("assetNo", "asc");
+  const logsSort = useErpTableSort("eventDate", "desc");
 
   // Feedback Banner
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(
@@ -174,16 +186,51 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
 
   // Candidate list when typing partial query
   const candidateMatches = useMemo(() => {
-    const q = lookupInput.trim().toUpperCase();
+    const q = lookupInput.trim();
     if (!q) return [];
     return assets
-      .filter(
-        (a) =>
-          (a.assetNo && a.assetNo.toUpperCase().includes(q)) ||
-          (a.serialNo && a.serialNo.toUpperCase().includes(q))
+      .filter((a) =>
+        matchHangulAny(
+          [
+            a.assetNo,
+            a.serialNo,
+            a.modelName,
+            a.activeCustomerName,
+            a.currentCustomer,
+            a.activeSiteName,
+            a.currentSite,
+          ],
+          q
+        )
       )
       .slice(0, 6);
   }, [assets, lookupInput]);
+
+  const rentedAssetComboboxOptions = useMemo<SearchSelectOption[]>(() => {
+    const sorted = [...assets].sort((a, b) => {
+      if (a.status === "RENTED" && b.status !== "RENTED") return -1;
+      if (a.status !== "RENTED" && b.status === "RENTED") return 1;
+      return String(a.assetNo || "").localeCompare(String(b.assetNo || ""));
+    });
+    return sorted.map((a) => {
+      const cust = a.activeCustomerName || a.currentCustomer || "";
+      const site = a.activeSiteName || a.currentSite || "";
+      return {
+        value: String(a.id),
+        label: `${a.assetNo}${a.modelName ? ` · ${a.modelName}` : ""}`,
+        subLabel: [
+          cust ? `고객: ${cust}` : null,
+          site ? `현장: ${site}` : null,
+          `S/N: ${a.serialNo || "-"}`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        badgeText: a.status === "RENTED" ? "대여중" : a.status,
+        badgeColor: a.status === "RENTED" ? "amber" : "slate",
+        searchKeywords: [a.assetNo, a.serialNo, a.modelName, a.modelCode, cust, site],
+      };
+    });
+  }, [assets]);
 
   // Derived auto-filled customer & contract info
   const autoCustomerName = useMemo(() => {
@@ -204,17 +251,19 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
   const handleSelectRentedAsset = (asset: RentalAssetItem) => {
     setSelectedAssetId(asset.id);
     setLookupInput(asset.assetNo || asset.serialNo || "");
+    setOperatingHours(asset.operatingHours ? toErpInputString(asset.operatingHours) : "");
   };
 
   const handleInboundSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!matchedAsset && !lookupInput.trim()) {
-      showFeedback("자산번호 또는 제조번호(S/N)를 입력해 주십시오.", "error");
+      showFeedback("자산번호 또는 차대번호(S/N)를 입력해 주십시오.", "error");
       return;
     }
 
     setSubmitting(true);
     try {
+      const parsedHours = operatingHours.trim() ? cleanErpNumber(operatingHours) : undefined;
       const res = await fetch("/api/erp/inout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -224,6 +273,7 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
           queryKey: lookupInput.trim(),
           inboundDate,
           nextStatus,
+          operatingHours: parsedHours,
           memo: memo.trim(),
           actorName: currentUser?.name || "입고담당자",
         }),
@@ -265,6 +315,7 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
 
       setLookupInput("");
       setSelectedAssetId(null);
+      setOperatingHours("");
       setMemo("");
       setActiveView("INBOUND_LOGS");
       await fetchData();
@@ -275,59 +326,54 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
     }
   };
 
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
-
   const renderSortHeader = (
     label: string,
     colKey: string,
     align: "left" | "right" | "center" = "left"
   ) => (
-    <th
-      onClick={() => handleSort(colKey)}
-      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none transition ${
-        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
-      } hover:bg-[#d0c6b4] dark:hover:bg-slate-800/60`}
-    >
-      <div
-        className={`inline-flex items-center gap-1 ${
-          align === "right"
-            ? "justify-end"
-            : align === "center"
-            ? "justify-center"
-            : "justify-start"
-        }`}
-      >
-        <span>{label}</span>
-        {sortKey === colKey ? (
-          sortDir === "asc" ? (
-            <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold shrink-0" />
-          ) : (
-            <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold shrink-0" />
-          )
-        ) : (
-          <ArrowUpDown className="w-3.5 h-3.5 opacity-30 shrink-0" />
-        )}
-      </div>
-    </th>
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-800/60"
+      iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+    />
+  );
+
+  const renderLogSortHeader = (
+    label: string,
+    colKey: string,
+    align: "left" | "right" | "center" = "left"
+  ) => (
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={logsSort.sortKey}
+      sortDir={logsSort.sortDir}
+      onSort={logsSort.handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-800/60"
+      iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+    />
   );
 
   const sortedRentedAssets = useMemo(() => {
     const list = rentedAssets.filter((a) => {
       if (!searchKeyword.trim()) return true;
-      const q = searchKeyword.trim().toLowerCase();
-      return (
-        (a.assetNo || "").toLowerCase().includes(q) ||
-        (a.serialNo || "").toLowerCase().includes(q) ||
-        (a.modelName || "").toLowerCase().includes(q) ||
-        (a.activeCustomerName || a.currentCustomer || "").toLowerCase().includes(q) ||
-        (a.activeSiteName || a.currentSite || "").toLowerCase().includes(q)
+      return matchHangulAny(
+        [
+          a.assetNo,
+          a.serialNo,
+          a.modelName,
+          a.activeCustomerName,
+          a.currentCustomer,
+          a.activeSiteName,
+          a.currentSite,
+        ],
+        searchKeyword
       );
     });
     return sortErpItems(list, sortKey, sortDir);
@@ -336,16 +382,13 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
   const sortedInboundLogs = useMemo(() => {
     const list = inboundLogs.filter((l) => {
       if (!searchKeyword.trim()) return true;
-      const q = searchKeyword.trim().toLowerCase();
-      return (
-        (l.assetNo || "").toLowerCase().includes(q) ||
-        (l.serialNo || "").toLowerCase().includes(q) ||
-        (l.customerName || "").toLowerCase().includes(q) ||
-        (l.modelName || "").toLowerCase().includes(q)
+      return matchHangulAny(
+        [l.assetNo, l.serialNo, l.customerName, l.modelName, l.siteName],
+        searchKeyword
       );
     });
-    return sortErpItems(list, sortKey, sortDir);
-  }, [inboundLogs, searchKeyword, sortKey, sortDir]);
+    return sortErpItems(list, logsSort.sortKey, logsSort.sortDir);
+  }, [inboundLogs, searchKeyword, logsSort.sortKey, logsSort.sortDir]);
 
   return (
     <div className="space-y-4 font-sans text-[#0f172a] dark:text-slate-100">
@@ -424,59 +467,33 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
             </span>
           </div>
 
-          {/* 1. 자산번호 또는 제조번호 입력칸 */}
+          {/* 1. 자산번호·제조번호·고객사 검색 및 선택 */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-[#334155] dark:text-slate-200 whitespace-nowrap">
-              자산번호 또는 제조번호(S/N) 입력 *
-            </label>
-            <div className="relative">
-              <Search className="w-4 h-4 text-[#475569] dark:text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                list="inbound-asset-datalist"
-                value={lookupInput}
-                onChange={(e) => {
-                  setLookupInput(e.target.value);
+            <SearchSelectCombobox
+              label="자산번호 또는 제조번호(S/N)"
+              required
+              size="md"
+              allowFreeText
+              clearable
+              showChosungBar
+              options={rentedAssetComboboxOptions}
+              value={selectedAssetId ? String(selectedAssetId) : ""}
+              freeTextValue={lookupInput}
+              onFreeTextChange={(val) => {
+                setLookupInput(val);
+                setSelectedAssetId(null);
+              }}
+              onChange={(idVal) => {
+                if (!idVal) {
+                  setLookupInput("");
                   setSelectedAssetId(null);
-                }}
-                placeholder="자산번호(예: RNT-0001) 또는 제조번호(S/N) 입력"
-                className="w-full pl-9 pr-16 py-2.5 bg-[#ebe5d8] border-2 border-[#1d4ed8]/60 focus:border-[#1d4ed8] rounded-lg text-xs text-[#0f172a] font-mono font-bold focus:outline-none dark:bg-slate-950 dark:border-blue-500/60 dark:focus:border-blue-400 dark:text-white"
-              />
-              {lookupInput && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLookupInput("");
-                    setSelectedAssetId(null);
-                  }}
-                  className="absolute right-2.5 top-2 px-2 py-0.5 rounded bg-[#dcd4c4] text-[11px] text-[#0f172a] hover:bg-[#d0c6b4] border border-[#b5a894] dark:bg-slate-800 dark:text-slate-300 dark:hover:text-white dark:border-transparent"
-                >
-                  초기화
-                </button>
-              )}
-              <datalist id="inbound-asset-datalist">
-                {rentedAssets.map((a) => (
-                  <option
-                    key={`dl-${a.id}`}
-                    value={a.assetNo}
-                    label={`[대여중: ${a.activeCustomerName || a.currentCustomer || "-"}] ${
-                      a.modelName || ""
-                    } (S/N: ${a.serialNo || "-"})`}
-                  />
-                ))}
-                {rentedAssets
-                  .filter((a) => a.serialNo)
-                  .map((a) => (
-                    <option
-                      key={`dl-sn-${a.id}`}
-                      value={a.serialNo}
-                      label={`[자산번호: ${a.assetNo}] 고객: ${
-                        a.activeCustomerName || a.currentCustomer || "-"
-                      } (${a.modelName || ""})`}
-                    />
-                  ))}
-              </datalist>
-            </div>
+                  return;
+                }
+                const found = assets.find((a) => String(a.id) === idVal);
+                if (found) handleSelectRentedAsset(found);
+              }}
+              placeholder="자산번호·제조번호·고객사명·초성 검색"
+            />
 
             {/* Quick Candidate Chips if multiple matches */}
             {candidateMatches.length > 1 && (
@@ -627,10 +644,37 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
                 />
               </div>
             </div>
+
+            {matchedAsset && (
+              <div className="pt-2 border-t border-[#b5a894]/70 dark:border-slate-800 flex flex-col gap-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-[#475569] dark:text-slate-400">부착옵션 회수 확인</span>
+                  <span className="font-mono text-[#57534e] dark:text-slate-400">
+                    기존 가동시간: {formatErpNumber(matchedAsset.operatingHours || 0)} hr
+                  </span>
+                </div>
+                {normalizeAttachedOptions(matchedAsset.attachedOptions).length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {normalizeAttachedOptions(matchedAsset.attachedOptions).map((opt, idx) => (
+                      <span
+                        key={idx}
+                        className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-[11px] font-semibold"
+                      >
+                        {opt.optionName} ×{opt.qty}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-[11px] text-[#78716c] dark:text-slate-500">
+                    등록된 부착옵션 없음
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* 3. 입고 일자 & 입고 후 상태 선택 */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* 3. 입고 일자 & 입고 후 상태 & 반납 가동시간 입력 */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
                 입고 일자 (청구 마감일) *
@@ -656,6 +700,20 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
                 <option value="AVAILABLE">임대가능 (즉시 재출고 가능)</option>
                 <option value="REPAIRING">정비/수리중 (점검 필요)</option>
               </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-[#334155] dark:text-slate-300 whitespace-nowrap">
+                반납 가동시간 (hr)
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={operatingHours}
+                onChange={(e) => setOperatingHours(formatErpInputNumber(e.target.value))}
+                placeholder={matchedAsset?.operatingHours ? formatErpNumber(matchedAsset.operatingHours) : "예: 1,250"}
+                className="w-full px-3 py-2 bg-[#ebe5d8] border border-[#b5a894] rounded-lg text-xs text-[#0f172a] font-mono font-bold text-right focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-700 dark:text-white"
+              />
             </div>
           </div>
 
@@ -794,7 +852,17 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
                           </td>
                           <td className="py-2 px-3 text-[#334155] dark:text-slate-300 whitespace-nowrap">{site}</td>
                           <td className="py-2 px-3 text-[#0f172a] dark:text-white whitespace-nowrap">
-                            {a.modelName || "-"}
+                            <div className="inline-flex items-center gap-1.5">
+                              <span>{a.modelName || "-"}</span>
+                              {normalizeAttachedOptions(a.attachedOptions).length > 0 && (
+                                <span
+                                  className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-[10px] font-bold"
+                                  title={formatAttachedOptionsSummary(a.attachedOptions)}
+                                >
+                                  옵션 {normalizeAttachedOptions(a.attachedOptions).length}종
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-2 px-3 font-mono text-center text-[#334155] dark:text-slate-300 whitespace-nowrap">
                             {a.activeStartDate || "-"}
@@ -812,13 +880,13 @@ export function InboundRegTab({ currentUser }: { currentUser?: any }) {
               <table className="w-full text-xs text-left border-collapse">
                 <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800">
                   <tr>
-                    {renderSortHeader("입고일자", "eventDate", "center")}
-                    {renderSortHeader("자산번호", "assetNo")}
-                    {renderSortHeader("제조번호(S/N)", "serialNo")}
-                    {renderSortHeader("기종 모델명", "modelName")}
-                    {renderSortHeader("입고 고객사(회수처)", "customerName")}
-                    {renderSortHeader("현장명", "siteName")}
-                    {renderSortHeader("비고", "memo")}
+                    {renderLogSortHeader("입고일자", "eventDate", "center")}
+                    {renderLogSortHeader("자산번호", "assetNo")}
+                    {renderLogSortHeader("제조번호(S/N)", "serialNo")}
+                    {renderLogSortHeader("기종 모델명", "modelName")}
+                    {renderLogSortHeader("입고 고객사(회수처)", "customerName")}
+                    {renderLogSortHeader("현장명", "siteName")}
+                    {renderLogSortHeader("비고", "memo")}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/70">

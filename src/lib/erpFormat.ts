@@ -227,6 +227,21 @@ export function formatErpInputNumber(rawInput: string | number): string {
 }
 
 /**
+ * 부호(+/-) 포함 숫자 입력 실시간 천단위 콤마 포맷팅 헬퍼
+ */
+export function formatErpSignedInputNumber(rawInput: string | number): string {
+  if (rawInput === null || rawInput === undefined || rawInput === "") return "";
+  const str = String(rawInput).trim();
+  const isNeg = str.startsWith("-");
+  const digits = str.replace(/[^0-9]/g, "");
+  if (!digits) return isNeg ? "-" : "";
+  const num = parseInt(digits, 10);
+  if (isNaN(num)) return "";
+  const formatted = num.toLocaleString("ko-KR");
+  return isNeg ? `-${formatted}` : formatted;
+}
+
+/**
  * DB에서 가져온 값(예: '2700000.00' 등 소수점 포함)을 입력창용 천단위 콤마 정수 문자열(예: '2,700,000')로 변환
  */
 export function toErpInputString(val: string | number | null | undefined): string {
@@ -267,44 +282,126 @@ export function formatErpQty(val: number | string | null | undefined, unit: stri
   return unit ? `${formatted} ${unit}` : formatted;
 }
 
-export type SortDirection = "asc" | "desc";
+export type SortDirection = "asc" | "desc" | null;
 
 export interface SortState<T = string> {
   key: T;
   direction: SortDirection;
 }
 
+export interface ErpSortState {
+  key: string;
+  dir: SortDirection;
+}
+
 /**
- * 제네릭 컬럼 정렬 헬퍼
+ * 3단계 정렬 순환 헬퍼 (오름차순 ➔ 내림차순 ➔ 정렬안함)
+ */
+export function cycleErpSort(
+  currentKey: string,
+  currentDir: SortDirection,
+  clickedKey: string
+): ErpSortState {
+  if (!currentKey || currentKey !== clickedKey || !currentDir) {
+    return { key: clickedKey, dir: "asc" };
+  }
+  if (currentDir === "asc") {
+    return { key: clickedKey, dir: "desc" };
+  }
+  return { key: "", dir: null };
+}
+
+function resolveSortFieldValue(item: any, sortKey: string): unknown {
+  if (item === null || item === undefined || !sortKey) return "";
+  if (Object.prototype.hasOwnProperty.call(item, sortKey)) {
+    return item[sortKey];
+  }
+  if (sortKey.includes(".")) {
+    let cur: any = item;
+    for (const part of sortKey.split(".")) {
+      if (cur === null || cur === undefined) return "";
+      cur = cur[part];
+    }
+    return cur;
+  }
+  return item[sortKey];
+}
+
+function parseSortableNumber(val: unknown): number | null {
+  if (typeof val === "number") {
+    return Number.isFinite(val) ? val : null;
+  }
+  if (typeof val !== "string") return null;
+  const trimmed = val.trim();
+  if (!trimmed || trimmed === "-") return null;
+
+  // 순수 정수/실수
+  if (/^[+-]?\d+(?:\.\d+)?$/.test(trimmed)) {
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // 통화/천단위 콤마/단위 접미사 문자열 (날짜 2026-11-15, 사업자번호, 코드류 오인 방지)
+  if (/^[+-]?[₩$]?\s*\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*(?:[%원개대건회일h]|hr|EA|개월)?$/i.test(trimmed) ||
+      /^[+-]?[₩$]\s*\d+(?:,\d{3})*(?:\.\d+)?$/.test(trimmed) ||
+      /^[+-]?\d+(?:\.\d+)?\s*(?:%|일|h|hr|건|개|대|원)$/i.test(trimmed)) {
+    const cleaned = trimmed.replace(/[₩$,\s원개대건회일h개월a-zA-Z%]/g, "");
+    const n = Number(cleaned);
+    return cleaned !== "" && Number.isFinite(n) ? n : null;
+  }
+
+  return null;
+}
+
+/**
+ * 제네릭 컬럼 3단계 정렬 헬퍼 (direction === null 또는 sortKey === "" 시 원본 조회 순서 유지)
  */
 export function sortErpItems<T>(
   items: T[],
   sortKey: keyof T | string,
-  direction: SortDirection
+  direction: SortDirection,
+  customAccessor?: (item: T, key: string) => unknown
 ): T[] {
-  if (!sortKey) return items;
+  const keyStr = String(sortKey || "");
+  if (!keyStr || !direction) return items;
 
-  return [...items].sort((a: any, b: any) => {
-    let aVal = a[sortKey];
-    let bVal = b[sortKey];
+  return [...items].sort((a: T, b: T) => {
+    let aVal = customAccessor ? customAccessor(a, keyStr) : resolveSortFieldValue(a, keyStr);
+    let bVal = customAccessor ? customAccessor(b, keyStr) : resolveSortFieldValue(b, keyStr);
 
-    // Handle null/undefined
     if (aVal === null || aVal === undefined) aVal = "";
     if (bVal === null || bVal === undefined) bVal = "";
 
-    // Numeric comparison
-    const aNum = Number(aVal);
-    const bNum = Number(bVal);
-    if (!isNaN(aNum) && !isNaN(bNum) && typeof aVal !== "boolean" && typeof bVal !== "boolean" && aVal !== "" && bVal !== "") {
+    // Empty / placeholder values always sink cleanly when sorted
+    const aEmpty = aVal === "";
+    const bEmpty = bVal === "";
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
+
+    // Boolean comparison
+    if (typeof aVal === "boolean" && typeof bVal === "boolean") {
+      if (aVal === bVal) return 0;
+      return direction === "asc" ? (aVal ? 1 : -1) : aVal ? -1 : 1;
+    }
+
+    // Numeric comparison (raw numbers & formatted currency/percent/unit strings)
+    const aNum = parseSortableNumber(aVal);
+    const bNum = parseSortableNumber(bVal);
+    if (aNum !== null && bNum !== null) {
       return direction === "asc" ? aNum - bNum : bNum - aNum;
     }
 
     // Date comparison (YYYY-MM-DD...)
     if (typeof aVal === "string" && typeof bVal === "string") {
-      const aDate = Date.parse(aVal);
-      const bDate = Date.parse(bVal);
-      if (!isNaN(aDate) && !isNaN(bDate) && aVal.length >= 8 && bVal.length >= 8) {
-        return direction === "asc" ? aDate - bDate : bDate - aDate;
+      const aDateMatch = /^\d{4}-\d{2}-\d{2}/.test(aVal.trim());
+      const bDateMatch = /^\d{4}-\d{2}-\d{2}/.test(bVal.trim());
+      if (aDateMatch && bDateMatch) {
+        const aDate = Date.parse(aVal);
+        const bDate = Date.parse(bVal);
+        if (!isNaN(aDate) && !isNaN(bDate)) {
+          return direction === "asc" ? aDate - bDate : bDate - aDate;
+        }
       }
     }
 
@@ -675,12 +772,54 @@ export interface ServiceEmployeeProRataResult {
   isAfterLeft: boolean;
   formulaLabel: string;
   shortBadge: string;
+  workWeekdays: number;
+  paidWeeklyHolidayDays: number;
+  paidDays: number;
+  paidHours: number;
+  standardMonthlyHours: number;
+  weeklyHolidayEligible: boolean;
+  weeklyHolidayStatusLabel: "만근" | "주휴대상" | "주휴미대상" | "미투입" | "퇴사";
+  totalTenureDays: number | null;
+}
+
+const SERVICE_DAY_MS = 86400000;
+const STANDARD_MONTHLY_PAID_HOURS = 209;
+
+function parseYmdToUtc(dateStr?: string | null): number | null {
+  if (!dateStr) return null;
+  const clean = String(dateStr).trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(clean)) return null;
+  const [y, m, d] = clean.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const utc = Date.UTC(y, m - 1, d);
+  const check = new Date(utc);
+  if (
+    check.getUTCFullYear() !== y ||
+    check.getUTCMonth() !== m - 1 ||
+    check.getUTCDate() !== d
+  ) {
+    return null;
+  }
+  return utc;
+}
+
+function countWeekdaysUtc(startUtc: number, endUtc: number): number {
+  if (endUtc < startUtc) return 0;
+  let count = 0;
+  for (let cur = startUtc; cur <= endUtc; cur += SERVICE_DAY_MS) {
+    const dow = new Date(cur).getUTCDay();
+    if (dow >= 1 && dow <= 5) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 /**
- * 운영용역 투입 임직원 월별 용역료(받는금액) 입사일/퇴사일 기준 일할계산 SSOT 헬퍼
- * - 대상 연월(targetYearMonth: YYYY-MM) 내 입사일(joinDateStr)이 1일 이후인 중도입사자 또는 중도퇴사자의 근무일수 비례 일할 금액 산출
- * - 수식: Math.round(contractRate × activeDays / totalMonthDays)
+ * 운영용역 투입 임직원 및 급여대장 월별 입퇴사 일할계산 SSOT 헬퍼 (근로기준법 주휴수당 판별 및 소수점 반올림)
+ * - 주 5일(월~금, 1일 8h, 주 40h), 월 소정근로시간 209시간(유급 주휴 포함) 기준
+ * - 고용노동부 행정해석 임금근로시간과-1736(2021.08.04) 및 임금근로시간과-234(2022.01.26) 반영
+ * - 수식: Math.round(baseRate × paidHours / 209)
  */
 export function calculateServiceEmployeeMonthlyProRata(
   contractRate: number | string | null | undefined,
@@ -690,12 +829,26 @@ export function calculateServiceEmployeeMonthlyProRata(
   proRataEnabled: boolean = true,
   excludeBeforeJoin: boolean = true
 ): ServiceEmployeeProRataResult {
-  const baseRate = Math.max(0, cleanErpNumber(contractRate));
+  const baseRate = Math.max(0, Math.round(cleanErpNumber(contractRate)));
   const ym = (targetYearMonth || new Date().toISOString().slice(0, 7)).trim().slice(0, 7);
   const ymParts = ym.split("-").map(Number);
-  const year = ymParts[0] || new Date().getFullYear();
-  const month = ymParts[1] || new Date().getMonth() + 1;
-  const totalMonthDays = new Date(year, month, 0).getDate();
+  const year = ymParts[0] || new Date().getUTCFullYear();
+  const month = ymParts[1] || new Date().getUTCMonth() + 1;
+  const totalMonthDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+  const monthStartUtc = Date.UTC(year, month - 1, 1);
+  const monthEndUtc = Date.UTC(year, month - 1, totalMonthDays);
+  const prevMonthStartUtc = Date.UTC(year, month - 2, 1);
+  const fullMonthWeekdays = countWeekdaysUtc(monthStartUtc, monthEndUtc);
+
+  const cleanJoin = joinDateStr ? String(joinDateStr).trim().slice(0, 10) : "";
+  const cleanLeave = leaveDateStr ? String(leaveDateStr).trim().slice(0, 10) : "";
+  const joinUtc = parseYmdToUtc(cleanJoin);
+  const leaveUtc = parseYmdToUtc(cleanLeave);
+  const totalTenureDays =
+    joinUtc !== null && leaveUtc !== null && leaveUtc >= joinUtc
+      ? Math.round((leaveUtc - joinUtc) / SERVICE_DAY_MS) + 1
+      : null;
 
   if (!proRataEnabled || baseRate <= 0) {
     return {
@@ -709,25 +862,54 @@ export function calculateServiceEmployeeMonthlyProRata(
       isProRated: false,
       isNotYetJoined: false,
       isAfterLeft: false,
-      formulaLabel: `정상 만근 (${totalMonthDays}/${totalMonthDays}일)`,
-      shortBadge: "만근 (100%)",
+      formulaLabel: `만근 (209/209h)`,
+      shortBadge: `만근 (209h)`,
+      workWeekdays: fullMonthWeekdays,
+      paidWeeklyHolidayDays: 4,
+      paidDays: fullMonthWeekdays + 4,
+      paidHours: STANDARD_MONTHLY_PAID_HOURS,
+      standardMonthlyHours: STANDARD_MONTHLY_PAID_HOURS,
+      weeklyHolidayEligible: baseRate > 0,
+      weeklyHolidayStatusLabel: "만근",
+      totalTenureDays,
     };
   }
 
-  const monthStartStr = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`;
-  const monthEndStr = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(totalMonthDays).padStart(2, "0")}`;
-
-  const cleanJoin = joinDateStr ? String(joinDateStr).trim().slice(0, 10) : "";
-  const cleanLeave = leaveDateStr ? String(leaveDateStr).trim().slice(0, 10) : "";
+  // 비정상 역전 날짜(퇴사일 < 입사일) 방어
+  if (joinUtc !== null && leaveUtc !== null && leaveUtc < joinUtc) {
+    return {
+      baseRate,
+      effectiveAmount: 0,
+      diffAmount: -baseRate,
+      totalMonthDays,
+      activeDays: 0,
+      startDay: 0,
+      endDay: 0,
+      isProRated: true,
+      isNotYetJoined: false,
+      isAfterLeft: true,
+      formulaLabel: `퇴사 (${cleanLeave.slice(5).replace("-", "/")} 퇴사 · 0/209h)`,
+      shortBadge: `0h (${cleanLeave.slice(5).replace("-", "/")} 퇴사)`,
+      workWeekdays: 0,
+      paidWeeklyHolidayDays: 0,
+      paidDays: 0,
+      paidHours: 0,
+      standardMonthlyHours: STANDARD_MONTHLY_PAID_HOURS,
+      weeklyHolidayEligible: false,
+      weeklyHolidayStatusLabel: "퇴사",
+      totalTenureDays: 0,
+    };
+  }
 
   let startDay = 1;
   let endDay = totalMonthDays;
   let joinNote = "";
   let leaveNote = "";
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(cleanJoin)) {
-    if (cleanJoin > monthEndStr) {
+  if (joinUtc !== null) {
+    if (joinUtc > monthEndUtc) {
       if (excludeBeforeJoin) {
+        const joinMmDd = cleanJoin.slice(5).replace("-", "/");
         return {
           baseRate,
           effectiveAmount: 0,
@@ -739,21 +921,30 @@ export function calculateServiceEmployeeMonthlyProRata(
           isProRated: true,
           isNotYetJoined: true,
           isAfterLeft: false,
-          formulaLabel: `미투입 (${cleanJoin.slice(5).replace("-", "/")} 입사전 · 0/${totalMonthDays}일)`,
-          shortBadge: `0/${totalMonthDays}일 (${cleanJoin.slice(5).replace("-", "/")} 입사전)`,
+          formulaLabel: `미투입 (${joinMmDd} 입사전 · 0/209h)`,
+          shortBadge: `0h (${joinMmDd} 입사전)`,
+          workWeekdays: 0,
+          paidWeeklyHolidayDays: 0,
+          paidDays: 0,
+          paidHours: 0,
+          standardMonthlyHours: STANDARD_MONTHLY_PAID_HOURS,
+          weeklyHolidayEligible: false,
+          weeklyHolidayStatusLabel: "미투입",
+          totalTenureDays,
         };
       }
-    } else if (cleanJoin > monthStartStr && cleanJoin <= monthEndStr) {
-      const jd = parseInt(cleanJoin.slice(8, 10), 10);
-      if (!isNaN(jd) && jd > 1) {
+    } else if (joinUtc > monthStartUtc && joinUtc <= monthEndUtc) {
+      const jd = new Date(joinUtc).getUTCDate();
+      if (jd > 1) {
         startDay = jd;
         joinNote = `${cleanJoin.slice(5).replace("-", "/")} 입사`;
       }
     }
   }
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(cleanLeave)) {
-    if (cleanLeave < monthStartStr) {
+  if (leaveUtc !== null) {
+    if (leaveUtc < monthStartUtc) {
+      const leaveMmDd = cleanLeave.slice(5).replace("-", "/");
       return {
         baseRate,
         effectiveAmount: 0,
@@ -765,12 +956,20 @@ export function calculateServiceEmployeeMonthlyProRata(
         isProRated: true,
         isNotYetJoined: false,
         isAfterLeft: true,
-        formulaLabel: `퇴사/철수 (${cleanLeave.slice(5).replace("-", "/")} 퇴사 · 0/${totalMonthDays}일)`,
-        shortBadge: `0/${totalMonthDays}일 (퇴사)`,
+        formulaLabel: `퇴사 (${leaveMmDd} 퇴사 · 0/209h)`,
+        shortBadge: `0h (${leaveMmDd} 퇴사)`,
+        workWeekdays: 0,
+        paidWeeklyHolidayDays: 0,
+        paidDays: 0,
+        paidHours: 0,
+        standardMonthlyHours: STANDARD_MONTHLY_PAID_HOURS,
+        weeklyHolidayEligible: false,
+        weeklyHolidayStatusLabel: "퇴사",
+        totalTenureDays,
       };
-    } else if (cleanLeave >= monthStartStr && cleanLeave < monthEndStr) {
-      const ld = parseInt(cleanLeave.slice(8, 10), 10);
-      if (!isNaN(ld) && ld < totalMonthDays) {
+    } else if (leaveUtc >= monthStartUtc && leaveUtc < monthEndUtc) {
+      const ld = new Date(leaveUtc).getUTCDate();
+      if (ld < totalMonthDays) {
         endDay = ld;
         leaveNote = `${cleanLeave.slice(5).replace("-", "/")} 퇴사`;
       }
@@ -778,19 +977,110 @@ export function calculateServiceEmployeeMonthlyProRata(
   }
 
   const activeDays = Math.max(0, endDay - startDay + 1);
-  const isProRated = activeDays < totalMonthDays;
-  const effectiveAmount = isProRated
-    ? Math.round((baseRate * activeDays) / totalMonthDays)
-    : baseRate;
-  const diffAmount = effectiveAmount - baseRate;
+  if (activeDays === 0) {
+    const mmdd = cleanLeave ? cleanLeave.slice(5).replace("-", "/") : "-";
+    return {
+      baseRate,
+      effectiveAmount: 0,
+      diffAmount: -baseRate,
+      totalMonthDays,
+      activeDays: 0,
+      startDay: 0,
+      endDay: 0,
+      isProRated: true,
+      isNotYetJoined: false,
+      isAfterLeft: true,
+      formulaLabel: `퇴사 (${mmdd} · 0/209h)`,
+      shortBadge: `0h (${mmdd} 퇴사)`,
+      workWeekdays: 0,
+      paidWeeklyHolidayDays: 0,
+      paidDays: 0,
+      paidHours: 0,
+      standardMonthlyHours: STANDARD_MONTHLY_PAID_HOURS,
+      weeklyHolidayEligible: false,
+      weeklyHolidayStatusLabel: "퇴사",
+      totalTenureDays,
+    };
+  }
 
+  const isProRated = activeDays < totalMonthDays;
+  if (!isProRated) {
+    return {
+      baseRate,
+      effectiveAmount: baseRate,
+      diffAmount: 0,
+      totalMonthDays,
+      activeDays: totalMonthDays,
+      startDay: 1,
+      endDay: totalMonthDays,
+      isProRated: false,
+      isNotYetJoined: false,
+      isAfterLeft: false,
+      formulaLabel: `만근 (209/209h)`,
+      shortBadge: `만근 (209h)`,
+      workWeekdays: fullMonthWeekdays,
+      paidWeeklyHolidayDays: 4,
+      paidDays: fullMonthWeekdays + 4,
+      paidHours: STANDARD_MONTHLY_PAID_HOURS,
+      standardMonthlyHours: STANDARD_MONTHLY_PAID_HOURS,
+      weeklyHolidayEligible: true,
+      weeklyHolidayStatusLabel: "만근",
+      totalTenureDays,
+    };
+  }
+
+  const effStartUtc = Date.UTC(year, month - 1, startDay);
+  const effEndUtc = Date.UTC(year, month - 1, endDay);
+  const workWeekdays = countWeekdaysUtc(effStartUtc, effEndUtc);
+
+  let paidWeeklyHolidayDays = 0;
+
+  if (joinUtc !== null && leaveUtc !== null && totalTenureDays !== null && totalTenureDays < 7) {
+    // (A) 총 재직기간 7일 미만 단기 퇴사자: 1주 근로관계 미존속 -> 주휴수당 미대상
+    paidWeeklyHolidayDays = 0;
+  } else if (joinUtc !== null && joinUtc > prevMonthStartUtc && joinUtc <= monthEndUtc) {
+    // (B) 당월 또는 직전월 중도입사자(1개월 미만 단기 및 월 경계 포함): 입사일 기준 연속 7일 단위 기산
+    const careerEndUtc = leaveUtc !== null ? leaveUtc : monthEndUtc;
+    for (
+      let blockStart = joinUtc;
+      blockStart + 6 * SERVICE_DAY_MS <= careerEndUtc;
+      blockStart += 7 * SERVICE_DAY_MS
+    ) {
+      const blockEnd = blockStart + 6 * SERVICE_DAY_MS;
+      if (blockEnd >= monthStartUtc && blockEnd <= monthEndUtc) {
+        paidWeeklyHolidayDays += 1;
+      }
+    }
+  } else {
+    // (C) 기존 계속근로자의 당월 중도퇴사: 사업장 주휴일(일요일) 기준 직전 월~일(7일) 전체 재직 여부 판정
+    for (let dUtc = monthStartUtc; dUtc <= effEndUtc; dUtc += SERVICE_DAY_MS) {
+      if (new Date(dUtc).getUTCDay() === 0) {
+        const monUtc = dUtc - 6 * SERVICE_DAY_MS;
+        if ((joinUtc === null || joinUtc <= monUtc) && dUtc <= effEndUtc) {
+          paidWeeklyHolidayDays += 1;
+        }
+      }
+    }
+  }
+
+  const paidDays = workWeekdays + paidWeeklyHolidayDays;
+  const paidHours = Math.min(STANDARD_MONTHLY_PAID_HOURS, paidDays * 8);
+  const effectiveAmount = Math.min(
+    baseRate,
+    Math.round((baseRate * paidHours) / STANDARD_MONTHLY_PAID_HOURS)
+  );
+  const diffAmount = Math.round(effectiveAmount - baseRate);
+  const weeklyHolidayEligible = paidWeeklyHolidayDays > 0;
+  const weeklyHolidayStatusLabel = weeklyHolidayEligible ? "주휴대상" : "주휴미대상";
+
+  const rangeStr = `${String(month).padStart(2, "0")}/${String(startDay).padStart(2, "0")}~${String(month).padStart(2, "0")}/${String(endDay).padStart(2, "0")}`;
   const reasonText = [joinNote, leaveNote].filter(Boolean).join(", ");
-  const formulaLabel = isProRated
-    ? `일할 ${activeDays}/${totalMonthDays}일 (${String(month).padStart(2, "0")}/${String(startDay).padStart(2, "0")}~${String(month).padStart(2, "0")}/${String(endDay).padStart(2, "0")}${reasonText ? ` · ${reasonText}` : ""})`
-    : `정상 만근 (${totalMonthDays}/${totalMonthDays}일)`;
-  const shortBadge = isProRated
-    ? `${activeDays}/${totalMonthDays}일 (${reasonText || `${startDay}~${endDay}일`})`
-    : `만근 (${totalMonthDays}일)`;
+  const formulaLabel = weeklyHolidayEligible
+    ? `일할 ${paidHours}/209h (근로 ${workWeekdays}일 + 주휴 ${paidWeeklyHolidayDays}일 [주휴대상] · ${rangeStr}${reasonText ? ` · ${reasonText}` : ""})`
+    : `일할 ${paidHours}/209h (근로 ${workWeekdays}일 + 주휴 0일 [주휴미대상] · ${rangeStr}${reasonText ? ` · ${reasonText}` : ""})`;
+  const shortBadge = weeklyHolidayEligible
+    ? `근로${workWeekdays}일+주휴${paidWeeklyHolidayDays}일 (${paidHours}/209h)`
+    : `근로${workWeekdays}일·주휴미대상 (${paidHours}/209h)`;
 
   return {
     baseRate,
@@ -800,13 +1090,26 @@ export function calculateServiceEmployeeMonthlyProRata(
     activeDays,
     startDay,
     endDay,
-    isProRated,
+    isProRated: true,
     isNotYetJoined: false,
     isAfterLeft: false,
     formulaLabel,
     shortBadge,
+    workWeekdays,
+    paidWeeklyHolidayDays,
+    paidDays,
+    paidHours,
+    standardMonthlyHours: STANDARD_MONTHLY_PAID_HOURS,
+    weeklyHolidayEligible,
+    weeklyHolidayStatusLabel,
+    totalTenureDays,
   };
 }
+
+export * from "./rentalFeeUtils";
+export * from "./hangulSearch";
+export * from "./forkliftDomain";
+
 
 
 

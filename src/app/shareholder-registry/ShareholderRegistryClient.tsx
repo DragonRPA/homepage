@@ -19,13 +19,17 @@ import {
   ArrowLeft,
   Save,
   Upload,
-  AlertCircle
+  AlertCircle,
+  Eye,
+  EyeOff,
+  Lock
 } from "lucide-react";
 
 export interface Shareholder {
   id: string;
   name: string;
   residentNo: string;
+  maskedResidentNo?: string;
   zipCode: string;
   address: string;
   phone: string;
@@ -37,77 +41,127 @@ export interface Shareholder {
   note: string;
 }
 
-const STORAGE_KEY = "DRAGON_SHAREHOLDER_REGISTRY_V3";
+const createEmptyShareholder = (): Shareholder => ({
+  id: "1",
+  name: "",
+  residentNo: "",
+  zipCode: "",
+  address: "",
+  phone: "",
+  shares: "0",
+  parValue: "500원",
+  totalAmount: "0원",
+  shareRatio: "0",
+  relationship: "주주",
+  note: "",
+});
 
-const INITIAL_SHAREHOLDERS: Shareholder[] = [
-  {
-    id: "1",
-    name: "이정용",
-    residentNo: "770617-1019515",
-    zipCode: "01863",
-    address: "서울 노원구 섬밭로 196, 610동 302호(하계동, 장미아파트)",
-    phone: "010-9224-4097",
-    shares: "10,000",
-    parValue: "500원",
-    totalAmount: "5,000,000원",
-    shareRatio: "100",
-    relationship: "본인",
-    note: "",
-  },
-];
+function maskRrnDisplay(rrn: string): string {
+  const trimmed = (rrn || "").trim();
+  if (!trimmed) return "";
+  const m = trimmed.match(/^(\d{6})[- ]?(\d)(\d{6})$/);
+  if (m) return `${m[1]}-${m[2]}******`;
+  if (trimmed.length > 7) return `${trimmed.slice(0, 7)}******`;
+  return "******";
+}
 
 export default function ShareholderRegistryClient() {
   const [baseDate, setBaseDate] = useState("2026년 09월 13일 현재");
   const [companyName, setCompanyName] = useState("주식회사 드래곤알피에이");
-  const [shareholders, setShareholders] = useState<Shareholder[]>(INITIAL_SHAREHOLDERS);
+  const [shareholders, setShareholders] = useState<Shareholder[]>([createEmptyShareholder()]);
   const [totalRows, setTotalRows] = useState(8);
   const [toast, setToast] = useState<string | null>(null);
-
-  // Load from LocalStorage on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.baseDate) setBaseDate(parsed.baseDate);
-        if (parsed.companyName) setCompanyName(parsed.companyName);
-        if (parsed.shareholders && Array.isArray(parsed.shareholders)) {
-          setShareholders(parsed.shareholders);
-        }
-        if (parsed.totalRows) setTotalRows(parsed.totalRows);
-      }
-    } catch (e) {
-      console.error("Failed to load saved data from localStorage:", e);
-    }
-  }, []);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [showFullPii, setShowFullPii] = useState(false);
 
   const showToastMessage = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Save to LocalStorage
-  const handleSaveData = () => {
+  const fetchFromServer = async (showNotice = false) => {
+    setIsLoading(true);
     try {
-      const dataToSave = {
-        baseDate,
-        companyName,
-        shareholders,
-        totalRows,
-        updatedAt: new Date().toISOString(),
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-      showToastMessage("주주명세서 정보가 브라우저에 안전하게 저장되었습니다.");
-    } catch (e) {
-      console.error("Save error:", e);
-      showToastMessage("저장 중 오류가 발생했습니다.");
+      const res = await fetch("/api/erp/shareholder-registry?entityCode=CORP_MAIN", {
+        cache: "no-store",
+      });
+      if (res.status === 401 || res.status === 403) {
+        setAuthRequired(true);
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        showToastMessage(data?.error || "주주명부 조회 실패");
+        return;
+      }
+      setAuthRequired(false);
+      if (data.baseDate) setBaseDate(data.baseDate);
+      if (data.companyName) setCompanyName(data.companyName);
+      if (data.totalRows) setTotalRows(Number(data.totalRows) || 8);
+      if (Array.isArray(data.shareholders) && data.shareholders.length > 0) {
+        setShareholders(data.shareholders);
+      } else {
+        setShareholders([createEmptyShareholder()]);
+      }
+      if (showNotice) {
+        showToastMessage("서버 데이터로 복원 완료");
+      }
+    } catch {
+      showToastMessage("서버 연결 오류");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handlePrint = () => {
-    // Save state before printing
-    handleSaveData();
-    window.print();
+  useEffect(() => {
+    try {
+      localStorage.removeItem("DRAGON_SHAREHOLDER_REGISTRY_V3");
+    } catch {}
+    void fetchFromServer(false);
+  }, []);
+
+  const handleSaveData = async (): Promise<boolean> => {
+    if (isSaving || authRequired) return false;
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/erp/shareholder-registry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entityCode: "CORP_MAIN",
+          baseDate,
+          companyName,
+          totalRows,
+          shareholders,
+        }),
+      });
+      if (res.status === 401 || res.status === 403) {
+        setAuthRequired(true);
+        showToastMessage("인증 세션 만료");
+        return false;
+      }
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        showToastMessage(data?.error || "저장 실패");
+        return false;
+      }
+      showToastMessage("주주명세서 암호화 저장 완료");
+      return true;
+    } catch {
+      showToastMessage("저장 오류");
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handlePrint = async () => {
+    const saved = await handleSaveData();
+    if (saved) {
+      window.print();
+    }
   };
 
   const handleSetToday = () => {
@@ -117,7 +171,7 @@ export default function ShareholderRegistryClient() {
     const day = String(now.getDate()).padStart(2, "0");
     const newDate = `${year}년 ${month}월 ${day}일 현재`;
     setBaseDate(newDate);
-    showToastMessage(`기준일자가 오늘(${newDate})로 설정되었습니다.`);
+    showToastMessage(`기준일자 설정: ${newDate}`);
   };
 
   const handleUpdateShareholder = (index: number, field: keyof Shareholder, value: string) => {
@@ -125,7 +179,6 @@ export default function ShareholderRegistryClient() {
       const next = [...prev];
       const updated = { ...next[index], [field]: value };
 
-      // Auto compute total amount if shares or parValue changes
       if (field === "shares" || field === "parValue") {
         const rawShares = parseInt((field === "shares" ? value : updated.shares).replace(/[^0-9]/g, ""), 10);
         const rawPar = parseInt((field === "parValue" ? value : updated.parValue).replace(/[^0-9]/g, ""), 10);
@@ -142,21 +195,11 @@ export default function ShareholderRegistryClient() {
 
   const handleAddShareholder = () => {
     const newEntry: Shareholder = {
+      ...createEmptyShareholder(),
       id: String(Date.now()),
-      name: "",
-      residentNo: "",
-      zipCode: "",
-      address: "",
-      phone: "",
-      shares: "0",
-      parValue: "500원",
-      totalAmount: "0원",
-      shareRatio: "0",
-      relationship: "주주",
-      note: "",
     };
     setShareholders((prev) => [...prev, newEntry]);
-    showToastMessage("새로운 주주 행이 추가되었습니다.");
+    showToastMessage("주주 행 추가");
   };
 
   const handleRemoveShareholder = (index: number) => {
@@ -167,24 +210,48 @@ export default function ShareholderRegistryClient() {
     const target = shareholders[index];
     if (confirm(`주주 [${target.name || `#${index + 1}`}] 정보를 삭제하시겠습니까?`)) {
       setShareholders((prev) => prev.filter((_, i) => i !== index));
-      showToastMessage("주주 정보가 삭제되었습니다.");
+      showToastMessage("주주 정보 삭제");
     }
   };
 
-  const handleReset = () => {
-    if (confirm("모든 입력 내용을 초기 기본값으로 복원하시겠습니까?")) {
-      setBaseDate("2026년 09월 13일 현재");
-      setCompanyName("주식회사 드래곤알피에이");
-      setShareholders(INITIAL_SHAREHOLDERS);
-      setTotalRows(8);
-      localStorage.removeItem(STORAGE_KEY);
-      showToastMessage("초기 기본값으로 복원되었습니다.");
+  const handleReset = async () => {
+    if (confirm("저장된 서버 데이터로 다시 불러오시겠습니까?")) {
+      await fetchFromServer(true);
     }
   };
 
-  // Build rows array: populated shareholders + empty slots to match totalRows (fixed A4 height)
   const emptySlotsCount = Math.max(0, totalRows - shareholders.length);
   const emptySlots = Array.from({ length: emptySlotsCount }, (_, idx) => idx);
+
+  if (authRequired) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 text-center space-y-4">
+          <div className="mx-auto w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+            <Lock className="w-6 h-6 text-amber-400" />
+          </div>
+          <h1 className="text-lg font-bold text-white">인증 세션 필요</h1>
+          <p className="text-xs text-slate-400">
+            주주명부는 개인정보 보호 대상이므로 ERP 로그인 세션 확인 후 열람 가능합니다.
+          </p>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            <Link
+              href="/erp"
+              className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-bold text-white"
+            >
+              ERP 로그인
+            </Link>
+            <Link
+              href="/"
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300"
+            >
+              홈으로
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 print:bg-white print:text-black">
@@ -202,27 +269,39 @@ export default function ShareholderRegistryClient() {
             <div>
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-sky-400" />
-                <h1 className="text-base sm:text-lg font-bold text-white">주주명세서 (주주명부) 인쇄 발급기</h1>
+                <h1 className="text-base sm:text-lg font-bold text-white">주주명세서 발급</h1>
                 <span className="text-[11px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                  A4 1장 정밀 규격
+                  A4 규격
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                등기 변경 및 법인 세무 제출용 양식 (주소/날짜 수정 및 브라우저 영구 저장 지원)
+                {isLoading ? "데이터 불러오는 중" : "DB 암호화 저장 적용"}
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={handleSaveData}
-              className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-sky-500 text-xs font-bold text-sky-300 transition flex items-center gap-1.5 shadow"
+              type="button"
+              onClick={() => setShowFullPii((prev) => !prev)}
+              className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:bg-slate-800 text-xs font-bold text-slate-300 transition flex items-center gap-1.5"
             >
-              <Save className="w-3.5 h-3.5 text-sky-400" />
-              <span>저장하기</span>
+              {showFullPii ? <EyeOff className="w-3.5 h-3.5 text-amber-400" /> : <Eye className="w-3.5 h-3.5 text-amber-400" />}
+              <span>{showFullPii ? "주민번호 마스킹" : "주민번호 표시"}</span>
             </button>
 
             <button
+              type="button"
+              onClick={handleSaveData}
+              disabled={isSaving || isLoading}
+              className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-sky-500 text-xs font-bold text-sky-300 transition flex items-center gap-1.5 shadow disabled:opacity-50"
+            >
+              <Save className="w-3.5 h-3.5 text-sky-400" />
+              <span>{isSaving ? "저장 중" : "저장"}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleSetToday}
               className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:bg-slate-800 text-xs font-bold text-slate-300 transition flex items-center gap-1.5"
             >
@@ -231,6 +310,7 @@ export default function ShareholderRegistryClient() {
             </button>
 
             <button
+              type="button"
               onClick={handleAddShareholder}
               className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:bg-slate-800 text-xs font-bold text-slate-300 transition flex items-center gap-1.5"
             >
@@ -239,19 +319,22 @@ export default function ShareholderRegistryClient() {
             </button>
 
             <button
+              type="button"
               onClick={handleReset}
               className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:bg-slate-800 text-xs font-bold text-slate-300 transition flex items-center gap-1.5"
             >
               <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-              <span>초기화</span>
+              <span>새로고침</span>
             </button>
 
             <button
+              type="button"
               onClick={handlePrint}
-              className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-bold text-white shadow-lg shadow-sky-600/30 transition flex items-center gap-2"
+              disabled={isSaving || isLoading}
+              className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-bold text-white shadow-lg shadow-sky-600/30 transition flex items-center gap-2 disabled:opacity-50"
             >
               <Printer className="w-4 h-4" />
-              <span>A4 1장 인쇄 / PDF 저장</span>
+              <span>인쇄 / PDF 저장</span>
             </button>
           </div>
         </div>
@@ -351,7 +434,7 @@ export default function ShareholderRegistryClient() {
                     <div className="flex flex-col gap-1">
                       <label className="text-[11px] text-slate-400 font-semibold">주민등록번호</label>
                       <input
-                        type="text"
+                        type={showFullPii ? "text" : "password"}
                         value={sh.residentNo}
                         onChange={(e) => handleUpdateShareholder(sIdx, "residentNo", e.target.value)}
                         className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white font-mono"
@@ -674,7 +757,10 @@ export default function ShareholderRegistryClient() {
                         className="text-center text-[11.5px] py-0.5 px-1 font-mono align-middle"
                         style={{ border: "1px solid #000" }}
                       >
-                        {sh.residentNo}
+                        <span className="print:hidden">
+                          {showFullPii ? sh.residentNo : maskRrnDisplay(sh.residentNo)}
+                        </span>
+                        <span className="hidden print:inline">{sh.residentNo}</span>
                       </td>
 
                       {/* 4. Phone Number (Rowspan 2) */}

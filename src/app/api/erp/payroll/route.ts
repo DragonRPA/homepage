@@ -3,15 +3,11 @@ import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { decryptPii } from "@/lib/piiCrypto";
 import { calculateServiceEmployeeMonthlyProRata } from "@/lib/erpFormat";
+import { ensureErpCoreIndexes, runSchemaInitOnce } from "@/lib/erpSchemaCache";
+import { requireMenuPermission } from "@/lib/erpRbacGuard";
 
-// GET: 특정 귀속연월의 급여 정산 대장 조회
-export async function GET(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const today = new Date().toISOString().substring(0, 7);
-    const yearMonth = searchParams.get("yearMonth") || today;
-
-    const pool = getErpPool();
+async function ensurePayrollExpenseSchema(pool: any) {
+  await runSchemaInitOnce("erp_expenses_schema_v1", async () => {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS erp_expense_receipts (
         id SERIAL PRIMARY KEY,
@@ -35,6 +31,47 @@ export async function GET(request: Request) {
       ALTER TABLE erp_payroll_records
       ADD COLUMN IF NOT EXISTS personal_expense_amount NUMERIC NOT NULL DEFAULT 0;
     `);
+  });
+  await ensureErpCoreIndexes(pool);
+}
+
+// GET: 특정 귀속연월의 급여 정산 대장 조회
+export async function GET(request: Request) {
+  try {
+    const guard = await requireMenuPermission(request, ["payroll", "PAYROLL"], "view");
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
+    const { searchParams } = new URL(request.url);
+    const idParam = searchParams.get("id");
+    const includeFiles = searchParams.get("includeFiles") === "true";
+
+    const pool = getErpPool();
+    await ensurePayrollExpenseSchema(pool);
+
+    // Fast path: 단건 급여명세서 및 첨부 PDF 파일 지연 로딩
+    if (idParam) {
+      const singleRes = await pool.query(
+        `SELECT p.id, p.year_month as "yearMonth", p.employee_id as "employeeId",
+                p.pdf_file_name as "pdfFileName", p.pdf_file_url as "pdfFileUrl",
+                (p.pdf_file_url IS NOT NULL AND p.pdf_file_url <> '') as "hasPdfFile"
+         FROM erp_payroll_records p
+         WHERE p.id = $1 LIMIT 1`,
+        [Number(idParam)]
+      );
+      if (singleRes.rows.length === 0) {
+        return NextResponse.json({ success: false, error: "해당 급여명세를 찾을 수 없습니다." }, { status: 404 });
+      }
+      return NextResponse.json({ success: true, payroll: singleRes.rows[0] });
+    }
+
+    const today = new Date().toISOString().substring(0, 7);
+    const yearMonth = searchParams.get("yearMonth") || today;
+    const [ymYear, ymMon] = yearMonth.split("-").map(Number);
+    const monthStart = `${yearMonth}-01`;
+    const lastDayNum = new Date(ymYear, ymMon, 0).getDate();
+    const monthEnd = `${yearMonth}-${String(lastDayNum).padStart(2, "0")}`;
 
     const query = `
       SELECT 
@@ -48,6 +85,7 @@ export async function GET(request: Request) {
         COALESCE(e.position, '') as "position",
         COALESCE(e.duty, '') as "duty",
         e.join_date as "joinDate",
+        e.leave_date::text as "leaveDate",
         e.salary_bank_name as "salaryBankName",
         e.salary_account_no as "salaryAccountNo",
         e.salary_account_holder as "salaryAccountHolder",
@@ -81,7 +119,8 @@ export async function GET(request: Request) {
         COALESCE(p.status, 'DRAFT') as "status",
         p.paid_at as "paidAt",
         p.pdf_file_name as "pdfFileName",
-        p.pdf_file_url as "pdfFileUrl",
+        ${includeFiles ? `p.pdf_file_url as "pdfFileUrl",` : `CASE WHEN p.pdf_file_url LIKE 'data:%' THEN NULL ELSE p.pdf_file_url END as "pdfFileUrl",`}
+        (p.pdf_file_url IS NOT NULL AND p.pdf_file_url <> '') as "hasPdfFile",
         p.created_at as "createdAt",
         COALESCE(ot.total_ot_hours, 0)::numeric as "otHours",
         COALESCE(p.personal_expense_amount, 0)::numeric as "storedPersonalExpenseAmount"
@@ -90,7 +129,7 @@ export async function GET(request: Request) {
       LEFT JOIN (
         SELECT employee_id, SUM(ot_hours) as total_ot_hours
         FROM erp_overtimes
-        WHERE ot_date::text LIKE $1 || '%' AND status = 'APPROVED'
+        WHERE ot_date >= $2::date AND ot_date <= $3::date AND status = 'APPROVED'
         GROUP BY employee_id
       ) ot ON ot.employee_id = p.employee_id
       LEFT JOIN (
@@ -103,26 +142,31 @@ export async function GET(request: Request) {
       ORDER BY e.id ASC
     `;
 
-    const result = await pool.query(query, [yearMonth]);
-
     // 해당 귀속연월(yearMonth) 기간에 유효한 용역계약(erp_service_contracts)의 투입 임직원(assigned_employees) 단가 및 고객사명 합산 조회
-    const [ymYear, ymMon] = yearMonth.split("-").map(Number);
-    const monthStart = `${yearMonth}-01`;
-    const lastDayNum = new Date(ymYear, ymMon, 0).getDate();
-    const monthEnd = `${yearMonth}-${String(lastDayNum).padStart(2, "0")}`;
-
-    const ctRes = await pool.query(
-      `SELECT customer_name, project_name, start_date, end_date, status, assigned_employees
-       FROM erp_service_contracts
-       WHERE COALESCE(status, 'ACTIVE') <> 'CANCELLED'
-         AND assigned_employees IS NOT NULL
-         AND (start_date IS NULL OR start_date::date <= $2::date)
-         AND (end_date IS NULL OR end_date::date >= $1::date)`,
-      [monthStart, monthEnd]
-    );
-    const contractMapByEmpId = new Map<number, { rate: number; labels: string[] }>();
-    const contractMapByEmpNo = new Map<string, { rate: number; labels: string[] }>();
-    const contractMapByName = new Map<string, { rate: number; labels: string[] }>();
+    const [result, ctRes] = await Promise.all([
+      pool.query(query, [yearMonth, monthStart, monthEnd]),
+      pool.query(
+        `SELECT customer_name, project_name, start_date, end_date, status, assigned_employees
+         FROM erp_service_contracts
+         WHERE COALESCE(status, 'ACTIVE') <> 'CANCELLED'
+           AND assigned_employees IS NOT NULL
+           AND (start_date IS NULL OR start_date::date <= $2::date)
+           AND (end_date IS NULL OR end_date::date >= $1::date)`,
+        [monthStart, monthEnd]
+      ),
+    ]);
+    const contractMapByEmpId = new Map<
+      number,
+      { rate: number; labels: string[]; joinDate: string; leaveDate: string; proRataEnabled: boolean }
+    >();
+    const contractMapByEmpNo = new Map<
+      string,
+      { rate: number; labels: string[]; joinDate: string; leaveDate: string; proRataEnabled: boolean }
+    >();
+    const contractMapByName = new Map<
+      string,
+      { rate: number; labels: string[]; joinDate: string; leaveDate: string; proRataEnabled: boolean }
+    >();
 
     for (const ct of ctRes.rows) {
       const list = Array.isArray(ct.assigned_employees) ? ct.assigned_employees : [];
@@ -133,22 +177,52 @@ export async function GET(request: Request) {
         const eid = Number(item?.employeeId || 0);
         const eno = String(item?.employeeNo || "").trim();
         const ename = String(item?.name || "").trim();
+        const itemJoin = item?.joinDate ? String(item.joinDate).slice(0, 10) : "";
+        const itemLeave = item?.leaveDate ? String(item.leaveDate).slice(0, 10) : "";
+        const itemProRata = item?.proRataEnabled !== false;
 
         if (eid > 0) {
-          const prev = contractMapByEmpId.get(eid) || { rate: 0, labels: [] };
+          const prev = contractMapByEmpId.get(eid) || {
+            rate: 0,
+            labels: [],
+            joinDate: itemJoin,
+            leaveDate: itemLeave,
+            proRataEnabled: itemProRata,
+          };
           prev.rate += rate;
+          if (!prev.joinDate && itemJoin) prev.joinDate = itemJoin;
+          if (!prev.leaveDate && itemLeave) prev.leaveDate = itemLeave;
+          if (!itemProRata) prev.proRataEnabled = false;
           if (custLabel && !prev.labels.includes(custLabel)) prev.labels.push(custLabel);
           contractMapByEmpId.set(eid, prev);
         }
         if (eno) {
-          const prev = contractMapByEmpNo.get(eno) || { rate: 0, labels: [] };
+          const prev = contractMapByEmpNo.get(eno) || {
+            rate: 0,
+            labels: [],
+            joinDate: itemJoin,
+            leaveDate: itemLeave,
+            proRataEnabled: itemProRata,
+          };
           prev.rate += rate;
+          if (!prev.joinDate && itemJoin) prev.joinDate = itemJoin;
+          if (!prev.leaveDate && itemLeave) prev.leaveDate = itemLeave;
+          if (!itemProRata) prev.proRataEnabled = false;
           if (custLabel && !prev.labels.includes(custLabel)) prev.labels.push(custLabel);
           contractMapByEmpNo.set(eno, prev);
         }
         if (ename) {
-          const prev = contractMapByName.get(ename) || { rate: 0, labels: [] };
+          const prev = contractMapByName.get(ename) || {
+            rate: 0,
+            labels: [],
+            joinDate: itemJoin,
+            leaveDate: itemLeave,
+            proRataEnabled: itemProRata,
+          };
           prev.rate += rate;
+          if (!prev.joinDate && itemJoin) prev.joinDate = itemJoin;
+          if (!prev.leaveDate && itemLeave) prev.leaveDate = itemLeave;
+          if (!itemProRata) prev.proRataEnabled = false;
           if (custLabel && !prev.labels.includes(custLabel)) prev.labels.push(custLabel);
           contractMapByName.set(ename, prev);
         }
@@ -164,48 +238,68 @@ export async function GET(request: Request) {
 
     const decryptedRows = [];
     for (const r of result.rows) {
-      const personalExp = Number(r.personalExpenseAmount || 0);
-      const storedExp = Number(r.storedPersonalExpenseAmount || 0);
+      const personalExp = Math.round(Number(r.personalExpenseAmount || 0));
+      const storedExp = Math.round(Number(r.storedPersonalExpenseAmount || 0));
       const diffExp = personalExp - storedExp;
-      const adjustedGross = Number(r.totalGross) + diffExp;
-      const adjustedNet = Number(r.netSalary) + diffExp;
+      const adjustedGross = Math.round(Number(r.totalGross) + diffExp);
+      const adjustedNet = Math.round(Number(r.netSalary) + diffExp);
 
       const matchedContract =
         contractMapByEmpId.get(Number(r.employeeId)) ||
         (r.employeeNo ? contractMapByEmpNo.get(String(r.employeeNo).trim()) : undefined) ||
         (r.employeeName ? contractMapByName.get(String(r.employeeName).trim()) : undefined);
 
-      // 해당 귀속연월 기간에 유효한 용역계약이 있으면 그 합산액(matchedContract.rate)에 입사일 기준 일할계산을 적용하고, 없을 때만 수동 저장값 반영
-      const baseServiceAmt =
+      // 해당 귀속연월 기간에 유효한 용역계약이 있으면 그 합산액(matchedContract.rate)에 입퇴사/주휴 기준 일할계산을 적용하고, 없을 때만 수동 저장값 반영
+      const baseServiceAmt = Math.round(
         matchedContract && matchedContract.rate > 0
           ? matchedContract.rate
-          : Number(r.serviceContractAmount || 0);
-      const joinDateStr = r.joinDate ? String(r.joinDate).slice(0, 10) : "";
+          : Number(r.serviceContractAmount || 0)
+      );
+      const empJoinDateStr = r.joinDate ? String(r.joinDate).slice(0, 10) : "";
+      const empLeaveDateStr = r.leaveDate ? String(r.leaveDate).slice(0, 10) : "";
+      const contractJoinDateStr = matchedContract?.joinDate || empJoinDateStr;
+      const contractLeaveDateStr = matchedContract?.leaveDate || empLeaveDateStr;
       const proRataCalc = calculateServiceEmployeeMonthlyProRata(
         baseServiceAmt,
         yearMonth,
-        joinDateStr,
-        null,
-        true,
+        contractJoinDateStr,
+        contractLeaveDateStr,
+        matchedContract ? matchedContract.proRataEnabled : true,
         true
       );
-      const resolvedServiceAmt = matchedContract ? proRataCalc.effectiveAmount : baseServiceAmt;
+      const resolvedServiceAmt = Math.round(
+        matchedContract ? proRataCalc.effectiveAmount : baseServiceAmt
+      );
       const baseLabel = matchedContract?.labels?.join(" + ") || "";
       const serviceContractLabel =
         proRataCalc.isProRated && baseLabel
           ? `${baseLabel} (${proRataCalc.shortBadge})`
           : baseLabel;
 
-      totalGrossSum += adjustedGross;
-      totalDeductionSum += Number(r.totalDeduction);
-      netSalarySum += adjustedNet;
-      totalServiceContractSum += resolvedServiceAmt;
-      totalPersonalExpenseSum += personalExp;
+      const wageProRataCalc = calculateServiceEmployeeMonthlyProRata(
+        Math.round(Number(r.baseSalary || 0)),
+        yearMonth,
+        empJoinDateStr,
+        empLeaveDateStr,
+        true,
+        true
+      );
+      const wageProRataBadge = wageProRataCalc.isProRated ? wageProRataCalc.shortBadge : "";
+
+      totalGrossSum = Math.round(totalGrossSum + adjustedGross);
+      totalDeductionSum = Math.round(totalDeductionSum + Math.round(Number(r.totalDeduction)));
+      netSalarySum = Math.round(netSalarySum + adjustedNet);
+      totalServiceContractSum = Math.round(totalServiceContractSum + resolvedServiceAmt);
+      totalPersonalExpenseSum = Math.round(totalPersonalExpenseSum + personalExp);
 
       decryptedRows.push({
         ...r,
+        leaveDate: empLeaveDateStr || null,
         serviceContractAmount: resolvedServiceAmt,
         serviceContractLabel,
+        wageProRataBadge,
+        wageProRataFormula: wageProRataCalc.formulaLabel,
+        weeklyHolidayEligible: wageProRataCalc.weeklyHolidayEligible,
         personalExpenseAmount: personalExp,
         totalGross: adjustedGross,
         netSalary: adjustedNet,
@@ -235,6 +329,11 @@ export async function GET(request: Request) {
 // POST: 특정 귀속연월의 급여 일괄 저장(UPSERT) 또는 자동 계산
 export async function POST(request: Request) {
   try {
+    const guard = await requireMenuPermission(request, ["payroll", "PAYROLL"], "save");
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const body = await request.json();
     const { action, yearMonth, payDate, records, pdfFileName } = body;
 
@@ -388,28 +487,38 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. 기본 자동 계산 로직 (1시간 표준임금, 식대, 차량보조금, 4대보험 가입여부 및 일시별 초과근무수당 반영)
-    const empRes = await pool.query(`
-      SELECT id, name, join_date, leave_date, base_salary,
-             COALESCE(hourly_wage, 0) as hourly_wage,
-             COALESCE(meal_allowance, 200000) as meal_allowance,
-             COALESCE(vehicle_allowance, 0) as vehicle_allowance,
-             COALESCE(ins_national_pension, TRUE) as ins_national_pension,
-             COALESCE(ins_health_insurance, TRUE) as ins_health_insurance,
-             COALESCE(ins_employment_insurance, TRUE) as ins_employment_insurance,
-             COALESCE(ins_industrial_accident, TRUE) as ins_industrial_accident,
-             COALESCE(service_contract_amount, 0) as service_contract_amount
-      FROM erp_employees 
-      WHERE employment_status = 'ACTIVE'
-      ORDER BY id ASC
-    `);
+    // 2. 기본 자동 계산 로직 (1시간 표준임금, 식대, 차량보조금, 4대보험 가입여부 및 입퇴사 주휴수당 일할 반영)
+    const [cYear, cMon] = yearMonth.split("-").map(Number);
+    const cMonthStart = `${yearMonth}-01`;
+    const cLastDayNum = new Date(Date.UTC(cYear, cMon, 0)).getUTCDate();
+    const cMonthEnd = `${yearMonth}-${String(cLastDayNum).padStart(2, "0")}`;
+
+    const empRes = await pool.query(
+      `SELECT id, name, join_date, leave_date, base_salary,
+              COALESCE(hourly_wage, 0) as hourly_wage,
+              COALESCE(meal_allowance, 200000) as meal_allowance,
+              COALESCE(vehicle_allowance, 0) as vehicle_allowance,
+              COALESCE(ins_national_pension, TRUE) as ins_national_pension,
+              COALESCE(ins_health_insurance, TRUE) as ins_health_insurance,
+              COALESCE(ins_employment_insurance, TRUE) as ins_employment_insurance,
+              COALESCE(ins_industrial_accident, TRUE) as ins_industrial_accident,
+              COALESCE(service_contract_amount, 0) as service_contract_amount
+       FROM erp_employees
+       WHERE (join_date IS NULL OR join_date::date <= $2::date)
+         AND (
+           (employment_status = 'ACTIVE' AND (leave_date IS NULL OR leave_date::date >= $1::date))
+           OR (leave_date IS NOT NULL AND leave_date::date >= $1::date)
+         )
+       ORDER BY id ASC`,
+      [cMonthStart, cMonthEnd]
+    );
 
     const otRes = await pool.query(`
       SELECT employee_id, SUM(ot_hours)::numeric as hours, SUM(COALESCE(ot_pay, 0))::bigint as total_ot_pay
       FROM erp_overtimes
-      WHERE ot_date::text LIKE $1 || '%' AND status = 'APPROVED'
+      WHERE ot_date >= $1::date AND ot_date <= $2::date AND status = 'APPROVED'
       GROUP BY employee_id
-    `, [yearMonth]);
+    `, [cMonthStart, cMonthEnd]);
 
     const otMap: Record<number, { hours: number; otPay: number }> = {};
     for (const row of otRes.rows) {
@@ -459,35 +568,64 @@ export async function POST(request: Request) {
 
     const insertedRecords = [];
     for (const emp of empRes.rows) {
-      const baseSalary = Number(emp.base_salary || 3500000);
+      const joinDateStr = emp.join_date ? String(emp.join_date).slice(0, 10) : null;
+      const leaveDateStr = emp.leave_date ? String(emp.leave_date).slice(0, 10) : null;
+
+      const masterBaseSalary = Math.round(Number(emp.base_salary || 3500000));
+      const masterMealAllowance = Math.round(Number(emp.meal_allowance ?? 200000));
+      const masterVehicleAllowance = Math.round(Number(emp.vehicle_allowance ?? 0));
+
+      const baseSalary = calculateServiceEmployeeMonthlyProRata(
+        masterBaseSalary,
+        yearMonth,
+        joinDateStr,
+        leaveDateStr,
+        true,
+        true
+      ).effectiveAmount;
+      const mealAllowance = calculateServiceEmployeeMonthlyProRata(
+        masterMealAllowance,
+        yearMonth,
+        joinDateStr,
+        leaveDateStr,
+        true,
+        true
+      ).effectiveAmount;
+      const vehicleAllowance = calculateServiceEmployeeMonthlyProRata(
+        masterVehicleAllowance,
+        yearMonth,
+        joinDateStr,
+        leaveDateStr,
+        true,
+        true
+      ).effectiveAmount;
       const rawContractRate =
-        activeContractRateMap[Number(emp.id)] || Number(emp.service_contract_amount || 0);
+        activeContractRateMap[Number(emp.id)] || Math.round(Number(emp.service_contract_amount || 0));
       const serviceContractAmount = calculateServiceEmployeeMonthlyProRata(
         rawContractRate,
         yearMonth,
-        emp.join_date ? String(emp.join_date).slice(0, 10) : null,
-        emp.leave_date ? String(emp.leave_date).slice(0, 10) : null,
+        joinDateStr,
+        leaveDateStr,
         true,
         true
       ).effectiveAmount;
       const empOt = otMap[emp.id] || { hours: 0, otPay: 0 };
       const otHours = empOt.hours;
 
-      const hourlyRate = Number(emp.hourly_wage) > 0 ? Number(emp.hourly_wage) : Math.round(baseSalary / 209);
-      const otPay = empOt.otPay > 0 ? empOt.otPay : Math.round(hourlyRate * 1.5 * otHours);
-      const mealAllowance = Number(emp.meal_allowance ?? 200000);
-      const vehicleAllowance = Number(emp.vehicle_allowance ?? 0);
-      const personalExpenseAmount = Number(expMap[emp.id] || 0);
+      const hourlyRate = Math.round(Number(emp.hourly_wage || 0));
+      const otPay = Math.round(empOt.otPay > 0 ? empOt.otPay : hourlyRate * 1.5 * otHours);
+      const personalExpenseAmount = Math.round(Number(expMap[emp.id] || 0));
       const annualLeaveAllowance = 0;
       const bonus = 0;
-      const totalGross =
+      const totalGross = Math.round(
         baseSalary +
         otPay +
         mealAllowance +
         vehicleAllowance +
         annualLeaveAllowance +
         bonus +
-        personalExpenseAmount;
+        personalExpenseAmount
+      );
 
       const taxable = Math.max(
         0,
@@ -559,6 +697,11 @@ export async function POST(request: Request) {
 // PATCH: 개별 급여 항목 수정 (용역 계약금액, 기본급, 식대, 차량보조금, 상여 등) 또는 상태 변경
 export async function PATCH(request: Request) {
   try {
+    const guard = await requireMenuPermission(request, ["payroll", "PAYROLL"], "save");
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const body = await request.json();
     const {
       id,
@@ -608,6 +751,30 @@ export async function PATCH(request: Request) {
 
     const rec = currentRes.rows[0];
 
+    const empInfoRes = await pool.query(
+      `SELECT join_date::text as "joinDate", leave_date::text as "leaveDate",
+              COALESCE(ins_national_pension, TRUE) as ins_national_pension,
+              COALESCE(ins_health_insurance, TRUE) as ins_health_insurance,
+              COALESCE(ins_employment_insurance, TRUE) as ins_employment_insurance
+       FROM erp_employees WHERE id = $1`,
+      [rec.employee_id]
+    );
+    const empIns = empInfoRes.rows[0] || {
+      joinDate: null,
+      leaveDate: null,
+      ins_national_pension: true,
+      ins_health_insurance: true,
+      ins_employment_insurance: true,
+    };
+    const isProRatedPayrollMonth = calculateServiceEmployeeMonthlyProRata(
+      1000000,
+      rec.year_month,
+      empIns.joinDate ? String(empIns.joinDate).slice(0, 10) : null,
+      empIns.leaveDate ? String(empIns.leaveDate).slice(0, 10) : null,
+      true,
+      true
+    ).isProRated;
+
     // 단독으로 용역 계약금액만 수정하는 경우
     if (
       serviceContractAmount !== undefined &&
@@ -616,7 +783,7 @@ export async function PATCH(request: Request) {
       mealAllowance === undefined &&
       vehicleAllowance === undefined
     ) {
-      const amt = Number(serviceContractAmount || 0);
+      const amt = Math.round(Number(serviceContractAmount || 0));
       const updateRes = await pool.query(
         `UPDATE erp_payroll_records 
          SET service_contract_amount = $1, updated_at = NOW() 
@@ -625,11 +792,13 @@ export async function PATCH(request: Request) {
         [amt, id]
       );
 
-      // 직원 기본 정보에도 동기화
-      await pool.query(
-        `UPDATE erp_employees SET service_contract_amount = $1 WHERE id = $2`,
-        [amt, rec.employee_id]
-      );
+      // 일할 적용월이 아닌 정상 만근월 수정 시에만 직원 마스터 월 계약금액 동기화
+      if (!isProRatedPayrollMonth) {
+        await pool.query(
+          `UPDATE erp_employees SET service_contract_amount = $1 WHERE id = $2`,
+          [amt, rec.employee_id]
+        );
+      }
 
       return NextResponse.json({
         success: true,
@@ -638,20 +807,35 @@ export async function PATCH(request: Request) {
       });
     }
 
-    const newBaseSalary = baseSalary !== undefined ? Number(baseSalary) : Number(rec.base_salary);
-    const newBonus = bonus !== undefined ? Number(bonus) : Number(rec.bonus);
-    const newServiceAmt = serviceContractAmount !== undefined ? Number(serviceContractAmount) : Number(rec.service_contract_amount || 0);
-    const otPay = Number(rec.ot_pay || 0);
-    const newMealAllowance = mealAllowance !== undefined ? Number(mealAllowance) : Number(rec.meal_allowance || 0);
-    const newVehicleAllowance = vehicleAllowance !== undefined ? Number(vehicleAllowance) : Number(rec.vehicle_allowance || 0);
-    const annualLeaveAllowance = bodyAnnualLeave !== undefined ? Number(bodyAnnualLeave) : Number(rec.annual_leave_allowance || 0);
-    const severancePay = bodySeverance !== undefined ? Number(bodySeverance) : Number(rec.severance_pay || 0);
-    const personalExpenseAmount =
+    const newBaseSalary = Math.round(
+      baseSalary !== undefined ? Number(baseSalary) : Number(rec.base_salary)
+    );
+    const newBonus = Math.round(bonus !== undefined ? Number(bonus) : Number(rec.bonus));
+    const newServiceAmt = Math.round(
+      serviceContractAmount !== undefined
+        ? Number(serviceContractAmount)
+        : Number(rec.service_contract_amount || 0)
+    );
+    const otPay = Math.round(Number(rec.ot_pay || 0));
+    const newMealAllowance = Math.round(
+      mealAllowance !== undefined ? Number(mealAllowance) : Number(rec.meal_allowance || 0)
+    );
+    const newVehicleAllowance = Math.round(
+      vehicleAllowance !== undefined ? Number(vehicleAllowance) : Number(rec.vehicle_allowance || 0)
+    );
+    const annualLeaveAllowance = Math.round(
+      bodyAnnualLeave !== undefined ? Number(bodyAnnualLeave) : Number(rec.annual_leave_allowance || 0)
+    );
+    const severancePay = Math.round(
+      bodySeverance !== undefined ? Number(bodySeverance) : Number(rec.severance_pay || 0)
+    );
+    const personalExpenseAmount = Math.round(
       bodyPersonalExpense !== undefined
         ? Number(bodyPersonalExpense)
-        : Number(rec.personal_expense_amount || 0);
+        : Number(rec.personal_expense_amount || 0)
+    );
 
-    const totalGross =
+    const totalGross = Math.round(
       newBaseSalary +
       otPay +
       newMealAllowance +
@@ -659,25 +843,12 @@ export async function PATCH(request: Request) {
       annualLeaveAllowance +
       severancePay +
       newBonus +
-      personalExpenseAmount;
+      personalExpenseAmount
+    );
     const taxable = Math.max(
       0,
       totalGross - newMealAllowance - newVehicleAllowance - severancePay - personalExpenseAmount
     );
-
-    // 임직원 4대보험 가입여부 조회
-    const empInsRes = await pool.query(
-      `SELECT COALESCE(ins_national_pension, TRUE) as ins_national_pension,
-              COALESCE(ins_health_insurance, TRUE) as ins_health_insurance,
-              COALESCE(ins_employment_insurance, TRUE) as ins_employment_insurance
-       FROM erp_employees WHERE id = $1`,
-      [rec.employee_id]
-    );
-    const empIns = empInsRes.rows[0] || {
-      ins_national_pension: true,
-      ins_health_insurance: true,
-      ins_employment_insurance: true,
-    };
 
     const nationalPension = empIns.ins_national_pension !== false ? Math.floor(taxable * 0.045) : 0;
     const healthInsurance = empIns.ins_health_insurance !== false ? Math.floor(taxable * 0.03545) : 0;
@@ -689,8 +860,10 @@ export async function PATCH(request: Request) {
     else if (taxable > 5000000) incomeTax = Math.floor(taxable * 0.04);
 
     const localTax = Math.floor(incomeTax * 0.1);
-    const totalDeduction = nationalPension + healthInsurance + employmentInsurance + longTermCareInsurance + incomeTax + localTax;
-    const netSalary = totalGross - totalDeduction;
+    const totalDeduction = Math.round(
+      nationalPension + healthInsurance + employmentInsurance + longTermCareInsurance + incomeTax + localTax
+    );
+    const netSalary = Math.round(totalGross - totalDeduction);
 
     const updateRes = await pool.query(
       `UPDATE erp_payroll_records 
@@ -713,13 +886,15 @@ export async function PATCH(request: Request) {
       ]
     );
 
-    // 임직원 마스터에도 기본급, 식대, 차량보조금, 용역계약금액 동기화
-    await pool.query(
-      `UPDATE erp_employees
-       SET base_salary = $1, meal_allowance = $2, vehicle_allowance = $3, service_contract_amount = $4, updated_at = NOW()
-       WHERE id = $5`,
-      [newBaseSalary, newMealAllowance, newVehicleAllowance, newServiceAmt, rec.employee_id]
-    );
+    // 일할 적용월이 아닌 정상 만근월 수정 시에만 임직원 마스터 월 기준값 동기화 (일할 금액 덮어쓰기 방지)
+    if (!isProRatedPayrollMonth) {
+      await pool.query(
+        `UPDATE erp_employees
+         SET base_salary = $1, meal_allowance = $2, vehicle_allowance = $3, service_contract_amount = $4, updated_at = NOW()
+         WHERE id = $5`,
+        [newBaseSalary, newMealAllowance, newVehicleAllowance, newServiceAmt, rec.employee_id]
+      );
+    }
 
     return NextResponse.json({
       success: true,

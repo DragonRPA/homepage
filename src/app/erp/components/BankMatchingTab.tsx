@@ -10,9 +10,6 @@ import {
   Link as LinkIcon,
   Upload,
   FileSpreadsheet,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   X,
   Check,
   ChevronLeft,
@@ -21,36 +18,26 @@ import {
   Square,
   CheckCircle2,
 } from "lucide-react";
-import { formatErpCurrency, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import {
+  formatErpCurrency,
+  formatErpInputNumber,
+  formatErpSignedInputNumber,
+  cleanErpNumber,
+  matchHangulAny,
+  sortErpItems,
+} from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
 import { STANDARD_ACCOUNT_SUBJECTS, recommendAccountSubjectForTx } from "@/lib/erpAccountSubjects";
-
-interface BankTransaction {
-  id: number;
-  entityType?: "CORP" | "INDIVIDUAL";
-  bankName: string;
-  accountNo: string;
-  accountHolder?: string;
-  accountProduct?: string;
-  transDate: string;
-  transTime: string;
-  transType: "DEPOSIT" | "WITHDRAWAL" | "OPEN";
-  amount: number;
-  withdrawalAmount: number;
-  depositAmount: number;
-  balanceAfter: number;
-  senderReceiver: string;
-  counterpartyAccount: string | null;
-  counterpartyBank: string | null;
-  memo: string | null;
-  txChannel: string | null;
-  checkAmount: number;
-  cmsCode: string | null;
-  counterpartyHolder: string | null;
-  isMatched: boolean;
-  matchedType: string | null;
-  matchedId: string | null;
-  matchedAt: string | null;
-}
+import {
+  BankTransaction,
+  AccountStatusItem,
+  BankSummary,
+  NewTransactionState,
+  UploadResultState,
+} from "./bank-matching/bankMatchingTypes";
+import { BankUploadModal } from "./bank-matching/BankUploadModal";
+import { ManualTransactionModal } from "./bank-matching/ManualTransactionModal";
+import { BankMatchModal } from "./bank-matching/BankMatchModal";
 
 interface BankMatchingTabProps {
   currentUser: any;
@@ -123,8 +110,8 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     transDate: today,
     transTime: "12:00:00",
     transType: "DEPOSIT" as "DEPOSIT" | "WITHDRAWAL",
-    amount: 0,
-    balanceAfter: 0,
+    amount: "",
+    balanceAfter: "",
     senderReceiver: "",
     counterpartyBank: "",
     counterpartyAccount: "",
@@ -176,57 +163,28 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
   };
 
   // 정렬 상태
-  const [sortKey, setSortKey] = useState<string>("transDate");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
-  };
+  const { sortKey, sortDir, handleSort } = useErpTableSort("transDate", "desc");
+  const modalInvSort = useErpTableSort("", null);
 
   const renderSortTh = (
     label: string,
     key: string,
     align: "left" | "right" | "center" = "left"
-  ) => {
-    const isActive = sortKey === key;
-    return (
-      <th
-        onClick={() => handleSort(key)}
-        className={`py-2 px-2.5 cursor-pointer select-none transition text-${align} whitespace-nowrap hover:bg-[#d0c6b4] dark:hover:bg-slate-700`}
-      >
-        <div
-          className={`inline-flex items-center gap-1 ${
-            align === "right"
-              ? "justify-end w-full"
-              : align === "center"
-              ? "justify-center w-full"
-              : "justify-start"
-          }`}
-        >
-          <span>{label}</span>
-          <span className="shrink-0">
-            {isActive ? (
-              sortDir === "asc" ? (
-                <ArrowUp className="w-3 h-3 text-[#1d4ed8] dark:text-blue-400 font-bold" />
-              ) : (
-                <ArrowDown className="w-3 h-3 text-[#1d4ed8] dark:text-blue-400 font-bold" />
-              )
-            ) : (
-              <ArrowUpDown className="w-3 h-3 opacity-30" />
-            )}
-          </span>
-        </div>
-      </th>
-    );
-  };
+  ) => (
+    <SortableTh
+      label={label}
+      colKey={key}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2 px-2.5 hover:bg-[#d0c6b4] dark:hover:bg-slate-700"
+      iconClassName="w-3 h-3 text-[#1d4ed8] dark:text-blue-400"
+    />
+  );
 
   const sortedTransactions = useMemo(() => {
-    if (sortKey === "transDate") {
+    if (sortKey === "transDate" && sortDir !== null) {
       return [...transactions].sort((a, b) => {
         const dtA = `${a.transDate} ${a.transTime || "00:00:00"}`;
         const dtB = `${b.transDate} ${b.transTime || "00:00:00"}`;
@@ -252,19 +210,22 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     const holderNorm = (selectedTrans.counterpartyHolder || "").replace(/\s+/g, "").toLowerCase();
     const q = invoiceSearchTerm.trim().toLowerCase();
 
-    return unpaidInvoices
+    const base = unpaidInvoices
       .filter((inv) => {
         const io = inv.ioType || "SALE";
         if (io !== expectedIo) return false;
         const ent = inv.supplierEntityType || "CORP";
         if (ent !== txEntity) return false;
         if (!q) return true;
-        return (
-          inv.customerName?.toLowerCase().includes(q) ||
-          inv.itemName?.toLowerCase().includes(q) ||
-          inv.invoiceNo?.toLowerCase().includes(q) ||
-          String(inv.totalAmount || "").includes(q) ||
-          String(inv.issueDate || "").includes(q)
+        return matchHangulAny(
+          [
+            inv.customerName,
+            inv.itemName,
+            inv.invoiceNo,
+            inv.totalAmount,
+            inv.issueDate,
+          ],
+          q
         );
       })
       .map((inv) => {
@@ -286,7 +247,8 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
         if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
         return String(b.issueDate || "").localeCompare(String(a.issueDate || ""));
       });
-  }, [selectedTrans, unpaidInvoices, invoiceSearchTerm]);
+    return sortErpItems(base, modalInvSort.sortKey, modalInvSort.sortDir);
+  }, [selectedTrans, unpaidInvoices, invoiceSearchTerm, modalInvSort.sortKey, modalInvSort.sortDir]);
 
   const selectedInvoicesSum = useMemo(() => {
     return filteredModalInvoices.reduce((acc, inv) => {
@@ -456,7 +418,11 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       const res = await fetch("/api/erp/bank-matching", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newTrans),
+        body: JSON.stringify({
+          ...newTrans,
+          amount: cleanErpNumber(newTrans.amount),
+          balanceAfter: cleanErpNumber(newTrans.balanceAfter),
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "등록 실패");
@@ -1467,700 +1433,56 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       </div>
 
       {/* 통장내역 파일 업로드 모달 */}
-      {uploadModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={handleFileUploadSubmit}
-            className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-lg shadow-2xl text-[#0f172a] dark:bg-slate-900 dark:border-slate-800 dark:text-white"
-          >
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-[#b5a894] dark:border-slate-800">
-              <h2 className="text-sm font-bold flex items-center gap-1.5">
-                <FileSpreadsheet className="w-4 h-4 text-[#047857]" />
-                <span>통장 입출금내역 파일 업로드</span>
-              </h2>
-              <button
-                type="button"
-                onClick={() => setUploadModalOpen(false)}
-                className="p-1 rounded hover:bg-[#dcd4c4] dark:hover:bg-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              {accountStatus.length > 0 && (
-                <div className="p-2.5 rounded bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-950 dark:border-slate-800 space-y-1.5">
-                  <div className="text-[11px] font-bold text-[#334155] dark:text-slate-400">
-                    계좌별 마지막 업로드 거래데이터 일시
-                  </div>
-                  {accountStatus.map((acc) => (
-                    <div
-                      key={acc.accountNo}
-                      className="flex items-center justify-between text-[11px] font-mono"
-                    >
-                      <span className="text-[#0f172a] dark:text-slate-200 font-semibold">
-                        [{acc.entityType === "INDIVIDUAL" ? "개인" : "법인"}] {acc.bankName}{" "}
-                        {acc.accountNo}
-                      </span>
-                      {acc.latestTransDatetime ? (
-                        <span className="font-bold text-[#047857] dark:text-emerald-400">
-                          최종 거래: {acc.latestTransDatetime}
-                        </span>
-                      ) : (
-                        <span className="text-[#dc2626] dark:text-rose-400">업로드 내역 없음</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400">
-                  귀속 계좌 설정
-                </label>
-                <select
-                  value={uploadAccountNo}
-                  onChange={(e) => setUploadAccountNo(e.target.value)}
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                >
-                  <option value="AUTO">파일 내 계좌번호 자동 인식 (기본: 478-081383-04-018)</option>
-                  <option value="478-081383-04-018">
-                    기업은행 478-081383-04-018 [(주)드래곤알피에이 법인]
-                  </option>
-                  <option value="140-129404-04-018">
-                    기업은행 140-129404-04-018 [드래곤알피에이 개인]
-                  </option>
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400">
-                  거래내역 파일 선택 (.xlsx, .xls, .csv, .txt 복수 선택 가능)
-                </label>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls,.csv,.txt"
-                  multiple
-                  onChange={(e) => {
-                    if (e.target.files) {
-                      setSelectedFiles(Array.from(e.target.files));
-                    }
-                  }}
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded file:mr-3 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-bold file:bg-[#1d4ed8] file:text-white hover:file:bg-[#1e40af] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                />
-                {selectedFiles.length > 0 && (
-                  <div className="p-2 rounded bg-[#f4efe4] border border-[#b5a894] text-[11px] space-y-1 font-mono">
-                    {selectedFiles.map((f, i) => (
-                      <div key={i} className="flex items-center justify-between">
-                        <span className="truncate">{f.name}</span>
-                        <span className="text-[#64748b] shrink-0">
-                          {(f.size / 1024).toFixed(1)} KB
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400">
-                  엑셀/CSV 텍스트 직접 붙여넣기 (선택)
-                </label>
-                <textarea
-                  rows={4}
-                  value={rawPasteText}
-                  onChange={(e) => setRawPasteText(e.target.value)}
-                  placeholder="거래내역조회_입출식 예금 CSV 또는 엑셀 복사 내용을 붙여넣으세요."
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] p-2.5 rounded font-mono focus:outline-none focus:border-[#1d4ed8] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-200"
-                />
-              </div>
-
-              {uploadResult && (
-                <div className="p-3 rounded bg-[#ecfdf5] border border-[#047857] text-[#065f46] text-xs space-y-1">
-                  <div className="font-bold flex items-center gap-1">
-                    <Check className="w-4 h-4" />
-                    <span>DB 반영 결과</span>
-                  </div>
-                  <div className="font-mono text-[11px]">
-                    분석 건수: {uploadResult.totalParsed}건 | 신규 저장:{" "}
-                    <b>{uploadResult.insertedCount}건</b> | 중복 제외:{" "}
-                    {uploadResult.duplicateCount}건
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-5 pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setUploadModalOpen(false)}
-                className="px-3 py-1.5 text-xs text-[#0f172a] bg-[#dcd4c4] hover:bg-[#d0c6b4] rounded border border-[#b5a894] font-bold transition dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
-              >
-                닫기
-              </button>
-              <button
-                type="submit"
-                disabled={uploading}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-[#047857] hover:bg-[#065f46] disabled:opacity-50 rounded shadow-xs transition flex items-center gap-1.5"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                <span>{uploading ? "업로드 처리중..." : "DB 저장 실행"}</span>
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <BankUploadModal
+        isOpen={uploadModalOpen}
+        onClose={() => setUploadModalOpen(false)}
+        onSubmit={handleFileUploadSubmit}
+        accountStatus={accountStatus}
+        uploadAccountNo={uploadAccountNo}
+        setUploadAccountNo={setUploadAccountNo}
+        fileInputRef={fileInputRef}
+        selectedFiles={selectedFiles}
+        setSelectedFiles={setSelectedFiles}
+        rawPasteText={rawPasteText}
+        setRawPasteText={setRawPasteText}
+        uploading={uploading}
+        uploadResult={uploadResult}
+      />
 
       {/* 단건 수기 등록 모달 */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={handleCreateTrans}
-            className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-md shadow-2xl text-[#0f172a] dark:bg-slate-900 dark:border-slate-800 dark:text-white"
-          >
-            <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 mb-4 pb-2 border-b border-[#b5a894] dark:border-slate-800 flex items-center gap-1.5">
-              <Building2 className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
-              <span>은행 거래내역 등록</span>
-            </h2>
-
-            <div className="space-y-3">
-              <div className="flex flex-col gap-1.5 p-2.5 rounded bg-[#f4efe4] border border-[#b5a894] dark:bg-slate-950 dark:border-slate-800">
-                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                  입출금 계좌 선택
-                </label>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setNewTrans({
-                        ...newTrans,
-                        entityType: "CORP",
-                        accountNo: "478-081383-04-018",
-                      })
-                    }
-                    className={`p-2 rounded border text-left transition ${
-                      newTrans.accountNo === "478-081383-04-018"
-                        ? "border-[#1d4ed8] bg-[#dbeafe] text-[#1e40af] font-bold shadow-xs"
-                        : "border-[#b5a894] bg-[#ebe5d8] text-[#334155]"
-                    }`}
-                  >
-                    <div>(주)드래곤알피에이 [법인]</div>
-                    <div className="font-mono text-[10px] opacity-75">478-081383-04-018</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setNewTrans({
-                        ...newTrans,
-                        entityType: "INDIVIDUAL",
-                        accountNo: "140-129404-04-018",
-                      })
-                    }
-                    className={`p-2 rounded border text-left transition ${
-                      newTrans.accountNo === "140-129404-04-018"
-                        ? "border-[#b45309] bg-[#fef3c7] text-[#92400e] font-bold shadow-xs"
-                        : "border-[#b5a894] bg-[#ebe5d8] text-[#334155]"
-                    }`}
-                  >
-                    <div>드래곤알피에이 [개인]</div>
-                    <div className="font-mono text-[10px] opacity-75">140-129404-04-018</div>
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                    거래일자
-                  </label>
-                  <input
-                    type="date"
-                    value={newTrans.transDate}
-                    onChange={(e) => setNewTrans({ ...newTrans, transDate: e.target.value })}
-                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                    거래시간
-                  </label>
-                  <input
-                    type="text"
-                    value={newTrans.transTime}
-                    onChange={(e) => setNewTrans({ ...newTrans, transTime: e.target.value })}
-                    placeholder="12:00:00"
-                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded font-mono focus:outline-none focus:border-[#1d4ed8]"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                    입출금 구분
-                  </label>
-                  <select
-                    value={newTrans.transType}
-                    onChange={(e) =>
-                      setNewTrans({ ...newTrans, transType: e.target.value as any })
-                    }
-                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
-                  >
-                    <option value="DEPOSIT">입금</option>
-                    <option value="WITHDRAWAL">출금</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                    거래구분
-                  </label>
-                  <input
-                    type="text"
-                    value={newTrans.txChannel}
-                    onChange={(e) => setNewTrans({ ...newTrans, txChannel: e.target.value })}
-                    placeholder="타행이체, 체크, 인터넷"
-                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                    거래금액(원)
-                  </label>
-                  <input
-                    type="number"
-                    value={newTrans.amount}
-                    onChange={(e) =>
-                      setNewTrans({ ...newTrans, amount: parseFloat(e.target.value) || 0 })
-                    }
-                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded font-mono focus:outline-none focus:border-[#1d4ed8]"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                    거래후 잔액(원)
-                  </label>
-                  <input
-                    type="number"
-                    value={newTrans.balanceAfter}
-                    onChange={(e) =>
-                      setNewTrans({
-                        ...newTrans,
-                        balanceAfter: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded font-mono focus:outline-none focus:border-[#1d4ed8]"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                  거래내용
-                </label>
-                <input
-                  type="text"
-                  value={newTrans.senderReceiver}
-                  onChange={(e) =>
-                    setNewTrans({ ...newTrans, senderReceiver: e.target.value })
-                  }
-                  placeholder="(주)현대렌탈서비스"
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                    상대은행
-                  </label>
-                  <input
-                    type="text"
-                    value={newTrans.counterpartyBank}
-                    onChange={(e) =>
-                      setNewTrans({ ...newTrans, counterpartyBank: e.target.value })
-                    }
-                    placeholder="국민은행, 우리은행"
-                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                    상대계좌예금주명
-                  </label>
-                  <input
-                    type="text"
-                    value={newTrans.counterpartyHolder}
-                    onChange={(e) =>
-                      setNewTrans({ ...newTrans, counterpartyHolder: e.target.value })
-                    }
-                    placeholder="예금주명"
-                    className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                  메모
-                </label>
-                <input
-                  type="text"
-                  value={newTrans.memo}
-                  onChange={(e) => setNewTrans({ ...newTrans, memo: e.target.value })}
-                  placeholder="메모"
-                  className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 pt-3 border-t border-[#b5a894] dark:border-slate-800 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setModalOpen(false)}
-                className="px-3 py-1.5 text-xs text-[#0f172a] bg-[#dcd4c4] hover:bg-[#d0c6b4] rounded border border-[#b5a894] font-bold transition"
-              >
-                취소
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-1.5 text-xs font-bold text-white bg-[#1d4ed8] hover:bg-[#1e40af] rounded shadow-xs transition"
-              >
-                등록
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <ManualTransactionModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSubmit={handleCreateTrans}
+        newTrans={newTrans}
+        setNewTrans={setNewTrans}
+      />
 
       {/* 1:1 / 1:N 대사 매칭 및 계정과목 정리 모달 */}
-      {matchModalOpen && selectedTrans && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#ebe5d8] border-2 border-[#b5a894] rounded-lg p-5 w-full max-w-2xl shadow-2xl text-[#0f172a] dark:bg-slate-900 dark:border-slate-800 dark:text-white max-h-[92vh] flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#b5a894] dark:border-slate-800 shrink-0">
-              <h2 className="text-sm font-bold text-[#0f172a] dark:text-slate-100 flex items-center gap-1.5">
-                <LinkIcon className="w-4 h-4 text-[#1d4ed8] dark:text-blue-400" />
-                <span>통장 입출금 대사 · 계정과목 지정 및 미결 세금계산서 연결</span>
-              </h2>
-              <button
-                type="button"
-                onClick={() => setMatchModalOpen(false)}
-                className="p-1 rounded hover:bg-[#dcd4c4] dark:hover:bg-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* 선택한 통장 거래 요약 배너 */}
-            <div className="p-3 bg-[#f4efe4] rounded border border-[#b5a894] mb-3 text-xs grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0 dark:bg-slate-950/60 dark:border-slate-800">
-              <div className="flex flex-col">
-                <span className="text-[10px] text-[#475569] font-bold">거래일시</span>
-                <span className="text-[#0f172a] dark:text-slate-200 font-mono font-bold">
-                  {selectedTrans.transDate} {selectedTrans.transTime}
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-[#475569] font-bold">구분 / 거래구분</span>
-                <span className="font-bold text-[#0f172a] dark:text-slate-200">
-                  {selectedTrans.depositAmount > 0 ? "입금" : "출금"} ({selectedTrans.txChannel || "-"})
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-[#475569] font-bold">거래금액</span>
-                <span
-                  className={`font-bold font-mono text-sm ${
-                    selectedTrans.depositAmount > 0 ? "text-[#1d4ed8]" : "text-[#dc2626]"
-                  }`}
-                >
-                  {formatErpCurrency(
-                    selectedTrans.depositAmount > 0
-                      ? selectedTrans.depositAmount
-                      : selectedTrans.withdrawalAmount
-                  )}
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-[#475569] font-bold">거래내용 / 예금주</span>
-                <span className="text-[#0f172a] dark:text-slate-100 font-bold truncate">
-                  {selectedTrans.senderReceiver}{" "}
-                  {selectedTrans.counterpartyHolder ? `(${selectedTrans.counterpartyHolder})` : ""}
-                </span>
-              </div>
-            </div>
-
-            {/* 상단 모드 전환 탭 */}
-            <div className="grid grid-cols-2 gap-1.5 mb-3 shrink-0">
-              <button
-                type="button"
-                onClick={() => setMatchModalTab("ACCOUNT")}
-                className={`py-2 px-3 rounded text-xs font-bold border transition ${
-                  matchModalTab === "ACCOUNT"
-                    ? "bg-[#1d4ed8] text-white border-[#1d4ed8] shadow-xs"
-                    : "bg-[#f4efe4] text-[#334155] border-[#b5a894] hover:bg-[#e2dbcd]"
-                }`}
-              >
-                ① 계정과목 지정하여 미결 정리
-              </button>
-              <button
-                type="button"
-                onClick={() => setMatchModalTab("INVOICE")}
-                className={`py-2 px-3 rounded text-xs font-bold border transition ${
-                  matchModalTab === "INVOICE"
-                    ? "bg-[#047857] text-white border-[#047857] shadow-xs"
-                    : "bg-[#f4efe4] text-[#334155] border-[#b5a894] hover:bg-[#e2dbcd]"
-                }`}
-              >
-                ② 미결 세금계산서와 엮어 매칭 완결 ({filteredModalInvoices.length}건)
-              </button>
-            </div>
-
-            {/* 탭 본문 */}
-            <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
-              {matchModalTab === "ACCOUNT" ? (
-                <>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[11px] font-bold text-[#334155] dark:text-slate-400">
-                      {selectedTrans.depositAmount > 0 ? "입금" : "출금"} 표준 계정과목 빠른 선택
-                    </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                      {STANDARD_ACCOUNT_SUBJECTS.filter(
-                        (s) =>
-                          s.direction ===
-                            (selectedTrans.depositAmount > 0 ? "DEPOSIT" : "WITHDRAWAL") ||
-                          s.direction === "BOTH"
-                      ).map((subj) => {
-                        const active =
-                          matchedType === "ACCOUNT_SUBJECT" && matchedId === subj.label;
-                        return (
-                          <button
-                            key={subj.code}
-                            type="button"
-                            onClick={() => {
-                              setMatchedType("ACCOUNT_SUBJECT");
-                              setMatchedId(subj.label);
-                            }}
-                            className={`p-2 rounded border text-left text-[11px] font-bold transition truncate ${
-                              active
-                                ? "bg-[#dbeafe] border-[#1d4ed8] text-[#1e40af] shadow-xs"
-                                : "bg-[#f4efe4] border-[#b5a894] text-[#0f172a] hover:bg-[#e2dbcd]"
-                            }`}
-                          >
-                            {subj.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-[#c4b6a0]">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                        대사 분류 구분
-                      </label>
-                      <select
-                        value={matchedType}
-                        onChange={(e) => setMatchedType(e.target.value)}
-                        className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
-                      >
-                        <option value="ACCOUNT_SUBJECT">계정과목 지정 (재무제표 직접 반영)</option>
-                        <option value="PAYROLL">급여/4대보험/원천세</option>
-                        <option value="CONTRACT">임대/유통/용역 계약</option>
-                        <option value="OTHER">기타 수납/가수금</option>
-                      </select>
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                        지정 계정과목명 / 매칭 대상 번호
-                      </label>
-                      <input
-                        type="text"
-                        value={matchedId}
-                        onChange={(e) => setMatchedId(e.target.value)}
-                        placeholder="계정과목명 또는 관리번호"
-                        className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded font-bold focus:outline-none focus:border-[#1d4ed8]"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold text-[#334155] dark:text-slate-400">
-                      비고 / 적요 메모
-                    </label>
-                    <input
-                      type="text"
-                      value={matchMemo}
-                      onChange={(e) => setMatchMemo(e.target.value)}
-                      placeholder="특이사항 또는 상세 적요 입력"
-                      className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-3 py-2 rounded focus:outline-none focus:border-[#1d4ed8]"
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-[#334155]">
-                      미결 {selectedTrans.depositAmount > 0 ? "매출" : "매입"} 세금계산서 선택 (복수 선택 가능)
-                    </span>
-                    <input
-                      type="text"
-                      value={invoiceSearchTerm}
-                      onChange={(e) => setInvoiceSearchTerm(e.target.value)}
-                      placeholder="거래처명, 품목, 금액 검색..."
-                      className="h-7 px-2.5 rounded border border-[#b5a894] bg-[#f4efe4] text-xs w-52"
-                    />
-                  </div>
-
-                  <div className="max-h-56 overflow-y-auto border border-[#b5a894] rounded bg-[#f4efe4]">
-                    <table className="w-full text-xs border-collapse">
-                      <thead className="sticky top-0 bg-[#ded6c5] border-b border-[#b5a894] font-bold">
-                        <tr>
-                          <th className="p-2 text-center w-10 border-r border-[#b5a894]">선택</th>
-                          <th className="p-2 text-left w-24 border-r border-[#b5a894]">작성일자</th>
-                          <th className="p-2 text-left border-r border-[#b5a894]">거래처명 / 품목</th>
-                          <th className="p-2 text-right w-28 border-r border-[#b5a894]">합계금액</th>
-                          <th className="p-2 text-right w-28">미결잔액</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#b5a894]">
-                        {filteredModalInvoices.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="p-6 text-center text-[#64748b]">
-                              연결 가능한 미수납/미지급 세금계산서가 없습니다.
-                            </td>
-                          </tr>
-                        ) : (
-                          filteredModalInvoices.map((inv) => {
-                            const invId = Number(inv.id);
-                            const checked = selectedInvoiceIds.has(invId);
-                            return (
-                              <tr
-                                key={inv.id}
-                                onClick={() =>
-                                  setSelectedInvoiceIds((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.has(invId)) next.delete(invId);
-                                    else next.add(invId);
-                                    return next;
-                                  })
-                                }
-                                className={`cursor-pointer hover:bg-[#e2dbcd] transition ${
-                                  checked ? "bg-emerald-50" : inv.matchScore >= 45 ? "bg-amber-50/50" : ""
-                                }`}
-                              >
-                                <td className="p-2 text-center border-r border-[#b5a894]">
-                                  {checked ? (
-                                    <CheckSquare className="w-4 h-4 text-[#047857] mx-auto" />
-                                  ) : (
-                                    <Square className="w-4 h-4 text-[#64748b] mx-auto" />
-                                  )}
-                                </td>
-                                <td className="p-2 font-mono border-r border-[#b5a894] whitespace-nowrap">
-                                  {String(inv.issueDate || "").slice(0, 10)}
-                                </td>
-                                <td className="p-2 border-r border-[#b5a894]">
-                                  <div className="font-bold text-[#0f172a]">{inv.customerName}</div>
-                                  <div className="text-[10px] text-[#64748b] truncate">{inv.itemName}</div>
-                                </td>
-                                <td className="p-2 text-right font-mono border-r border-[#b5a894] whitespace-nowrap">
-                                  {formatErpCurrency(inv.totalAmount)}
-                                </td>
-                                <td className="p-2 text-right font-mono font-bold text-[#dc2626] whitespace-nowrap">
-                                  {formatErpCurrency(inv.unpaidAmt)}
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {selectedInvoiceIds.size > 0 && (
-                    <div className="p-2.5 rounded border border-[#047857] bg-[#ecfdf5] flex flex-wrap items-center justify-between gap-2">
-                      <div className="font-mono text-[11px] flex flex-wrap items-center gap-2">
-                        <span>
-                          통장 거래금액:{" "}
-                          <b>
-                            {formatErpCurrency(
-                              selectedTrans.depositAmount > 0
-                                ? selectedTrans.depositAmount
-                                : selectedTrans.withdrawalAmount
-                            )}
-                          </b>
-                        </span>
-                        <span>|</span>
-                        <span>
-                          선택 세금계산서 미결합계 ({selectedInvoiceIds.size}건):{" "}
-                          <b className="text-[#047857]">{formatErpCurrency(selectedInvoicesSum)}</b>
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-bold">차액 종결 사유:</span>
-                        <select
-                          value={settleReason}
-                          onChange={(e) => setSettleReason(e.target.value)}
-                          className="h-6 px-2 rounded border border-[#b5a894] bg-white text-[11px] font-bold"
-                        >
-                          <option value="수수료/단수절사 차액 상계 완납">수수료/단수절사 차액 상계 완납</option>
-                          <option value="합산이체/복합결제 정산 완납">합산이체/복합결제 정산 완납</option>
-                          <option value="일부 감액/에누리 합의 완납">일부 감액/에누리 합의 완납</option>
-                          <option value="원천징수/공제 후 입금 완납">원천징수/공제 후 입금 완납</option>
-                        </select>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-[#b5a894] dark:border-slate-800 flex flex-wrap justify-between gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setMatchModalOpen(false)}
-                className="px-3 py-1.5 text-xs text-[#0f172a] bg-[#dcd4c4] hover:bg-[#d0c6b4] rounded border border-[#b5a894] font-bold transition"
-              >
-                취소
-              </button>
-
-              {matchModalTab === "ACCOUNT" ? (
-                <button
-                  type="button"
-                  onClick={handleManualMatch}
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-[#1d4ed8] hover:bg-[#1e40af] rounded shadow-xs transition flex items-center gap-1.5"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>[{matchedId || "계정과목"}] 대사 확정</span>
-                </button>
-              ) : (
-                <div className="flex flex-wrap items-center gap-2">
-                  {selectedInvoiceIds.size > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => handleMatchWithInvoices(false)}
-                      className="px-3 py-1.5 text-xs font-bold text-[#047857] bg-[#f4efe4] hover:bg-[#ecfdf5] rounded border border-[#047857] transition"
-                    >
-                      통장 금액만큼만 부분정산 연결
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    disabled={selectedInvoiceIds.size === 0}
-                    onClick={() => handleMatchWithInvoices(true)}
-                    className="px-4 py-1.5 text-xs font-bold text-white bg-[#047857] hover:bg-[#065f46] disabled:opacity-50 rounded shadow-xs transition flex items-center gap-1.5"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>선택 세금계산서 ({selectedInvoiceIds.size}건) 엮어 완납 종결</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <BankMatchModal
+        isOpen={matchModalOpen && !!selectedTrans}
+        onClose={() => setMatchModalOpen(false)}
+        selectedTrans={selectedTrans}
+        matchModalTab={matchModalTab}
+        setMatchModalTab={setMatchModalTab}
+        matchedType={matchedType}
+        setMatchedType={setMatchedType}
+        matchedId={matchedId}
+        setMatchedId={setMatchedId}
+        matchMemo={matchMemo}
+        setMatchMemo={setMatchMemo}
+        invoiceSearchTerm={invoiceSearchTerm}
+        setInvoiceSearchTerm={setInvoiceSearchTerm}
+        filteredModalInvoices={filteredModalInvoices}
+        selectedInvoiceIds={selectedInvoiceIds}
+        setSelectedInvoiceIds={setSelectedInvoiceIds}
+        selectedInvoicesSum={selectedInvoicesSum}
+        settleReason={settleReason}
+        setSettleReason={setSettleReason}
+        modalInvSort={modalInvSort}
+        handleManualMatch={handleManualMatch}
+        handleMatchWithInvoices={handleMatchWithInvoices}
+      />
     </div>
   );
 };

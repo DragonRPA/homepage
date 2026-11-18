@@ -1,6 +1,13 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { ensureForkliftSchema } from "@/lib/forkliftSchemaInit";
+import { assertPartnerTradable, PartnerTradeBlockedError } from "@/lib/partnerStatusService";
+import {
+  normalizeAttachedOptions,
+  addMonthsMinusOneDay,
+  computeWarrantyStatus,
+} from "@/lib/forkliftDomain";
 
 // GET: List all sales (optionally filter by entityType, or id for single contract file)
 export async function GET(request: Request) {
@@ -10,6 +17,7 @@ export async function GET(request: Request) {
     const entityType = searchParams.get("entityType");
 
     const pool = getErpPool();
+    await ensureForkliftSchema(pool);
 
     if (idParam) {
       const singleRes = await pool.query(
@@ -45,6 +53,12 @@ export async function GET(request: Request) {
         tp.name as "productName",
         tp.spec as "productSpec",
         tp.unit,
+        COALESCE(s.sale_category, 'GENERAL') as "saleCategory",
+        COALESCE(s.site_name, '') as "siteName",
+        COALESCE(s.chassis_numbers, '[]'::jsonb) as "chassisNumbers",
+        COALESCE(s.installed_options, '[]'::jsonb) as "installedOptions",
+        COALESCE(s.warranty_months, 12) as "warrantyMonths",
+        COALESCE(s.warranty_hours, 2000) as "warrantyHours",
         s.qty,
         s.unit_price as "unitPrice",
         s.total_amount as "totalAmount",
@@ -131,10 +145,16 @@ export async function POST(request: Request) {
     const dd = effectiveSaleDate.slice(8, 10);
 
     const pool = getErpPool();
+    await ensureForkliftSchema(pool);
     const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
+      await assertPartnerTradable(client, {
+        partnerId,
+        customerName,
+        businessNo: customerBizNo,
+      });
 
       // 다중 품목 정규화 및 상품별 재고 차감 / 원가(COGS) 합산
       const lineInputs = hasMultiItems
@@ -242,6 +262,30 @@ export async function POST(request: Request) {
           }))
         : builtTaxItems;
 
+      const resolvedSaleCategory = String(body.saleCategory || "GENERAL").trim().toUpperCase();
+      const resolvedSiteName = String(body.siteName || "").trim();
+      const rawChassisList = Array.isArray(body.chassisNumbers)
+        ? body.chassisNumbers
+        : typeof body.chassisNumbers === "string"
+        ? body.chassisNumbers.split(/[\n,;]+/)
+        : [];
+      const normalizedChassisNumbers = Array.from(
+        new Set(
+          rawChassisList
+            .map((c: unknown) => String(c || "").trim().toUpperCase())
+            .filter(Boolean)
+        )
+      ) as string[];
+      const normalizedInstalledOptions = normalizeAttachedOptions(body.installedOptions);
+      const resolvedWarrantyMonths = Math.max(
+        0,
+        Math.round(Number(body.warrantyMonths ?? 12) || 0)
+      );
+      const resolvedWarrantyHours = Math.max(
+        0,
+        Math.round(Number(body.warrantyHours ?? 2000) || 0)
+      );
+
       // Insert 1 sale contract for this outbound (출고 1건당 1개의 계약)
       const insRes = await client.query(
         `INSERT INTO erp_trade_sales 
@@ -249,10 +293,12 @@ export async function POST(request: Request) {
           total_amount, vat_amount, cogs_amount, margin_amount, status, memo,
           customer_biz_no, customer_ceo_name, customer_address, customer_biz_type, customer_biz_class,
           customer_email, customer_email2, tax_purpose, tax_memo, tax_items,
-          contract_file_url, contract_file_name)
+          contract_file_url, contract_file_name,
+          sale_category, site_name, chassis_numbers, installed_options, warranty_months, warranty_hours)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
                  $9, $10, $11, $12, 'CONFIRMED', $13,
-                 $14, $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb, $24, $25)
+                 $14, $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb, $24, $25,
+                 $26, $27, $28::jsonb, $29::jsonb, $30, $31)
          RETURNING *`,
         [
           saleNo,
@@ -280,8 +326,99 @@ export async function POST(request: Request) {
           JSON.stringify(normalizedTaxItems),
           contractFileUrl || null,
           contractFileName || null,
+          resolvedSaleCategory,
+          resolvedSiteName,
+          JSON.stringify(normalizedChassisNumbers),
+          JSON.stringify(normalizedInstalledOptions),
+          resolvedWarrantyMonths,
+          resolvedWarrantyHours,
         ]
       );
+
+      const createdSale = insRes.rows[0];
+
+      // Auto-register/upsert chassis warranty cards when chassis numbers are entered
+      if (normalizedChassisNumbers.length > 0) {
+        let modelName = primaryProductName;
+        let manufacturer = "";
+        if (primaryProductId) {
+          const pInfoRes = await client.query(
+            `SELECT name, manufacturer, item_class FROM erp_trade_products WHERE id = $1`,
+            [primaryProductId]
+          );
+          if (pInfoRes.rows.length > 0) {
+            modelName = pInfoRes.rows[0].name || modelName;
+            manufacturer = pInfoRes.rows[0].manufacturer || "";
+          }
+        }
+        const warrantyStart = effectiveSaleDate;
+        const warrantyEnd =
+          resolvedWarrantyMonths > 0
+            ? addMonthsMinusOneDay(warrantyStart, resolvedWarrantyMonths)
+            : warrantyStart;
+        const computed = computeWarrantyStatus({
+          warrantyEndDate: warrantyEnd,
+          warrantyHours: resolvedWarrantyHours,
+          currentOperatingHours: 0,
+        });
+
+        for (let idx = 0; idx < normalizedChassisNumbers.length; idx++) {
+          const chassisNo = normalizedChassisNumbers[idx];
+          const suffix =
+            normalizedChassisNumbers.length > 1 ? `-${idx + 1}` : "";
+          const warrantyNo = `WR${effectiveSaleDate.slice(2, 10).replace(/-/g, "")}-${Math.floor(
+            1000 + Math.random() * 9000
+          )}${suffix}`;
+
+          await client.query(
+            `INSERT INTO erp_forklift_warranties
+             (warranty_no, chassis_no, source_type, source_id, product_id, model_name, manufacturer,
+              partner_id, customer_name, site_name, delivery_date, warranty_start_date,
+              warranty_months, warranty_end_date, warranty_hours, current_operating_hours,
+              attached_options, status, memo)
+             VALUES ($1, $2, 'SALE', $3, $4, $5, $6,
+                     $7, $8, $9, $10, $11,
+                     $12, $13, $14, 0,
+                     $15::jsonb, $16, $17)
+             ON CONFLICT (chassis_no) DO UPDATE SET
+               source_type = 'SALE',
+               source_id = EXCLUDED.source_id,
+               product_id = EXCLUDED.product_id,
+               model_name = EXCLUDED.model_name,
+               manufacturer = CASE WHEN EXCLUDED.manufacturer <> '' THEN EXCLUDED.manufacturer ELSE erp_forklift_warranties.manufacturer END,
+               partner_id = EXCLUDED.partner_id,
+               customer_name = EXCLUDED.customer_name,
+               site_name = EXCLUDED.site_name,
+               delivery_date = EXCLUDED.delivery_date,
+               warranty_start_date = EXCLUDED.warranty_start_date,
+               warranty_months = EXCLUDED.warranty_months,
+               warranty_end_date = EXCLUDED.warranty_end_date,
+               warranty_hours = EXCLUDED.warranty_hours,
+               attached_options = EXCLUDED.attached_options,
+               status = EXCLUDED.status,
+               updated_at = NOW()`,
+            [
+              warrantyNo,
+              chassisNo,
+              createdSale.id,
+              primaryProductId,
+              modelName,
+              manufacturer,
+              partnerId ? parseInt(String(partnerId), 10) : null,
+              customerName.trim(),
+              resolvedSiteName,
+              effectiveSaleDate,
+              warrantyStart,
+              resolvedWarrantyMonths,
+              warrantyEnd,
+              resolvedWarrantyHours,
+              JSON.stringify(normalizedInstalledOptions),
+              computed.status,
+              memo || "",
+            ]
+          );
+        }
+      }
 
       // Audit log
       await client.query(
@@ -291,6 +428,9 @@ export async function POST(request: Request) {
           saleNo,
           JSON.stringify({
             customerName,
+            saleCategory: resolvedSaleCategory,
+            chassisNumbers: normalizedChassisNumbers,
+            installedOptionsCount: normalizedInstalledOptions.length,
             itemCount: normalizedTaxItems.length,
             qty: totalQty,
             totalAmount: finalTotalAmount,
@@ -302,7 +442,7 @@ export async function POST(request: Request) {
       );
 
       await client.query("COMMIT");
-      return NextResponse.json({ success: true, sale: insRes.rows[0] });
+      return NextResponse.json({ success: true, sale: createdSale });
     } catch (e: any) {
       await client.query("ROLLBACK");
       throw e;
@@ -310,6 +450,9 @@ export async function POST(request: Request) {
       client.release();
     }
   } catch (error: any) {
+    if (error instanceof PartnerTradeBlockedError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+    }
     console.error("POST Sale Error:", error);
     return NextResponse.json({ error: "판매 등록 실패: " + error.message }, { status: 500 });
   }
@@ -349,6 +492,7 @@ export async function PUT(request: Request) {
     }
 
     const pool = getErpPool();
+    await ensureForkliftSchema(pool);
     const client = await pool.connect();
 
     try {
@@ -390,6 +534,33 @@ export async function PUT(request: Request) {
         );
       }
 
+      const resolvedSaleCategory =
+        body.saleCategory !== undefined ? String(body.saleCategory || "GENERAL").trim().toUpperCase() : null;
+      const resolvedSiteName = body.siteName !== undefined ? String(body.siteName || "").trim() : null;
+      const resolvedChassisNumbers =
+        body.chassisNumbers !== undefined
+          ? JSON.stringify(
+              Array.from(
+                new Set(
+                  (Array.isArray(body.chassisNumbers)
+                    ? body.chassisNumbers
+                    : String(body.chassisNumbers || "").split(/[\n,;]+/)
+                  )
+                    .map((c: unknown) => String(c || "").trim().toUpperCase())
+                    .filter(Boolean)
+                )
+              )
+            )
+          : null;
+      const resolvedInstalledOptions =
+        body.installedOptions !== undefined
+          ? JSON.stringify(normalizeAttachedOptions(body.installedOptions))
+          : null;
+      const resolvedWarrantyMonths =
+        body.warrantyMonths !== undefined ? Math.max(0, Math.round(Number(body.warrantyMonths) || 0)) : null;
+      const resolvedWarrantyHours =
+        body.warrantyHours !== undefined ? Math.max(0, Math.round(Number(body.warrantyHours) || 0)) : null;
+
       const updateRes = await client.query(
         `
         UPDATE erp_trade_sales
@@ -416,7 +587,13 @@ export async function PUT(request: Request) {
           tax_memo = COALESCE($20, tax_memo),
           tax_items = COALESCE($21::jsonb, tax_items),
           contract_file_url = CASE WHEN $22::text = '__DELETE__' THEN NULL ELSE COALESCE($22, contract_file_url) END,
-          contract_file_name = CASE WHEN $22::text = '__DELETE__' THEN NULL ELSE COALESCE($23, contract_file_name) END
+          contract_file_name = CASE WHEN $22::text = '__DELETE__' THEN NULL ELSE COALESCE($23, contract_file_name) END,
+          sale_category = COALESCE($25, sale_category),
+          site_name = COALESCE($26, site_name),
+          chassis_numbers = COALESCE($27::jsonb, chassis_numbers),
+          installed_options = COALESCE($28::jsonb, installed_options),
+          warranty_months = COALESCE($29, warranty_months),
+          warranty_hours = COALESCE($30, warranty_hours)
         WHERE id = $24
         RETURNING *
         `,
@@ -445,6 +622,12 @@ export async function PUT(request: Request) {
           contractFileUrl || null,
           contractFileName || null,
           parseInt(String(id), 10),
+          resolvedSaleCategory,
+          resolvedSiteName,
+          resolvedChassisNumbers,
+          resolvedInstalledOptions,
+          resolvedWarrantyMonths,
+          resolvedWarrantyHours,
         ]
       );
 
@@ -472,6 +655,7 @@ export async function DELETE(request: Request) {
     }
 
     const pool = getErpPool();
+    await ensureForkliftSchema(pool);
     const client = await pool.connect();
 
     try {
@@ -509,6 +693,12 @@ export async function DELETE(request: Request) {
         );
       }
 
+      await client.query(
+        `DELETE FROM erp_forklift_warranties w
+         WHERE w.source_type = 'SALE' AND w.source_id = $1
+           AND NOT EXISTS (SELECT 1 FROM erp_forklift_warranty_claims c WHERE c.warranty_id = w.id)`,
+        [parseInt(id, 10)]
+      );
       await client.query("DELETE FROM erp_trade_sales WHERE id = $1", [parseInt(id, 10)]);
       await client.query("COMMIT");
 

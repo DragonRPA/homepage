@@ -23,223 +23,44 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
+import { toErpInputString, cleanErpNumber } from "@/lib/erpFormat";
+import {
+  DEFAULT_POSITION_TIERS,
+  DEFAULT_DUTY_TIERS,
+  getUserEffectiveTier,
+  UNIVERSAL_FUNCTIONAL_ATTRIBUTES,
+  getDepartmentFunctionalTags,
+  maskPhoneNumber,
+  maskEmail,
+  maskName,
+  maskAddress,
+  type ApprovalTierConfig,
+  type Department,
+  type UserNode,
+  type OrganizationTabProps,
+} from "./organization/organizationTypes";
+import { SelectedProfilePanel } from "./organization/SelectedProfilePanel";
 
 // ============================================================================
 // 🏛️ eBro ERP SSOT Types & Constants (인사 및 조직도 마스터 설정 표준)
 // ============================================================================
 
-export interface ApprovalTierConfig {
-  id?: string;
-  category: "POSITION" | "DUTY";
-  title: string;
-  tier_level: number;
-  description?: string;
-  seq_order?: number;
-}
-
-export const DEFAULT_POSITION_TIERS: ApprovalTierConfig[] = [
-  { category: "POSITION", title: "사원", tier_level: 0, description: "일반 실무 사원", seq_order: 1 },
-  { category: "POSITION", title: "주임", tier_level: 0, description: "초임 실무 주임", seq_order: 2 },
-  { category: "POSITION", title: "대리", tier_level: 1, description: "실무 담당 대리", seq_order: 3 },
-  { category: "POSITION", title: "과장", tier_level: 2, description: "중간 실무 과장", seq_order: 4 },
-  { category: "POSITION", title: "차장", tier_level: 3, description: "선임 차장", seq_order: 5 },
-  { category: "POSITION", title: "부장", tier_level: 4, description: "부서 실무 총괄", seq_order: 6 },
-  { category: "POSITION", title: "팀장", tier_level: 4, description: "부서/팀 운영 책임자", seq_order: 7 },
-  { category: "POSITION", title: "이사", tier_level: 5, description: "임원 이사", seq_order: 8 },
-  { category: "POSITION", title: "상무", tier_level: 6, description: "임원 상무", seq_order: 9 },
-  { category: "POSITION", title: "전무", tier_level: 6, description: "임원 전무", seq_order: 10 },
-  { category: "POSITION", title: "부사장", tier_level: 7, description: "최고 경영진 부사장", seq_order: 11 },
-  { category: "POSITION", title: "사장", tier_level: 7, description: "최고 경영진 사장", seq_order: 12 },
-  { category: "POSITION", title: "대표", tier_level: 7, description: "대표이사", seq_order: 13 },
-  { category: "POSITION", title: "대표이사", tier_level: 7, description: "대표이사", seq_order: 14 },
-];
-
-export const DEFAULT_DUTY_TIERS: ApprovalTierConfig[] = [
-  { category: "DUTY", title: "파트장", tier_level: 2, description: "단위 업무 파트 리더", seq_order: 1 },
-  { category: "DUTY", title: "팀장", tier_level: 4, description: "부서/팀 운영 책임자", seq_order: 2 },
-  { category: "DUTY", title: "센터장", tier_level: 5, description: "운영/서비스 센터 책임자", seq_order: 3 },
-  { category: "DUTY", title: "공장장", tier_level: 5, description: "생산/정비 공장 책임자", seq_order: 4 },
-  { category: "DUTY", title: "본부장", tier_level: 6, description: "사업 본부 총괄", seq_order: 5 },
-  { category: "DUTY", title: "총괄", tier_level: 7, description: "전사 사업 부문 총괄", seq_order: 6 },
-  { category: "DUTY", title: "대표이사", tier_level: 7, description: "최고 경영자", seq_order: 7 },
-];
-
-export function getUserEffectiveTier(
-  user: { duty?: string | null; position?: string | null; tier_level?: number | null },
-  dutyConfigs: ApprovalTierConfig[] = DEFAULT_DUTY_TIERS,
-  positionConfigs: ApprovalTierConfig[] = DEFAULT_POSITION_TIERS
-): {
-  effectiveTier: number;
-  source: "DUTY" | "POSITION" | "DEFAULT";
-  title: string;
-} {
-  // 1. 직책 우선 판정 (R&R 단위 조직 책임자 권한 우선)
-  if (user.duty && user.duty.trim()) {
-    const trimmedDuty = user.duty.trim().toLowerCase();
-    const matchedDuty = dutyConfigs.find((d) => d.title.trim().toLowerCase() === trimmedDuty);
-    if (matchedDuty) {
-      return {
-        effectiveTier: matchedDuty.tier_level,
-        source: "DUTY",
-        title: matchedDuty.title,
-      };
-    }
-  }
-
-  // 2. 직급 판정 (Fallback for 소규모 기업 및 일반 사원)
-  if (user.position && user.position.trim()) {
-    const trimmedPos = user.position.trim().toLowerCase();
-    const matchedPos = positionConfigs.find((p) => p.title.trim().toLowerCase() === trimmedPos);
-    if (matchedPos) {
-      return {
-        effectiveTier: matchedPos.tier_level,
-        source: "POSITION",
-        title: matchedPos.title,
-      };
-    }
-  }
-
-  // 3. 교차 상호 판정
-  if (user.position && user.position.trim()) {
-    const trimmedPos = user.position.trim().toLowerCase();
-    const matchedDutyFromPos = dutyConfigs.find((d) => d.title.trim().toLowerCase() === trimmedPos);
-    if (matchedDutyFromPos) {
-      return {
-        effectiveTier: matchedDutyFromPos.tier_level,
-        source: "DUTY",
-        title: matchedDutyFromPos.title,
-      };
-    }
-  }
-
-  if (user.duty && user.duty.trim()) {
-    const trimmedDuty = user.duty.trim().toLowerCase();
-    const matchedPosFromDuty = positionConfigs.find((p) => p.title.trim().toLowerCase() === trimmedDuty);
-    if (matchedPosFromDuty) {
-      return {
-        effectiveTier: matchedPosFromDuty.tier_level,
-        source: "POSITION",
-        title: matchedPosFromDuty.title,
-      };
-    }
-  }
-
-  return {
-    effectiveTier: user.tier_level ?? 0,
-    source: "DEFAULT",
-    title: user.position || "사원",
-  };
-}
-
-export interface FunctionalAttributeConfig {
-  id: string;
-  code: string;
-  label: string;
-  description: string;
-  color: string;
-  badgeBg: string;
-  badgeText: string;
-}
-
-export const UNIVERSAL_FUNCTIONAL_ATTRIBUTES: FunctionalAttributeConfig[] = [
-  { id: "ATTR_PRODUCTION", code: "PRODUCTION", label: "생산", description: "신규 장비 검수, 제작, 조립, 부품 볼팅, 초기 셋업", color: "#6366f1", badgeBg: "#eef2ff", badgeText: "#4338ca" },
-  { id: "ATTR_SALES", code: "SALES", label: "영업", description: "고객 견적, 계약 체결, 대차 요구 의뢰 발의", color: "#2563eb", badgeBg: "#eff6ff", badgeText: "#1d4ed8" },
-  { id: "ATTR_DISPATCH", code: "DISPATCH", label: "배차", description: "운송 차량 섭외, 배차 지시, 배차 대장 관리, 운송료 정산", color: "#d97706", badgeBg: "#fffbeb", badgeText: "#b45309" },
-  { id: "ATTR_OUTBOUND", code: "OUTBOUND", label: "출고", description: "출고 전 점검, 안전옵션 장착, 출고 검수 승인", color: "#059669", badgeBg: "#ecfdf5", badgeText: "#047857" },
-  { id: "ATTR_AFTER_SERVICE", code: "AFTER_SERVICE", label: "현장AS", description: "출동 수리, 긴급 고장 조치, 현장 경정비, 순회 점검", color: "#e11d48", badgeBg: "#fff1f2", badgeText: "#be123c" },
-  { id: "ATTR_INBOUND", code: "INBOUND", label: "입고정비", description: "반납 장비 입고 확인, 세척, 입고 검사, 공장 정비 및 부품 교체", color: "#0891b2", badgeBg: "#ecfeff", badgeText: "#0e7490" },
-  { id: "ATTR_ASSET", code: "ASSET", label: "자산", description: "장비 등록, 타사 임차(전대) 매핑, 장비 매각/폐기, 자산 현황", color: "#9333ea", badgeBg: "#faf5ff", badgeText: "#7e22ce" },
-  { id: "ATTR_BILLING", code: "BILLING", label: "청구", description: "월말 정산, 전자세금계산서 발행, 외상매출금 관리, 통장 대사", color: "#0d9488", badgeBg: "#f0fdfa", badgeText: "#0f766e" },
-  { id: "ATTR_ADMIN", code: "ADMIN", label: "총무/관리", description: "급여, 법인카드, 소모품, 일반 행정, 사용자/부서 관리", color: "#475569", badgeBg: "#f8fafc", badgeText: "#334155" },
-];
-
-export interface Department {
-  id: string;
-  deptCode?: string;
-  name: string;
-  deptName?: string;
-  parentDepartmentId: string | null;
-  parentId?: string | null;
-  managerId?: string | null;
-  managerName?: string | null;
-  sortOrder?: number;
-  functionalTags?: string[];
-  functional_tags?: string[];
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export function getDepartmentFunctionalTags(dept: Department | null | undefined): string[] {
-  if (!dept) return [];
-  const tags = dept.functionalTags || dept.functional_tags || [];
-  return Array.isArray(tags) ? tags : [];
-}
-
-export interface UserNode {
-  id: string;
-  employeeNo?: string;
-  name: string;
-  departmentId: string | null;
-  department?: string;
-  position: string;
-  duty?: string;
-  tier_level?: number;
-  status: "ACTIVE" | "LEAVE_OF_ABSENCE" | "RETIRED";
-  role: string;
-  roleCode?: string;
-  loginId?: string;
-  passwordHash?: string;
-  birthDate?: string;
-  joinDate?: string;
-  leaveDate?: string;
-  baseSalary?: number;
-  hourlyWage?: number;
-  mealAllowance?: number;
-  vehicleAllowance?: number;
-  insNationalPension?: boolean;
-  insHealthInsurance?: boolean;
-  insEmploymentInsurance?: boolean;
-  insIndustrialAccident?: boolean;
-  salaryBankName?: string;
-  salaryAccountNo?: string;
-  salaryAccountHolder?: string;
-  address?: string;
-  phone?: string;
-  email?: string;
-  profileImageUrl?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-function maskPhoneNumber(phone?: string | null): string {
-  if (!phone) return "-";
-  const cleaned = String(phone).trim();
-  return cleaned.replace(/(\d{2,3})-?(\d{3,4})-?(\d{4})/, "$1-****-$3");
-}
-
-function maskEmail(email?: string | null): string {
-  if (!email) return "-";
-  const parts = String(email).split("@");
-  if (parts.length !== 2) return email;
-  const id = parts[0];
-  const maskedId = id.length <= 2 ? id[0] + "*" : id.slice(0, 2) + "***";
-  return `${maskedId}@${parts[1]}`;
-}
-
-function maskName(name?: string | null): string {
-  if (!name) return "-";
-  if (name.length <= 2) return name[0] + "*";
-  return name[0] + "*" + name.slice(2);
-}
-
-function maskAddress(addr?: string | null): string {
-  if (!addr) return "-";
-  return addr.slice(0, 8) + " ***";
-}
-
-interface OrganizationTabProps {
-  currentUser: any;
-}
+export {
+  DEFAULT_POSITION_TIERS,
+  DEFAULT_DUTY_TIERS,
+  getUserEffectiveTier,
+  UNIVERSAL_FUNCTIONAL_ATTRIBUTES,
+  getDepartmentFunctionalTags,
+  maskPhoneNumber,
+  maskEmail,
+  maskName,
+  maskAddress,
+  type ApprovalTierConfig,
+  type FunctionalAttributeConfig,
+  type Department,
+  type UserNode,
+  type OrganizationTabProps,
+} from "./organization/organizationTypes";
 
 export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser }) => {
   const isSuperAdmin =
@@ -367,7 +188,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
     try {
       const [deptRes, empRes] = await Promise.all([
         fetch("/api/erp/departments", { cache: "no-store" }),
-        fetch("/api/erp/employees", { cache: "no-store" }),
+        fetch("/api/erp/employees?includePii=1", { cache: "no-store" }),
       ]);
       const deptData = await deptRes.json();
       const empData = await empRes.json();
@@ -438,8 +259,8 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
           baseSalary: Number(e.baseSalary ?? 3500000),
           hourlyWage:
             e.hourlyWage !== undefined && e.hourlyWage !== null && e.hourlyWage !== ""
-              ? Number(e.hourlyWage)
-              : Math.round(Number(e.baseSalary ?? 3500000) / 209),
+              ? Math.round(Number(e.hourlyWage) || 0)
+              : 0,
           mealAllowance: Number(e.mealAllowance ?? 200000),
           vehicleAllowance: Number(e.vehicleAllowance ?? 0),
           insNationalPension: e.insNationalPension !== undefined ? Boolean(e.insNationalPension) : true,
@@ -511,6 +332,10 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
         const eff = getUserEffectiveTier(u, dutyConfigs, positionConfigs);
         return {
           ...u,
+          baseSalary: cleanErpNumber(u.baseSalary),
+          hourlyWage: cleanErpNumber(u.hourlyWage),
+          mealAllowance: cleanErpNumber(u.mealAllowance),
+          vehicleAllowance: cleanErpNumber(u.vehicleAllowance),
           tier_level: eff.effectiveTier,
           department: dept ? dept.name : "",
         };
@@ -568,8 +393,8 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
         baseSalary: Number(e.baseSalary ?? 3500000),
         hourlyWage:
           e.hourlyWage !== undefined && e.hourlyWage !== null && e.hourlyWage !== ""
-            ? Number(e.hourlyWage)
-            : Math.round(Number(e.baseSalary ?? 3500000) / 209),
+            ? Math.round(Number(e.hourlyWage) || 0)
+            : 0,
         mealAllowance: Number(e.mealAllowance ?? 200000),
         vehicleAllowance: Number(e.vehicleAllowance ?? 0),
         insNationalPension: e.insNationalPension !== undefined ? Boolean(e.insNationalPension) : true,
@@ -635,9 +460,48 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
     }
   };
 
+  const prepareProfileForSave = (profile: UserNode): UserNode | null => {
+    if (!profile.name || !profile.name.trim()) {
+      showErrorModal("임직원 성명을 입력해 주십시오.", "필수값 누락");
+      return null;
+    }
+    if (profile.loginId === "admin" && profile.role !== "ADMIN") {
+      showErrorModal("시스템 대표 관리자의 시스템 역할은 변경할 수 없습니다.", "역할 변경 불가");
+      return null;
+    }
+    if (profile.role === "ADMIN" && !isSuperAdmin) {
+      showErrorModal("ADMIN 시스템 역할은 관리자 계정만 부여할 수 있습니다.", "권한 부여 제한");
+      return null;
+    }
+    const eff = getUserEffectiveTier(
+      { position: profile.position, duty: profile.duty },
+      dutyConfigs,
+      positionConfigs
+    );
+    return {
+      ...profile,
+      name: profile.name.trim(),
+      baseSalary: cleanErpNumber(profile.baseSalary),
+      hourlyWage: cleanErpNumber(profile.hourlyWage),
+      mealAllowance: cleanErpNumber(profile.mealAllowance),
+      vehicleAllowance: cleanErpNumber(profile.vehicleAllowance),
+      tier_level: eff.effectiveTier,
+    };
+  };
+
   // --- Manual Save (Batch to Supabase/DB) ---
   const handleSaveAll = async () => {
-    await syncOrganizationBatchToDb(departments, users, false);
+    let targetUsers = users;
+    if (selectedProfile) {
+      const normalized = prepareProfileForSave(selectedProfile);
+      if (!normalized) return;
+      targetUsers = enforceManagerPolicies(
+        users.map((u) => (u.id === selectedProfile.id ? normalized : u)),
+        departments
+      );
+      setUsers(targetUsers);
+    }
+    await syncOrganizationBatchToDb(departments, targetUsers, false);
   };
 
   // --- Action Handlers ---
@@ -731,7 +595,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
       loginId: "",
       passwordHash: "",
       baseSalary: 3500000,
-      hourlyWage: Math.round(3500000 / 209),
+      hourlyWage: 0,
       mealAllowance: 200000,
       vehicleAllowance: 0,
       insNationalPension: true,
@@ -923,30 +787,23 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
     }
   };
 
+  const handleWageInputChange = (
+    field: "baseSalary" | "hourlyWage" | "mealAllowance" | "vehicleAllowance",
+    rawValue: string
+  ) => {
+    if (!selectedProfile) return;
+    const digits = rawValue.replace(/[^0-9]/g, "");
+    setSelectedProfile({
+      ...selectedProfile,
+      [field]: digits === "" ? undefined : parseInt(digits, 10) || 0,
+    });
+    setIsDirty(true);
+  };
+
   const applyProfileChanges = async () => {
     if (selectedProfile) {
-      if (!selectedProfile.name || !selectedProfile.name.trim()) {
-        showErrorModal("임직원 성명을 입력해 주십시오.", "필수값 누락");
-        return;
-      }
-      if (selectedProfile.loginId === "admin" && selectedProfile.role !== "ADMIN") {
-        showErrorModal("시스템 대표 관리자의 시스템 역할은 변경할 수 없습니다.", "역할 변경 불가");
-        return;
-      }
-      if (selectedProfile.role === "ADMIN" && !isSuperAdmin) {
-        showErrorModal("ADMIN 시스템 역할은 관리자 계정만 부여할 수 있습니다.", "권한 부여 제한");
-        return;
-      }
-      const eff = getUserEffectiveTier(
-        { position: selectedProfile.position, duty: selectedProfile.duty },
-        dutyConfigs,
-        positionConfigs
-      );
-      const profileWithTier: UserNode = {
-        ...selectedProfile,
-        name: selectedProfile.name.trim(),
-        tier_level: eff.effectiveTier,
-      };
+      const profileWithTier = prepareProfileForSave(selectedProfile);
+      if (!profileWithTier) return;
 
       let updated = users.map((u) => (u.id === selectedProfile.id ? profileWithTier : u));
       updated = enforceManagerPolicies(updated, departments);
@@ -1012,7 +869,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
             "기본급(원)",
             "식대(원)",
             "차량보조금(원)",
-            "1시간 표준임금(원)",
+            "통상임금(원)",
             "국민연금",
             "건강보험",
             "고용보험",
@@ -1052,7 +909,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
               u.baseSalary || 0,
               u.mealAllowance ?? 200000,
               u.vehicleAllowance ?? 0,
-              u.hourlyWage || Math.round((u.baseSalary || 3500000) / 209),
+              cleanErpNumber(u.hourlyWage),
               u.insNationalPension !== false ? "가입" : "미가입",
               u.insHealthInsurance !== false ? "가입" : "미가입",
               u.insEmploymentInsurance !== false ? "가입" : "미가입",
@@ -1391,7 +1248,7 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
               {user.duty ? ` (${user.duty})` : ""} | {user.role}
               {(canEdit || canViewPayroll) && (
                 <span style={{ marginLeft: "6px", fontSize: "11.5px", color: "var(--primary)", fontWeight: 600 }}>
-                  · 표준시급 {(user.hourlyWage !== undefined && user.hourlyWage !== null ? user.hourlyWage : Math.round((user.baseSalary || 3500000) / 209)).toLocaleString()}원
+                  · 통상임금 {cleanErpNumber(user.hourlyWage).toLocaleString()}원
                 </span>
               )}
             </div>
@@ -1926,1164 +1783,28 @@ export const OrganizationTab: React.FC<OrganizationTabProps> = ({ currentUser })
 
       {/* 우측: Slide-out 상세 프로필 모달 (eBro ERP 표준) */}
       {selectedProfile && (
-        <>
-          {/* Backdrop */}
-          <div
-            onClick={() => setSelectedProfile(null)}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: "rgba(0,0,0,0.3)",
-              zIndex: 40,
-            }}
-          />
-
-          {/* Panel */}
-          <div
-            className="card slide-in-right"
-            style={{
-              position: "absolute",
-              top: 0,
-              right: 0,
-              bottom: 0,
-              width: "360px",
-              margin: 0,
-              borderRadius: 0,
-              zIndex: 50,
-              display: "flex",
-              flexDirection: "column",
-              borderLeft: "1px solid var(--border-color)",
-              padding: "16px",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: "10px",
-                borderBottom: "1px solid var(--border-color)",
-                paddingBottom: "8px",
-              }}
-            >
-              <h3 style={{ fontSize: "15px", fontWeight: "700", margin: 0 }}>상세 프로필</h3>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                {canEdit && (
-                  <>
-                    <button
-                      className="btn-secondary"
-                      style={{ padding: "4px 8px", fontSize: "12px" }}
-                      onClick={() => setSelectedProfile(null)}
-                    >
-                      취소
-                    </button>
-                    <button
-                      data-hs-trigger="Save"
-                      className="btn-primary"
-                      style={{ padding: "4px 10px", fontSize: "12px" }}
-                      onClick={applyProfileChanges}
-                    >
-                      <CheckCircle size={13} style={{ marginRight: "3px" }} /> 저장 (적용)
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={() => setSelectedProfile(null)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text-secondary)",
-                    padding: "4px",
-                    cursor: "pointer",
-                  }}
-                  title="닫기"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-            </div>
-
-            <div style={{ flex: 1, overflowY: "auto", paddingRight: "4px" }}>
-              {/* Profile Image Upload Area */}
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  marginBottom: "10px",
-                }}
-              >
-                <div
-                  style={{
-                    width: "56px",
-                    height: "56px",
-                    borderRadius: "50%",
-                    backgroundColor: "var(--primary-light)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "20px",
-                    fontWeight: 700,
-                    color: "var(--primary)",
-                    backgroundImage: selectedProfile.profileImageUrl
-                      ? `url(${selectedProfile.profileImageUrl})`
-                      : "none",
-                    backgroundSize: "cover",
-                    backgroundPosition: "center",
-                    marginBottom: "6px",
-                    border: "2px solid var(--border-color)",
-                  }}
-                >
-                  {!selectedProfile.profileImageUrl &&
-                    (selectedProfile.name ? selectedProfile.name.substring(0, 1) : "신")}
-                </div>
-                {canEdit && (
-                  <>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      ref={fileInputRef}
-                      onChange={handlePhotoUpload}
-                      style={{ display: "none" }}
-                    />
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => fileInputRef.current?.click()}
-                      style={{ fontSize: "11px", padding: "3px 8px" }}
-                    >
-                      <Upload size={12} style={{ marginRight: "4px" }} /> 사진 변경
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {/* Form Fields (헌장 3.4 상하 스택 배치 원칙) */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <label style={{ color: "var(--primary)", fontWeight: "bold", fontSize: "12px" }}>
-                      로그인 아이디
-                    </label>
-                    <input
-                      type="text"
-                      style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                      placeholder="시스템 로그인 ID"
-                      value={selectedProfile.loginId || ""}
-                      onChange={(e) => setSelectedProfile({ ...selectedProfile, loginId: e.target.value })}
-                      disabled={!canEdit}
-                    />
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                      }}
-                    >
-                      <label style={{ color: "var(--primary)", fontWeight: "bold", fontSize: "12px" }}>
-                        비밀번호 변경
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setShowPasswordInput((prev) => !prev)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          padding: 0,
-                          fontSize: "11px",
-                          color: "var(--text-muted)",
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "2px",
-                        }}
-                      >
-                        {showPasswordInput ? <EyeOff size={12} /> : <Eye size={12} />}
-                        {showPasswordInput ? "숨기기" : "입력보기"}
-                      </button>
-                    </div>
-                    <input
-                      type={showPasswordInput ? "text" : "password"}
-                      style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                      placeholder="변경 시 입력 (기본: 1111)"
-                      value={
-                        selectedProfile.passwordHash?.startsWith("__HASHED__")
-                          ? ""
-                          : selectedProfile.passwordHash || ""
-                      }
-                      onChange={(e) =>
-                        setSelectedProfile({ ...selectedProfile, passwordHash: e.target.value })
-                      }
-                      disabled={!canEdit}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <label style={{ fontSize: "12px", fontWeight: 600 }}>이름</label>
-                    <input
-                      type="text"
-                      style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                      placeholder="이름 입력 (예: 홍길동)"
-                      value={selectedProfile.name}
-                      onChange={(e) => setSelectedProfile({ ...selectedProfile, name: e.target.value })}
-                      disabled={!canEdit}
-                    />
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <label style={{ fontSize: "12px", fontWeight: 600 }}>상태</label>
-                    <select
-                      value={selectedProfile.status}
-                      onChange={(e) =>
-                        handleStatusChange(selectedProfile.id, e.target.value as UserNode["status"])
-                      }
-                      disabled={!canEdit}
-                      style={{
-                        padding: "5px 8px",
-                        fontSize: "12px",
-                        borderRadius: "4px",
-                        width: "100%",
-                        color:
-                          selectedProfile.status === "ACTIVE"
-                            ? "var(--success)"
-                            : selectedProfile.status === "RETIRED"
-                            ? "var(--danger)"
-                            : "var(--warning)",
-                        fontWeight: "bold",
-                      }}
-                    >
-                      <option value="ACTIVE">재직</option>
-                      <option value="LEAVE_OF_ABSENCE">휴직</option>
-                      <option value="RETIRED">퇴사 처리</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <label style={{ fontSize: "12px", fontWeight: 600 }}>직급 (결재 티어 매핑)</label>
-                    <select
-                      style={{
-                        padding: "5px 8px",
-                        fontSize: "12px",
-                        width: "100%",
-                        borderRadius: "4px",
-                      }}
-                      value={selectedProfile.position || ""}
-                      onChange={(e) => setSelectedProfile({ ...selectedProfile, position: e.target.value })}
-                      disabled={!canEdit}
-                    >
-                      <option value="">(직급 선택)</option>
-                      {selectedProfile.position &&
-                        !positionConfigs.some(
-                          (p) => p.title.trim().toLowerCase() === selectedProfile.position.trim().toLowerCase()
-                        ) && <option value={selectedProfile.position}>{selectedProfile.position} (미등록 직급)</option>}
-                      {[...positionConfigs]
-                        .sort((a, b) => a.tier_level - b.tier_level)
-                        .map((p) => (
-                          <option key={p.title} value={p.title}>
-                            {p.title} ({p.tier_level}티어)
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <label style={{ fontSize: "12px", fontWeight: 600 }}>직책 (R&R 결재 우선)</label>
-                    <select
-                      style={{
-                        padding: "5px 8px",
-                        fontSize: "12px",
-                        width: "100%",
-                        borderRadius: "4px",
-                      }}
-                      value={selectedProfile.duty || ""}
-                      onChange={(e) => setSelectedProfile({ ...selectedProfile, duty: e.target.value })}
-                      disabled={!canEdit}
-                    >
-                      <option value="">(미지정 / 팀원)</option>
-                      {selectedProfile.duty &&
-                        !dutyConfigs.some(
-                          (d) => d.title.trim().toLowerCase() === selectedProfile.duty?.trim().toLowerCase()
-                        ) && (
-                          <option value={selectedProfile.duty}>
-                            {selectedProfile.duty} (사용자 정의 직책)
-                          </option>
-                        )}
-                      {[...dutyConfigs]
-                        .sort((a, b) => a.tier_level - b.tier_level)
-                        .map((d) => (
-                          <option key={d.title} value={d.title}>
-                            {d.title} ({d.tier_level}티어{d.description ? ` · ${d.description}` : ""})
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* 🛡️ 결재 권한 티어 실시간 연동 인포 박스 */}
-                {(() => {
-                  const eff = getUserEffectiveTier(
-                    { position: selectedProfile.position, duty: selectedProfile.duty },
-                    dutyConfigs,
-                    positionConfigs
-                  );
-                  return (
-                    <div
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: "6px",
-                        background: "var(--bg-secondary)",
-                        border: "1px solid var(--border-color)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        fontSize: "12px",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                        <ShieldCheck size={14} color={eff.source === "DUTY" ? "#0f766e" : "#15803d"} />
-                        <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>결재 권한 티어</span>
-                      </div>
-                      <span
-                        style={{
-                          fontWeight: 700,
-                          padding: "2px 8px",
-                          borderRadius: "8px",
-                          background: eff.source === "DUTY" ? "#0f766e" : "#15803d",
-                          color: "#fff",
-                          fontSize: "11px",
-                        }}
-                      >
-                        {eff.effectiveTier}티어 (
-                        {eff.source === "DUTY" ? `직책 우선: ${eff.title}` : `직급 기준: ${eff.title}`})
-                      </span>
-                    </div>
-                  );
-                })()}
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                  <label style={{ fontSize: "12px", fontWeight: 600 }}>시스템 역할</label>
-                  <select
-                    value={selectedProfile.role}
-                    style={{ padding: "5px 8px", fontSize: "12px", width: "100%", borderRadius: "4px" }}
-                    onChange={(e) => {
-                      const nextRole = e.target.value;
-                      const nextRoleCode =
-                        nextRole === "ADMIN"
-                          ? "ADMIN"
-                          : nextRole === "MANAGER"
-                          ? "MANAGER"
-                          : selectedProfile.roleCode === "ACCOUNTANT" || selectedProfile.roleCode === "HR_STAFF"
-                          ? selectedProfile.roleCode
-                          : "EMPLOYEE";
-                      setSelectedProfile({ ...selectedProfile, role: nextRole, roleCode: nextRoleCode });
-                    }}
-                    disabled={!canEdit || selectedProfile.loginId === "admin"}
-                  >
-                    {isSuperAdmin && <option value="ADMIN">ADMIN</option>}
-                    <option value="MANAGER">MANAGER</option>
-                    <option value="USER">USER</option>
-                  </select>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                  <label style={{ fontSize: "12px", fontWeight: "bold", color: "var(--text-main)" }}>
-                    소속 부서 (부서 이동)
-                  </label>
-                  <select
-                    value={selectedProfile.departmentId || ""}
-                    style={{
-                      padding: "5px 8px",
-                      fontSize: "12px",
-                      width: "100%",
-                      borderRadius: "4px",
-                    }}
-                    onChange={(e) => {
-                      const newDeptId = e.target.value || null;
-                      const targetDept = departments.find((d) => d.id === newDeptId);
-                      setSelectedProfile({
-                        ...selectedProfile,
-                        departmentId: newDeptId,
-                        department: targetDept?.name || "",
-                      });
-                      let updated = users.map((u) =>
-                        u.id === selectedProfile.id
-                          ? { ...u, departmentId: newDeptId, department: targetDept?.name || "" }
-                          : u
-                      );
-                      updated = enforceManagerPolicies(updated, departments);
-                      setUsers(updated);
-                      setIsDirty(true);
-                      showToast(
-                        `소속 부서가 [${targetDept?.name || "미배정"}] (으)로 변경되었습니다. 저장을 눌러 확정하세요.`,
-                        "warning"
-                      );
-                    }}
-                    disabled={!canEdit}
-                  >
-                    <option value="">(미배정 인재풀)</option>
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name || "새 부서"}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <label style={{ fontSize: "12px" }}>
-                      <Calendar
-                        size={12}
-                        style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
-                      />
-                      입사일
-                    </label>
-                    <input
-                      type="date"
-                      style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                      value={selectedProfile.joinDate || ""}
-                      onChange={(e) => setSelectedProfile({ ...selectedProfile, joinDate: e.target.value })}
-                      disabled={!canEdit}
-                    />
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <label
-                        style={{
-                          fontSize: "12px",
-                          color: selectedProfile.leaveDate ? "var(--danger)" : "inherit",
-                          fontWeight: selectedProfile.leaveDate ? 600 : 400,
-                        }}
-                      >
-                        <Calendar
-                          size={12}
-                          style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
-                        />
-                        퇴사일
-                      </label>
-                      {canEdit && selectedProfile.leaveDate && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSelectedProfile({
-                              ...selectedProfile,
-                              leaveDate: "",
-                            })
-                          }
-                          style={{
-                            background: "none",
-                            border: "none",
-                            padding: 0,
-                            fontSize: "10.5px",
-                            color: "var(--text-muted)",
-                            cursor: "pointer",
-                          }}
-                          title="퇴사일 초기화"
-                        >
-                          초기화
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      type="date"
-                      style={{
-                        padding: "5px 8px",
-                        fontSize: "12px",
-                        borderRadius: "4px",
-                        width: "100%",
-                        borderColor: selectedProfile.leaveDate ? "var(--danger)" : undefined,
-                      }}
-                      value={selectedProfile.leaveDate || ""}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setSelectedProfile({
-                          ...selectedProfile,
-                          leaveDate: val,
-                          status: val ? "RETIRED" : selectedProfile.status,
-                        });
-                      }}
-                      disabled={!canEdit}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <label style={{ fontSize: "12px" }}>
-                      <Phone
-                        size={12}
-                        style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
-                      />
-                      휴대전화
-                    </label>
-                    <input
-                      type="text"
-                      style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                      placeholder="010-0000-0000"
-                      value={selectedProfile.phone || ""}
-                      onChange={(e) => setSelectedProfile({ ...selectedProfile, phone: e.target.value })}
-                      disabled={!canEdit}
-                    />
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <label style={{ fontSize: "12px" }}>
-                      <Calendar
-                        size={12}
-                        style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
-                      />
-                      생년월일
-                    </label>
-                    <input
-                      type="date"
-                      style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                      value={selectedProfile.birthDate || ""}
-                      onChange={(e) => setSelectedProfile({ ...selectedProfile, birthDate: e.target.value })}
-                      disabled={!canEdit}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                  <label style={{ fontSize: "12px" }}>
-                    <Mail
-                      size={12}
-                      style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
-                    />
-                    이메일
-                  </label>
-                  <input
-                    type="email"
-                    style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                    placeholder="example@dragonrpa.co.kr"
-                    value={selectedProfile.email || ""}
-                    onChange={(e) => setSelectedProfile({ ...selectedProfile, email: e.target.value })}
-                    disabled={!canEdit}
-                  />
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                  <label style={{ fontSize: "12px" }}>
-                    <MapPin
-                      size={12}
-                      style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }}
-                    />
-                    자택 주소
-                  </label>
-                  <input
-                    type="text"
-                    style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                    placeholder="자택 주소 입력"
-                    value={selectedProfile.address || ""}
-                    onChange={(e) => setSelectedProfile({ ...selectedProfile, address: e.target.value })}
-                    disabled={!canEdit}
-                  />
-                </div>
-
-                {/* 급여계좌 정보 */}
-                <div
-                  style={{
-                    marginTop: "2px",
-                    padding: "10px",
-                    backgroundColor: "var(--bg-app)",
-                    borderRadius: "6px",
-                    border: "1px solid var(--border-color)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "6px",
-                  }}
-                >
-                  <label
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: "bold",
-                      color: "var(--text-main)",
-                      display: "block",
-                    }}
-                  >
-                    급여계좌 정보
-                  </label>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                      <label style={{ fontSize: "11px", color: "var(--text-secondary)" }}>은행명</label>
-                      <select
-                        style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                        value={selectedProfile.salaryBankName || ""}
-                        onChange={(e) =>
-                          setSelectedProfile({
-                            ...selectedProfile,
-                            salaryBankName: e.target.value,
-                            salaryAccountHolder:
-                              selectedProfile.salaryAccountHolder || selectedProfile.name || "",
-                          })
-                        }
-                        disabled={!canEdit}
-                      >
-                        <option value="">(은행 선택)</option>
-                        {[
-                          "기업은행",
-                          "국민은행",
-                          "신한은행",
-                          "우리은행",
-                          "하나은행",
-                          "농협은행",
-                          "카카오뱅크",
-                          "토스뱅크",
-                          "케이뱅크",
-                          "SC제일은행",
-                          "한국씨티은행",
-                          "우체국",
-                          "새마을금고",
-                          "신협",
-                          "수협은행",
-                          "부산은행",
-                          "대구은행(iM뱅크)",
-                          "경남은행",
-                          "광주은행",
-                          "전북은행",
-                          "제주은행",
-                        ].map((bank) => (
-                          <option key={bank} value={bank}>
-                            {bank}
-                          </option>
-                        ))}
-                        {selectedProfile.salaryBankName &&
-                          ![
-                            "기업은행",
-                            "국민은행",
-                            "신한은행",
-                            "우리은행",
-                            "하나은행",
-                            "농협은행",
-                            "카카오뱅크",
-                            "토스뱅크",
-                            "케이뱅크",
-                            "SC제일은행",
-                            "한국씨티은행",
-                            "우체국",
-                            "새마을금고",
-                            "신협",
-                            "수협은행",
-                            "부산은행",
-                            "대구은행(iM뱅크)",
-                            "경남은행",
-                            "광주은행",
-                            "전북은행",
-                            "제주은행",
-                          ].includes(selectedProfile.salaryBankName) && (
-                            <option value={selectedProfile.salaryBankName}>
-                              {selectedProfile.salaryBankName}
-                            </option>
-                          )}
-                      </select>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                      <label style={{ fontSize: "11px", color: "var(--text-secondary)" }}>예금주</label>
-                      <input
-                        type="text"
-                        style={{ padding: "5px 8px", fontSize: "12px", borderRadius: "4px", width: "100%" }}
-                        placeholder="예금주 성명"
-                        value={selectedProfile.salaryAccountHolder || ""}
-                        onChange={(e) =>
-                          setSelectedProfile({ ...selectedProfile, salaryAccountHolder: e.target.value })
-                        }
-                        disabled={!canEdit}
-                      />
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <label style={{ fontSize: "11px", color: "var(--text-secondary)" }}>계좌번호</label>
-                    <input
-                      type="text"
-                      style={{
-                        padding: "5px 8px",
-                        fontSize: "12px",
-                        borderRadius: "4px",
-                        width: "100%",
-                        fontFamily: "monospace",
-                      }}
-                      placeholder="계좌번호 입력 (예: 110-123-456789)"
-                      value={selectedProfile.salaryAccountNo || ""}
-                      onChange={(e) =>
-                        setSelectedProfile({ ...selectedProfile, salaryAccountNo: e.target.value })
-                      }
-                      disabled={!canEdit}
-                    />
-                  </div>
-                </div>
-
-                {/* 급여 및 1시간 표준임금 설정 (초과근무 수당 자동산정 기준) */}
-                {(canViewPayroll || canEdit) && (
-                  <div
-                    style={{
-                      marginTop: "4px",
-                      padding: "10px",
-                      backgroundColor: "var(--bg-app)",
-                      borderRadius: "6px",
-                      border: "1px solid var(--border-color)",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "8px",
-                    }}
-                  >
-                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <label
-                          style={{
-                            fontSize: "12px",
-                            fontWeight: "bold",
-                            color: "var(--primary)",
-                          }}
-                        >
-                          1시간 표준임금 (원) [초과근무 산정 기준]
-                        </label>
-                        {canEdit && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const calc = Math.round((selectedProfile.baseSalary || 3500000) / 209);
-                              setSelectedProfile({
-                                ...selectedProfile,
-                                hourlyWage: calc,
-                              });
-                            }}
-                            style={{
-                              fontSize: "10.5px",
-                              padding: "2px 6px",
-                              borderRadius: "4px",
-                              border: "1px solid var(--border-color)",
-                              backgroundColor: "var(--bg-card)",
-                              color: "var(--text-secondary)",
-                              cursor: "pointer",
-                              fontWeight: 600,
-                            }}
-                            title="계약 기본급 ÷ 209시간으로 자동 계산"
-                          >
-                            기본급÷209h 적용
-                          </button>
-                        )}
-                      </div>
-                      <input
-                        type="number"
-                        step="100"
-                        min="0"
-                        style={{
-                          padding: "6px 10px",
-                          fontSize: "13px",
-                          fontWeight: "bold",
-                          width: "100%",
-                          borderRadius: "4px",
-                        }}
-                        placeholder="1시간 표준임금 입력 (예: 11000)"
-                        value={
-                          selectedProfile.hourlyWage !== undefined && selectedProfile.hourlyWage !== null
-                            ? selectedProfile.hourlyWage
-                            : Math.round((selectedProfile.baseSalary || 3500000) / 209)
-                        }
-                        onChange={(e) =>
-                          setSelectedProfile({
-                            ...selectedProfile,
-                            hourlyWage: e.target.value === "" ? 0 : parseInt(e.target.value) || 0,
-                          })
-                        }
-                        disabled={!canEdit}
-                      />
-                      {(() => {
-                        const hw =
-                          selectedProfile.hourlyWage !== undefined && selectedProfile.hourlyWage !== null
-                            ? selectedProfile.hourlyWage
-                            : Math.round((selectedProfile.baseSalary || 3500000) / 209);
-                        return (
-                          <div
-                            style={{
-                              fontSize: "11px",
-                              color: "var(--text-secondary)",
-                              display: "flex",
-                              flexWrap: "wrap",
-                              gap: "6px",
-                              marginTop: "2px",
-                              padding: "4px 6px",
-                              backgroundColor: "var(--bg-card)",
-                              borderRadius: "4px",
-                              border: "1px dashed var(--border-color)",
-                            }}
-                          >
-                            <span>평일초과(1.5x): <strong>{Math.round(hw * 1.5).toLocaleString()}원/h</strong></span>
-                            <span>·</span>
-                            <span>비근무일(1.5x/2.0x): <strong>{Math.round(hw * 1.5).toLocaleString()} / {Math.round(hw * 2.0).toLocaleString()}원/h</strong></span>
-                            <span>·</span>
-                            <span>심야가산(+0.5x): <strong>+{Math.round(hw * 0.5).toLocaleString()}원/h</strong></span>
-                          </div>
-                        );
-                      })()}
-                    </div>
-
-                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                      <label
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: "bold",
-                          color: "var(--text-main)",
-                          display: "block",
-                        }}
-                      >
-                        계약 기본급 (원)
-                      </label>
-                      <input
-                        type="number"
-                        step="10000"
-                        min="0"
-                        style={{
-                          padding: "6px 10px",
-                          fontSize: "13px",
-                          fontWeight: "bold",
-                          width: "100%",
-                          borderRadius: "4px",
-                        }}
-                        placeholder="기본급 입력 (예: 3500000)"
-                        value={selectedProfile.baseSalary || ""}
-                        onChange={(e) => {
-                          const nextBase = parseInt(e.target.value) || 0;
-                          setSelectedProfile({
-                            ...selectedProfile,
-                            baseSalary: nextBase,
-                          });
-                        }}
-                        disabled={!canEdit}
-                      />
-                    </div>
-
-                    {/* 수당 항목: 식대 및 차량보조금 */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "2px" }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                        <label
-                          style={{
-                            fontSize: "12px",
-                            fontWeight: "bold",
-                            color: "var(--text-main)",
-                            display: "block",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          식대 (원) <span style={{ fontSize: "10.5px", fontWeight: 600, color: "var(--text-secondary)" }}>[수당]</span>
-                        </label>
-                        <input
-                          type="number"
-                          step="10000"
-                          min="0"
-                          style={{
-                            padding: "6px 10px",
-                            fontSize: "13px",
-                            fontWeight: "bold",
-                            width: "100%",
-                            borderRadius: "4px",
-                          }}
-                          placeholder="식대 입력 (예: 200000)"
-                          value={selectedProfile.mealAllowance ?? 200000}
-                          onChange={(e) =>
-                            setSelectedProfile({
-                              ...selectedProfile,
-                              mealAllowance: e.target.value === "" ? 0 : parseInt(e.target.value) || 0,
-                            })
-                          }
-                          disabled={!canEdit}
-                        />
-                      </div>
-
-                      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                        <label
-                          style={{
-                            fontSize: "12px",
-                            fontWeight: "bold",
-                            color: "var(--text-main)",
-                            display: "block",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          차량보조금 (원) <span style={{ fontSize: "10.5px", fontWeight: 600, color: "var(--text-secondary)" }}>[수당]</span>
-                        </label>
-                        <input
-                          type="number"
-                          step="10000"
-                          min="0"
-                          style={{
-                            padding: "6px 10px",
-                            fontSize: "13px",
-                            fontWeight: "bold",
-                            width: "100%",
-                            borderRadius: "4px",
-                          }}
-                          placeholder="차량보조금 입력 (예: 200000)"
-                          value={selectedProfile.vehicleAllowance ?? 0}
-                          onChange={(e) =>
-                            setSelectedProfile({
-                              ...selectedProfile,
-                              vehicleAllowance: e.target.value === "" ? 0 : parseInt(e.target.value) || 0,
-                            })
-                          }
-                          disabled={!canEdit}
-                        />
-                      </div>
-                    </div>
-
-                    {/* 월 고정 급여 + 수당 합계 요약 */}
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        padding: "5px 8px",
-                        backgroundColor: "var(--bg-card)",
-                        borderRadius: "4px",
-                        border: "1px solid var(--border-color)",
-                        fontSize: "11.5px",
-                      }}
-                    >
-                      <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>
-                        월 급여 합계 (기본급 + 식대 + 차량보조금)
-                      </span>
-                      <strong style={{ color: "var(--primary)", fontSize: "12.5px" }}>
-                        {(
-                          Number(selectedProfile.baseSalary || 0) +
-                          Number(selectedProfile.mealAllowance ?? 200000) +
-                          Number(selectedProfile.vehicleAllowance ?? 0)
-                        ).toLocaleString()}
-                        원
-                      </strong>
-                    </div>
-
-                    {/* 4대보험 가입여부 항목별 체크박스 */}
-                    <div
-                      style={{
-                        marginTop: "2px",
-                        padding: "8px",
-                        backgroundColor: "var(--bg-card)",
-                        borderRadius: "4px",
-                        border: "1px solid var(--border-color)",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "6px",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <label
-                          style={{
-                            fontSize: "12px",
-                            fontWeight: "bold",
-                            color: "var(--text-main)",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          4대보험 가입여부
-                        </label>
-                        {canEdit && (
-                          <div style={{ display: "flex", gap: "4px" }}>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSelectedProfile({
-                                  ...selectedProfile,
-                                  insNationalPension: true,
-                                  insHealthInsurance: true,
-                                  insEmploymentInsurance: true,
-                                  insIndustrialAccident: true,
-                                })
-                              }
-                              style={{
-                                fontSize: "10px",
-                                padding: "1.5px 6px",
-                                borderRadius: "3px",
-                                border: "1px solid var(--border-color)",
-                                backgroundColor: "var(--bg-app)",
-                                color: "var(--text-secondary)",
-                                cursor: "pointer",
-                                fontWeight: 600,
-                              }}
-                            >
-                              전체선택
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSelectedProfile({
-                                  ...selectedProfile,
-                                  insNationalPension: false,
-                                  insHealthInsurance: false,
-                                  insEmploymentInsurance: false,
-                                  insIndustrialAccident: false,
-                                })
-                              }
-                              style={{
-                                fontSize: "10px",
-                                padding: "1.5px 6px",
-                                borderRadius: "3px",
-                                border: "1px solid var(--border-color)",
-                                backgroundColor: "var(--bg-app)",
-                                color: "var(--text-secondary)",
-                                cursor: "pointer",
-                                fontWeight: 600,
-                              }}
-                            >
-                              전체해제
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "1fr 1fr",
-                          gap: "6px",
-                        }}
-                      >
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            padding: "5px 8px",
-                            borderRadius: "4px",
-                            border: `1px solid ${
-                              selectedProfile.insNationalPension !== false ? "var(--primary)" : "var(--border-color)"
-                            }`,
-                            backgroundColor:
-                              selectedProfile.insNationalPension !== false ? "var(--bg-app)" : "transparent",
-                            fontSize: "12px",
-                            fontWeight: 600,
-                            cursor: canEdit ? "pointer" : "default",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedProfile.insNationalPension !== false}
-                            onChange={(e) =>
-                              setSelectedProfile({
-                                ...selectedProfile,
-                                insNationalPension: e.target.checked,
-                              })
-                            }
-                            disabled={!canEdit}
-                            style={{ width: "14px", height: "14px", accentColor: "var(--primary)", cursor: canEdit ? "pointer" : "default" }}
-                          />
-                          <span>국민연금</span>
-                        </label>
-
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            padding: "5px 8px",
-                            borderRadius: "4px",
-                            border: `1px solid ${
-                              selectedProfile.insHealthInsurance !== false ? "var(--primary)" : "var(--border-color)"
-                            }`,
-                            backgroundColor:
-                              selectedProfile.insHealthInsurance !== false ? "var(--bg-app)" : "transparent",
-                            fontSize: "12px",
-                            fontWeight: 600,
-                            cursor: canEdit ? "pointer" : "default",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedProfile.insHealthInsurance !== false}
-                            onChange={(e) =>
-                              setSelectedProfile({
-                                ...selectedProfile,
-                                insHealthInsurance: e.target.checked,
-                              })
-                            }
-                            disabled={!canEdit}
-                            style={{ width: "14px", height: "14px", accentColor: "var(--primary)", cursor: canEdit ? "pointer" : "default" }}
-                          />
-                          <span>건강보험 (장기요양)</span>
-                        </label>
-
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            padding: "5px 8px",
-                            borderRadius: "4px",
-                            border: `1px solid ${
-                              selectedProfile.insEmploymentInsurance !== false ? "var(--primary)" : "var(--border-color)"
-                            }`,
-                            backgroundColor:
-                              selectedProfile.insEmploymentInsurance !== false ? "var(--bg-app)" : "transparent",
-                            fontSize: "12px",
-                            fontWeight: 600,
-                            cursor: canEdit ? "pointer" : "default",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedProfile.insEmploymentInsurance !== false}
-                            onChange={(e) =>
-                              setSelectedProfile({
-                                ...selectedProfile,
-                                insEmploymentInsurance: e.target.checked,
-                              })
-                            }
-                            disabled={!canEdit}
-                            style={{ width: "14px", height: "14px", accentColor: "var(--primary)", cursor: canEdit ? "pointer" : "default" }}
-                          />
-                          <span>고용보험</span>
-                        </label>
-
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            padding: "5px 8px",
-                            borderRadius: "4px",
-                            border: `1px solid ${
-                              selectedProfile.insIndustrialAccident !== false ? "var(--primary)" : "var(--border-color)"
-                            }`,
-                            backgroundColor:
-                              selectedProfile.insIndustrialAccident !== false ? "var(--bg-app)" : "transparent",
-                            fontSize: "12px",
-                            fontWeight: 600,
-                            cursor: canEdit ? "pointer" : "default",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedProfile.insIndustrialAccident !== false}
-                            onChange={(e) =>
-                              setSelectedProfile({
-                                ...selectedProfile,
-                                insIndustrialAccident: e.target.checked,
-                              })
-                            }
-                            disabled={!canEdit}
-                            style={{ width: "14px", height: "14px", accentColor: "var(--primary)", cursor: canEdit ? "pointer" : "default" }}
-                          />
-                          <span>산재보험</span>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </>
+        <SelectedProfilePanel
+          applyProfileChanges={applyProfileChanges}
+          canEdit={canEdit}
+          canViewPayroll={canViewPayroll}
+          departments={departments}
+          dutyConfigs={dutyConfigs}
+          enforceManagerPolicies={enforceManagerPolicies}
+          fileInputRef={fileInputRef}
+          handlePhotoUpload={handlePhotoUpload}
+          handleStatusChange={handleStatusChange}
+          handleWageInputChange={handleWageInputChange}
+          isSuperAdmin={isSuperAdmin}
+          positionConfigs={positionConfigs}
+          selectedProfile={selectedProfile}
+          setIsDirty={setIsDirty}
+          setSelectedProfile={setSelectedProfile}
+          setShowPasswordInput={setShowPasswordInput}
+          setUsers={setUsers}
+          showPasswordInput={showPasswordInput}
+          showToast={showToast}
+          users={users}
+        />
       )}
 
       {/* Hand-off Alert Modal for Retirement (퇴사 처리 및 업무 이관) */}

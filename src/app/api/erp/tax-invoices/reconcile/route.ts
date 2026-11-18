@@ -201,13 +201,104 @@ function computeMatchScore(inv: any, tx: any): {
   return { score, reasons, nameMatched, amountExact };
 }
 
+const DAY_MS = 86400 * 1000;
+
+function parseIsoDayMs(raw: unknown): number {
+  return new Date(String(raw ?? "").slice(0, 10)).getTime();
+}
+
+/**
+ * 동일 거래처의 미매칭 양수 세금계산서 K건(2 <= K <= 6, 발행일 간격 180일 이내)을 조합해
+ * 단일 합산 이체 거래내역 1건과 오차 범위 내에서 가장 근사하게 일치하는 최적 집합을 탐색한다.
+ */
+function findConsolidatedInvoicesForTx(
+  custInvs: any[],
+  tx: any,
+  io: string
+): any[] | null {
+  const txAmt = io === "SALE" ? Number(tx.deposit_amount) : Number(tx.withdrawal_amount);
+  if (txAmt <= 0) return null;
+  const txDate = parseIsoDayMs(tx.trans_date);
+  if (Number.isNaN(txDate)) return null;
+
+  const MAX_K = 6;
+  const MAX_POOL = 12;
+  const MAX_SPAN_MS = 180 * DAY_MS;
+  const maxPruningSum = txAmt + Math.max(100, MAX_K * 500);
+
+  let bestSubset: any[] | null = null;
+  let bestDiff = Number.POSITIVE_INFINITY;
+
+  for (let startIdx = 0; startIdx < custInvs.length; startIdx++) {
+    const anchorDate = parseIsoDayMs(custInvs[startIdx].issue_date);
+    if (Number.isNaN(anchorDate)) continue;
+
+    const pool: any[] = [];
+    for (let p = startIdx; p < custInvs.length && pool.length < MAX_POOL; p++) {
+      const d = parseIsoDayMs(custInvs[p].issue_date);
+      if (Number.isNaN(d)) continue;
+      if (d - anchorDate > MAX_SPAN_MS) break;
+      pool.push(custInvs[p]);
+    }
+    if (pool.length < 2) continue;
+
+    const dfs = (
+      idx: number,
+      chosen: any[],
+      sumAmt: number,
+      minDate: number,
+      maxDate: number
+    ) => {
+      if (chosen.length >= 2) {
+        const tolerance = Math.max(100, chosen.length * 500);
+        const diff = Math.abs(txAmt - sumAmt);
+        if (
+          diff <= tolerance &&
+          txDate >= minDate - 15 * DAY_MS &&
+          txDate <= maxDate + 60 * DAY_MS
+        ) {
+          if (
+            diff < bestDiff ||
+            (diff === bestDiff && bestSubset !== null && chosen.length < bestSubset.length)
+          ) {
+            bestDiff = diff;
+            bestSubset = [...chosen];
+          }
+        }
+      }
+      if (chosen.length >= MAX_K || sumAmt > maxPruningSum) return;
+
+      for (let i = idx; i < pool.length; i++) {
+        const inv = pool[i];
+        const invAmt = Number(inv.total_amount);
+        const invDate = parseIsoDayMs(inv.issue_date);
+        const nextMin = Math.min(minDate, invDate);
+        const nextMax = Math.max(maxDate, invDate);
+        if (nextMax - nextMin > MAX_SPAN_MS) continue;
+        if (sumAmt + invAmt > maxPruningSum) continue;
+
+        chosen.push(inv);
+        dfs(i + 1, chosen, sumAmt + invAmt, nextMin, nextMax);
+        chosen.pop();
+      }
+    };
+
+    const firstAmt = Number(pool[0].total_amount);
+    if (firstAmt <= maxPruningSum) {
+      dfs(1, [pool[0]], firstAmt, anchorDate, anchorDate);
+    }
+  }
+
+  return bestSubset;
+}
+
 // 세금계산서 수납/지급 상태 변경 시 연결된 원천 청구(렌탈·용역·무역) 테이블의 payment_status 및 paid_amount를 양방향 자동 동기화
 async function syncLinkedBillingsPaymentStatus(
   client: any,
   invoiceId: number,
   settlementStatus: string,
   settledAmount: number,
-  refType?: string | null,
+  domainType?: string | null,
   refId?: number | null
 ) {
   const billPaymentStatus =
@@ -217,8 +308,8 @@ async function syncLinkedBillingsPaymentStatus(
   await client.query(
     `UPDATE erp_service_billings
      SET payment_status = $1
-     WHERE tax_invoice_id = $2 OR ($3 = 'SERVICE' AND id = $4)`,
-    [billPaymentStatus, invoiceId, refType || "", refId || -1]
+     WHERE tax_invoice_id = $2 OR ($3 IN ('SERVICE', 'OP_SERVICE', 'DEV_SERVICE') AND id = $4)`,
+    [billPaymentStatus, invoiceId, domainType || "", refId || -1]
   );
 
   // 2) 렌탈 청구 (erp_rental_billings)
@@ -231,7 +322,7 @@ async function syncLinkedBillingsPaymentStatus(
            ELSE LEAST(total_amount, $2::numeric)
          END
      WHERE tax_invoice_id = $3 OR ($4 = 'RENTAL' AND id = $5)`,
-    [billPaymentStatus, settledAmount, invoiceId, refType || "", refId || -1]
+    [billPaymentStatus, settledAmount, invoiceId, domainType || "", refId || -1]
   );
 
   // 3) 무역 청구 (erp_trade_billings)
@@ -243,8 +334,8 @@ async function syncLinkedBillingsPaymentStatus(
            WHEN $1 = 'UNPAID' THEN 0
            ELSE LEAST(total_amount, $2::numeric)
          END
-     WHERE tax_invoice_id = $3 OR ($4 = 'TRADE' AND id = $5)`,
-    [billPaymentStatus, settledAmount, invoiceId, refType || "", refId || -1]
+     WHERE tax_invoice_id = $3 OR ($4 IN ('TRADE', 'TRADE_SALE') AND id = $5)`,
+    [billPaymentStatus, settledAmount, invoiceId, domainType || "", refId || -1]
   );
 }
 
@@ -371,7 +462,7 @@ export async function POST(request: Request) {
                  COALESCE(settled_amount, 0)::numeric AS settled_amount,
                  COALESCE(settlement_status, 'UNPAID') AS settlement_status,
                  COALESCE(matched_bank_tx_ids, '[]'::jsonb) AS matched_bank_tx_ids,
-                 item_name, memo, ref_type, ref_id
+                 item_name, memo, domain_type, ref_id
           FROM erp_tax_invoices
           ORDER BY issue_date ASC, id ASC
         `)
@@ -516,54 +607,53 @@ export async function POST(request: Request) {
             }
           }
 
-          // Step 2: 2 Invoices (same customer) -> 1 Consolidated Bank Transaction
+          // Step 2: K Invoices (2 <= K <= 6, same customer) -> 1 Consolidated Bank Transaction
           const unmatchedStep2 = subInvs.filter(
             (i: any) => !matchedInvMap.has(Number(i.id)) && Number(i.total_amount) > 0
           );
-          for (let a = 0; a < unmatchedStep2.length; a++) {
-            const invA = unmatchedStep2[a];
-            if (matchedInvMap.has(Number(invA.id))) continue;
-            for (let b = a + 1; b < unmatchedStep2.length; b++) {
-              const invB = unmatchedStep2[b];
-              if (matchedInvMap.has(Number(invB.id))) continue;
-              if (normalizeCompanyName(invA.customer_name) !== normalizeCompanyName(invB.customer_name)) continue;
+          const custGroupsStep2 = new Map<string, any[]>();
+          for (const inv of unmatchedStep2) {
+            const key = normalizeCompanyName(inv.customer_name);
+            if (!key) continue;
+            const list = custGroupsStep2.get(key) || [];
+            list.push(inv);
+            custGroupsStep2.set(key, list);
+          }
 
-              const dateA = new Date(invA.issue_date).getTime();
-              const dateB = new Date(invB.issue_date).getTime();
-              if (Math.abs(dateB - dateA) > 45 * 86400 * 1000) continue;
+          for (const custInvsRaw of custGroupsStep2.values()) {
+            if (custInvsRaw.length < 2) continue;
+            const custInvsSorted = [...custInvsRaw].sort((a, b) => {
+              const cmp = String(a.issue_date).slice(0, 10).localeCompare(String(b.issue_date).slice(0, 10));
+              return cmp !== 0 ? cmp : Number(a.id) - Number(b.id);
+            });
 
-              const combinedAmt = Number(invA.total_amount) + Number(invB.total_amount);
+            for (const tx of subTxs) {
+              if (usedTxIds.has(Number(tx.id))) continue;
+              const remInvs = custInvsSorted.filter((i: any) => !matchedInvMap.has(Number(i.id)));
+              if (remInvs.length < 2) break;
 
-              const matchTx = subTxs.find((tx: any) => {
-                if (usedTxIds.has(Number(tx.id))) return false;
-                const txAmt = io === "SALE" ? Number(tx.deposit_amount) : Number(tx.withdrawal_amount);
-                if (Math.abs(txAmt - combinedAmt) > 100) return false;
-                const txDate = new Date(tx.trans_date).getTime();
-                const minDate = Math.min(dateA, dateB);
-                const maxDate = Math.max(dateA, dateB);
-                if (txDate < minDate - 15 * 86400 * 1000 || txDate > maxDate + 45 * 86400 * 1000) return false;
-                return checkCompanyAliasMatch(
-                  invA.customer_name,
-                  invA.ceo_name,
+              const aliasMatched = remInvs.some((i: any) =>
+                checkCompanyAliasMatch(
+                  i.customer_name,
+                  i.ceo_name,
                   tx.sender_receiver,
                   tx.counterparty_holder,
                   tx.memo
-                ).matched;
-              });
+                ).matched
+              );
+              if (!aliasMatched) continue;
 
-              if (matchTx) {
-                usedTxIds.add(Number(matchTx.id));
-                matchedInvMap.set(Number(invA.id), {
-                  txIds: [Number(matchTx.id)],
-                  method: "2:1_CONSOLIDATED",
-                  newlyMatched: true,
-                });
-                matchedInvMap.set(Number(invB.id), {
-                  txIds: [Number(matchTx.id)],
-                  method: "2:1_CONSOLIDATED",
-                  newlyMatched: true,
-                });
-                break;
+              const bestSubset = findConsolidatedInvoicesForTx(remInvs, tx, io);
+              if (bestSubset && bestSubset.length >= 2) {
+                usedTxIds.add(Number(tx.id));
+                const method = `${bestSubset.length}:1_CONSOLIDATED`;
+                for (const mInv of bestSubset) {
+                  matchedInvMap.set(Number(mInv.id), {
+                    txIds: [Number(tx.id)],
+                    method,
+                    newlyMatched: true,
+                  });
+                }
               }
             }
           }
@@ -820,7 +910,7 @@ export async function POST(request: Request) {
                 Number(inv.id),
                 "PAID",
                 totalAmount,
-                inv.ref_type,
+                inv.domain_type,
                 inv.ref_id ? Number(inv.ref_id) : null
               );
 
@@ -866,7 +956,7 @@ export async function POST(request: Request) {
                   Number(inv.id),
                   "UNPAID",
                   0,
-                  inv.ref_type,
+                  inv.domain_type,
                   inv.ref_id ? Number(inv.ref_id) : null
                 );
               }
@@ -982,7 +1072,7 @@ export async function POST(request: Request) {
         Number(inv.id),
         nextStatus,
         finalSettled,
-        inv.ref_type,
+        inv.domain_type,
         inv.ref_id ? Number(inv.ref_id) : null
       );
 
@@ -1092,15 +1182,39 @@ export async function POST(request: Request) {
         : [];
 
       if (removeIds.length > 0) {
-        await client.query(
-          `UPDATE erp_bank_transactions
-           SET is_matched = false,
-               matched_type = NULL,
-               matched_id = NULL,
-               matched_at = NULL
-           WHERE id = ANY($1::bigint[])`,
-          [removeIds]
-        );
+        for (const tid of removeIds) {
+          // 다대일(K:1) 매칭에서 다른 세금계산서가 해당 통장 거래를 계속 참조하고 있으면 매칭 상태를 유지하고 목록만 갱신한다.
+          const otherInvsRes = await client.query(
+            `SELECT invoice_no, COALESCE(io_type, 'SALE') AS io_type
+             FROM erp_tax_invoices
+             WHERE id != $1 AND matched_bank_tx_ids @> $2::jsonb
+             ORDER BY issue_date ASC, id ASC`,
+            [inv.id, JSON.stringify([tid])]
+          );
+          if (otherInvsRes.rows.length > 0) {
+            const nextMatchedType =
+              otherInvsRes.rows[0].io_type === "PURCHASE" ? "PURCHASE_INVOICE" : "SALE_INVOICE";
+            const nextMatchedId = otherInvsRes.rows.map((r: any) => r.invoice_no).join(",");
+            await client.query(
+              `UPDATE erp_bank_transactions
+               SET is_matched = true,
+                   matched_type = $1,
+                   matched_id = $2
+               WHERE id = $3`,
+              [nextMatchedType, nextMatchedId, tid]
+            );
+          } else {
+            await client.query(
+              `UPDATE erp_bank_transactions
+               SET is_matched = false,
+                   matched_type = NULL,
+                   matched_id = NULL,
+                   matched_at = NULL
+               WHERE id = $1`,
+              [tid]
+            );
+          }
+        }
       }
 
       let nextSettled = 0;
@@ -1135,7 +1249,7 @@ export async function POST(request: Request) {
         Number(inv.id),
         nextStatus,
         finalSettled,
-        inv.ref_type,
+        inv.domain_type,
         inv.ref_id ? Number(inv.ref_id) : null
       );
 
@@ -1182,7 +1296,7 @@ export async function POST(request: Request) {
         Number(inv.id),
         nextStatus,
         nextSettled,
-        inv.ref_type,
+        inv.domain_type,
         inv.ref_id ? Number(inv.ref_id) : null
       );
 

@@ -371,6 +371,9 @@ export function recommendAccountSubjectForTx(row: any): string | null {
     if (/퇴직연금|푸른씨앗|중소기업퇴직|퇴직급여/.test(combined)) {
       return "퇴직연금부담금(푸른씨앗·퇴직급여)";
     }
+    if (/^(급여|임직원급여|월급여|정기급여)(\s*\d{2,4})?$/.test(sr) || /대량급여/.test(combined)) {
+      return "임직원급여·상여·수당";
+    }
     if (/국민연금|국민건강|건강보험|고용보험|산재보험|국민건강보험공단/.test(combined)) {
       return "4대보험료(건강·연금·고용·산재)";
     }

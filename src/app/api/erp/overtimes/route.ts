@@ -141,7 +141,7 @@ export async function GET(request: Request) {
         COALESCE(o.holiday_hours, 0)::numeric as "holidayHours",
         COALESCE(o.holiday_over8_hours, 0)::numeric as "holidayOver8Hours",
         COALESCE(o.night_hours, 0)::numeric as "nightHours",
-        COALESCE(NULLIF(o.hourly_wage, 0), NULLIF(e.hourly_wage, 0), ROUND(COALESCE(e.base_salary, 3500000) / 209.0))::numeric as "hourlyWage",
+        COALESCE(NULLIF(o.hourly_wage, 0), e.hourly_wage, 0)::numeric as "hourlyWage",
         COALESCE(o.applied_multiplier, 1.5)::numeric as "appliedMultiplier",
         COALESCE(o.ot_pay, 0)::bigint as "otPay",
         o.reason,
@@ -160,8 +160,22 @@ export async function GET(request: Request) {
     const params: any[] = [];
 
     if (month) {
-      params.push(`${month}%`);
-      conditions.push(`o.ot_date::text LIKE $${params.length}`);
+      if (/^\d{4}-\d{2}$/.test(month)) {
+        const [mYear, mMon] = month.split("-").map(Number);
+        const startDay = `${month}-01`;
+        const lastDay = new Date(mYear, mMon, 0).getDate();
+        const endDay = `${month}-${String(lastDay).padStart(2, "0")}`;
+        params.push(startDay, endDay);
+        conditions.push(`o.ot_date >= $${params.length - 1}::date AND o.ot_date <= $${params.length}::date`);
+      } else if (/^\d{4}$/.test(month)) {
+        const startDay = `${month}-01-01`;
+        const endDay = `${month}-12-31`;
+        params.push(startDay, endDay);
+        conditions.push(`o.ot_date >= $${params.length - 1}::date AND o.ot_date <= $${params.length}::date`);
+      } else {
+        params.push(`${month}%`);
+        conditions.push(`o.ot_date::text LIKE $${params.length}`);
+      }
     }
 
     if (employeeId) {
@@ -193,7 +207,7 @@ export async function GET(request: Request) {
 
     const result = await pool.query(query, params);
     const overtimes = result.rows.map((row: any) => {
-      const hw = Number(row.hourlyWage) || 16746;
+      const hw = Math.round(Number(row.hourlyWage) || 0);
       const calc = calculateOvertimeBreakdown({
         otDate: String(row.otDate || "").slice(0, 10),
         startTime: row.startTime || "18:00",
@@ -256,11 +270,9 @@ export async function POST(request: Request) {
     );
     const empRow = empRes.rows[0];
     const resolvedHourlyWage =
-      customHourlyWage && Number(customHourlyWage) > 0
-        ? Number(customHourlyWage)
-        : empRow && Number(empRow.hourly_wage) > 0
-        ? Number(empRow.hourly_wage)
-        : Math.round((empRow ? Number(empRow.base_salary) || 3500000 : 3500000) / 209);
+      customHourlyWage !== undefined && customHourlyWage !== null && customHourlyWage !== "" && Number(customHourlyWage) > 0
+        ? Math.round(Number(customHourlyWage))
+        : Math.round(Number(empRow?.hourly_wage ?? 0) || 0);
 
     const calc = calculateOvertimeBreakdown({
       otDate: String(otDate).slice(0, 10),

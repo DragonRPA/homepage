@@ -2,37 +2,40 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getErpPool } from "@/lib/supabaseErp";
+import { runSchemaInitOnce } from "@/lib/erpSchemaCache";
 
 async function ensureShareTables() {
-  const pool = getErpPool();
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS erp_share_folders (
-      id SERIAL PRIMARY KEY,
-      share_code VARCHAR(64) UNIQUE NOT NULL,
-      title VARCHAR(255) NOT NULL,
-      description TEXT,
-      password_hash VARCHAR(255),
-      has_password BOOLEAN NOT NULL DEFAULT FALSE,
-      expires_at TIMESTAMPTZ,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      created_by VARCHAR(100),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE TABLE IF NOT EXISTS erp_share_files (
-      id SERIAL PRIMARY KEY,
-      folder_id INTEGER NOT NULL REFERENCES erp_share_folders(id) ON DELETE CASCADE,
-      file_name VARCHAR(500) NOT NULL,
-      r2_key TEXT NOT NULL,
-      file_size BIGINT NOT NULL DEFAULT 0,
-      content_type VARCHAR(255) DEFAULT 'application/octet-stream',
-      download_count INTEGER NOT NULL DEFAULT 0,
-      uploaded_by VARCHAR(100),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    ALTER TABLE erp_share_folders ENABLE ROW LEVEL SECURITY;
-    ALTER TABLE erp_share_files ENABLE ROW LEVEL SECURITY;
-  `);
+  await runSchemaInitOnce("erp_cloud_shares_schema_v1", async () => {
+    const pool = getErpPool();
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_share_folders (
+        id SERIAL PRIMARY KEY,
+        share_code VARCHAR(64) UNIQUE NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        password_hash VARCHAR(255),
+        has_password BOOLEAN NOT NULL DEFAULT FALSE,
+        expires_at TIMESTAMPTZ,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_by VARCHAR(100),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS erp_share_files (
+        id SERIAL PRIMARY KEY,
+        folder_id INTEGER NOT NULL REFERENCES erp_share_folders(id) ON DELETE CASCADE,
+        file_name VARCHAR(500) NOT NULL,
+        r2_key TEXT NOT NULL,
+        file_size BIGINT NOT NULL DEFAULT 0,
+        content_type VARCHAR(255) DEFAULT 'application/octet-stream',
+        download_count INTEGER NOT NULL DEFAULT 0,
+        uploaded_by VARCHAR(100),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      ALTER TABLE erp_share_folders ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE erp_share_files ENABLE ROW LEVEL SECURITY;
+    `);
+  });
 }
 
 function hashPassword(pw: string): string {
@@ -49,36 +52,37 @@ export async function GET() {
     await ensureShareTables();
     const pool = getErpPool();
 
-    const foldersRes = await pool.query(`
-      SELECT
-        f.id,
-        f.share_code AS "shareCode",
-        f.title,
-        f.description,
-        f.has_password AS "hasPassword",
-        f.expires_at AS "expiresAt",
-        f.is_active AS "isActive",
-        f.created_by AS "createdBy",
-        f.created_at AS "createdAt",
-        f.updated_at AS "updatedAt"
-      FROM erp_share_folders f
-      ORDER BY f.id DESC
-    `);
-
-    const filesRes = await pool.query(`
-      SELECT
-        id,
-        folder_id AS "folderId",
-        file_name AS "fileName",
-        r2_key AS "r2Key",
-        file_size::bigint AS "fileSize",
-        content_type AS "contentType",
-        download_count AS "downloadCount",
-        uploaded_by AS "uploadedBy",
-        created_at AS "createdAt"
-      FROM erp_share_files
-      ORDER BY id DESC
-    `);
+    const [foldersRes, filesRes] = await Promise.all([
+      pool.query(`
+        SELECT
+          f.id,
+          f.share_code AS "shareCode",
+          f.title,
+          f.description,
+          f.has_password AS "hasPassword",
+          f.expires_at AS "expiresAt",
+          f.is_active AS "isActive",
+          f.created_by AS "createdBy",
+          f.created_at AS "createdAt",
+          f.updated_at AS "updatedAt"
+        FROM erp_share_folders f
+        ORDER BY f.id DESC
+      `),
+      pool.query(`
+        SELECT
+          id,
+          folder_id AS "folderId",
+          file_name AS "fileName",
+          r2_key AS "r2Key",
+          file_size::bigint AS "fileSize",
+          content_type AS "contentType",
+          download_count AS "downloadCount",
+          uploaded_by AS "uploadedBy",
+          created_at AS "createdAt"
+        FROM erp_share_files
+        ORDER BY id DESC
+      `),
+    ]);
 
     const filesByFolder: Record<number, any[]> = {};
     for (const file of filesRes.rows) {

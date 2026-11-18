@@ -7,21 +7,18 @@ import {
   Download,
   RotateCcw,
   Search,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   ShieldCheck,
   UserCheck,
 } from "lucide-react";
 import {
   sortErpItems,
-  SortDirection,
   formatErpNumber,
   formatErpLeaveDays,
   calculateAnnualLeaveEntitlement,
   isNonDeductingLeaveType,
   getLeaveTypeLabel,
 } from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
 
 interface EmployeeLeave {
   id: number;
@@ -197,46 +194,41 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
     return calculateAnnualLeaveEntitlement(joinDateStr).tenureYears;
   };
 
-  const [sortKey, setSortKey] = useState<string>("employeeNo");
-  const [sortDir, setSortDir] = useState<SortDirection>("asc");
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
+  const { sortKey, sortDir, handleSort } = useErpTableSort("employeeNo", "asc");
+  const historySort = useErpTableSort("startDate", "asc");
 
   const renderSortTh = (
     label: string,
     colKey: string,
     align: "left" | "right" | "center" = "left"
   ) => (
-    <th
-      onClick={() => handleSort(colKey)}
-      className={`py-2 px-3 whitespace-nowrap cursor-pointer select-none transition ${
-        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
-      } hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60`}
-    >
-      <div
-        className={`inline-flex items-center gap-1.5 ${
-          align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"
-        }`}
-      >
-        <span>{label}</span>
-        {sortKey === colKey ? (
-          sortDir === "asc" ? (
-            <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
-          ) : (
-            <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
-          )
-        ) : (
-          <ArrowUpDown className="w-3.5 h-3.5 opacity-30 group-hover:opacity-100" />
-        )}
-      </div>
-    </th>
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60"
+      iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+    />
+  );
+
+  const renderHistorySortTh = (
+    label: string,
+    colKey: string,
+    align: "left" | "right" | "center" = "left"
+  ) => (
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={historySort.sortKey}
+      sortDir={historySort.sortDir}
+      onSort={historySort.handleSort}
+      align={align}
+      className="py-2 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60"
+      iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+    />
   );
 
   // 연차관리 대상자 필터링 (대표이사, 외주 조직 직원, 퇴사자 제외 + 권한 스코프 적용)
@@ -796,13 +788,13 @@ export const LeaveManageTab: React.FC<{ currentUser: any }> = ({ currentUser }) 
               <thead className="bg-[#dcd4c4] text-[#0f172a] font-semibold border-b border-[#b5a894] sticky top-0 z-10 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
                 <tr>
                   <th className="py-2 px-3 whitespace-nowrap">순번</th>
-                  <th className="py-2 px-3 whitespace-nowrap">사용 일자</th>
-                  <th className="py-2 px-3 whitespace-nowrap">성명</th>
-                  <th className="py-2 px-3 whitespace-nowrap">부서 / 직급</th>
-                  <th className="py-2 px-3 whitespace-nowrap">휴가 구분</th>
-                  <th className="py-2 px-3 whitespace-nowrap text-center">연차 차감 일수</th>
-                  <th className="py-2 px-3 whitespace-nowrap">사유</th>
-                  <th className="py-2 px-3 whitespace-nowrap text-center">결재상태</th>
+                  {renderHistorySortTh("사용 일자", "startDate")}
+                  {renderHistorySortTh("성명", "employeeName")}
+                  {renderHistorySortTh("부서 / 직급", "department")}
+                  {renderHistorySortTh("휴가 구분", "leaveType")}
+                  {renderHistorySortTh("연차 차감 일수", "deductedDays", "center")}
+                  {renderHistorySortTh("사유", "reason")}
+                  {renderHistorySortTh("결재상태", "status", "center")}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">

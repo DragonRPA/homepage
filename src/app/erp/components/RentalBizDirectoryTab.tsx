@@ -24,146 +24,20 @@ import {
   Check,
   Globe,
 } from "lucide-react";
-import officialMolitStats from "@/app/api/erp/rental-directory/officialMolitStats.json";
-
-export interface RentalBizRecord {
-  id: number;
-  sector: "FL" | "AWP" | "OA_PC";
-  companyName: string;
-  businessNo: string;
-  ceoName: string;
-  region: string;
-  address: string;
-  bizScope: string;
-  mainBrands: string;
-  mainProducts: string;
-  officialSource: string;
-  ksicCode: string;
-  phone: string;
-  websiteUrl: string;
-  scaleNote: string;
-  salesStatus: string;
-  memo: string;
-  isBookmarked: boolean;
-  isRegisteredCustomer?: boolean;
-  isRegisteredVendor?: boolean;
-  updatedAt: string;
-  createdAt: string;
-}
-
-const SECTOR_META: Record<
-  "FL" | "AWP" | "OA_PC",
-  { label: string; shortLabel: string; badgeClass: string; ksic: string }
-> = {
-  FL: {
-    label: "FL (지게차 판매·임대업)",
-    shortLabel: "FL 지게차",
-    badgeClass: "bg-amber-100 text-amber-900 border-amber-400",
-    ksic: "KSIC 71201 / 건설기계대여업",
-  },
-  AWP: {
-    label: "AWP (고소작업대 판매·임대업)",
-    shortLabel: "AWP 고소작업대",
-    badgeClass: "bg-blue-100 text-blue-900 border-blue-400",
-    ksic: "KSIC 71201 / 한국고소작업대임대업협동조합",
-  },
-  OA_PC: {
-    label: "PC · 노트북 · 복합기(OA) 임대업",
-    shortLabel: "PC·복합기(OA)",
-    badgeClass: "bg-emerald-100 text-emerald-900 border-emerald-400",
-    ksic: "KSIC 71202 / 나라장터 MAS",
-  },
-};
-
-export type OaSupplyType = "OA" | "MFP" | "BOTH";
-
-const OA_SUPPLY_META: Record<
+import { sortErpItems } from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
+import {
+  RentalBizRecord,
+  SECTOR_META,
   OaSupplyType,
-  { label: string; shortLabel: string; badgeClass: string }
-> = {
-  OA: {
-    label: "공급: OA 전문 (PC·노트북·전산·사무기기)",
-    shortLabel: "OA 전문",
-    badgeClass: "bg-sky-100 text-sky-900 border-sky-400",
-  },
-  MFP: {
-    label: "공급: 복합기 전문 (디지털복합기·프린터·복사기)",
-    shortLabel: "복합기 전문",
-    badgeClass: "bg-fuchsia-100 text-fuchsia-900 border-fuchsia-400",
-  },
-  BOTH: {
-    label: "공급: 둘다 (OA + 복합기 통합)",
-    shortLabel: "둘다(OA+복합기)",
-    badgeClass: "bg-teal-100 text-teal-900 border-teal-400",
-  },
-};
-
-function resolveOaSupplyType(item: RentalBizRecord): OaSupplyType {
-  const scope = String(item.bizScope || "");
-  if (scope.includes("[공급: OA]")) return "OA";
-  if (scope.includes("[공급: 복합기]")) return "MFP";
-  if (scope.includes("[공급: 둘다")) return "BOTH";
-
-  const cname = String(item.companyName || "").trim();
-  const hasSindohOrMfpWord = /신도|리코|리소|복사기|프린팅|프린터|컬러|잉크|인쇄|제록스|캐논|교세라/.test(cname);
-  const hasServiceCenter = /서비스\s*센터|서비스센타/.test(cname);
-  const hasOaOrOfficeWord = /OA|O\.A|오에이|오\.에이|사무기|오피스|문구|문방/.test(cname);
-  const hasPcOrItWord = /컴퓨터|컴|피씨|PC|전산|정보|아이티|IT|네트웍|네트워크|시스|테크|솔루션|데이타|데이터|소프트|뱅크|씨앤씨|C&C/.test(cname);
-
-  if (hasServiceCenter || (hasSindohOrMfpWord && !hasOaOrOfficeWord && !hasPcOrItWord) || /프린팅|복사기|리소|컬러에이지/.test(cname)) {
-    return "MFP";
-  }
-  if (!hasSindohOrMfpWord && (hasPcOrItWord || /문방사우|오에이디포|OA DEPOT|오피스웨이브|플러스오피스|현대렌탈서비스|렌티브|렌트릭스|비즈하이시스템|어피니티/.test(cname))) {
-    return "OA";
-  }
-  return "BOTH";
-}
-
-const SALES_STATUS_META: Record<string, { label: string; badgeClass: string }> = {
-  TARGET: { label: "발굴완료(타깃)", badgeClass: "bg-[#e2dbcd] text-[#334155] border-[#b8ae99]" },
-  CONTACTED: { label: "접촉/제안중", badgeClass: "bg-blue-100 text-blue-900 border-blue-300" },
-  PARTNER: { label: "매입처등록됨", badgeClass: "bg-violet-100 text-violet-900 border-violet-300" },
-  CUSTOMER: { label: "매출처등록됨", badgeClass: "bg-emerald-100 text-emerald-900 border-emerald-400" },
-  HOLD: { label: "보류", badgeClass: "bg-slate-200 text-slate-600 border-slate-300" },
-};
-
-const OFFICIAL_PORTAL_LINKS = [
-  {
-    name: "한국고소작업대임대업협동조합 (klra.or.kr)",
-    desc: "중소벤처기업부 인가 고소작업대(리프트) 공식 협동조합 — 전국 지회별(서울·경기·충청·호남·부울경) 100여 개 정회원사 명부",
-    url: "https://www.klra.or.kr",
-  },
-  {
-    name: "공공데이터포털 (data.go.kr - 건설기계대여업)",
-    desc: "전국 시·군·구청 『건설기계대여업 등록 현황』 엑셀(CSV) 및 Open API 원천 데이터 (지게차 FL 정식 대여업체 명단)",
-    url: "https://www.data.go.kr",
-  },
-  {
-    name: "조달청 나라장터 종합쇼핑몰 (shopping.g2b.go.kr)",
-    desc: "다수공급자계약(MAS) 『사무기기임대(복합기)』·『컴퓨터임대』·『지게차』·『고소작업대』 계약 공급사 조회",
-    url: "https://shopping.g2b.go.kr",
-  },
-  {
-    name: "NICE평가정보 (nicebizinfo.com) & 산군 (sankun.com)",
-    desc: "(주)기연리프트 등 세무서 일반 임대/서비스업으로 등록된 전국 중소 리프트·지게차·OA 법인 사업자번호·대표자·주소 조회",
-    url: "https://www.nicebizinfo.com",
-  },
-  {
-    name: "2979지게차연합회 다음카페 (cafe.daum.net/forklift2979.com)",
-    desc: "전국 영업용 지게차 임대사업자 최대 커뮤니티(회원 17,701명) — 매물등록(kP0N)·지입광고(dsRM)·구인구직(YTcR)·렌탈(YTd3)·영업소(YUHn)·후원내역(kmCN) 등 410개 지게차 사업자 추출 연동",
-    url: "https://cafe.daum.net/forklift2979.com",
-  },
-  {
-    name: "우리동네지게차 (udj.kr) & 퍼펙트82 (perfect82.com)",
-    desc: "전국 시·군·구 산업단지 밀착 지게차(FL) 신차 대리점·중고매매·장단기 렌탈·정비 사업자 통합 지도/리스트",
-    url: "https://www.udj.kr",
-  },
-  {
-    name: "다아라 기계장터 (daara.co.kr) & 대한건설기계협회",
-    desc: "전국 국가산단 입주 고소작업대(AWP)·물류장비 임대 및 매매 회원사 디렉토리",
-    url: "https://www.daara.co.kr",
-  },
-];
+  OA_SUPPLY_META,
+  resolveOaSupplyType,
+  SALES_STATUS_META,
+  RentalBizFormData,
+} from "./rental-biz-dir/rentalBizTypes";
+import { PortalGuideModal } from "./rental-biz-dir/PortalGuideModal";
+import { RentalBizFormModal } from "./rental-biz-dir/RentalBizFormModal";
+import { RentalBizDetailPanel } from "./rental-biz-dir/RentalBizDetailPanel";
 
 export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const [items, setItems] = useState<RentalBizRecord[]>([]);
@@ -194,9 +68,6 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
   // 수동 추가/수정 모달
   const [showFormModal, setShowFormModal] = useState(false);
   const [showPortalGuideModal, setShowPortalGuideModal] = useState(false);
-  const [portalModalTab, setPortalModalTab] = useState<
-    "OPERATORS" | "MACHINES" | "GOV_CSV" | "PORTALS"
-  >("OPERATORS");
   const [formData, setFormData] = useState({
     id: 0,
     sector: "FL" as "FL" | "AWP" | "OA_PC",
@@ -277,9 +148,11 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
     };
   }, [items]);
 
+  const dirSort = useErpTableSort("", null);
+
   // 필터링된 목록
   const filteredItems = useMemo(() => {
-    return items.filter((it) => {
+    const filtered = items.filter((it) => {
       if (sectorFilter !== "ALL" && it.sector !== sectorFilter) return false;
       if (oaSupplyFilter !== "ALL") {
         if (it.sector !== "OA_PC") return false;
@@ -322,7 +195,8 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
       }
       return true;
     });
-  }, [items, sectorFilter, oaSupplyFilter, regionFilter, statusFilter, bookmarkOnly, searchQuery]);
+    return sortErpItems(filtered, dirSort.sortKey, dirSort.sortDir);
+  }, [items, sectorFilter, oaSupplyFilter, regionFilter, statusFilter, bookmarkOnly, searchQuery, dirSort.sortKey, dirSort.sortDir]);
 
   // 체크박스 핸들러
   const toggleCheck = (id: number) => {
@@ -1108,16 +982,14 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
                       className="accent-blue-700"
                     />
                   </th>
-                  <th className="py-2 px-1.5 text-center font-extrabold whitespace-nowrap w-8">관심</th>
-                  <th className="py-2 px-2 font-extrabold whitespace-nowrap">업종구분</th>
-                  <th className="py-2 px-2 font-extrabold whitespace-nowrap">상호 (법인명)</th>
-                  <th className="py-2 px-2 font-extrabold whitespace-nowrap">권역/지역</th>
-                  <th className="py-2 px-2 font-extrabold whitespace-nowrap">소재지 주소</th>
-                  <th className="py-2 px-2 font-extrabold whitespace-nowrap">대표전화</th>
-                  <th className="py-2 px-2 font-extrabold whitespace-nowrap">공식 확인 경로</th>
-                  <th className="py-2 px-2 text-center font-extrabold whitespace-nowrap">
-                    매출처(고객) 등록
-                  </th>
+                  <SortableTh label="관심" colKey="isBookmarked" sortKey={dirSort.sortKey} sortDir={dirSort.sortDir} onSort={dirSort.handleSort} align="center" className="py-2 px-1.5 font-extrabold w-8" />
+                  <SortableTh label="업종구분" colKey="sector" sortKey={dirSort.sortKey} sortDir={dirSort.sortDir} onSort={dirSort.handleSort} className="py-2 px-2 font-extrabold" />
+                  <SortableTh label="상호 (법인명)" colKey="companyName" sortKey={dirSort.sortKey} sortDir={dirSort.sortDir} onSort={dirSort.handleSort} className="py-2 px-2 font-extrabold" />
+                  <SortableTh label="권역/지역" colKey="region" sortKey={dirSort.sortKey} sortDir={dirSort.sortDir} onSort={dirSort.handleSort} className="py-2 px-2 font-extrabold" />
+                  <SortableTh label="소재지 주소" colKey="address" sortKey={dirSort.sortKey} sortDir={dirSort.sortDir} onSort={dirSort.handleSort} className="py-2 px-2 font-extrabold" />
+                  <SortableTh label="대표전화" colKey="phone" sortKey={dirSort.sortKey} sortDir={dirSort.sortDir} onSort={dirSort.handleSort} className="py-2 px-2 font-extrabold" />
+                  <SortableTh label="공식 확인 경로" colKey="officialSource" sortKey={dirSort.sortKey} sortDir={dirSort.sortDir} onSort={dirSort.handleSort} className="py-2 px-2 font-extrabold" />
+                  <SortableTh label="매출처(고객) 등록" colKey="isRegisteredCustomer" sortKey={dirSort.sortKey} sortDir={dirSort.sortDir} onSort={dirSort.handleSort} align="center" className="py-2 px-2 font-extrabold" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#d5ccb8]">
@@ -1265,678 +1137,32 @@ export const RentalBizDirectoryTab: React.FC<{ currentUser: any }> = ({ currentU
         </div>
 
         {/* 우측 상세 도시에 & ERP 연동 액션 (5 cols) */}
-        <div className="col-span-12 lg:col-span-5 bg-[#f4efe4] border border-[#b8ae99] rounded flex flex-col min-h-0 overflow-hidden">
-          {selectedItem ? (
-            <div className="flex flex-col h-full overflow-hidden">
-              {/* 상단 요약 헤더 */}
-              <div className="p-3 bg-[#e2dbcd] border-b border-[#b8ae99] space-y-2 shrink-0">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[11px] font-extrabold border ${
-                        (SECTOR_META[selectedItem.sector] || SECTOR_META.FL).badgeClass
-                      }`}
-                    >
-                      {(SECTOR_META[selectedItem.sector] || SECTOR_META.FL).label}
-                    </span>
-                    {selectedItem.sector === "OA_PC" && (() => {
-                      const supMeta = OA_SUPPLY_META[resolveOaSupplyType(selectedItem)];
-                      return (
-                        <span
-                          className={`px-2 py-0.5 rounded text-[11px] font-extrabold border ${supMeta.badgeClass}`}
-                        >
-                          {supMeta.label}
-                        </span>
-                      );
-                    })()}
-                    <span className="px-2 py-0.5 rounded bg-[#f4efe4] border border-[#b8ae99] text-[10.5px] font-mono font-bold text-[#334155]">
-                      {selectedItem.ksicCode}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(selectedItem)}
-                      className="p-1 rounded bg-[#f4efe4] hover:bg-[#d8d0c0] border border-[#b8ae99] text-[#0f172a]"
-                      title="정보 수정"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(selectedItem.id, selectedItem.companyName)}
-                      className="p-1 rounded bg-red-50 hover:bg-red-100 border border-red-300 text-red-700"
-                      title="삭제"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-extrabold text-[#0f172a] truncate">
-                    {selectedItem.companyName}
-                  </h3>
-                  <select
-                    value={selectedItem.salesStatus}
-                    onChange={(e) =>
-                      handleQuickUpdate(selectedItem.id, { salesStatus: e.target.value })
-                    }
-                    className="px-2 py-1 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs font-bold text-[#0f172a]"
-                  >
-                    <option value="TARGET">발굴완료(타깃)</option>
-                    <option value="CONTACTED">접촉/제안중</option>
-                    <option value="PARTNER">매입처 등록됨</option>
-                    <option value="CUSTOMER">매출처 등록됨</option>
-                    <option value="HOLD">보류</option>
-                  </select>
-                </div>
-
-                {/* ERP 거래처 1클릭 연동 버튼 */}
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  {selectedItem.isRegisteredCustomer ? (
-                    <span className="px-2.5 py-1 rounded bg-emerald-100 border border-emerald-500 text-emerald-950 text-[11px] font-extrabold flex items-center gap-1 whitespace-nowrap">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                      <span>ERP 고객 관리(매출처) 등록 완료</span>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleRegisterToPartner(selectedItem, "CUSTOMER")}
-                      className="px-2.5 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-[11px] font-bold flex items-center gap-1 whitespace-nowrap shadow-xs"
-                    >
-                      <UserPlus className="w-3 h-3" />
-                      <span>ERP 고객사(매출처)로 즉시 등록</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => handleRegisterToPartner(selectedItem, "VENDOR")}
-                    className="px-2.5 py-1 rounded bg-violet-700 hover:bg-violet-800 text-white text-[11px] font-bold flex items-center gap-1 whitespace-nowrap shadow-xs"
-                  >
-                    <Truck className="w-3 h-3" />
-                    <span>
-                      {selectedItem.isRegisteredVendor
-                        ? "매입거래처 등록됨"
-                        : "ERP 매입거래처로 등록"}
-                    </span>
-                  </button>
-
-                  {selectedItem.websiteUrl && (
-                    <a
-                      href={selectedItem.websiteUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-2.5 py-1 rounded bg-[#f4efe4] hover:bg-[#d8d0c0] border border-[#b8ae99] text-[#1d4ed8] text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap"
-                    >
-                      <span>공식 사이트</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
-                </div>
-              </div>
-
-              {/* 상세 바디 */}
-              <div className="flex-1 p-3 overflow-y-auto space-y-3 text-xs">
-                <div className="grid grid-cols-2 gap-2 bg-[#ebe5d8] p-2.5 rounded border border-[#b8ae99]">
-                  <div>
-                    <div className="text-[10px] font-bold text-[#64748b]">사업자등록번호</div>
-                    <div className="font-mono font-bold text-[#0f172a]">
-                      {selectedItem.businessNo || "미기재 (수정 가능)"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold text-[#64748b]">대표자 / 대표전화</div>
-                    <div className="font-bold text-[#0f172a]">
-                      {selectedItem.ceoName || "-"} / {selectedItem.phone || "-"}
-                    </div>
-                  </div>
-                  <div className="col-span-2">
-                    <div className="text-[10px] font-bold text-[#64748b]">공식 확인 경로 (원천 검증)</div>
-                    <div className="font-extrabold text-[#1d4ed8]">{selectedItem.officialSource}</div>
-                  </div>
-                  <div className="col-span-2">
-                    <div className="text-[10px] font-bold text-[#64748b]">권역 및 본사/주기장 소재지</div>
-                    <div className="font-semibold text-[#1e293b]">
-                      [{selectedItem.region}] {selectedItem.address || "-"}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-2.5 rounded bg-[#f8f4ec] border border-[#c5bba8] space-y-1.5">
-                  <div className="text-[11px] font-extrabold text-[#0f172a]">
-                    영업 형태 및 주요 취급 브랜드
-                  </div>
-                  <div className="text-xs text-[#1e293b]">
-                    <span className="font-bold text-amber-900">[{selectedItem.bizScope}]</span>{" "}
-                    {selectedItem.mainBrands}
-                  </div>
-                  <div className="text-[11px] font-extrabold text-[#0f172a] pt-1">
-                    취급 장비 / 임대 품목 상세
-                  </div>
-                  <div className="text-xs text-[#334155] leading-relaxed">
-                    {selectedItem.mainProducts || "-"}
-                  </div>
-                </div>
-
-                <div className="p-2.5 rounded bg-[#f8f4ec] border border-[#c5bba8] space-y-1">
-                  <div className="text-[11px] font-extrabold text-[#0f172a]">
-                    기업 규모 및 영업 참고사항
-                  </div>
-                  <div className="text-xs text-[#334155] leading-relaxed">
-                    {selectedItem.scaleNote || "-"}
-                  </div>
-                </div>
-
-                {/* 영업/제휴 메모 */}
-                <div className="p-2.5 rounded bg-[#ebe5d8] border border-[#b8ae99] space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-extrabold text-[#0f172a]">
-                      영업 컨택 / 제휴 메모
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickUpdate(selectedItem.id, { memo: memoDraft })}
-                      className="px-2 py-0.5 rounded bg-[#0f172a] text-white text-[11px] font-bold flex items-center gap-1"
-                    >
-                      <Save className="w-3 h-3" />
-                      <span>메모 저장</span>
-                    </button>
-                  </div>
-                  <textarea
-                    rows={3}
-                    value={memoDraft}
-                    onChange={(e) => setMemoDraft(e.target.value)}
-                    placeholder="담당자 연락처, ERP 도입 제안 내용, 장비 임차/전대 조건 등을 기록하십시오."
-                    className="w-full p-2 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs text-[#0f172a] resize-none"
-                  />
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="p-8 text-center text-xs text-[#64748b]">
-              좌측 목록에서 사업자를 선택하십시오.
-            </div>
-          )}
-        </div>
+        <RentalBizDetailPanel
+          selectedItem={selectedItem}
+          memoDraft={memoDraft}
+          setMemoDraft={setMemoDraft}
+          registeringId={registeringId}
+          openEditModal={openEditModal}
+          handleDelete={handleDelete}
+          handleQuickUpdate={handleQuickUpdate}
+          handleRegisterToPartner={handleRegisterToPartner}
+        />
       </div>
 
       {/* 국토부·대한건설기계협회 공식 원천 통계표 & 지자체 인허가 CSV 원부 모달 */}
-      {showPortalGuideModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-[#f4efe4] border border-[#b8ae99] rounded w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="px-4 py-3 bg-[#e2dbcd] border-b border-[#b8ae99] flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 font-extrabold text-sm text-[#0f172a]">
-                <ShieldCheck className="w-4 h-4 text-blue-700" />
-                <span>
-                  국토교통부·대한건설기계협회 건설기계 등록/사업자 원천 통계 및 지자체 인허가 CSV 원부
-                </span>
-              </div>
-              <button onClick={() => setShowPortalGuideModal(false)}>
-                <X className="w-4 h-4 text-[#475569]" />
-              </button>
-            </div>
-
-            {/* 상단 4개 서브탭 */}
-            <div className="px-4 py-2 bg-[#ebe5d8] border-b border-[#b8ae99] flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setPortalModalTab("OPERATORS")}
-                  className={`px-3 py-1 rounded text-xs font-extrabold whitespace-nowrap ${
-                    portalModalTab === "OPERATORS"
-                      ? "bg-[#1d4ed8] text-white"
-                      : "bg-[#f4efe4] text-[#334155] border border-[#b8ae99]"
-                  }`}
-                >
-                  ① 시도별 건설기계 사업자 현황 (대여·정비·매매)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPortalModalTab("MACHINES")}
-                  className={`px-3 py-1 rounded text-xs font-extrabold whitespace-nowrap ${
-                    portalModalTab === "MACHINES"
-                      ? "bg-[#1d4ed8] text-white"
-                      : "bg-[#f4efe4] text-[#334155] border border-[#b8ae99]"
-                  }`}
-                >
-                  ② 27개 기종별·용도별 등록현황 (지게차·굴착기 등)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPortalModalTab("GOV_CSV")}
-                  className={`px-3 py-1 rounded text-xs font-extrabold whitespace-nowrap ${
-                    portalModalTab === "GOV_CSV"
-                      ? "bg-[#1d4ed8] text-white"
-                      : "bg-[#f4efe4] text-[#334155] border border-[#b8ae99]"
-                  }`}
-                >
-                  ③ 지자체 인허가 원부 CSV 직통 다운로드 (15종)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPortalModalTab("PORTALS")}
-                  className={`px-3 py-1 rounded text-xs font-extrabold whitespace-nowrap ${
-                    portalModalTab === "PORTALS"
-                      ? "bg-[#1d4ed8] text-white"
-                      : "bg-[#f4efe4] text-[#334155] border border-[#b8ae99]"
-                  }`}
-                >
-                  ④ 공식 원천기관 바로가기 안내
-                </button>
-              </div>
-              <span className="text-[11px] font-bold text-[#1e3a8a]">
-                기준: {officialMolitStats.asOfDate}
-              </span>
-            </div>
-
-            <div className="p-4 overflow-y-auto flex-1 space-y-3 text-xs">
-              {portalModalTab === "OPERATORS" && (
-                <div className="space-y-2.5">
-                  <div className="p-2.5 rounded bg-[#ebe5d8] border border-[#b8ae99] flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <div className="font-extrabold text-[#0f172a]">
-                        원천 출처: 국토교통부 통계누리(stat.molit.go.kr) & 대한건설기계협회(kcea.or.kr/Source/ke/ke0102.htm)
-                      </div>
-                      <div className="text-[11px] text-[#334155]">
-                        • <strong>일반 대여업</strong>: 5대 이상 건설기계 보유 법인/공동사업자 (공동 등록 1인 차주 = <strong>연명자</strong>) |{" "}
-                        <strong>개별 대여업</strong>: 4대 이하 1인/개별 사업자
-                      </div>
-                    </div>
-                    <a
-                      href="http://www.kcea.or.kr/Source/ke/ke0102.htm"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-2.5 py-1 rounded bg-[#1d4ed8] text-white font-bold flex items-center gap-1 whitespace-nowrap"
-                    >
-                      <span>대한건설기계협회 원문 표 열기</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-
-                  <div className="overflow-x-auto border border-[#b8ae99] rounded bg-white">
-                    <table className="w-full text-right border-collapse text-xs">
-                      <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b8ae99]">
-                        <tr>
-                          <th className="py-2 px-2.5 text-left font-extrabold whitespace-nowrap">시·도 구분</th>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap text-blue-900">대여업체 (계)</th>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap">대여 (일반 5대↑)</th>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap">대여 (개별 4대↓)</th>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap text-emerald-900">정비업체 (계)</th>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap">정비 (종합)</th>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap">정비 (부분)</th>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap">정비 (전문)</th>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap text-amber-900">매매업체</th>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap">해체재활용업체</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#e2dbcd]">
-                        {officialMolitStats.operatorsByRegion.slice(2).map((row, idx) => (
-                          <tr
-                            key={idx}
-                            className={idx === 0 ? "bg-amber-50 font-extrabold text-[#0f172a]" : "hover:bg-[#f8f4ec]"}
-                          >
-                            <td className="py-1.5 px-2.5 text-left font-extrabold whitespace-nowrap">{row[0]}</td>
-                            <td className="py-1.5 px-2.5 font-mono font-bold text-blue-900 whitespace-nowrap">{row[1]}</td>
-                            <td className="py-1.5 px-2.5 font-mono whitespace-nowrap">{row[2]}</td>
-                            <td className="py-1.5 px-2.5 font-mono whitespace-nowrap">{row[3]}</td>
-                            <td className="py-1.5 px-2.5 font-mono font-bold text-emerald-900 whitespace-nowrap">{row[4]}</td>
-                            <td className="py-1.5 px-2.5 font-mono whitespace-nowrap">{row[5]}</td>
-                            <td className="py-1.5 px-2.5 font-mono whitespace-nowrap">{row[6]}</td>
-                            <td className="py-1.5 px-2.5 font-mono whitespace-nowrap">{row[7]}</td>
-                            <td className="py-1.5 px-2.5 font-mono font-bold text-amber-900 whitespace-nowrap">{row[8]}</td>
-                            <td className="py-1.5 px-2.5 font-mono whitespace-nowrap">{row[9]}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {portalModalTab === "MACHINES" && (
-                <div className="space-y-2.5">
-                  <div className="p-2.5 rounded bg-[#ebe5d8] border border-[#b8ae99] flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <div className="font-extrabold text-[#0f172a]">
-                        원천 출처: 국토교통부 건설기계현황통계 & 대한건설기계협회(kcea.or.kr/Source/ke/ke0101.htm)
-                      </div>
-                      <div className="text-[11px] text-[#334155]">
-                        • 법정 27개 건설기종별 자가용 / 영업용(대여업 등록 장비) / 관용 등록 대수 원천 집계표입니다.
-                      </div>
-                    </div>
-                    <a
-                      href="http://www.kcea.or.kr/Source/ke/ke0101.htm"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-2.5 py-1 rounded bg-[#1d4ed8] text-white font-bold flex items-center gap-1 whitespace-nowrap"
-                    >
-                      <span>기종별·시도별 등록현황 원문 열기</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-
-                  <div className="overflow-x-auto border border-[#b8ae99] rounded bg-white">
-                    <table className="w-full text-right border-collapse text-xs">
-                      <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b8ae99]">
-                        <tr>
-                          <th className="py-2 px-3 text-left font-extrabold whitespace-nowrap">건설기계 기종 구분 (27종)</th>
-                          <th className="py-2 px-3 font-extrabold whitespace-nowrap">자가용 (대)</th>
-                          <th className="py-2 px-3 font-extrabold whitespace-nowrap text-blue-900">영업용 / 대여용 (대)</th>
-                          <th className="py-2 px-3 font-extrabold whitespace-nowrap">관용 (대)</th>
-                          <th className="py-2 px-3 font-extrabold whitespace-nowrap text-amber-900">총 등록대수 (계)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#e2dbcd]">
-                        {officialMolitStats.registrationByMachineUsage.slice(1).map((row, idx) => {
-                          const isForklift = String(row[0] || "").includes("지게차");
-                          return (
-                            <tr
-                              key={idx}
-                              className={
-                                idx === 0
-                                  ? "bg-amber-50 font-extrabold text-[#0f172a]"
-                                  : isForklift
-                                  ? "bg-blue-50 font-extrabold text-blue-950"
-                                  : "hover:bg-[#f8f4ec]"
-                              }
-                            >
-                              <td className="py-1.5 px-3 text-left font-bold whitespace-nowrap">{row[0]}</td>
-                              <td className="py-1.5 px-3 font-mono whitespace-nowrap">{row[1]}</td>
-                              <td className="py-1.5 px-3 font-mono font-bold text-blue-900 whitespace-nowrap">{row[2]}</td>
-                              <td className="py-1.5 px-3 font-mono whitespace-nowrap">{row[3]}</td>
-                              <td className="py-1.5 px-3 font-mono font-extrabold whitespace-nowrap">{row[4]}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {portalModalTab === "GOV_CSV" && (
-                <div className="space-y-2.5">
-                  <div className="p-2.5 rounded bg-[#ebe5d8] border border-[#b8ae99] space-y-1">
-                    <div className="font-extrabold text-[#0f172a]">
-                      행정안전부 공공데이터포털(data.go.kr) 지자체별 『건설기계사업자(대여·매매·정비) 인허가 원부』 원천 CSV 다운로드
-                    </div>
-                    <div className="text-[11px] text-[#334155]">
-                      • 위 통계표의 숫자(대여업체 15,110개, 매매업체 1,759개)를 구성하는 <strong>각 시·도 및 시·군·구청 건설기계관리법 제21조 실제 인허가 대장(상호, 사업유형, 등록종별, 도로명주소, 전화번호)</strong> 원천 CSV 파일입니다. (본 ERP 디렉토리에도 지게차·리프트·매매업 법인이 이미 자동 반영되어 있습니다.)
-                    </div>
-                  </div>
-
-                  <div className="overflow-x-auto border border-[#b8ae99] rounded bg-white">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead className="bg-[#e2dbcd] text-[#0f172a] border-b border-[#b8ae99]">
-                        <tr>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap">관할 지자체</th>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap">공공데이터 인허가 원부명</th>
-                          <th className="py-2 px-2.5 font-extrabold whitespace-nowrap">원천 파일명</th>
-                          <th className="py-2 px-2.5 text-right font-extrabold whitespace-nowrap">수록 업체수</th>
-                          <th className="py-2 px-2.5 text-center font-extrabold whitespace-nowrap">원천 파일 다운로드</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#e2dbcd]">
-                        {officialMolitStats.govCsvFiles.map((csv) => (
-                          <tr key={csv.pk} className="hover:bg-[#f8f4ec]">
-                            <td className="py-1.5 px-2.5 font-extrabold text-[#0f172a] whitespace-nowrap">
-                              {csv.region}
-                            </td>
-                            <td className="py-1.5 px-2.5 font-bold text-[#1e293b] whitespace-nowrap">
-                              {csv.title}
-                            </td>
-                            <td className="py-1.5 px-2.5 text-[11px] text-[#475569] whitespace-nowrap">
-                              {csv.fileName}
-                            </td>
-                            <td className="py-1.5 px-2.5 text-right font-mono font-extrabold text-blue-900 whitespace-nowrap">
-                              {csv.rowCount.toLocaleString()}개사
-                            </td>
-                            <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
-                              <div className="inline-flex items-center gap-1.5">
-                                <a
-                                  href={csv.directDownloadUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="px-2 py-0.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold inline-flex items-center gap-1"
-                                >
-                                  <Download className="w-3 h-3" />
-                                  <span>원천 CSV 다운로드</span>
-                                </a>
-                                <a
-                                  href={csv.pageUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="px-2 py-0.5 rounded bg-[#ebe5d8] hover:bg-[#d8d0c0] border border-[#b8ae99] text-[#0f172a] text-[11px] font-bold inline-flex items-center gap-0.5"
-                                >
-                                  <span>공공데이터 상세</span>
-                                  <ExternalLink className="w-2.5 h-2.5" />
-                                </a>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {portalModalTab === "PORTALS" && (
-                <div className="space-y-3">
-                  <div className="p-3 rounded bg-[#ebe5d8] border border-[#b8ae99] space-y-1.5">
-                    <div className="font-extrabold text-[#0f172a]">
-                      지게차(FL)와 고소작업대(AWP 리프트)의 법적 인허가 원천 차이
-                    </div>
-                    <ul className="list-disc list-inside space-y-1 text-[#334155] leading-relaxed">
-                      <li>
-                        <strong>지게차 (FL) 및 건설기계 (대여업체 15,110개 / 매매업체 1,759개)</strong>는 『건설기계관리법』상 27종 법정 건설기계이므로 국토교통부 통계누리(<code>stat.molit.go.kr</code>), 대한건설기계협회(<code>kcea.or.kr</code>), 공공데이터포털 지자체 인허가 원부(<code>data.go.kr</code>)에 의무 등재됩니다.
-                      </li>
-                      <li>
-                        반면 <strong>고소작업대 (AWP 시저스/붐 리프트)</strong>는 번호판이 붙는 건설기계가 아니라 『산업안전보건법』상 위험기계·기구로 분류되어 세무서 일반 임대업(KSIC 71201)으로 등록하므로, <strong>한국고소작업대임대업협동조합(klra.or.kr) 회원사 명부(101개사)</strong> 및 <strong>NICE평가정보·산군 기업DB</strong>가 공식 원천입니다.
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {OFFICIAL_PORTAL_LINKS.map((p) => (
-                      <a
-                        key={p.name}
-                        href={p.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-3 rounded bg-[#f8f4ec] hover:bg-[#e2dbcd] border border-[#b8ae99] flex flex-col justify-between gap-1 transition"
-                      >
-                        <div className="font-extrabold text-[#1d4ed8] flex items-center justify-between">
-                          <span>{p.name}</span>
-                          <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                        </div>
-                        <p className="text-[11px] text-[#475569]">{p.desc}</p>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="px-4 py-2.5 bg-[#e2dbcd] border-t border-[#b8ae99] flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowPortalGuideModal(false)}
-                className="px-4 py-1.5 rounded bg-[#0f172a] text-white text-xs font-bold"
-              >
-                닫기
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PortalGuideModal
+        isOpen={showPortalGuideModal}
+        onClose={() => setShowPortalGuideModal(false)}
+      />
 
       {/* 수동 등록 / 수정 모달 */}
-      {showFormModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <form
-            onSubmit={handleSaveForm}
-            className="bg-[#f4efe4] border border-[#b8ae99] rounded w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden"
-          >
-            <div className="px-4 py-3 bg-[#e2dbcd] border-b border-[#b8ae99] flex items-center justify-between">
-              <span className="font-extrabold text-sm text-[#0f172a]">
-                {formData.id ? "사업자 정보 수정" : "신규 렌탈·판매 사업자 등록"}
-              </span>
-              <button type="button" onClick={() => setShowFormModal(false)}>
-                <X className="w-4 h-4 text-[#475569]" />
-              </button>
-            </div>
-
-            <div className="p-4 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">업종 구분 *</label>
-                <select
-                  value={formData.sector}
-                  onChange={(e) =>
-                    setFormData({ ...formData, sector: e.target.value as any })
-                  }
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99] font-bold"
-                >
-                  <option value="FL">FL (지게차 판매·임대업)</option>
-                  <option value="AWP">AWP (고소작업대 판매·임대업)</option>
-                  <option value="OA_PC">PC · 노트북 · 복합기(OA) 임대업</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">상호 (법인명) *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.companyName}
-                  onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99] font-bold"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">사업자등록번호</label>
-                <input
-                  type="text"
-                  value={formData.businessNo}
-                  onChange={(e) => setFormData({ ...formData, businessNo: e.target.value })}
-                  placeholder="000-00-00000"
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99]"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">대표자명</label>
-                <input
-                  type="text"
-                  value={formData.ceoName}
-                  onChange={(e) => setFormData({ ...formData, ceoName: e.target.value })}
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99]"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">권역 / 지역</label>
-                <input
-                  type="text"
-                  value={formData.region}
-                  onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                  placeholder="예: 경기 (용인 처인구)"
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99]"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">대표 전화번호</label>
-                <input
-                  type="text"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99]"
-                />
-              </div>
-
-              <div className="sm:col-span-2 flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">소재지 주소</label>
-                <input
-                  type="text"
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99]"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">영업 형태</label>
-                <input
-                  type="text"
-                  value={formData.bizScope}
-                  onChange={(e) => setFormData({ ...formData, bizScope: e.target.value })}
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99]"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">공식 확인 경로</label>
-                <input
-                  type="text"
-                  value={formData.officialSource}
-                  onChange={(e) => setFormData({ ...formData, officialSource: e.target.value })}
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99]"
-                />
-              </div>
-
-              <div className="sm:col-span-2 flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">주요 취급 브랜드</label>
-                <input
-                  type="text"
-                  value={formData.mainBrands}
-                  onChange={(e) => setFormData({ ...formData, mainBrands: e.target.value })}
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99]"
-                />
-              </div>
-
-              <div className="sm:col-span-2 flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">주요 취급 기종 / 품목 상세</label>
-                <input
-                  type="text"
-                  value={formData.mainProducts}
-                  onChange={(e) => setFormData({ ...formData, mainProducts: e.target.value })}
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99]"
-                />
-              </div>
-
-              <div className="sm:col-span-2 flex flex-col gap-1">
-                <label className="font-bold text-[#334155]">홈페이지 URL</label>
-                <input
-                  type="text"
-                  value={formData.websiteUrl}
-                  onChange={(e) => setFormData({ ...formData, websiteUrl: e.target.value })}
-                  className="px-2.5 py-1.5 rounded bg-white border border-[#b8ae99]"
-                />
-              </div>
-            </div>
-
-            <div className="px-4 py-2.5 bg-[#e2dbcd] border-t border-[#b8ae99] flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowFormModal(false)}
-                className="px-3 py-1.5 rounded bg-[#f4efe4] border border-[#b8ae99] text-xs font-bold"
-              >
-                취소
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-1.5 rounded bg-[#1d4ed8] text-white text-xs font-bold"
-              >
-                저장
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <RentalBizFormModal
+        isOpen={showFormModal}
+        onClose={() => setShowFormModal(false)}
+        onSubmit={handleSaveForm}
+        formData={formData}
+        setFormData={setFormData}
+      />
     </div>
   );
 };

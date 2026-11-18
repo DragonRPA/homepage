@@ -4,6 +4,8 @@ import { getErpPool } from "@/lib/supabaseErp";
 import { BUSINESS_ENTITIES, getEntity } from "@/lib/businessEntities";
 import { registIssuePopbill, deletePopbillInvoice, resolvePopbillCorpNum } from "@/lib/popbillService";
 import { resolveContractItemTemplate, resolveContractTaxItemsTemplate, selectPreferredBizItem } from "@/lib/erpFormat";
+import { assertPartnerTradable, PartnerTradeBlockedError } from "@/lib/partnerStatusService";
+import { requireMenuPermission } from "@/lib/erpRbacGuard";
 
 function normalizeNameForAutoMatch(raw?: string): string {
   if (!raw) return "";
@@ -157,6 +159,15 @@ async function tryAutoReconcileNewInvoice(client: any, invoice: any) {
 // GET: List tax invoices or unissued billings
 export async function GET(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["tax", "TAX", "tax_invoice", "tax_invoices"],
+      "view"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const { searchParams } = new URL(request.url);
     const type = searchParams.get("type"); // 'UNISSUED_BILLINGS' or null
     const domainType = searchParams.get("domainType");
@@ -418,6 +429,22 @@ export async function GET(request: Request) {
 // POST: Issue tax invoice (supports single manual issue & batch billings issue)
 export async function POST(request: Request) {
   try {
+    const billGuard = await requireMenuPermission(
+      request,
+      ["tax", "TAX", "tax_invoice", "tax_invoices"],
+      "bill"
+    );
+    if (!billGuard.authorized) {
+      const saveGuard = await requireMenuPermission(
+        request,
+        ["tax", "TAX", "tax_invoice", "tax_invoices"],
+        "save"
+      );
+      if (!saveGuard.authorized) {
+        return billGuard.response!;
+      }
+    }
+
     const body = await request.json();
     const pool = getErpPool();
     const client = await pool.connect();
@@ -458,6 +485,10 @@ export async function POST(request: Request) {
         for (let i = 0; i < billingGroups.length; i++) {
           const group = billingGroups[i];
           const item = group[0];
+          await assertPartnerTradable(client, {
+            customerName: item.customerName,
+            businessNo: item.businessNo,
+          });
           const entityType = item.entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
           const entity = getEntity(entityType);
 
@@ -707,6 +738,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "거래처명, 품목명, 공급가액은 필수입니다." }, { status: 400 });
       }
 
+      await assertPartnerTradable(client, {
+        customerName,
+        businessNo,
+      });
+
       const entityType = supplierEntityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP";
       const entity = getEntity(entityType);
       const supply = Math.round(parseFloat(supplyAmount));
@@ -900,6 +936,9 @@ export async function POST(request: Request) {
       client.release();
     }
   } catch (error: any) {
+    if (error instanceof PartnerTradeBlockedError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+    }
     console.error("POST Tax Invoice Error:", error);
     return NextResponse.json({ error: "세금계산서 발행 실패: " + error.message }, { status: 500 });
   }
@@ -907,6 +946,15 @@ export async function POST(request: Request) {
 
 // DELETE: 세금계산서 삭제 (연결된 청구 수납 및 통장 매칭 해제 포함)
 export async function DELETE(request: Request) {
+  const guard = await requireMenuPermission(
+    request,
+    ["tax", "TAX", "tax_invoice", "tax_invoices"],
+    "save"
+  );
+  if (!guard.authorized) {
+    return guard.response!;
+  }
+
   const pool = getErpPool();
   const client = await pool.connect();
   try {

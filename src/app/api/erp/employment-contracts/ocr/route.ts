@@ -1,19 +1,9 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import zlib from "zlib";
+import { getGroqApiKey } from "@/lib/groqServerKey";
 
 export const maxDuration = 60;
-
-const GROQ_API_KEY =
-  process.env.GROQ_API_KEY ||
-  String.fromCharCode(
-    ...[
-      103, 115, 107, 95, 66, 106, 53, 72, 78, 48, 111, 97, 48, 70, 48, 72, 111,
-      118, 109, 86, 120, 72, 73, 99, 87, 71, 100, 121, 98, 51, 70, 89, 81, 111,
-      121, 78, 66, 107, 85, 105, 51, 82, 112, 52, 88, 75, 53, 84, 112, 107, 109,
-      80, 121, 70, 74, 66,
-    ]
-  );
 
 function extractTextFromPdfBuffer(buf: Buffer): string {
   let out = "";
@@ -153,6 +143,9 @@ async function analyzeContractWithAi(
       },
     ];
 
+    const groqApiKey = await getGroqApiKey();
+    if (!groqApiKey) return null;
+
     const modelsToTry = hasImage
       ? ["qwen/qwen3.8-27b"]
       : ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"];
@@ -164,7 +157,7 @@ async function analyzeContractWithAi(
         const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${GROQ_API_KEY}`,
+            Authorization: `Bearer ${groqApiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({

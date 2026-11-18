@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   CreditCard, DollarSign, Calendar, RefreshCw, 
   Download, Check, AlertCircle, Edit3, Lock, Upload,
-  ArrowUpDown, ArrowUp, ArrowDown, FileText, X, Save,
+  FileText, X, Save,
   ChevronLeft, ChevronRight
 } from "lucide-react";
 import { 
@@ -13,10 +13,9 @@ import {
   formatErpInputNumber,
   toErpInputString,
   cleanErpNumber,
-  sortErpItems, 
-  SortDirection 
+  sortErpItems
 } from "@/lib/erpFormat";
-import * as XLSX from "xlsx";
+import { SortableTh, useErpTableSort } from "./SortableTh";
 
 export interface PayrollRecord {
   id: number;
@@ -29,6 +28,10 @@ export interface PayrollRecord {
   position: string;
   duty?: string;
   joinDate?: string | null;
+  leaveDate?: string | null;
+  wageProRataBadge?: string;
+  wageProRataFormula?: string;
+  weeklyHolidayEligible?: boolean;
   salaryBankName?: string | null;
   salaryAccountNo?: string | null;
   salaryAccountHolder?: string | null;
@@ -73,6 +76,7 @@ export interface PayrollRecord {
   paidAt: string | null;
   pdfFileName?: string | null;
   pdfFileUrl?: string | null;
+  hasPdfFile?: boolean;
 }
 
 export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
@@ -135,45 +139,26 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Sorting State
-  const [sortKey, setSortKey] = useState<string>("employeeNo");
-  const [sortDir, setSortDir] = useState<SortDirection>("asc");
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
+  // Sorting State (3단계: asc ➔ desc ➔ null 정렬안함)
+  const { sortKey, sortDir, handleSort } = useErpTableSort("employeeNo", "asc");
 
   const renderSortTh = (
     label: string, 
     key: string, 
     align: "left" | "right" | "center" = "left", 
     extraClass: string = ""
-  ) => {
-    const isActive = sortKey === key;
-    return (
-      <th
-        onClick={() => handleSort(key)}
-        className={`py-2 px-2.5 cursor-pointer select-none hover:bg-[#d0c6b4] dark:hover:bg-slate-700 transition text-${align} whitespace-nowrap ${extraClass} ${isActive ? "text-[#1d4ed8] dark:text-blue-400 font-bold" : ""}`}
-        title={`${label} 기준 정렬`}
-      >
-        <div className={`inline-flex items-center gap-1 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
-          <span>{label}</span>
-          <span className="shrink-0">
-            {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-blue-400" /> : <ArrowDown className="w-3 h-3 text-blue-400" />
-            ) : (
-              <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />
-            )}
-          </span>
-        </div>
-      </th>
-    );
-  };
+  ) => (
+    <SortableTh
+      label={label}
+      colKey={key}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className={`py-2 px-2.5 hover:bg-[#d0c6b4] dark:hover:bg-slate-700 ${extraClass} ${sortKey === key && sortDir !== null ? "text-[#1d4ed8] dark:text-blue-400 font-bold" : ""}`}
+      iconClassName="w-3 h-3 text-blue-400"
+    />
+  );
 
   const sortedRecords = useMemo(() => {
     return sortErpItems(records, sortKey, sortDir);
@@ -396,7 +381,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   // CSV 내보내기
   const handleExportCsv = () => {
     const headers = [
-      "귀속월", "지급일자", "사번", "성명", "부서", "직급", "입사일",
+      "귀속월", "지급일자", "사번", "성명", "부서", "직급", "입사일", "퇴사일", "주휴일할",
       "용역계약금액", "기본급", "식대(비과세)", "차량보조금", "초과근무수당", "연차수당", "퇴직급여", "상여금", "개인경비정산", "총지급액",
       "국민연금", "건강보험", "고용보험", "장기요양보험료", "소득세", "지방소득세",
       "연말정산소득세", "연말정산지방세", "고용보험정산분", "총공제액", "차인지급액", "상태"
@@ -409,6 +394,8 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
       r.department,
       r.position,
       r.joinDate ? String(r.joinDate).slice(0, 10) : "-",
+      r.leaveDate ? String(r.leaveDate).slice(0, 10) : "-",
+      r.wageProRataBadge || "만근",
       r.serviceContractAmount,
       r.baseSalary,
       r.mealAllowance,
@@ -447,12 +434,13 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   };
 
   // 은행 자동이체 등록용 엑셀(.xlsx) 생성 (A:입금은행, B:입금계좌번호, C:이체금액, D:받는사람)
-  const handleExportBankTransferExcel = () => {
+  const handleExportBankTransferExcel = async () => {
     if (sortedRecords.length === 0) {
       showToast("다운로드할 급여 내역이 없습니다.", "error");
       return;
     }
 
+    const XLSX = await import("xlsx");
     const sheetData: (string | number)[][] = [
       ["입금은행", "입금계좌번호", "이체금액", "받는사람"],
       ...sortedRecords
@@ -614,6 +602,18 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                       <span className="text-[11px] text-[#475569] dark:text-slate-400">
                         ({r.department || "-"} · {r.position})
                       </span>
+                      {r.wageProRataBadge && (
+                        <span
+                          title={r.wageProRataFormula || r.wageProRataBadge}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap ${
+                            r.weeklyHolidayEligible
+                              ? "bg-amber-100 text-amber-900 border-amber-400"
+                              : "bg-slate-200 text-slate-800 border-slate-400"
+                          }`}
+                        >
+                          {r.wageProRataBadge}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5">
                       <span
@@ -701,7 +701,7 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                   </th>
                   {renderSortTh("사번", "employeeNo")}
                   {renderSortTh("성명", "employeeName")}
-                  {renderSortTh("입사일", "joinDate", "center")}
+                  {renderSortTh("입사/퇴사일", "joinDate", "center")}
                   {renderSortTh("부서", "department")}
                   {renderSortTh("직급/직책", "position")}
 
@@ -788,7 +788,26 @@ export const PayrollTab: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                           {r.employeeName}
                         </td>
                         <td className="py-1.5 px-2.5 text-center text-[#475569] dark:text-slate-400 whitespace-nowrap">
-                          {r.joinDate ? String(r.joinDate).slice(0, 10) : "-"}
+                          <div className="inline-flex items-center gap-1 whitespace-nowrap">
+                            <span>{r.joinDate ? String(r.joinDate).slice(0, 10) : "-"}</span>
+                            {r.leaveDate && (
+                              <span className="px-1 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 text-[10px] font-sans font-bold">
+                                퇴사 {String(r.leaveDate).slice(0, 10)}
+                              </span>
+                            )}
+                            {r.wageProRataBadge && (
+                              <span
+                                title={r.wageProRataFormula || r.wageProRataBadge}
+                                className={`px-1 py-0.5 rounded text-[10px] font-sans font-bold border ${
+                                  r.weeklyHolidayEligible
+                                    ? "bg-amber-100 text-amber-900 border-amber-400"
+                                    : "bg-slate-200 text-slate-800 border-slate-400"
+                                }`}
+                              >
+                                {r.wageProRataBadge}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-1.5 px-2.5 text-[#334155] dark:text-slate-300 whitespace-nowrap font-sans">
                           {r.department || "-"}

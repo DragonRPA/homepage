@@ -8,9 +8,6 @@ import {
   RefreshCw,
   Search,
   Trash2,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   Moon,
   Calendar,
 } from "lucide-react";
@@ -21,10 +18,10 @@ import {
   toErpInputString,
   cleanErpNumber,
   sortErpItems,
-  SortDirection,
   calculateOvertimeBreakdown,
   isKoreanNonWorkingDay,
 } from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
 
 interface Overtime {
   id: number;
@@ -387,11 +384,8 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
   }, [selectableEmployees, employees, otForm.employeeId]);
 
   const modalEmpHourlyWage = useMemo(() => {
-    if (!selectedModalEmp) return 16746;
-    if (selectedModalEmp.hourlyWage !== undefined && selectedModalEmp.hourlyWage !== null) {
-      return Math.round(Number(selectedModalEmp.hourlyWage));
-    }
-    return Math.round((Number(selectedModalEmp.baseSalary) || 3500000) / 209);
+    if (!selectedModalEmp) return 0;
+    return Math.round(Number(selectedModalEmp.hourlyWage ?? 0) || 0);
   }, [selectedModalEmp]);
 
   const liveBreakdown = useMemo(() => {
@@ -436,48 +430,21 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
     });
   }, [scopedOvertimes, statusFilter, deptFilter, searchQuery]);
 
-  // Sorting State
-  const [sortKey, setSortKey] = useState<string>("otDate");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+  // Sorting State (3단계: asc ➔ desc ➔ null 정렬안함)
+  const { sortKey, sortDir, handleSort } = useErpTableSort("otDate", "desc");
 
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
-  };
-
-  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
-    const isActive = sortKey === key;
-    return (
-      <th
-        onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none transition text-${align} whitespace-nowrap hover:bg-[#d0c6b4] dark:hover:bg-slate-700`}
-        title={`${label} 기준 정렬`}
-      >
-        <div
-          className={`inline-flex items-center gap-1.5 ${
-            align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"
-          }`}
-        >
-          <span>{label}</span>
-          <span className="shrink-0">
-            {isActive ? (
-              sortDir === "asc" ? (
-                <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
-              ) : (
-                <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
-              )
-            ) : (
-              <ArrowUpDown className="w-3.5 h-3.5 opacity-30" />
-            )}
-          </span>
-        </div>
-      </th>
-    );
-  };
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => (
+    <SortableTh
+      label={label}
+      colKey={key}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-700"
+      iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+    />
+  );
 
   const sortedFilteredOvertimes = useMemo(() => {
     return sortErpItems(filteredOvertimes, sortKey, sortDir);
@@ -603,7 +570,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
       "종료시간",
       "인정시간",
       "심야시간",
-      "1시간표준임금(원)",
+      "통상임금(원)",
       "초과근무수당(원)",
       "근무사유",
       "상태",
@@ -800,7 +767,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                 {renderSortTh("근무구분 (조건)", "otType")}
                 {renderSortTh("근무 시간", "startTime")}
                 {renderSortTh("인정시간 (심야)", "otHours", "center")}
-                {renderSortTh("1시간 표준임금", "hourlyWage", "right")}
+                {renderSortTh("통상임금", "hourlyWage", "right")}
                 {renderSortTh("산정 수당액", "otPay", "right")}
                 {renderSortTh("근무 사유", "reason")}
                 {renderSortTh("결재상태", "status", "center")}
@@ -1258,7 +1225,7 @@ export const OtManagementTab: React.FC<{ currentUser: any }> = ({ currentUser })
                     )}
                   </div>
                   <span className="text-[11px] font-mono font-bold text-[#0f172a] dark:text-slate-200">
-                    1시간 표준임금: {formatErpCurrency(modalEmpHourlyWage)}
+                    통상임금: {formatErpCurrency(modalEmpHourlyWage)}
                   </span>
                 </div>
 

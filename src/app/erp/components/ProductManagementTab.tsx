@@ -4,10 +4,28 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
   Package, Plus, Search, RefreshCw, Download, Edit2, 
   Trash2, X, Check, Eye, AlertCircle, Save, Layers,
-  ExternalLink, Building2, Cpu, HardDrive, Monitor, Shield,
-  ArrowUpDown, ArrowUp, ArrowDown
+  ExternalLink, Building2, Cpu, HardDrive, Monitor, Shield
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import {
+  formatErpNumber,
+  formatErpCurrency,
+  formatErpQty,
+  formatErpInputNumber,
+  toErpInputString,
+  cleanErpNumber,
+  sortErpItems,
+  calculateAutoDailyRentalFee,
+  resolveDailyRentalFee,
+  matchHangulAny,
+  ForkliftItemClass,
+  ForkliftSpecData,
+  FORKLIFT_ITEM_CLASS_OPTIONS,
+  getItemClassLabel,
+  normalizeItemClass,
+  summarizeForkliftSpec,
+} from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
+import ForkliftSpecEditor from "./ForkliftSpecEditor";
 
 interface ProductModel {
   id: number;
@@ -25,6 +43,12 @@ interface ProductModel {
   gpu: string | null;
   spec: string;
   warrantyType: string | null;
+  itemClass?: ForkliftItemClass;
+  partNo?: string;
+  installFee?: number;
+  warrantyMonths?: number;
+  warrantyHours?: number;
+  specData?: ForkliftSpecData;
   status: string;
   createdAt: string;
   totalAssets: number;
@@ -49,6 +73,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
   const [products, setProducts] = useState<ProductModel[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [itemClassFilter, setItemClassFilter] = useState<"ALL" | ForkliftItemClass>("ALL");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [manufacturerFilter, setManufacturerFilter] = useState("ALL");
   const [assetFilter, setAssetFilter] = useState<"ALL" | "WITH_ASSETS" | "NO_ASSETS">("ALL");
@@ -62,21 +87,50 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
 
   // New Product Modal
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState({
+  const [addDailyManual, setAddDailyManual] = useState(false);
+  const [editDailyManual, setEditDailyManual] = useState(false);
+  const [addForm, setAddForm] = useState<{
+    modelCode: string;
+    modelName: string;
+    shortName: string;
+    itemClass: ForkliftItemClass;
+    category: string;
+    manufacturer: string;
+    standardMonthlyRate: string;
+    standardDailyRate: string;
+    standardPrice: string;
+    partNo: string;
+    installFee: string;
+    warrantyMonths: string;
+    warrantyHours: string;
+    cpu: string;
+    ram: string;
+    storage: string;
+    gpu: string;
+    spec: string;
+    specData: ForkliftSpecData;
+    warrantyType: string;
+  }>({
     modelCode: "",
     modelName: "",
     shortName: "",
-    category: "IT/워크스테이션",
-    manufacturer: "DragonRPA",
-    standardMonthlyRate: "350000",
-    standardDailyRate: "18000",
-    standardPrice: "3200000",
+    itemClass: "FORKLIFT",
+    category: "지게차 완제품",
+    manufacturer: "두산",
+    standardMonthlyRate: "1,200,000",
+    standardDailyRate: "40,000",
+    standardPrice: "32,000,000",
+    partNo: "",
+    installFee: "0",
+    warrantyMonths: "12",
+    warrantyHours: "2,000",
     cpu: "",
     ram: "",
     storage: "",
     gpu: "",
     spec: "",
-    warrantyType: "3년 무상",
+    specData: {},
+    warrantyType: "12개월 / 2,000시간",
   });
 
   // Toast State
@@ -129,7 +183,11 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
   const handleSelectProduct = (p: ProductModel) => {
     setSelectedProduct(p);
     setIsEditingDossier(false);
-    setEditForm({ ...p });
+    setEditDailyManual(false);
+    setEditForm({
+      ...p,
+      standardDailyRate: resolveDailyRentalFee(p.standardMonthlyRate, p.standardDailyRate),
+    });
     fetchMappedAssets(p.id);
   };
 
@@ -139,6 +197,10 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
   }, [products]);
 
   const DEFAULT_PRODUCT_CATEGORIES = [
+    "지게차 완제품",
+    "지게차 옵션",
+    "부품·소모품",
+    "물류장비",
     "IT/워크스테이션",
     "서버/네트워크",
     "노트북/태블릿",
@@ -158,60 +220,37 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
   // Filtered Products
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
+      const pClass = normalizeItemClass(p.itemClass, p.category);
+      if (itemClassFilter !== "ALL" && pClass !== itemClassFilter) return false;
       if (categoryFilter !== "ALL" && p.category !== categoryFilter) return false;
       if (manufacturerFilter !== "ALL" && p.manufacturer !== manufacturerFilter) return false;
       if (assetFilter === "WITH_ASSETS" && p.totalAssets === 0) return false;
       if (assetFilter === "NO_ASSETS" && p.totalAssets > 0) return false;
 
       if (searchTerm.trim()) {
-        const q = searchTerm.trim().toLowerCase();
-        const mName = p.modelName.toLowerCase();
-        const mCode = p.modelCode.toLowerCase();
-        const sName = (p.shortName || "").toLowerCase();
-        const spec = (p.spec || "").toLowerCase();
-        const mf = p.manufacturer.toLowerCase();
-        if (!mName.includes(q) && !mCode.includes(q) && !sName.includes(q) && !spec.includes(q) && !mf.includes(q)) {
+        if (!matchHangulAny([p.modelName, p.modelCode, p.shortName, p.spec, p.manufacturer, p.partNo], searchTerm)) {
           return false;
         }
       }
       return true;
     });
-  }, [products, categoryFilter, manufacturerFilter, assetFilter, searchTerm]);
+  }, [products, itemClassFilter, categoryFilter, manufacturerFilter, assetFilter, searchTerm]);
 
-  // Sorting State
-  const [sortKey, setSortKey] = useState<string>("modelCode");
-  const [sortDir, setSortDir] = useState<SortDirection>("asc");
+  // Sorting State (3단계: asc ➔ desc ➔ null 정렬안함)
+  const { sortKey, sortDir, handleSort } = useErpTableSort("modelCode", "asc");
 
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
-
-  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
-    const isActive = sortKey === key;
-    return (
-      <th
-        onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-500/10 transition text-${align} whitespace-nowrap`}
-        title={`${label} 기준 정렬`}
-      >
-        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
-          <span>{label}</span>
-          <span className="shrink-0">
-            {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-            ) : (
-              <ArrowUpDown className="w-3 h-3 opacity-30" />
-            )}
-          </span>
-        </div>
-      </th>
-    );
-  };
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => (
+    <SortableTh
+      label={label}
+      colKey={key}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-slate-500/10"
+      iconClassName="w-3.5 h-3.5 text-blue-600"
+    />
+  );
 
   const sortedFilteredProducts = useMemo(() => {
     return sortErpItems(filteredProducts, sortKey, sortDir);
@@ -241,12 +280,21 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
   const handleSaveEdit = async () => {
     if (!selectedProduct) return;
     try {
+      const nextClass = normalizeItemClass(editForm.itemClass ?? selectedProduct.itemClass, editForm.category ?? selectedProduct.category);
+      const nextSpecData = editForm.specData ?? selectedProduct.specData ?? {};
+      const computedSpec = summarizeForkliftSpec(nextClass, nextSpecData, editForm.spec);
       const res = await fetch("/api/erp/products", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: selectedProduct.id,
           ...editForm,
+          itemClass: nextClass,
+          specData: nextSpecData,
+          spec: computedSpec,
+          installFee: cleanErpNumber(editForm.installFee ?? selectedProduct.installFee ?? 0),
+          warrantyMonths: cleanErpNumber(editForm.warrantyMonths ?? selectedProduct.warrantyMonths ?? 12),
+          warrantyHours: cleanErpNumber(editForm.warrantyHours ?? selectedProduct.warrantyHours ?? 2000),
         }),
       });
       const data = await res.json();
@@ -293,10 +341,20 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
     }
 
     try {
+      const computedSpec = summarizeForkliftSpec(addForm.itemClass, addForm.specData, addForm.spec);
       const res = await fetch("/api/erp/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(addForm),
+        body: JSON.stringify({
+          ...addForm,
+          spec: computedSpec,
+          standardMonthlyRate: cleanErpNumber(addForm.standardMonthlyRate),
+          standardDailyRate: cleanErpNumber(addForm.standardDailyRate),
+          standardPrice: cleanErpNumber(addForm.standardPrice),
+          installFee: cleanErpNumber(addForm.installFee),
+          warrantyMonths: cleanErpNumber(addForm.warrantyMonths),
+          warrantyHours: cleanErpNumber(addForm.warrantyHours),
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "제품 등록 실패");
@@ -304,21 +362,28 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
       showToast("신규 제품 모델이 등록되었습니다.");
       setShowAddModal(false);
       await fetchProducts();
+      setAddDailyManual(false);
       setAddForm({
         modelCode: "",
         modelName: "",
         shortName: "",
-        category: "IT/워크스테이션",
-        manufacturer: "DragonRPA",
-        standardMonthlyRate: "350000",
-        standardDailyRate: "18000",
-        standardPrice: "3200000",
+        itemClass: "FORKLIFT",
+        category: "지게차 완제품",
+        manufacturer: "두산",
+        standardMonthlyRate: "1,200,000",
+        standardDailyRate: "40,000",
+        standardPrice: "32,000,000",
+        partNo: "",
+        installFee: "0",
+        warrantyMonths: "12",
+        warrantyHours: "2,000",
         cpu: "",
         ram: "",
         storage: "",
         gpu: "",
         spec: "",
-        warrantyType: "3년 무상",
+        specData: {},
+        warrantyType: "12개월 / 2,000시간",
       });
     } catch (err: any) {
       showToast(err.message, "error");
@@ -430,8 +495,40 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
       </div>
 
       {/* 2. Gutenberg Z-Pattern Pipeline: Search & Action Toolbar */}
-      <div className="p-3 border-b flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="p-3 border-b flex flex-col gap-2 shrink-0">
+        <div className="flex items-center gap-1 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setItemClassFilter("ALL")}
+            className={`h-7 px-2.5 rounded border text-xs font-bold whitespace-nowrap transition ${
+              itemClassFilter === "ALL"
+                ? "bg-blue-600 text-white border-blue-600"
+                : "hover:opacity-80"
+            }`}
+          >
+            전체 ({products.length})
+          </button>
+          {FORKLIFT_ITEM_CLASS_OPTIONS.map((clsOpt) => {
+            const cnt = products.filter(
+              (p) => normalizeItemClass(p.itemClass, p.category) === clsOpt.value
+            ).length;
+            const active = itemClassFilter === clsOpt.value;
+            return (
+              <button
+                key={clsOpt.value}
+                type="button"
+                onClick={() => setItemClassFilter(clsOpt.value)}
+                className={`h-7 px-2.5 rounded border text-xs font-bold whitespace-nowrap transition ${
+                  active ? "bg-blue-600 text-white border-blue-600" : "hover:opacity-80"
+                }`}
+              >
+                {clsOpt.label} ({cnt})
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
           {/* Category Filter */}
           <div className="flex flex-col gap-1">
             <select
@@ -477,49 +574,49 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
             </select>
           </div>
 
-          {/* Full-text Search Box */}
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 opacity-50" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="모델명 / 코드 / 제원 검색"
-              className="h-8 pl-8 pr-3 rounded text-xs border w-56"
-            />
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 opacity-50" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="모델명 / 코드 / 제원 / 품번 검색"
+                className="h-8 pl-8 pr-3 rounded text-xs border w-56"
+              />
+            </div>
           </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={fetchProducts}
-            disabled={loading}
-            className="h-8 px-2.5 rounded border text-xs flex items-center gap-1.5 font-medium hover:opacity-80 transition"
-            title="새로고침"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-            <span>새로고침</span>
-          </button>
-
-          <button
-            onClick={handleExportExcel}
-            className="h-8 px-2.5 rounded border text-xs font-semibold flex items-center gap-1.5 hover:opacity-80 transition text-emerald-700"
-            title="엑셀 다운로드"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>엑셀 다운로드</span>
-          </button>
-
-          {isAdmin && (
+          {/* Action Buttons */}
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
-              onClick={() => setShowAddModal(true)}
-              className="h-8 px-3 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5 shadow-sm transition"
+              onClick={fetchProducts}
+              disabled={loading}
+              className="h-8 px-2.5 rounded border text-xs flex items-center gap-1.5 font-medium hover:opacity-80 transition"
+              title="새로고침"
             >
-              <Plus className="w-3.5 h-3.5 text-white" />
-              <span className="text-white">신규 제품 등록</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+              <span>새로고침</span>
             </button>
-          )}
+
+            <button
+              onClick={handleExportExcel}
+              className="h-8 px-2.5 rounded border text-xs font-semibold flex items-center gap-1.5 hover:opacity-80 transition text-emerald-700"
+              title="엑셀 다운로드"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>엑셀 다운로드</span>
+            </button>
+
+            {isAdmin && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="h-8 px-3 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5 shadow-sm transition"
+              >
+                <Plus className="w-3.5 h-3.5 text-white" />
+                <span className="text-white">신규 제품 등록</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -531,6 +628,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
             <thead className="sticky top-0 z-10 select-none bg-[var(--bg-card)] border-b">
               <tr>
                 {renderSortTh("모델코드", "modelCode")}
+                {renderSortTh("구분", "itemClass")}
                 {renderSortTh("모델명", "modelName")}
                 {renderSortTh("제조사", "manufacturer")}
                 {renderSortTh("카테고리", "category")}
@@ -545,13 +643,22 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
             <tbody>
               {sortedFilteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-xs opacity-60">
+                  <td colSpan={11} className="py-12 text-center text-xs opacity-60">
                     {loading ? "제품 목록을 불러오는 중입니다..." : "조건에 해당하는 제품 모델이 없습니다."}
                   </td>
                 </tr>
               ) : (
                 sortedFilteredProducts.map((p) => {
                   const isSelected = selectedProduct?.id === p.id;
+                  const pClass = normalizeItemClass(p.itemClass, p.category);
+                  const clsBadge =
+                    pClass === "FORKLIFT"
+                      ? "bg-blue-600/15 text-blue-700 border-blue-600/30"
+                      : pClass === "OPTION"
+                      ? "bg-amber-600/15 text-amber-800 border-amber-600/30"
+                      : pClass === "PART"
+                      ? "bg-emerald-600/15 text-emerald-700 border-emerald-600/30"
+                      : "bg-slate-500/15 text-slate-600 border-slate-500/30";
                   return (
                     <tr
                       key={p.id}
@@ -562,6 +669,11 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                     >
                       <td className="py-2 px-3 font-mono font-bold text-blue-700 whitespace-nowrap">
                         {p.modelCode}
+                      </td>
+                      <td className="py-2 px-3 whitespace-nowrap">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${clsBadge}`}>
+                          {getItemClassLabel(pClass)}
+                        </span>
                       </td>
                       <td className="py-2 px-3 font-semibold whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
@@ -705,6 +817,34 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                 {isEditingDossier ? (
                   <div className="flex flex-col gap-2">
                     <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-medium">품목 구분</label>
+                      <select
+                        value={normalizeItemClass(editForm.itemClass ?? selectedProduct.itemClass, editForm.category ?? selectedProduct.category)}
+                        onChange={(e) => {
+                          const nextCls = e.target.value as ForkliftItemClass;
+                          setEditForm({
+                            ...editForm,
+                            itemClass: nextCls,
+                            category:
+                              nextCls === "FORKLIFT"
+                                ? "지게차 완제품"
+                                : nextCls === "OPTION"
+                                ? "지게차 옵션"
+                                : nextCls === "PART"
+                                ? "부품·소모품"
+                                : editForm.category || "IT/워크스테이션",
+                          });
+                        }}
+                        className="h-7 px-2 border rounded text-xs font-bold"
+                      >
+                        {FORKLIFT_ITEM_CLASS_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
                       <label className="text-[11px] font-medium">모델명</label>
                       <input
                         type="text"
@@ -749,36 +889,108 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">월 렌탈료 (원)</label>
+                        <label className="text-[11px] font-medium whitespace-nowrap">월단가 (원)</label>
                         <input
-                          type="number"
-                          value={editForm.standardMonthlyRate || 0}
-                          onChange={(e) => setEditForm({ ...editForm, standardMonthlyRate: parseFloat(e.target.value) })}
-                          className="h-7 px-2 border rounded text-xs"
+                          type="text"
+                          inputMode="numeric"
+                          value={editForm.standardMonthlyRate ? toErpInputString(editForm.standardMonthlyRate) : ""}
+                          onChange={(e) => {
+                            const num = cleanErpNumber(e.target.value);
+                            setEditForm({
+                              ...editForm,
+                              standardMonthlyRate: num,
+                              ...(editDailyManual
+                                ? {}
+                                : { standardDailyRate: calculateAutoDailyRentalFee(num) }),
+                            });
+                          }}
+                          placeholder="0"
+                          className="h-7 px-2 border rounded text-xs font-mono text-right font-bold"
                         />
                       </div>
                       <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">일할 단가 (원)</label>
+                        <div className="flex items-center justify-between gap-1">
+                          <label className="text-[11px] font-medium whitespace-nowrap">일단가 (원)</label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditDailyManual(false);
+                              setEditForm({
+                                ...editForm,
+                                standardDailyRate: calculateAutoDailyRentalFee(
+                                  editForm.standardMonthlyRate || 0
+                                ),
+                              });
+                            }}
+                            className="text-[10px] font-bold text-[#1d4ed8] hover:underline whitespace-nowrap shrink-0"
+                          >
+                            자동계산
+                          </button>
+                        </div>
                         <input
-                          type="number"
-                          value={editForm.standardDailyRate || 0}
-                          onChange={(e) => setEditForm({ ...editForm, standardDailyRate: parseFloat(e.target.value) })}
-                          className="h-7 px-2 border rounded text-xs"
+                          type="text"
+                          inputMode="numeric"
+                          value={editForm.standardDailyRate ? toErpInputString(editForm.standardDailyRate) : ""}
+                          onChange={(e) => {
+                            setEditDailyManual(true);
+                            setEditForm({
+                              ...editForm,
+                              standardDailyRate: cleanErpNumber(e.target.value),
+                            });
+                          }}
+                          placeholder="0"
+                          className="h-7 px-2 border rounded text-xs font-mono text-right font-bold"
                         />
                       </div>
                     </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-medium">상세 제원</label>
-                      <textarea
-                        value={editForm.spec || ""}
-                        onChange={(e) => setEditForm({ ...editForm, spec: e.target.value })}
-                        rows={2}
-                        className="p-1.5 border rounded text-xs"
-                      />
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium">표준 보증개월</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={toErpInputString(editForm.warrantyMonths ?? 12)}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, warrantyMonths: cleanErpNumber(e.target.value) })
+                          }
+                          className="h-7 px-2 border rounded text-xs font-mono text-right"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium">보증 가동시간 (hr)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={toErpInputString(editForm.warrantyHours ?? 2000)}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, warrantyHours: cleanErpNumber(e.target.value) })
+                          }
+                          className="h-7 px-2 border rounded text-xs font-mono text-right"
+                        />
+                      </div>
                     </div>
+                    <ForkliftSpecEditor
+                      compact
+                      itemClass={normalizeItemClass(
+                        editForm.itemClass ?? selectedProduct.itemClass,
+                        editForm.category ?? selectedProduct.category
+                      )}
+                      specData={editForm.specData ?? selectedProduct.specData ?? {}}
+                      onChangeSpecData={(nextSpec) => setEditForm({ ...editForm, specData: nextSpec })}
+                      partNo={editForm.partNo ?? selectedProduct.partNo ?? ""}
+                      onChangePartNo={(val) => setEditForm({ ...editForm, partNo: val })}
+                      fallbackSpec={editForm.spec || ""}
+                      onChangeFallbackSpec={(val) => setEditForm({ ...editForm, spec: val })}
+                    />
                   </div>
                 ) : (
                   <div className="p-2.5 rounded border flex flex-col gap-1.5 font-mono text-[11px]">
+                    <div className="flex justify-between">
+                      <span className="opacity-60">품목 구분</span>
+                      <span className="font-bold">
+                        {getItemClassLabel(normalizeItemClass(selectedProduct.itemClass, selectedProduct.category))}
+                      </span>
+                    </div>
                     <div className="flex justify-between">
                       <span className="opacity-60">제조사 / 분류</span>
                       <span className="font-semibold">{selectedProduct.manufacturer} ({selectedProduct.category})</span>
@@ -796,8 +1008,10 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                       <span>{formatErpCurrency(selectedProduct.standardPrice)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="opacity-60">보증 구분</span>
-                      <span>{selectedProduct.warrantyType || "표준 워런티"}</span>
+                      <span className="opacity-60">보증 기준</span>
+                      <span>
+                        {selectedProduct.warrantyMonths ?? 12}개월 / {formatErpNumber(selectedProduct.warrantyHours ?? 2000)}hr
+                      </span>
                     </div>
                     <div className="border-t pt-1.5 mt-1 flex flex-col gap-0.5">
                       <span className="opacity-60">제원 상세</span>
@@ -877,7 +1091,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
       {/* 5. Modal: Add New Product Model */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-lg border p-5 shadow-2xl erp-login-card flex flex-col gap-4">
+          <div className="w-full max-w-2xl rounded-lg border p-5 shadow-2xl erp-login-card flex flex-col gap-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
                 <Package className="w-5 h-5 text-blue-600" />
@@ -889,6 +1103,39 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
             </div>
 
             <form onSubmit={handleAddProduct} className="flex flex-col gap-3 text-xs">
+              <div className="flex flex-col gap-1">
+                <label className="font-semibold">품목 구분 *</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {FORKLIFT_ITEM_CLASS_OPTIONS.map((clsOpt) => (
+                    <button
+                      key={clsOpt.value}
+                      type="button"
+                      onClick={() =>
+                        setAddForm({
+                          ...addForm,
+                          itemClass: clsOpt.value,
+                          category:
+                            clsOpt.value === "FORKLIFT"
+                              ? "지게차 완제품"
+                              : clsOpt.value === "OPTION"
+                              ? "지게차 옵션"
+                              : clsOpt.value === "PART"
+                              ? "부품·소모품"
+                              : "IT/워크스테이션",
+                        })
+                      }
+                      className={`h-8 rounded border font-bold text-xs whitespace-nowrap transition ${
+                        addForm.itemClass === clsOpt.value
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "hover:opacity-80"
+                      }`}
+                    >
+                      {clsOpt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="font-semibold">모델 코드 (고유 식별자) *</label>
@@ -897,7 +1144,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                     required
                     value={addForm.modelCode}
                     onChange={(e) => setAddForm({ ...addForm, modelCode: e.target.value })}
-                    placeholder="예: RPA-BOT-2026"
+                    placeholder="예: D30S-7"
                     className="h-8 px-2.5 border rounded"
                   />
                 </div>
@@ -908,7 +1155,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                     required
                     value={addForm.modelName}
                     onChange={(e) => setAddForm({ ...addForm, modelName: e.target.value })}
-                    placeholder="예: Dragon RPA Workstation Gen5"
+                    placeholder="예: 두산 3.0톤 디젤 지게차"
                     className="h-8 px-2.5 border rounded"
                   />
                 </div>
@@ -916,12 +1163,12 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="font-semibold">단축명 (Short Name)</label>
+                  <label className="font-semibold">단축명</label>
                   <input
                     type="text"
                     value={addForm.shortName}
                     onChange={(e) => setAddForm({ ...addForm, shortName: e.target.value })}
-                    placeholder="예: DR-X5"
+                    placeholder="예: D30S"
                     className="h-8 px-2.5 border rounded"
                   />
                 </div>
@@ -932,14 +1179,11 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                     onChange={(e) => setAddForm({ ...addForm, category: e.target.value })}
                     className="h-8 px-2 border rounded"
                   >
-                    <option value="IT/워크스테이션">IT/워크스테이션</option>
-                    <option value="서버/네트워크">서버/네트워크</option>
-                    <option value="노트북/태블릿">노트북/태블릿</option>
-                    <option value="모니터/TV/프로젝터">모니터/TV/프로젝터</option>
-                    <option value="사무기기/프린터">사무기기/프린터</option>
-                    <option value="렌탈장비/특수">렌탈장비/특수</option>
-                    <option value="소프트웨어/솔루션">소프트웨어/솔루션</option>
-                    <option value="기타">기타</option>
+                    {uniqueCategories.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
@@ -948,7 +1192,7 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
                     type="text"
                     value={addForm.manufacturer}
                     onChange={(e) => setAddForm({ ...addForm, manufacturer: e.target.value })}
-                    placeholder="예: DragonRPA"
+                    placeholder="예: 두산 / 현대 / 클라크"
                     className="h-8 px-2.5 border rounded"
                   />
                 </div>
@@ -956,67 +1200,157 @@ export const ProductManagementTab: React.FC<ProductManagementTabProps> = ({
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="font-semibold">표준 월 렌탈료 (원)</label>
+                  <label className="font-semibold whitespace-nowrap">표준 월단가 (원)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     value={addForm.standardMonthlyRate}
-                    onChange={(e) => setAddForm({ ...addForm, standardMonthlyRate: e.target.value })}
-                    className="h-8 px-2.5 border rounded"
+                    onChange={(e) => {
+                      const formatted = formatErpInputNumber(e.target.value);
+                      const monthlyNum = cleanErpNumber(formatted);
+                      setAddForm({
+                        ...addForm,
+                        standardMonthlyRate: formatted,
+                        ...(addDailyManual
+                          ? {}
+                          : { standardDailyRate: toErpInputString(calculateAutoDailyRentalFee(monthlyNum)) }),
+                      });
+                    }}
+                    placeholder="350,000"
+                    className="h-8 px-2.5 border rounded font-mono text-right font-bold"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="font-semibold">표준 일할 단가 (원)</label>
+                  <div className="flex items-center justify-between gap-1">
+                    <label className="font-semibold whitespace-nowrap">표준 일단가 (원)</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddDailyManual(false);
+                        setAddForm({
+                          ...addForm,
+                          standardDailyRate: toErpInputString(
+                            calculateAutoDailyRentalFee(cleanErpNumber(addForm.standardMonthlyRate))
+                          ),
+                        });
+                      }}
+                      className="text-[10px] font-bold text-[#1d4ed8] hover:underline whitespace-nowrap shrink-0"
+                    >
+                      자동계산
+                    </button>
+                  </div>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     value={addForm.standardDailyRate}
-                    onChange={(e) => setAddForm({ ...addForm, standardDailyRate: e.target.value })}
-                    className="h-8 px-2.5 border rounded"
+                    onChange={(e) => {
+                      setAddDailyManual(true);
+                      setAddForm({ ...addForm, standardDailyRate: formatErpInputNumber(e.target.value) });
+                    }}
+                    placeholder="12,000"
+                    className="h-8 px-2.5 border rounded font-mono text-right font-bold"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="font-semibold">표준 장비 판매가 (원)</label>
+                  <label className="font-semibold whitespace-nowrap">표준 판매가 (원)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     value={addForm.standardPrice}
-                    onChange={(e) => setAddForm({ ...addForm, standardPrice: e.target.value })}
-                    className="h-8 px-2.5 border rounded"
+                    onChange={(e) => setAddForm({ ...addForm, standardPrice: formatErpInputNumber(e.target.value) })}
+                    placeholder="3,200,000"
+                    className="h-8 px-2.5 border rounded font-mono text-right font-bold"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold">CPU / 프로세서</label>
-                  <input
-                    type="text"
-                    value={addForm.cpu}
-                    onChange={(e) => setAddForm({ ...addForm, cpu: e.target.value })}
-                    placeholder="예: Intel Core i9-14900K"
-                    className="h-8 px-2.5 border rounded"
-                  />
+              {addForm.itemClass === "OPTION" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-semibold whitespace-nowrap">옵션 설치공임비 (원)</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={addForm.installFee}
+                      onChange={(e) => setAddForm({ ...addForm, installFee: formatErpInputNumber(e.target.value) })}
+                      placeholder="0"
+                      className="h-8 px-2.5 border rounded font-mono text-right font-bold"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-semibold whitespace-nowrap">표준 부품번호</label>
+                    <input
+                      type="text"
+                      value={addForm.partNo}
+                      onChange={(e) => setAddForm({ ...addForm, partNo: e.target.value })}
+                      placeholder="예: OPT-SS-01"
+                      className="h-8 px-2.5 border rounded font-mono"
+                    />
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold">RAM / 메모리</label>
-                  <input
-                    type="text"
-                    value={addForm.ram}
-                    onChange={(e) => setAddForm({ ...addForm, ram: e.target.value })}
-                    placeholder="예: 64GB DDR5"
-                    className="h-8 px-2.5 border rounded"
-                  />
-                </div>
-              </div>
+              )}
 
-              <div className="flex flex-col gap-1">
-                <label className="font-semibold">상세 제원 / 작업 규격</label>
-                <textarea
-                  value={addForm.spec}
-                  onChange={(e) => setAddForm({ ...addForm, spec: e.target.value })}
-                  placeholder="상세 제원 및 특이사항을 입력해 주십시오."
-                  rows={2}
-                  className="p-2 border rounded"
-                />
-              </div>
+              {addForm.itemClass === "FORKLIFT" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-semibold whitespace-nowrap">표준 보증개월</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={addForm.warrantyMonths}
+                      onChange={(e) => setAddForm({ ...addForm, warrantyMonths: formatErpInputNumber(e.target.value) })}
+                      placeholder="12"
+                      className="h-8 px-2.5 border rounded font-mono text-right font-bold"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-semibold whitespace-nowrap">보증 한도 가동시간 (hr)</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={addForm.warrantyHours}
+                      onChange={(e) => setAddForm({ ...addForm, warrantyHours: formatErpInputNumber(e.target.value) })}
+                      placeholder="2,000"
+                      className="h-8 px-2.5 border rounded font-mono text-right font-bold"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {addForm.itemClass === "GENERAL" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="font-semibold">CPU / 프로세서</label>
+                    <input
+                      type="text"
+                      value={addForm.cpu}
+                      onChange={(e) => setAddForm({ ...addForm, cpu: e.target.value })}
+                      placeholder="예: Intel Core i9-14900K"
+                      className="h-8 px-2.5 border rounded"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-semibold">RAM / 메모리</label>
+                    <input
+                      type="text"
+                      value={addForm.ram}
+                      onChange={(e) => setAddForm({ ...addForm, ram: e.target.value })}
+                      placeholder="예: 64GB DDR5"
+                      className="h-8 px-2.5 border rounded"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <ForkliftSpecEditor
+                itemClass={addForm.itemClass}
+                specData={addForm.specData}
+                onChangeSpecData={(nextSpec) => setAddForm({ ...addForm, specData: nextSpec })}
+                partNo={addForm.partNo}
+                onChangePartNo={(val) => setAddForm({ ...addForm, partNo: val })}
+                fallbackSpec={addForm.spec}
+                onChangeFallbackSpec={(val) => setAddForm({ ...addForm, spec: val })}
+              />
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t">
                 <button

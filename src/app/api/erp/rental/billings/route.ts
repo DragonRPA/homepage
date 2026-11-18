@@ -2,6 +2,8 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
+import { ensureRentalRateSchema } from "@/lib/rentalSchemaInit";
+import { computeRentalSupplyByBasis, parseNumericInput } from "@/lib/rentalFeeUtils";
 
 // GET: List rental billings with contract, customer, site, asset details
 export async function GET(request: Request) {
@@ -10,6 +12,7 @@ export async function GET(request: Request) {
     const yearMonth = searchParams.get("yearMonth"); // e.g. '2026-10'
 
     const pool = getErpPool();
+    await ensureRentalRateSchema(pool);
     let query = `
       SELECT 
         b.id,
@@ -19,6 +22,8 @@ export async function GET(request: Request) {
         c.entity_type as "entityType",
         c.customer_name as "customerName",
         c.site_name as "siteName",
+        c.daily_rate as "dailyRate",
+        COALESCE(c.rate_basis, 'MONTHLY') as "rateBasis",
         a.asset_no as "assetNo",
         rp.model_name as "modelName",
         b.year_month as "yearMonth",
@@ -68,13 +73,14 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { contractId, yearMonth, startDate, endDate, operatingDays, supplyAmount, vatAmount: customVat, taxPurpose, taxMemo, taxItems } = body;
+    const { contractId, yearMonth, startDate, endDate, operatingDays, supplyAmount, vatAmount: customVat, dailyRate, rateBasis, taxPurpose, taxMemo, taxItems } = body;
 
     if (!contractId || !yearMonth || !startDate || !endDate) {
       return NextResponse.json({ error: "계약, 정산월, 기간은 필수입니다." }, { status: 400 });
     }
 
     const pool = getErpPool();
+    await ensureRentalRateSchema(pool);
     const client = await pool.connect();
 
     try {
@@ -91,7 +97,7 @@ export async function POST(request: Request) {
 
       // 1. Fetch contract and asset (LEFT JOIN since customer master contract may hold multiple assets or asset_id may be null)
       const contractRes = await client.query(
-        `SELECT c.id, c.contract_no, c.customer_name, c.monthly_rate, c.daily_rate, c.vat_amount, c.asset_id,
+        `SELECT c.id, c.contract_no, c.customer_name, c.monthly_rate, c.daily_rate, c.rate_basis, c.vat_amount, c.asset_id,
                 c.tax_purpose, c.tax_memo, c.tax_items,
                 a.asset_no, a.acquisition_cost, a.salvage_value, a.useful_life_years,
                 rp.model_name
@@ -117,7 +123,7 @@ export async function POST(request: Request) {
       const rentedAssets = rentedAssetsRes.rows;
 
       const days = parseInt(operatingDays || "30", 10);
-      const monthlyRate = parseFloat(c.monthly_rate || "0");
+      const monthlyRate = parseNumericInput(c.monthly_rate);
       const useProRata = body.useProRata === true;
 
       const resolvedItems = Array.isArray(taxItems) && taxItems.length > 0
@@ -142,20 +148,28 @@ export async function POST(request: Request) {
       const itemsSupplySum = resolvedItems.reduce((acc: number, r: any) => acc + Number(r.supplyAmount || 0), 0);
       const itemsVatSum = resolvedItems.reduce((acc: number, r: any) => acc + Number(r.vatAmount || 0), 0);
 
-      // 원칙: 월 임대료는 출고 시 입력한 단가로 정함 (특별한 경우 useProRata === true 일 때만 일할 계산)
+      const basisCalc = computeRentalSupplyByBasis({
+        monthlyRate: monthlyRate > 0 ? monthlyRate : itemsSupplySum,
+        dailyRate: dailyRate !== undefined && dailyRate !== null && dailyRate !== "" ? dailyRate : c.daily_rate,
+        rateBasis: rateBasis || c.rate_basis,
+        operatingDays: days,
+        useProRata,
+      });
+      const isDailyBilling = basisCalc.rateBasis !== "MONTHLY" || useProRata;
+
       const proRataRevenue = supplyAmount !== undefined && supplyAmount !== null && supplyAmount !== ""
-        ? Math.round(parseFloat(String(supplyAmount)))
-        : useProRata
-          ? Math.round((monthlyRate / 30) * days)
+        ? Math.round(parseNumericInput(supplyAmount))
+        : isDailyBilling
+          ? basisCalc.supplyAmount
           : itemsSupplySum > 0
             ? Math.round(itemsSupplySum)
             : Math.round(monthlyRate);
 
       const vatAmount = customVat !== undefined && customVat !== null && customVat !== ""
-        ? Math.round(parseFloat(String(customVat)))
-        : !useProRata && itemsVatSum > 0
+        ? Math.round(parseNumericInput(customVat))
+        : !isDailyBilling && itemsVatSum > 0
           ? Math.round(itemsVatSum)
-          : !useProRata && parseFloat(c.vat_amount || "0") > 0
+          : !isDailyBilling && parseFloat(c.vat_amount || "0") > 0
             ? Math.round(parseFloat(c.vat_amount))
             : Math.round(proRataRevenue * 0.1);
 

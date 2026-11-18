@@ -4,24 +4,31 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Briefcase, Plus, RefreshCw, FileText, CheckCircle2, 
   Layers, Search, DollarSign, Calendar, X,
-  ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Eye, Download,
+  Building2, FileUp, Eye, Download,
   Edit, Trash2, AlertCircle, Users, UserPlus
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection, resolveContractItemTemplate, resolveContractTaxItemsTemplate, calculateServiceEmployeeMonthlyProRata } from "@/lib/erpFormat";
+import {
+  formatErpNumber,
+  formatErpCurrency,
+  formatErpQty,
+  formatErpInputNumber,
+  toErpInputString,
+  cleanErpNumber,
+  matchHangulAny,
+  sortCustomersByName,
+  sortErpItems,
+  resolveContractItemTemplate,
+  resolveContractTaxItemsTemplate,
+  calculateServiceEmployeeMonthlyProRata,
+} from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
+import { SearchSelectCombobox, SearchSelectOption } from "./SearchSelectCombobox";
 import { ContractTaxInvoiceSection, BuyerTaxSpec, createDefaultTaxSpec, extractPartnerTaxSpec } from "./ContractTaxInvoiceSection";
+import { findBlockedPartnerMatch, getPartnerTradeBlockInfo } from "@/lib/partnerStatusClient";
+import { AddContractModal, EditContractModal } from "./service/ServiceContractModals";
+import { AddBillingModal } from "./service/ServiceBillingModal";
 
-interface AssignedServiceEmployee {
-  employeeId: number;
-  employeeNo: string;
-  name: string;
-  position: string;
-  department: string;
-  joinDate?: string; // 입사일 (YYYY-MM-DD) - 1일 이후 입사 시 월 용역료 일할계산 기준
-  leaveDate?: string; // 퇴사일 (YYYY-MM-DD)
-  contractRate: number; // 각 직원당 받는 월 기준 계약금액 (정상 만근 공급가액, 원)
-  proRataEnabled?: boolean; // 입사일 기준 일할계산 적용 여부 (기본 true)
-  note: string;
-}
+import type { AssignedServiceEmployee } from "./service/serviceTypes";
 
 interface ServiceTabProps {
   currentUser: any;
@@ -42,6 +49,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const [billings, setBillings] = useState<any[]>([]);
   const [partners, setPartners] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
+  const [allEmployees, setAllEmployees] = useState<any[]>([]);
 
   // Modals
   const [showAddContractModal, setShowAddContractModal] = useState(false);
@@ -62,8 +70,6 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
 
   const [ctPartnerId, setCtPartnerId] = useState<number | null>(null);
   const [ctCustomer, setCtCustomer] = useState("");
-  const [ctCustomerSearch, setCtCustomerSearch] = useState("");
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [ctProject, setCtProject] = useState("");
   const [ctAmount, setCtAmount] = useState("0");
   const [ctMonthlyFee, setCtMonthlyFee] = useState("0");
@@ -203,38 +209,39 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Sorting State
-  const [sortKey, setSortKey] = useState<string>("id");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
-  };
+  // Sorting State (3단계: asc ➔ desc ➔ null 정렬안함)
+  const { sortKey, sortDir, handleSort } = useErpTableSort("id", "desc");
+  const billingSort = useErpTableSort("id", "desc");
 
   const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
-    const isActive = sortKey === key;
+    const isActive = sortKey === key && sortDir !== null;
     return (
-      <th
-        onClick={() => handleSort(key)}
-        className={`py-2 px-2.5 cursor-pointer select-none hover:bg-[#d0c6b4] transition text-${align} whitespace-nowrap ${isActive ? "text-blue-800 font-bold" : "text-[#44403c]"}`}
-        title={`${label} 기준 정렬`}
-      >
-        <div className={`inline-flex items-center gap-1 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
-          <span>{label}</span>
-          <span className="shrink-0">
-            {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-800" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-800" />
-            ) : (
-              <ArrowUpDown className="w-3 h-3 opacity-30" />
-            )}
-          </span>
-        </div>
-      </th>
+      <SortableTh
+        label={label}
+        colKey={key}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onSort={handleSort}
+        align={align}
+        className={`py-2 px-2.5 hover:bg-[#d0c6b4] ${isActive ? "text-blue-800 font-bold" : "text-[#44403c]"}`}
+        iconClassName="w-3.5 h-3.5 text-blue-800"
+      />
+    );
+  };
+
+  const renderBillingSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
+    const isActive = billingSort.sortKey === key && billingSort.sortDir !== null;
+    return (
+      <SortableTh
+        label={label}
+        colKey={key}
+        sortKey={billingSort.sortKey}
+        sortDir={billingSort.sortDir}
+        onSort={billingSort.handleSort}
+        align={align}
+        className={`py-2 px-2.5 hover:bg-[#d0c6b4] ${isActive ? "text-blue-800 font-bold" : "text-[#44403c]"}`}
+        iconClassName="w-3.5 h-3.5 text-blue-800"
+      />
     );
   };
 
@@ -249,33 +256,60 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
         return false;
       }
       if (billingSearchQuery.trim()) {
-        const q = billingSearchQuery.trim().toLowerCase();
-        const hay = [b.billingNo, b.customerName, b.projectName, b.milestoneName, b.taxInvoiceNo]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!hay.includes(q)) return false;
+        if (
+          !matchHangulAny(
+            [
+              b.billingNo,
+              b.customerName,
+              b.projectName,
+              b.milestoneName,
+              b.taxInvoiceNo,
+            ],
+            billingSearchQuery
+          )
+        ) {
+          return false;
+        }
       }
       return true;
     });
   }, [billings, billingStartDate, billingEndDate, billingContractFilter, billingSearchQuery]);
 
   const sortedBillings = useMemo(
-    () => sortErpItems(filteredBillings, sortKey, sortDir),
-    [filteredBillings, sortKey, sortDir]
+    () => sortErpItems(filteredBillings, billingSort.sortKey, billingSort.sortDir),
+    [filteredBillings, billingSort.sortKey, billingSort.sortDir]
   );
 
-  const filteredPartners = useMemo(() => {
-    const q = ctCustomerSearch.trim().toLowerCase();
-    if (!q) return partners;
-    return partners.filter((p) => {
-      const hay = [p.name, p.businessNo, p.ceoName, p.partnerCode]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
+  const sortedPartners = useMemo(() => sortCustomersByName(partners), [partners]);
+
+  const servicePartnerOptions = useMemo<SearchSelectOption[]>(() => {
+    return sortedPartners.map((p) => {
+      const block = getPartnerTradeBlockInfo(p);
+      return {
+        value: String(p.id),
+        label: p.name,
+        subLabel: `사업자: ${p.businessNo || "-"}${p.ceoName ? ` | 대표: ${p.ceoName}` : ""}`,
+        badgeText: block.blocked ? block.badgeText : (p.partnerCode || undefined),
+        badgeColor: block.blocked ? "rose" : "blue",
+        searchKeywords: [p.name, p.businessNo, p.ceoName, p.partnerCode],
+        disabled: block.blocked,
+      };
     });
-  }, [partners, ctCustomerSearch]);
+  }, [sortedPartners]);
+
+  const serviceContractOptions = useMemo<SearchSelectOption[]>(() => {
+    return contracts.map((c) => ({
+      value: String(c.id),
+      label: `[${c.contractNo}] ${c.customerName} - ${c.projectName}`,
+      subLabel:
+        activeType === "OPERATIONAL"
+          ? `월 ${formatErpCurrency(c.monthlyFee)}`
+          : `총 ${formatErpCurrency(c.contractAmount)}`,
+      badgeText: c.entityType === "INDIVIDUAL" ? "개인" : "법인",
+      badgeColor: c.entityType === "INDIVIDUAL" ? "amber" : "blue",
+      searchKeywords: [c.contractNo, c.customerName, c.projectName],
+    }));
+  }, [contracts, activeType]);
 
   // Fetch Partners & Employees for Auto-complete and Operational Staffing
   const fetchPartners = async () => {
@@ -290,24 +324,31 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
         setPartners(pData.partners || []);
       }
       if (eData.success) {
-        setEmployees(
-          (eData.employees || []).filter((emp: any) => {
-            const st = String(emp.status || "").toUpperCase();
-            const empSt = String(emp.employmentStatus || "").toUpperCase();
-            const hasLeaveDate = Boolean(emp.leaveDate && String(emp.leaveDate).trim() !== "");
-            const isRetired =
-              hasLeaveDate ||
-              st === "RETIRED" ||
-              st === "RESIGNED" ||
-              st === "퇴사" ||
-              st === "퇴직" ||
-              empSt === "RETIRED" ||
-              empSt === "RESIGNED" ||
-              empSt === "퇴사" ||
-              empSt === "퇴직";
-            return !isRetired;
-          })
-        );
+        const rawEmployees = Array.isArray(eData.employees) ? eData.employees : [];
+        const isRetiredEmp = (emp: any) => {
+          const st = String(emp.status || "").toUpperCase();
+          const empSt = String(emp.employmentStatus || "").toUpperCase();
+          const hasLeaveDate = Boolean(emp.leaveDate && String(emp.leaveDate).trim() !== "");
+          return (
+            hasLeaveDate ||
+            st === "RETIRED" ||
+            st === "RESIGNED" ||
+            st === "퇴사" ||
+            st === "퇴직" ||
+            empSt === "RETIRED" ||
+            empSt === "RESIGNED" ||
+            empSt === "퇴사" ||
+            empSt === "퇴직"
+          );
+        };
+        const sortedAll = [...rawEmployees].sort((a, b) => {
+          const aRet = isRetiredEmp(a) ? 1 : 0;
+          const bRet = isRetiredEmp(b) ? 1 : 0;
+          if (aRet !== bRet) return aRet - bRet;
+          return String(a.name || "").localeCompare(String(b.name || ""), "ko");
+        });
+        setAllEmployees(sortedAll);
+        setEmployees(sortedAll);
       }
     } catch (e) {
       console.warn("고객사/임직원 목록 로드 실패:", e);
@@ -395,22 +436,33 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     }
   };
 
-  // 투입 임직원 엔트리에 사원대장(employees)의 입사일/퇴사일 메타데이터 보강 헬퍼
+  // 투입 임직원 엔트리에 사원대장(allEmployees, 퇴사자 포함)의 입사일/퇴사일 메타데이터 보강 헬퍼
   const enrichAssignedEmployeeJoinDates = (list: AssignedServiceEmployee[]): AssignedServiceEmployee[] => {
     if (!Array.isArray(list)) return [];
+    const sourceList = allEmployees.length > 0 ? allEmployees : employees;
     return list.map((item) => {
-      const matched = employees.find(
+      const matched = sourceList.find(
         (emp) =>
           (item.employeeId && Number(emp.id) === Number(item.employeeId)) ||
           (item.employeeNo && String(emp.employeeNo || "").trim() === String(item.employeeNo).trim()) ||
           (item.name && String(emp.name || "").trim() === String(item.name).trim())
       );
-      const joinDate = item.joinDate || (matched?.joinDate ? String(matched.joinDate).slice(0, 10) : "");
-      const leaveDate = item.leaveDate || (matched?.leaveDate ? String(matched.leaveDate).slice(0, 10) : "");
+      const joinDate = item.joinDate
+        ? String(item.joinDate).slice(0, 10)
+        : matched?.joinDate
+        ? String(matched.joinDate).slice(0, 10)
+        : "";
+      const leaveDate = item.leaveDate
+        ? String(item.leaveDate).slice(0, 10)
+        : matched?.leaveDate
+        ? String(matched.leaveDate).slice(0, 10)
+        : "";
+      const baseSalary = Math.round(Number(item.baseSalary || matched?.baseSalary || 0));
       return {
         ...item,
         joinDate,
         leaveDate,
+        baseSalary,
         proRataEnabled: item.proRataEnabled !== false,
       };
     });
@@ -453,7 +505,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
         item.joinDate,
         item.leaveDate,
         enabled,
-        false
+        true
       );
       return { item, calc };
     });
@@ -462,13 +514,18 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     const totalEffectiveRate = proRataDetails.reduce((acc, x) => acc + x.calc.effectiveAmount, 0);
     const totalRate = applyProRata ? totalEffectiveRate : totalBaseRate;
     const baseVat = Math.round(totalRate * 0.1);
-    const countSpec = list.length > 0 ? `${list.length}인` : "";
+    const activeHeadcount = proRataDetails.filter(
+      (x) => !x.calc.isAfterLeft && !x.calc.isNotYetJoined
+    ).length;
+    const countSpec =
+      list.length > 0 ? `${applyProRata ? activeHeadcount : list.length}인` : "";
 
     const proRatedNotes = proRataDetails
-      .filter((x) => x.calc.isProRated)
-      .map(
-        (x) =>
-          `${x.item.name} 일할(${x.calc.activeDays}/${x.calc.totalMonthDays}일: ${x.calc.effectiveAmount.toLocaleString()}원)`
+      .filter((x) => x.calc.isProRated && !x.calc.isAfterLeft)
+      .map((x) =>
+        x.calc.isNotYetJoined
+          ? `${x.item.name} 미투입(${x.item.joinDate?.slice(5).replace("-", "/")} 입사전 0원)`
+          : `${x.item.name} 일할(${x.calc.shortBadge}: ${x.calc.effectiveAmount.toLocaleString()}원)`
       );
 
     const otBreakdown = await fetchAssignedOvertimeBreakdown(list, curMonth);
@@ -518,7 +575,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           month: curMonth.slice(5, 7),
           day: "25",
           itemName: "{yyyy}년 {mm}월 초과근무수당",
-          spec: `${list.length}인 (${otBreakdown.totalHours}h)`,
+          spec: `${applyProRata && activeHeadcount > 0 ? activeHeadcount : list.length}인 (${otBreakdown.totalHours}h)`,
           qty: 1,
           unitCost: otPayToAdd,
           supplyAmount: otPayToAdd,
@@ -553,8 +610,6 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
   const handleSelectPartner = (p: any) => {
     setCtPartnerId(p.id);
     setCtCustomer(p.name);
-    setCtCustomerSearch(p.name);
-    setShowCustomerDropdown(false);
     setCtTaxSpec((prev) => extractPartnerTaxSpec(p, prev));
   };
 
@@ -657,6 +712,15 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       showToast("고객사, 프로젝트명, 계약 기간은 필수입니다.", "error");
       return;
     }
+    const blockedCust = findBlockedPartnerMatch(partners, {
+      partnerId: ctPartnerId,
+      name: ctCustomer,
+      businessNo: ctTaxSpec.customerBizNo,
+    });
+    if (blockedCust) {
+      showToast(`[${blockedCust.name}] ${getPartnerTradeBlockInfo(blockedCust).reason}`, "error");
+      return;
+    }
     try {
       const res = await fetch("/api/erp/services/contracts", {
         method: "POST",
@@ -697,7 +761,6 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       setShowAddContractModal(false);
       setCtPartnerId(null);
       setCtCustomer("");
-      setCtCustomerSearch("");
       setCtProject("");
       setCtMemo("");
       setCtFileUrl("");
@@ -746,7 +809,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
     setEditCtSelectedEmpId("");
     setEditCtIncludeOtInBilling(Boolean(c.includeOtInBilling));
 
-    // 중도입사자(1일 이후 입사)가 당월에 존재할 경우 일할계산 반영 금액으로 초기 표시
+    // 중도입퇴사자가 당월에 존재할 경우 주휴/일할계산 반영 금액으로 초기 표시
     const proRataDetails = assignedList.map((item) =>
       calculateServiceEmployeeMonthlyProRata(
         item.contractRate,
@@ -754,7 +817,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
         item.joinDate,
         item.leaveDate,
         item.proRataEnabled !== false,
-        false
+        true
       )
     );
     const hasProRatedInCurMonth = proRataDetails.some((d) => d.isProRated);
@@ -785,10 +848,11 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       : "";
     const proRatedNoteStr = assignedList
       .map((item, idx) => ({ item, calc: proRataDetails[idx] }))
-      .filter((x) => x.calc.isProRated)
-      .map(
-        (x) =>
-          `${x.item.name} 일할(${x.calc.activeDays}/${x.calc.totalMonthDays}일: ${x.calc.effectiveAmount.toLocaleString()}원)`
+      .filter((x) => x.calc.isProRated && !x.calc.isAfterLeft)
+      .map((x) =>
+        x.calc.isNotYetJoined
+          ? `${x.item.name} 미투입(${x.item.joinDate?.slice(5).replace("-", "/")} 입사전 0원)`
+          : `${x.item.name} 일할(${x.calc.shortBadge}: ${x.calc.effectiveAmount.toLocaleString()}원)`
       )
       .join(", ");
     setEditCtTaxSpec({
@@ -958,13 +1022,15 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
 
     const empContractSum = assignedList.reduce((acc, e) => acc + (Number(e.contractRate) || 0), 0);
     const empEffectiveSum = proRataDetails.reduce((acc, x) => acc + x.calc.effectiveAmount, 0);
-    const activeHeadcount = proRataDetails.filter((x) => x.calc.effectiveAmount > 0).length;
+    const activeHeadcount = proRataDetails.filter(
+      (x) => !x.calc.isAfterLeft && !x.calc.isNotYetJoined
+    ).length;
     const proRatedNotes = proRataDetails
-      .filter((x) => x.calc.isProRated)
+      .filter((x) => x.calc.isProRated && !x.calc.isAfterLeft)
       .map((x) =>
         x.calc.isNotYetJoined
           ? `${x.item.name} 미투입(${x.item.joinDate?.slice(5).replace("-", "/")} 입사전 0원)`
-          : `${x.item.name} 일할(${x.calc.activeDays}/${x.calc.totalMonthDays}일: ${x.calc.effectiveAmount.toLocaleString()}원)`
+          : `${x.item.name} 일할(${x.calc.shortBadge}: ${x.calc.effectiveAmount.toLocaleString()}원)`
       );
 
     // 기본 계약 월 용역료 (투입 인원이 등록된 운영용역은 해당 청구월의 직원별 단가/일할합계를 최우선 적용)
@@ -1068,7 +1134,7 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
           month: dateStr.slice(5, 7),
           day: dateStr.slice(8, 10),
           itemName: `초과근무수당 (${targetMonth})`,
-          spec: `투입인원 ${assignedList.length}인 (${otData.totalHours}h)`,
+          spec: `투입인원 ${activeHeadcount > 0 ? activeHeadcount : assignedList.length}인 (${otData.totalHours}h)`,
           qty: 1,
           unitCost: totalOtPay,
           supplyAmount: totalOtPay,
@@ -1507,13 +1573,13 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
               <thead className="bg-[#ded6c5] text-[#44403c] sticky top-0 border-b border-[#b5a894] font-bold select-none z-10">
                 <tr>
                   <th className="py-2 px-2.5 text-center sticky left-0 bg-[#ded6c5] z-20 border-r border-[#b5a894]">관리</th>
-                  {renderSortTh("청구일자", "billingDate", "center")}
-                  {renderSortTh("청구번호", "billingNo")}
-                  {renderSortTh("고객사 / 용역명", "customerName")}
-                  {renderSortTh("구분 / 마일스톤", "milestoneName")}
-                  {renderSortTh("공급가액", "supplyAmount", "right")}
-                  {renderSortTh("세액(VAT)", "vatAmount", "right")}
-                  {renderSortTh("총 청구액", "totalAmount", "right")}
+                  {renderBillingSortTh("청구일자", "billingDate", "center")}
+                  {renderBillingSortTh("청구번호", "billingNo")}
+                  {renderBillingSortTh("고객사 / 용역명", "customerName")}
+                  {renderBillingSortTh("구분 / 마일스톤", "milestoneName")}
+                  {renderBillingSortTh("공급가액", "supplyAmount", "right")}
+                  {renderBillingSortTh("세액(VAT)", "vatAmount", "right")}
+                  {renderBillingSortTh("총 청구액", "totalAmount", "right")}
                   <th className="py-2 px-2.5 text-center">세금계산서</th>
                 </tr>
               </thead>
@@ -1595,1662 +1661,149 @@ export const ServiceTab: React.FC<ServiceTabProps> = ({ currentUser, selectedEnt
       {/* ============================================================== */}
       {/* MODAL 1: ADD CONTRACT                                          */}
       {/* ============================================================== */}
-      {showAddContractModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-[#f4efe4] border-2 border-[#b5a894] rounded-lg max-w-4xl w-full max-h-[92vh] overflow-y-auto p-5 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894] mb-4">
-              <div className="flex items-center gap-2">
-                <Briefcase className="w-5 h-5 text-blue-700" />
-                <h3 className="font-bold text-sm text-[#1c1917]">
-                  신규 {activeType === "OPERATIONAL" ? "운영용역" : "개발용역"} 계약 등록
-                </h3>
-              </div>
-              <button onClick={() => setShowAddContractModal(false)} className="text-[#78716c] hover:text-[#1c1917]">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddContract} className="flex flex-col gap-3 text-xs">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">계약 귀속 사업자</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCtEntityType("CORP")}
-                      className={`p-2 rounded border text-left font-bold transition ${
-                        ctEntityType === "CORP"
-                          ? "border-blue-600 bg-blue-50 text-blue-900 ring-1 ring-blue-500"
-                          : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
-                      }`}
-                    >
-                      <div>(주)드래곤알피에이 [법인]</div>
-                      <div className="text-[10px] font-normal font-mono opacity-80">806-88-03266</div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCtEntityType("INDIVIDUAL")}
-                      className={`p-2 rounded border text-left font-bold transition ${
-                        ctEntityType === "INDIVIDUAL"
-                          ? "border-amber-600 bg-amber-50 text-amber-900 ring-1 ring-amber-500"
-                          : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
-                      }`}
-                    >
-                      <div>드래곤알피에이 [개인]</div>
-                      <div className="text-[10px] font-normal font-mono opacity-80">295-03-02683</div>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1 relative">
-                  <div className="flex items-center justify-between">
-                    <label className="font-bold text-[#78716c]">고객사 (등록 매출처 조회) *</label>
-                    {ctPartnerId && (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                        거래처 제원 연동됨
-                      </span>
-                    )}
-                  </div>
-                  <input
-                    type="text"
-                    value={ctCustomerSearch || ctCustomer}
-                    onChange={(e) => {
-                      setCtCustomerSearch(e.target.value);
-                      setCtCustomer(e.target.value);
-                      setCtPartnerId(null);
-                      setShowCustomerDropdown(true);
-                    }}
-                    onFocus={() => setShowCustomerDropdown(true)}
-                    placeholder="등록 고객사명, 사업자번호 검색 또는 직접 입력"
-                    required
-                    className="h-9 px-2.5 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-bold"
-                  />
-                  {showCustomerDropdown && partners.length > 0 && (
-                    <div className="absolute top-14 left-0 right-0 max-h-44 overflow-auto bg-[#ebe5d8] border border-[#b5a894] rounded shadow-lg z-30">
-                      {filteredPartners.map((p) => (
-                        <div
-                          key={p.id}
-                          onClick={() => handleSelectPartner(p)}
-                          className="p-2 hover:bg-[#dfd7c7] cursor-pointer border-b border-[#ded6c5] last:border-none flex justify-between items-center"
-                        >
-                          <div>
-                            <span className="font-bold text-[#1c1917]">{p.name}</span>
-                            {p.ceoName && <span className="text-[10px] text-[#78716c] ml-1.5">({p.ceoName})</span>}
-                          </div>
-                          <span className="text-[#78716c] font-mono text-[11px]">{p.businessNo || "-"}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3" onClick={() => setShowCustomerDropdown(false)}>
-                <div className="md:col-span-2 flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="font-bold text-[#78716c]">용역 / 프로젝트명 *</label>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const base = (ctProject || "용역")
-                            .replace(/\{yyyy\}년\s*\{mm\}월\s*/gi, "")
-                            .replace(/\s*\{yymm\}/gi, "")
-                            .replace(/\s*\{yyyy-mm\}/gi, "")
-                            .trim();
-                          const nextTpl = `{yyyy}년 {mm}월 ${base.endsWith("료") || base.endsWith("비") ? base : `${base}료`}`;
-                          setCtTaxSpec((prev) => ({
-                            ...prev,
-                            taxMemo: nextTpl,
-                            taxItems: prev.taxItems.map((it, idx) =>
-                              idx === 0 ? { ...it, itemName: nextTpl } : it
-                            ),
-                          }));
-                        }}
-                        className="px-1.5 py-0.5 rounded border border-blue-400 bg-blue-50 hover:bg-blue-100 text-blue-900 font-mono font-bold text-[10px]"
-                        title="세금계산서 상단 비고 및 1번째 품목에 '{yyyy}년 {mm}월 ...료' 치환식 적용"
-                      >
-                        &#123;yyyy&#125;년 &#123;mm&#125;월
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = ctProject
-                            ? `${ctProject.replace(/\s*\{yymm\}/gi, "")} {yymm}`.trim()
-                            : "용역료 {yymm}";
-                          setCtProject(next);
-                          setCtTaxSpec((prev) => ({
-                            ...prev,
-                            taxMemo: next,
-                            taxItems: prev.taxItems.map((it, idx) =>
-                              idx === 0 ? { ...it, itemName: next } : it
-                            ),
-                          }));
-                        }}
-                        className="px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 font-mono font-bold text-[10px]"
-                        title="청구 생성 시 연월(예: 2610)로 자동 치환"
-                      >
-                        + &#123;yymm&#125;
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = ctProject
-                            ? `${ctProject.replace(/\s*\{yyyy-mm\}/gi, "")} {yyyy-mm}`.trim()
-                            : "용역료 {yyyy-mm}";
-                          setCtProject(next);
-                          setCtTaxSpec((prev) => ({
-                            ...prev,
-                            taxMemo: next,
-                            taxItems: prev.taxItems.map((it, idx) =>
-                              idx === 0 ? { ...it, itemName: next } : it
-                            ),
-                          }));
-                        }}
-                        className="px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 font-mono font-bold text-[10px]"
-                        title="청구 생성 시 연-월(예: 2026-10)로 자동 치환"
-                      >
-                        + &#123;yyyy-mm&#125;
-                      </button>
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    value={ctProject}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const prevVal = ctProject;
-                      const prevAuto = prevVal
-                        ? `{yyyy}년 {mm}월 ${prevVal.endsWith("료") || prevVal.endsWith("비") ? prevVal : `${prevVal}료`}`
-                        : "";
-                      const nextAuto = val
-                        ? /\{[^}]+\}/.test(val)
-                          ? val
-                          : `{yyyy}년 {mm}월 ${val.endsWith("료") || val.endsWith("비") ? val : `${val}료`}`
-                        : "{yyyy}년 {mm}월 용역료";
-                      setCtProject(val);
-                      setCtTaxSpec((prev) => ({
-                        ...prev,
-                        taxMemo:
-                          !prev.taxMemo ||
-                          prev.taxMemo === "{yyyy}년 {mm}월 용역료" ||
-                          prev.taxMemo === "용역료 {yymm}" ||
-                          prev.taxMemo === "정기 유지보수 용역" ||
-                          prev.taxMemo === prevVal ||
-                          prev.taxMemo === prevAuto
-                            ? nextAuto
-                            : prev.taxMemo,
-                        taxItems: prev.taxItems.map((it, idx) =>
-                          idx === 0 &&
-                          (!it.itemName ||
-                            it.itemName === "{yyyy}년 {mm}월 용역료" ||
-                            it.itemName === "용역료 {yymm}" ||
-                            it.itemName === "정기 유지보수 용역" ||
-                            it.itemName === prevVal ||
-                            it.itemName === prevAuto)
-                            ? { ...it, itemName: nextAuto }
-                            : it
-                        ),
-                      }));
-                    }}
-                    placeholder="예: RPA 유지보수 (입력 시 세금계산서에 '{yyyy}년 {mm}월 RPA 유지보수료' 치환식 자동 생성)"
-                    required
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-semibold"
-                  />
-                </div>
-
-                {activeType === "OPERATIONAL" ? (
-                  <div className="flex flex-col gap-1">
-                    <label className="font-bold text-[#78716c]">월 정기 용역료 (공급가액)</label>
-                    <input
-                      type="text"
-                      value={ctMonthlyFee}
-                      onChange={(e) => {
-                        const formatted = formatErpInputNumber(e.target.value);
-                        setCtMonthlyFee(formatted);
-                        const num = cleanErpNumber(formatted);
-                        const vat = Math.round(num * 0.1);
-                        setCtVatAmount(toErpInputString(vat));
-                        setCtTaxSpec((prev) => ({
-                          ...prev,
-                          taxItems: prev.taxItems.map((it, idx) =>
-                            idx === 0
-                              ? {
-                                  ...it,
-                                  unitCost: Math.round(num / (Number(it.qty) || 1)),
-                                  supplyAmount: num,
-                                  vatAmount: vat,
-                                }
-                              : it
-                          ),
-                        }));
-                      }}
-                      placeholder="예: 300,000"
-                      required
-                      className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
-                    />
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    <label className="font-bold text-[#78716c]">총 수주 계약금 (공급가액)</label>
-                    <input
-                      type="text"
-                      value={ctAmount}
-                      onChange={(e) => {
-                        const formatted = formatErpInputNumber(e.target.value);
-                        setCtAmount(formatted);
-                        const num = cleanErpNumber(formatted);
-                        const vat = Math.round(num * 0.1);
-                        setCtVatAmount(toErpInputString(vat));
-                        setCtTaxSpec((prev) => ({
-                          ...prev,
-                          taxItems: prev.taxItems.map((it, idx) =>
-                            idx === 0
-                              ? {
-                                  ...it,
-                                  unitCost: Math.round(num / (Number(it.qty) || 1)),
-                                  supplyAmount: num,
-                                  vatAmount: vat,
-                                }
-                              : it
-                          ),
-                        }));
-                      }}
-                      placeholder="예: 10,000,000"
-                      required
-                      className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
-                    />
-                  </div>
-                )}
-
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">세액 (VAT)</label>
-                  <input
-                    type="text"
-                    value={ctVatAmount}
-                    onChange={(e) => setCtVatAmount(formatErpInputNumber(e.target.value))}
-                    placeholder="예: 100,000"
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3" onClick={() => setShowCustomerDropdown(false)}>
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">정기 청구일 (매월)</label>
-                  <select
-                    value={ctBillingDay}
-                    onChange={(e) => setCtBillingDay(e.target.value)}
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                  >
-                    <option value="5">매월 5일</option>
-                    <option value="10">매월 10일</option>
-                    <option value="15">매월 15일</option>
-                    <option value="20">매월 20일</option>
-                    <option value="25">매월 25일</option>
-                    <option value="31">매월 말일</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">계약 시작일 *</label>
-                  <input
-                    type="date"
-                    value={ctStart}
-                    onChange={(e) => setCtStart(e.target.value)}
-                    required
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">계약 종료일 *</label>
-                  <input
-                    type="date"
-                    value={ctEnd}
-                    onChange={(e) => setCtEnd(e.target.value)}
-                    required
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">계약 특약 메모</label>
-                  <input
-                    type="text"
-                    value={ctMemo}
-                    onChange={(e) => setCtMemo(e.target.value)}
-                    placeholder="특약 또는 메모"
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                  />
-                </div>
-              </div>
-
-              {/* 운영용역 투입 임직원 및 직원별 계약금액(받는금액) 구성 섹션 */}
-              <div className="p-3 rounded border border-blue-300 bg-[#ebe5d8] flex flex-col gap-2" onClick={() => setShowCustomerDropdown(false)}>
-                {(() => {
-                  const enrichedAddList = enrichAssignedEmployeeJoinDates(ctAssignedEmployees);
-                  const baseRateSum = enrichedAddList.reduce((s, e) => s + (Number(e.contractRate) || 0), 0);
-                  const proRataCalcs = enrichedAddList.map((e) =>
-                    calculateServiceEmployeeMonthlyProRata(
-                      e.contractRate,
-                      ctProRataMonth,
-                      e.joinDate,
-                      e.leaveDate,
-                      ctApplyProRata && e.proRataEnabled !== false,
-                      false
-                    )
-                  );
-                  const proRatedSum = proRataCalcs.reduce((s, c) => s + c.effectiveAmount, 0);
-                  const hasProRatedDiff = ctApplyProRata && proRatedSum !== baseRateSum;
-
-                  return (
-                    <>
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#b5a894] pb-2">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Users className="w-4 h-4 text-blue-800" />
-                          <span className="font-bold text-xs text-[#1c1917]">
-                            투입 임직원 및 직원별 월 계약금액(받는금액) 편성
-                          </span>
-                          <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px]">
-                            총 {enrichedAddList.length}명 | 기본 합계 {formatErpCurrency(baseRateSum)}
-                            {hasProRatedDiff && (
-                              <span className="ml-1 text-amber-900 font-extrabold">
-                                ➔ 일할반영({ctProRataMonth}) {formatErpCurrency(proRatedSum)}
-                              </span>
-                            )}
-                            {ctIncludeOtInBilling && (
-                              <span className="ml-1 text-indigo-800">
-                                + 초과근무수당 {formatErpCurrency(ctOtBreakdown.totalOtPay)}
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-amber-400 bg-amber-50 text-amber-950 font-bold text-[11px]">
-                            <label className="inline-flex items-center gap-1 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={ctApplyProRata}
-                                onChange={(e) => {
-                                  const nextVal = e.target.checked;
-                                  setCtApplyProRata(nextVal);
-                                  syncAssignedEmployeesToContract(
-                                    ctAssignedEmployees,
-                                    false,
-                                    undefined,
-                                    nextVal,
-                                    ctProRataMonth
-                                  );
-                                }}
-                                className="w-3.5 h-3.5 accent-amber-700"
-                              />
-                              <span>중도입사 일할계산 반영</span>
-                            </label>
-                            <input
-                              type="month"
-                              value={ctProRataMonth}
-                              onChange={(e) => {
-                                const nextMonth = e.target.value;
-                                if (!nextMonth) return;
-                                setCtProRataMonth(nextMonth);
-                                syncAssignedEmployeesToContract(
-                                  ctAssignedEmployees,
-                                  false,
-                                  undefined,
-                                  ctApplyProRata,
-                                  nextMonth
-                                );
-                              }}
-                              className="h-5 px-1 rounded border border-amber-400 bg-white text-[10px] font-mono text-amber-950"
-                              title="일할계산 기준 연월"
-                            />
-                          </div>
-                          <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-indigo-300 bg-indigo-50 text-indigo-900 font-bold text-[11px] cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={ctIncludeOtInBilling}
-                              onChange={(e) => {
-                                const nextVal = e.target.checked;
-                                setCtIncludeOtInBilling(nextVal);
-                                syncAssignedEmployeesToContract(ctAssignedEmployees, false, nextVal);
-                              }}
-                              className="w-3.5 h-3.5 accent-indigo-700"
-                            />
-                            <span>초과근무수당 반영</span>
-                          </label>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <select
-                            value={ctSelectedEmpId}
-                            onChange={(e) => setCtSelectedEmpId(e.target.value)}
-                            className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
-                          >
-                            <option value="">-- 투입할 임직원 선택 --</option>
-                            {employees
-                              .filter((emp) => !ctAssignedEmployees.some((a) => a.employeeId === emp.id))
-                              .map((emp) => (
-                                <option key={emp.id} value={emp.id}>
-                                  [{emp.employeeNo || `EMP-${emp.id}`}] {emp.name} ({emp.position || "사원"} / 입사 {emp.joinDate ? String(emp.joinDate).slice(0, 10) : "-"})
-                                </option>
-                              ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!ctSelectedEmpId) {
-                                showToast("추가할 임직원을 선택하세요.", "error");
-                                return;
-                              }
-                              const emp = employees.find((x) => String(x.id) === String(ctSelectedEmpId));
-                              if (!emp) return;
-                              if (ctAssignedEmployees.some((x) => x.employeeId === emp.id)) {
-                                showToast("이미 추가된 임직원입니다.", "error");
-                                return;
-                              }
-                              const defaultRate =
-                                Number(emp.serviceContractAmount) > 0
-                                  ? Number(emp.serviceContractAmount)
-                                  : Number(emp.baseSalary) > 0
-                                  ? Number(emp.baseSalary)
-                                  : 3000000;
-                              const nextList: AssignedServiceEmployee[] = [
-                                ...ctAssignedEmployees,
-                                {
-                                  employeeId: emp.id,
-                                  employeeNo: emp.employeeNo || "",
-                                  name: emp.name,
-                                  position: emp.position || "",
-                                  department: emp.department || "",
-                                  joinDate: emp.joinDate ? String(emp.joinDate).slice(0, 10) : "",
-                                  leaveDate: emp.leaveDate ? String(emp.leaveDate).slice(0, 10) : "",
-                                  contractRate: defaultRate,
-                                  proRataEnabled: true,
-                                  note: "",
-                                },
-                              ];
-                              syncAssignedEmployeesToContract(nextList, false);
-                              setCtSelectedEmpId("");
-                            }}
-                            className="h-7 px-2.5 rounded bg-blue-700 hover:bg-blue-800 text-white font-bold text-[11px] inline-flex items-center gap-1 shadow-sm"
-                          >
-                            <UserPlus className="w-3.5 h-3.5" />
-                            <span>임직원 투입 추가</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {enrichedAddList.length === 0 ? (
-                        <div className="py-3 text-center text-[#78716c] text-[11px]">
-                          상단에서 투입할 임직원을 선택하고 [임직원 투입 추가] 버튼을 누르면 직원별 계약단가(받는금액)가 합산되어 월 정기 용역료 및 세금계산서 품목에 자동 반영됩니다.
-                        </div>
-                      ) : (
-                        <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
-                          <thead className="bg-[#dfd7c7] text-[#44403c] border-b border-[#b5a894] font-bold">
-                            <tr>
-                              <th className="py-1.5 px-2 w-10 text-center">제외</th>
-                              <th className="py-1.5 px-2">사번</th>
-                              <th className="py-1.5 px-2">성명 / 직급</th>
-                              <th className="py-1.5 px-2">입사일(투입일)</th>
-                              <th className="py-1.5 px-2 text-right w-36">월 기준금액 (원)</th>
-                              <th className="py-1.5 px-2 text-right w-44">당월 일할적용액 ({ctProRataMonth})</th>
-                              <th className="py-1.5 px-2 text-right w-32">당월 초과근무수당</th>
-                              <th className="py-1.5 px-2">업무/역할 비고</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[#b5a894] bg-[#f4efe4]">
-                            {enrichedAddList.map((row, idx) => {
-                              const empOt = ctOtBreakdown.byEmp[row.employeeId] || { hours: 0, otPay: 0, count: 0 };
-                              const prCalc = proRataCalcs[idx];
-                              return (
-                                <tr key={row.employeeId} className={prCalc.isProRated ? "bg-amber-50/60" : ""}>
-                                  <td className="py-1.5 px-2 text-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const nextList = ctAssignedEmployees.filter((_, i) => i !== idx);
-                                        syncAssignedEmployeesToContract(nextList, false);
-                                      }}
-                                      className="p-1 text-rose-700 hover:bg-rose-100 rounded"
-                                      title="투입 제외"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </td>
-                                  <td className="py-1.5 px-2 font-mono text-[#78716c]">{row.employeeNo || "-"}</td>
-                                  <td className="py-1.5 px-2 font-bold text-[#1c1917]">
-                                    {row.name}{" "}
-                                    <span className="text-[10px] font-normal text-[#78716c]">
-                                      ({row.position || "사원"})
-                                    </span>
-                                  </td>
-                                  <td className="py-1.5 px-2">
-                                    <input
-                                      type="date"
-                                      value={row.joinDate || ""}
-                                      onChange={(e) => {
-                                        const nextJoin = e.target.value;
-                                        const nextList = enrichedAddList.map((it, i) =>
-                                          i === idx ? { ...it, joinDate: nextJoin } : it
-                                        );
-                                        syncAssignedEmployeesToContract(nextList, false);
-                                      }}
-                                      className="h-7 px-1.5 rounded border border-[#b5a894] bg-white font-mono text-[11px] text-[#1c1917]"
-                                    />
-                                  </td>
-                                  <td className="py-1.5 px-2">
-                                    <input
-                                      type="text"
-                                      value={toErpInputString(row.contractRate)}
-                                      onChange={(e) => {
-                                        const rate = cleanErpNumber(formatErpInputNumber(e.target.value));
-                                        const nextList = enrichedAddList.map((it, i) =>
-                                          i === idx ? { ...it, contractRate: rate } : it
-                                        );
-                                        syncAssignedEmployeesToContract(nextList, false);
-                                      }}
-                                      className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-right font-mono font-bold text-blue-900"
-                                    />
-                                  </td>
-                                  <td className="py-1.5 px-2 text-right font-mono">
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      <input
-                                        type="checkbox"
-                                        checked={row.proRataEnabled !== false}
-                                        onChange={(e) => {
-                                          const checked = e.target.checked;
-                                          const nextList = enrichedAddList.map((it, i) =>
-                                            i === idx ? { ...it, proRataEnabled: checked } : it
-                                          );
-                                          syncAssignedEmployeesToContract(nextList, false);
-                                        }}
-                                        className="w-3.5 h-3.5 accent-amber-700"
-                                        title="해당 직원 입사일 일할계산 적용 여부"
-                                      />
-                                      <span
-                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                                          prCalc.isProRated
-                                            ? "bg-amber-100 text-amber-900 border-amber-400"
-                                            : "bg-[#ebe5d8] text-[#78716c] border-[#b5a894]"
-                                        }`}
-                                      >
-                                        {prCalc.shortBadge}
-                                      </span>
-                                      <span
-                                        className={
-                                          prCalc.isProRated
-                                            ? "font-extrabold text-amber-900"
-                                            : "font-bold text-[#1c1917]"
-                                        }
-                                      >
-                                        {formatErpCurrency(prCalc.effectiveAmount)}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="py-1.5 px-2 text-right font-mono">
-                                    <span
-                                      className={
-                                        ctIncludeOtInBilling && empOt.otPay > 0
-                                          ? "font-bold text-indigo-800"
-                                          : "text-[#78716c]"
-                                      }
-                                    >
-                                      {formatErpCurrency(empOt.otPay)}
-                                    </span>
-                                    <span className="ml-1 text-[10px] text-[#78716c]">({empOt.hours}h)</span>
-                                  </td>
-                                  <td className="py-1.5 px-2">
-                                    <input
-                                      type="text"
-                                      value={row.note}
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        setCtAssignedEmployees((prev) =>
-                                          prev.map((it, i) => (i === idx ? { ...it, note: val } : it))
-                                        );
-                                      }}
-                                      placeholder="담당 업무 또는 비고"
-                                      className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-[#1c1917]"
-                                    />
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-
-              {/* 전자세금계산서 발행 제원 및 품목 명세 섹션 */}
-              <ContractTaxInvoiceSection
-                spec={ctTaxSpec}
-                onChange={setCtTaxSpec}
-                onTotalChange={(totalSupply, totalVat) => {
-                  if (activeType === "OPERATIONAL") {
-                    setCtMonthlyFee(toErpInputString(totalSupply));
-                  } else {
-                    setCtAmount(toErpInputString(totalSupply));
-                  }
-                  setCtVatAmount(toErpInputString(totalVat));
-                }}
-                domainLabel={activeType === "OPERATIONAL" ? "운영용역" : "개발용역"}
-              />
-
-              {/* 계약서 원본 첨부 */}
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#78716c]">용역계약서 원본 첨부 (선택)</label>
-                <input
-                  ref={ctFileInputRef}
-                  type="file"
-                  accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.hwp"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleContractFileUpload(file);
-                  }}
-                  className="hidden"
-                />
-                {ctFileName ? (
-                  <div className="flex items-center justify-between px-3 py-1.5 rounded bg-blue-50 border border-blue-300">
-                    <span className="font-semibold text-blue-900 truncate">{ctFileName}</span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => ctFileInputRef.current?.click()}
-                        className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#ebe5d8] border border-[#b5a894]"
-                      >
-                        변경
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCtFileUrl("");
-                          setCtFileName("");
-                        }}
-                        className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300"
-                      >
-                        제거
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setIsCtFileDragging(true);
-                    }}
-                    onDragLeave={() => setIsCtFileDragging(false)}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setIsCtFileDragging(false);
-                      const file = e.dataTransfer.files?.[0];
-                      if (file) handleContractFileUpload(file);
-                    }}
-                    onClick={() => ctFileInputRef.current?.click()}
-                    className={`flex items-center justify-center gap-2 py-2 px-3 rounded border border-dashed cursor-pointer ${
-                      isCtFileDragging ? "border-blue-600 bg-blue-50" : "border-[#b5a894] bg-[#ebe5d8]"
-                    }`}
-                  >
-                    <FileUp className="w-3.5 h-3.5 text-blue-700" />
-                    <span className="text-[#57534e] font-medium">계약서 파일(PDF, 이미지, 문서) 클릭 또는 드래그 첨부</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#b5a894] mt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowAddContractModal(false)}
-                  className="h-8 px-3 rounded font-bold border border-[#b5a894] bg-[#ebe5d8] hover:bg-[#e2dbcd]"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="h-8 px-4 rounded font-bold text-white bg-blue-700 hover:bg-blue-800 shadow-sm"
-                >
-                  계약 체결 등록
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AddContractModal
+        activeType={activeType}
+        ctAmount={ctAmount}
+        ctApplyProRata={ctApplyProRata}
+        ctAssignedEmployees={ctAssignedEmployees}
+        ctBillingDay={ctBillingDay}
+        ctCustomer={ctCustomer}
+        ctEnd={ctEnd}
+        ctEntityType={ctEntityType}
+        ctFileInputRef={ctFileInputRef}
+        ctFileName={ctFileName}
+        ctIncludeOtInBilling={ctIncludeOtInBilling}
+        ctMemo={ctMemo}
+        ctMonthlyFee={ctMonthlyFee}
+        ctOtBreakdown={ctOtBreakdown}
+        ctPartnerId={ctPartnerId}
+        ctProRataMonth={ctProRataMonth}
+        ctProject={ctProject}
+        ctSelectedEmpId={ctSelectedEmpId}
+        ctStart={ctStart}
+        ctTaxSpec={ctTaxSpec}
+        ctVatAmount={ctVatAmount}
+        employees={employees}
+        enrichAssignedEmployeeJoinDates={enrichAssignedEmployeeJoinDates}
+        handleAddContract={handleAddContract}
+        handleContractFileUpload={handleContractFileUpload}
+        handleSelectPartner={handleSelectPartner}
+        isCtFileDragging={isCtFileDragging}
+        partners={partners}
+        servicePartnerOptions={servicePartnerOptions}
+        setCtAmount={setCtAmount}
+        setCtApplyProRata={setCtApplyProRata}
+        setCtAssignedEmployees={setCtAssignedEmployees}
+        setCtBillingDay={setCtBillingDay}
+        setCtCustomer={setCtCustomer}
+        setCtEnd={setCtEnd}
+        setCtEntityType={setCtEntityType}
+        setCtFileName={setCtFileName}
+        setCtFileUrl={setCtFileUrl}
+        setCtIncludeOtInBilling={setCtIncludeOtInBilling}
+        setCtMemo={setCtMemo}
+        setCtMonthlyFee={setCtMonthlyFee}
+        setCtPartnerId={setCtPartnerId}
+        setCtProRataMonth={setCtProRataMonth}
+        setCtProject={setCtProject}
+        setCtSelectedEmpId={setCtSelectedEmpId}
+        setCtStart={setCtStart}
+        setCtTaxSpec={setCtTaxSpec}
+        setCtVatAmount={setCtVatAmount}
+        setIsCtFileDragging={setIsCtFileDragging}
+        setShowAddContractModal={setShowAddContractModal}
+        showAddContractModal={showAddContractModal}
+        showToast={showToast}
+        syncAssignedEmployeesToContract={syncAssignedEmployeesToContract}
+      />
 
       {/* ============================================================== */}
       {/* MODAL 2: EDIT CONTRACT                                         */}
       {/* ============================================================== */}
-      {showEditContractModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-[#f4efe4] border-2 border-[#b5a894] rounded-lg max-w-4xl w-full max-h-[92vh] overflow-y-auto p-5 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894] mb-4">
-              <div className="flex items-center gap-2">
-                <Edit className="w-5 h-5 text-blue-700" />
-                <h3 className="font-bold text-sm text-[#1c1917]">
-                  용역 계약 정보 수정 [{editCtContractNo}]
-                </h3>
-              </div>
-              <button onClick={() => setShowEditContractModal(false)} className="text-[#78716c] hover:text-[#1c1917]">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleUpdateContract} className="flex flex-col gap-3 text-xs">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">계약 귀속 사업자</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditCtEntityType("CORP")}
-                      className={`p-2 rounded border text-left font-bold transition ${
-                        editCtEntityType === "CORP"
-                          ? "border-blue-600 bg-blue-50 text-blue-900 ring-1 ring-blue-500"
-                          : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
-                      }`}
-                    >
-                      <div>(주)드래곤알피에이 [법인]</div>
-                      <div className="text-[10px] font-normal font-mono opacity-80">806-88-03266</div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditCtEntityType("INDIVIDUAL")}
-                      className={`p-2 rounded border text-left font-bold transition ${
-                        editCtEntityType === "INDIVIDUAL"
-                          ? "border-amber-600 bg-amber-50 text-amber-900 ring-1 ring-amber-500"
-                          : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
-                      }`}
-                    >
-                      <div>드래곤알피에이 [개인]</div>
-                      <div className="text-[10px] font-normal font-mono opacity-80">295-03-02683</div>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between">
-                    <label className="font-bold text-[#78716c]">고객사 (상호명) *</label>
-                    <select
-                      value={editCtPartnerId || ""}
-                      onChange={(e) => {
-                        const pid = Number(e.target.value) || null;
-                        setEditCtPartnerId(pid);
-                        const found = partners.find((p) => p.id === pid);
-                        if (found) {
-                          setEditCtCustomer(found.name);
-                          setEditCtTaxSpec((prev) => extractPartnerTaxSpec(found, prev));
-                        }
-                      }}
-                      className="h-6 px-1.5 rounded border border-[#b5a894] bg-[#ebe5d8] text-[10px] text-[#57534e]"
-                    >
-                      <option value="">등록 거래처에서 불러오기</option>
-                      {partners.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.businessNo || "-"})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <input
-                    type="text"
-                    value={editCtCustomer}
-                    onChange={(e) => setEditCtCustomer(e.target.value)}
-                    required
-                    className="h-9 px-2.5 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-bold"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div className="md:col-span-2 flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="font-bold text-[#78716c]">용역 / 프로젝트명 *</label>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const base = (editCtProject || "용역")
-                            .replace(/\{yyyy\}년\s*\{mm\}월\s*/gi, "")
-                            .replace(/\s*\{yymm\}/gi, "")
-                            .replace(/\s*\{yyyy-mm\}/gi, "")
-                            .trim();
-                          const nextTpl = `{yyyy}년 {mm}월 ${base.endsWith("료") || base.endsWith("비") ? base : `${base}료`}`;
-                          setEditCtTaxSpec((prev) => ({
-                            ...prev,
-                            taxMemo: nextTpl,
-                            taxItems: prev.taxItems.map((it, idx) =>
-                              idx === 0 ? { ...it, itemName: nextTpl } : it
-                            ),
-                          }));
-                        }}
-                        className="px-1.5 py-0.5 rounded border border-blue-400 bg-blue-50 hover:bg-blue-100 text-blue-900 font-mono font-bold text-[10px]"
-                        title="세금계산서 상단 비고 및 1번째 품목에 '{yyyy}년 {mm}월 ...료' 치환식 적용"
-                      >
-                        &#123;yyyy&#125;년 &#123;mm&#125;월
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = editCtProject
-                            ? `${editCtProject.replace(/\s*\{yymm\}/gi, "")} {yymm}`.trim()
-                            : "용역료 {yymm}";
-                          setEditCtProject(next);
-                          setEditCtTaxSpec((prev) => ({
-                            ...prev,
-                            taxMemo: next,
-                            taxItems: prev.taxItems.map((it, idx) =>
-                              idx === 0 ? { ...it, itemName: next } : it
-                            ),
-                          }));
-                        }}
-                        className="px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 font-mono font-bold text-[10px]"
-                        title="청구 생성 시 연월(예: 2610)로 자동 치환"
-                      >
-                        + &#123;yymm&#125;
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = editCtProject
-                            ? `${editCtProject.replace(/\s*\{yyyy-mm\}/gi, "")} {yyyy-mm}`.trim()
-                            : "용역료 {yyyy-mm}";
-                          setEditCtProject(next);
-                          setEditCtTaxSpec((prev) => ({
-                            ...prev,
-                            taxMemo: next,
-                            taxItems: prev.taxItems.map((it, idx) =>
-                              idx === 0 ? { ...it, itemName: next } : it
-                            ),
-                          }));
-                        }}
-                        className="px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 font-mono font-bold text-[10px]"
-                        title="청구 생성 시 연-월(예: 2026-10)로 자동 치환"
-                      >
-                        + &#123;yyyy-mm&#125;
-                      </button>
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    value={editCtProject}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const prevProject = editCtProject;
-                      const prevAuto = prevProject
-                        ? `{yyyy}년 {mm}월 ${prevProject.endsWith("료") || prevProject.endsWith("비") ? prevProject : `${prevProject}료`}`
-                        : "";
-                      const nextAuto = val
-                        ? /\{[^}]+\}/.test(val)
-                          ? val
-                          : `{yyyy}년 {mm}월 ${val.endsWith("료") || val.endsWith("비") ? val : `${val}료`}`
-                        : "{yyyy}년 {mm}월 용역료";
-                      setEditCtProject(val);
-                      setEditCtTaxSpec((prev) => ({
-                        ...prev,
-                        taxMemo:
-                          !prev.taxMemo || prev.taxMemo === prevProject || prev.taxMemo === prevAuto
-                            ? nextAuto
-                            : prev.taxMemo,
-                        taxItems: prev.taxItems.map((it, idx) =>
-                          idx === 0 && (!it.itemName || it.itemName === prevProject || it.itemName === prevAuto)
-                            ? { ...it, itemName: nextAuto }
-                            : it
-                        ),
-                      }));
-                    }}
-                    placeholder="예: RPA 유지보수 (입력 시 세금계산서에 '{yyyy}년 {mm}월 RPA 유지보수료' 치환식 자동 생성)"
-                    required
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-semibold"
-                  />
-                </div>
-
-                {activeType === "OPERATIONAL" ? (
-                  <div className="flex flex-col gap-1">
-                    <label className="font-bold text-[#78716c]">월 정기 용역료 (공급가액)</label>
-                    <input
-                      type="text"
-                      value={editCtMonthlyFee}
-                      onChange={(e) => {
-                        const formatted = formatErpInputNumber(e.target.value);
-                        setEditCtMonthlyFee(formatted);
-                        const num = cleanErpNumber(formatted);
-                        const vat = Math.round(num * 0.1);
-                        setEditCtVatAmount(toErpInputString(vat));
-                        setEditCtTaxSpec((prev) => ({
-                          ...prev,
-                          taxItems: prev.taxItems.map((it, idx) =>
-                            idx === 0
-                              ? {
-                                  ...it,
-                                  unitCost: Math.round(num / (Number(it.qty) || 1)),
-                                  supplyAmount: num,
-                                  vatAmount: vat,
-                                }
-                              : it
-                          ),
-                        }));
-                      }}
-                      placeholder="예: 300,000"
-                      required
-                      className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
-                    />
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    <label className="font-bold text-[#78716c]">총 계약금 (공급가액)</label>
-                    <input
-                      type="text"
-                      value={editCtAmount}
-                      onChange={(e) => {
-                        const formatted = formatErpInputNumber(e.target.value);
-                        setEditCtAmount(formatted);
-                        const num = cleanErpNumber(formatted);
-                        const vat = Math.round(num * 0.1);
-                        setEditCtVatAmount(toErpInputString(vat));
-                        setEditCtTaxSpec((prev) => ({
-                          ...prev,
-                          taxItems: prev.taxItems.map((it, idx) =>
-                            idx === 0
-                              ? {
-                                  ...it,
-                                  unitCost: Math.round(num / (Number(it.qty) || 1)),
-                                  supplyAmount: num,
-                                  vatAmount: vat,
-                                }
-                              : it
-                          ),
-                        }));
-                      }}
-                      placeholder="예: 10,000,000"
-                      required
-                      className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
-                    />
-                  </div>
-                )}
-
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">세액 (VAT)</label>
-                  <input
-                    type="text"
-                    value={editCtVatAmount}
-                    onChange={(e) => setEditCtVatAmount(formatErpInputNumber(e.target.value))}
-                    placeholder="예: 272,727"
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">정기 청구일 (매월)</label>
-                  <select
-                    value={editCtBillingDay}
-                    onChange={(e) => setEditCtBillingDay(e.target.value)}
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                  >
-                    <option value="5">매월 5일</option>
-                    <option value="10">매월 10일</option>
-                    <option value="15">매월 15일</option>
-                    <option value="20">매월 20일</option>
-                    <option value="25">매월 25일</option>
-                    <option value="31">매월 말일</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">계약 시작일 *</label>
-                  <input
-                    type="date"
-                    value={editCtStart}
-                    onChange={(e) => setEditCtStart(e.target.value)}
-                    required
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">계약 종료일 *</label>
-                  <input
-                    type="date"
-                    value={editCtEnd}
-                    onChange={(e) => setEditCtEnd(e.target.value)}
-                    required
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">계약 상태</label>
-                  <select
-                    value={editCtStatus}
-                    onChange={(e) => setEditCtStatus(e.target.value)}
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                  >
-                    <option value="ACTIVE">진행중 (ACTIVE)</option>
-                    <option value="TERMINATED">중도해지 (TERMINATED)</option>
-                    <option value="COMPLETED">정상종결 (COMPLETED)</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">비고</label>
-                  <input
-                    type="text"
-                    value={editCtMemo}
-                    onChange={(e) => setEditCtMemo(e.target.value)}
-                    placeholder="특약 메모"
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                  />
-                </div>
-              </div>
-
-              {/* 운영용역 투입 임직원 및 직원별 계약금액(받는금액) 수정 섹션 */}
-              <div className="p-3 rounded border border-blue-300 bg-[#ebe5d8] flex flex-col gap-2">
-                {(() => {
-                  const enrichedEditList = enrichAssignedEmployeeJoinDates(editCtAssignedEmployees);
-                  const baseRateSum = enrichedEditList.reduce((s, e) => s + (Number(e.contractRate) || 0), 0);
-                  const proRataCalcs = enrichedEditList.map((e) =>
-                    calculateServiceEmployeeMonthlyProRata(
-                      e.contractRate,
-                      editCtProRataMonth,
-                      e.joinDate,
-                      e.leaveDate,
-                      editCtApplyProRata && e.proRataEnabled !== false,
-                      false
-                    )
-                  );
-                  const proRatedSum = proRataCalcs.reduce((s, c) => s + c.effectiveAmount, 0);
-                  const hasProRatedDiff = editCtApplyProRata && proRatedSum !== baseRateSum;
-
-                  return (
-                    <>
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#b5a894] pb-2">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Users className="w-4 h-4 text-blue-800" />
-                          <span className="font-bold text-xs text-[#1c1917]">
-                            투입 임직원 및 직원별 월 계약금액(받는금액) 편성
-                          </span>
-                          <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px]">
-                            총 {enrichedEditList.length}명 | 기본 합계 {formatErpCurrency(baseRateSum)}
-                            {hasProRatedDiff && (
-                              <span className="ml-1 text-amber-900 font-extrabold">
-                                ➔ 일할반영({editCtProRataMonth}) {formatErpCurrency(proRatedSum)}
-                              </span>
-                            )}
-                            {editCtIncludeOtInBilling && (
-                              <span className="ml-1 text-indigo-800">
-                                + 초과근무수당 {formatErpCurrency(editCtOtBreakdown.totalOtPay)}
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-amber-400 bg-amber-50 text-amber-950 font-bold text-[11px]">
-                            <label className="inline-flex items-center gap-1 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={editCtApplyProRata}
-                                onChange={(e) => {
-                                  const nextVal = e.target.checked;
-                                  setEditCtApplyProRata(nextVal);
-                                  syncAssignedEmployeesToContract(
-                                    editCtAssignedEmployees,
-                                    true,
-                                    undefined,
-                                    nextVal,
-                                    editCtProRataMonth
-                                  );
-                                }}
-                                className="w-3.5 h-3.5 accent-amber-700"
-                              />
-                              <span>중도입사 일할계산 반영</span>
-                            </label>
-                            <input
-                              type="month"
-                              value={editCtProRataMonth}
-                              onChange={(e) => {
-                                const nextMonth = e.target.value;
-                                if (!nextMonth) return;
-                                setEditCtProRataMonth(nextMonth);
-                                syncAssignedEmployeesToContract(
-                                  editCtAssignedEmployees,
-                                  true,
-                                  undefined,
-                                  editCtApplyProRata,
-                                  nextMonth
-                                );
-                              }}
-                              className="h-5 px-1 rounded border border-amber-400 bg-white text-[10px] font-mono text-amber-950"
-                              title="일할계산 기준 연월"
-                            />
-                          </div>
-                          <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-indigo-300 bg-indigo-50 text-indigo-900 font-bold text-[11px] cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={editCtIncludeOtInBilling}
-                              onChange={(e) => {
-                                const nextVal = e.target.checked;
-                                setEditCtIncludeOtInBilling(nextVal);
-                                syncAssignedEmployeesToContract(editCtAssignedEmployees, true, nextVal);
-                              }}
-                              className="w-3.5 h-3.5 accent-indigo-700"
-                            />
-                            <span>초과근무수당 반영</span>
-                          </label>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <select
-                            value={editCtSelectedEmpId}
-                            onChange={(e) => setEditCtSelectedEmpId(e.target.value)}
-                            className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs font-semibold"
-                          >
-                            <option value="">-- 투입할 임직원 선택 --</option>
-                            {employees
-                              .filter((emp) => !editCtAssignedEmployees.some((a) => a.employeeId === emp.id))
-                              .map((emp) => (
-                                <option key={emp.id} value={emp.id}>
-                                  [{emp.employeeNo || `EMP-${emp.id}`}] {emp.name} ({emp.position || "사원"} / 입사 {emp.joinDate ? String(emp.joinDate).slice(0, 10) : "-"})
-                                </option>
-                              ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!editCtSelectedEmpId) {
-                                showToast("추가할 임직원을 선택하세요.", "error");
-                                return;
-                              }
-                              const emp = employees.find((x) => String(x.id) === String(editCtSelectedEmpId));
-                              if (!emp) return;
-                              if (editCtAssignedEmployees.some((x) => x.employeeId === emp.id)) {
-                                showToast("이미 추가된 임직원입니다.", "error");
-                                return;
-                              }
-                              const defaultRate =
-                                Number(emp.serviceContractAmount) > 0
-                                  ? Number(emp.serviceContractAmount)
-                                  : Number(emp.baseSalary) > 0
-                                  ? Number(emp.baseSalary)
-                                  : 3000000;
-                              const nextList: AssignedServiceEmployee[] = [
-                                ...editCtAssignedEmployees,
-                                {
-                                  employeeId: emp.id,
-                                  employeeNo: emp.employeeNo || "",
-                                  name: emp.name,
-                                  position: emp.position || "",
-                                  department: emp.department || "",
-                                  joinDate: emp.joinDate ? String(emp.joinDate).slice(0, 10) : "",
-                                  leaveDate: emp.leaveDate ? String(emp.leaveDate).slice(0, 10) : "",
-                                  contractRate: defaultRate,
-                                  proRataEnabled: true,
-                                  note: "",
-                                },
-                              ];
-                              syncAssignedEmployeesToContract(nextList, true);
-                              setEditCtSelectedEmpId("");
-                            }}
-                            className="h-7 px-2.5 rounded bg-blue-700 hover:bg-blue-800 text-white font-bold text-[11px] inline-flex items-center gap-1 shadow-sm"
-                          >
-                            <UserPlus className="w-3.5 h-3.5" />
-                            <span>임직원 투입 추가</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {enrichedEditList.length === 0 ? (
-                        <div className="py-3 text-center text-[#78716c] text-[11px]">
-                          등록된 투입 임직원이 없습니다. 상단에서 임직원을 선택하고 [임직원 투입 추가]를 클릭하세요.
-                        </div>
-                      ) : (
-                        <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
-                          <thead className="bg-[#dfd7c7] text-[#44403c] border-b border-[#b5a894] font-bold">
-                            <tr>
-                              <th className="py-1.5 px-2 w-10 text-center">제외</th>
-                              <th className="py-1.5 px-2">사번</th>
-                              <th className="py-1.5 px-2">성명 / 직급</th>
-                              <th className="py-1.5 px-2">입사일(투입일)</th>
-                              <th className="py-1.5 px-2 text-right w-36">월 기준금액 (원)</th>
-                              <th className="py-1.5 px-2 text-right w-44">당월 일할적용액 ({editCtProRataMonth})</th>
-                              <th className="py-1.5 px-2 text-right w-32">당월 초과근무수당</th>
-                              <th className="py-1.5 px-2">업무/역할 비고</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[#b5a894] bg-[#f4efe4]">
-                            {enrichedEditList.map((row, idx) => {
-                              const empOt = editCtOtBreakdown.byEmp[row.employeeId] || { hours: 0, otPay: 0, count: 0 };
-                              const prCalc = proRataCalcs[idx];
-                              return (
-                                <tr key={row.employeeId} className={prCalc.isProRated ? "bg-amber-50/60" : ""}>
-                                  <td className="py-1.5 px-2 text-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const nextList = editCtAssignedEmployees.filter((_, i) => i !== idx);
-                                        syncAssignedEmployeesToContract(nextList, true);
-                                      }}
-                                      className="p-1 text-rose-700 hover:bg-rose-100 rounded"
-                                      title="투입 제외"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </td>
-                                  <td className="py-1.5 px-2 font-mono text-[#78716c]">{row.employeeNo || "-"}</td>
-                                  <td className="py-1.5 px-2 font-bold text-[#1c1917]">
-                                    {row.name}{" "}
-                                    <span className="text-[10px] font-normal text-[#78716c]">
-                                      ({row.position || "사원"})
-                                    </span>
-                                  </td>
-                                  <td className="py-1.5 px-2">
-                                    <input
-                                      type="date"
-                                      value={row.joinDate || ""}
-                                      onChange={(e) => {
-                                        const nextJoin = e.target.value;
-                                        const nextList = enrichedEditList.map((it, i) =>
-                                          i === idx ? { ...it, joinDate: nextJoin } : it
-                                        );
-                                        syncAssignedEmployeesToContract(nextList, true);
-                                      }}
-                                      className="h-7 px-1.5 rounded border border-[#b5a894] bg-white font-mono text-[11px] text-[#1c1917]"
-                                    />
-                                  </td>
-                                  <td className="py-1.5 px-2">
-                                    <input
-                                      type="text"
-                                      value={toErpInputString(row.contractRate)}
-                                      onChange={(e) => {
-                                        const rate = cleanErpNumber(formatErpInputNumber(e.target.value));
-                                        const nextList = enrichedEditList.map((it, i) =>
-                                          i === idx ? { ...it, contractRate: rate } : it
-                                        );
-                                        syncAssignedEmployeesToContract(nextList, true);
-                                      }}
-                                      className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-right font-mono font-bold text-blue-900"
-                                    />
-                                  </td>
-                                  <td className="py-1.5 px-2 text-right font-mono">
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      <input
-                                        type="checkbox"
-                                        checked={row.proRataEnabled !== false}
-                                        onChange={(e) => {
-                                          const checked = e.target.checked;
-                                          const nextList = enrichedEditList.map((it, i) =>
-                                            i === idx ? { ...it, proRataEnabled: checked } : it
-                                          );
-                                          syncAssignedEmployeesToContract(nextList, true);
-                                        }}
-                                        className="w-3.5 h-3.5 accent-amber-700"
-                                        title="해당 직원 입사일 일할계산 적용 여부"
-                                      />
-                                      <span
-                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                                          prCalc.isProRated
-                                            ? "bg-amber-100 text-amber-900 border-amber-400"
-                                            : "bg-[#ebe5d8] text-[#78716c] border-[#b5a894]"
-                                        }`}
-                                      >
-                                        {prCalc.shortBadge}
-                                      </span>
-                                      <span
-                                        className={
-                                          prCalc.isProRated
-                                            ? "font-extrabold text-amber-900"
-                                            : "font-bold text-[#1c1917]"
-                                        }
-                                      >
-                                        {formatErpCurrency(prCalc.effectiveAmount)}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="py-1.5 px-2 text-right font-mono">
-                                    <span
-                                      className={
-                                        editCtIncludeOtInBilling && empOt.otPay > 0
-                                          ? "font-bold text-indigo-800"
-                                          : "text-[#78716c]"
-                                      }
-                                    >
-                                      {formatErpCurrency(empOt.otPay)}
-                                    </span>
-                                    <span className="ml-1 text-[10px] text-[#78716c]">({empOt.hours}h)</span>
-                                  </td>
-                                  <td className="py-1.5 px-2">
-                                    <input
-                                      type="text"
-                                      value={row.note}
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        setEditCtAssignedEmployees((prev) =>
-                                          prev.map((it, i) => (i === idx ? { ...it, note: val } : it))
-                                        );
-                                      }}
-                                      placeholder="담당 업무 또는 비고"
-                                      className="w-full h-7 px-2 rounded border border-[#b5a894] bg-white text-[#1c1917]"
-                                    />
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-
-              {/* 전자세금계산서 발행 제원 및 품목 명세 섹션 */}
-              <ContractTaxInvoiceSection
-                spec={editCtTaxSpec}
-                onChange={setEditCtTaxSpec}
-                onTotalChange={(totalSupply, totalVat) => {
-                  if (activeType === "OPERATIONAL") {
-                    setEditCtMonthlyFee(toErpInputString(totalSupply));
-                  } else {
-                    setEditCtAmount(toErpInputString(totalSupply));
-                  }
-                  setEditCtVatAmount(toErpInputString(totalVat));
-                }}
-                domainLabel={activeType === "OPERATIONAL" ? "운영용역" : "개발용역"}
-              />
-
-              {/* 계약서 원본 변경/첨부 */}
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#78716c]">용역계약서 파일 (선택)</label>
-                <input
-                  ref={editFileInputRef}
-                  type="file"
-                  accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.hwp"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleEditFileUpload(file);
-                  }}
-                  className="hidden"
-                />
-                <div className="flex items-center justify-between px-3 py-1.5 rounded bg-[#ebe5d8] border border-[#b5a894]">
-                  <span className="text-[#44403c] truncate">
-                    {editCtFileName ? `첨부파일: ${editCtFileName}` : "첨부된 계약서 파일 없음"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => editFileInputRef.current?.click()}
-                    className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-blue-700 text-white"
-                  >
-                    파일 업로드/변경
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#b5a894] mt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowEditContractModal(false)}
-                  className="h-8 px-3 rounded font-bold border border-[#b5a894] bg-[#ebe5d8] hover:bg-[#e2dbcd]"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="h-8 px-4 rounded font-bold text-white bg-blue-700 hover:bg-blue-800 shadow-sm"
-                >
-                  수정 내용 저장
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <EditContractModal
+        activeType={activeType}
+        editCtAmount={editCtAmount}
+        editCtApplyProRata={editCtApplyProRata}
+        editCtAssignedEmployees={editCtAssignedEmployees}
+        editCtBillingDay={editCtBillingDay}
+        editCtContractNo={editCtContractNo}
+        editCtCustomer={editCtCustomer}
+        editCtEnd={editCtEnd}
+        editCtEntityType={editCtEntityType}
+        editCtFileName={editCtFileName}
+        editCtIncludeOtInBilling={editCtIncludeOtInBilling}
+        editCtMemo={editCtMemo}
+        editCtMonthlyFee={editCtMonthlyFee}
+        editCtOtBreakdown={editCtOtBreakdown}
+        editCtPartnerId={editCtPartnerId}
+        editCtProRataMonth={editCtProRataMonth}
+        editCtProject={editCtProject}
+        editCtSelectedEmpId={editCtSelectedEmpId}
+        editCtStart={editCtStart}
+        editCtStatus={editCtStatus}
+        editCtTaxSpec={editCtTaxSpec}
+        editCtVatAmount={editCtVatAmount}
+        editFileInputRef={editFileInputRef}
+        employees={employees}
+        enrichAssignedEmployeeJoinDates={enrichAssignedEmployeeJoinDates}
+        handleEditFileUpload={handleEditFileUpload}
+        handleUpdateContract={handleUpdateContract}
+        partners={partners}
+        servicePartnerOptions={servicePartnerOptions}
+        setEditCtAmount={setEditCtAmount}
+        setEditCtApplyProRata={setEditCtApplyProRata}
+        setEditCtAssignedEmployees={setEditCtAssignedEmployees}
+        setEditCtBillingDay={setEditCtBillingDay}
+        setEditCtCustomer={setEditCtCustomer}
+        setEditCtEnd={setEditCtEnd}
+        setEditCtEntityType={setEditCtEntityType}
+        setEditCtIncludeOtInBilling={setEditCtIncludeOtInBilling}
+        setEditCtMemo={setEditCtMemo}
+        setEditCtMonthlyFee={setEditCtMonthlyFee}
+        setEditCtPartnerId={setEditCtPartnerId}
+        setEditCtProRataMonth={setEditCtProRataMonth}
+        setEditCtProject={setEditCtProject}
+        setEditCtSelectedEmpId={setEditCtSelectedEmpId}
+        setEditCtStart={setEditCtStart}
+        setEditCtStatus={setEditCtStatus}
+        setEditCtTaxSpec={setEditCtTaxSpec}
+        setEditCtVatAmount={setEditCtVatAmount}
+        setShowEditContractModal={setShowEditContractModal}
+        showEditContractModal={showEditContractModal}
+        showToast={showToast}
+        syncAssignedEmployeesToContract={syncAssignedEmployeesToContract}
+      />
 
       {/* ============================================================== */}
       {/* MODAL 3: ADD BILLING                                           */}
       {/* ============================================================== */}
-      {showAddBillingModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-[#f4efe4] border-2 border-[#b5a894] rounded-lg max-w-4xl w-full max-h-[92vh] overflow-y-auto p-5 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894] mb-4">
-              <div className="flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-emerald-700" />
-                <h3 className="font-bold text-sm text-[#1c1917]">
-                  {activeType === "OPERATIONAL" ? "정기 용역료 청구 생성" : "기성금 청구 생성"}
-                </h3>
-              </div>
-              <button onClick={() => setShowAddBillingModal(false)} className="text-[#78716c] hover:text-[#1c1917]">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddBilling} className="flex flex-col gap-3 text-xs">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">대상 체결 계약 선택 *</label>
-                  <select
-                    value={blContractId}
-                    onChange={(e) => {
-                      const cid = e.target.value;
-                      setBlContractId(cid);
-                      const ct = contracts.find((c) => String(c.id) === cid);
-                      if (ct) {
-                        applyServiceContractTemplateToBilling(ct, blDate);
-                      }
-                    }}
-                    required
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-semibold"
-                  >
-                    <option value="">-- 계약을 선택하세요 --</option>
-                    {contracts.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        [{c.contractNo}] {c.customerName} - {c.projectName} ({activeType === "OPERATIONAL" ? `월 ${formatErpCurrency(c.monthlyFee)}` : `총 ${formatErpCurrency(c.contractAmount)}`})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">청구 구분 / 회차명 *</label>
-                  <input
-                    type="text"
-                    value={blMilestoneName}
-                    onChange={(e) => setBlMilestoneName(e.target.value)}
-                    placeholder={activeType === "OPERATIONAL" ? "예: 2026-09 운영용역비 외" : "예: 1차 착수금 (30%)"}
-                    required
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">청구일자 (작성일자) *</label>
-                  <input
-                    type="date"
-                    value={blDate}
-                    onChange={(e) => {
-                      const nextDate = e.target.value;
-                      setBlDate(nextDate);
-                      const ct = contracts.find((c) => String(c.id) === blContractId);
-                      if (ct && nextDate) {
-                        applyServiceContractTemplateToBilling(ct, nextDate);
-                      }
-                    }}
-                    required
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">공급가액 *</label>
-                  <input
-                    type="text"
-                    value={blSupplyAmount}
-                    onChange={(e) => {
-                      const formatted = formatErpInputNumber(e.target.value);
-                      setBlSupplyAmount(formatted);
-                      const num = cleanErpNumber(formatted);
-                      setBlVatAmount(toErpInputString(Math.round(num * 0.1)));
-                    }}
-                    placeholder="예: 20,424,877"
-                    required
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right font-bold"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">세액 (VAT)</label>
-                  <input
-                    type="text"
-                    value={blVatAmount}
-                    onChange={(e) => setBlVatAmount(formatErpInputNumber(e.target.value))}
-                    placeholder="예: 2,042,487"
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-right"
-                  />
-                </div>
-              </div>
-
-              {/* 투입인원 월 용역료 및 중도입사 일할계산 / 초과근무수당 자동합산 반영 섹션 */}
-              {blContractId && (
-                <div className="flex flex-col gap-2">
-                  {(() => {
-                    const selectedCt = contracts.find((c) => String(c.id) === blContractId);
-                    const assignedList: AssignedServiceEmployee[] = enrichAssignedEmployeeJoinDates(
-                      Array.isArray(selectedCt?.assignedEmployees) ? selectedCt.assignedEmployees : []
-                    );
-                    if (assignedList.length === 0) return null;
-                    const targetYm = (blDate || new Date().toISOString().slice(0, 10)).slice(0, 7);
-                    const details = assignedList.map((emp) => ({
-                      emp,
-                      calc: calculateServiceEmployeeMonthlyProRata(
-                        emp.contractRate,
-                        targetYm,
-                        emp.joinDate,
-                        emp.leaveDate,
-                        blApplyProRata && emp.proRataEnabled !== false,
-                        true
-                      ),
-                    }));
-                    const baseSum = assignedList.reduce((s, e) => s + (Number(e.contractRate) || 0), 0);
-                    const effSum = details.reduce((s, d) => s + d.calc.effectiveAmount, 0);
-
-                    return (
-                      <div className="p-3 rounded border border-amber-400 bg-[#ebe5d8] flex flex-col gap-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <label className="inline-flex items-center gap-2 font-bold text-xs text-amber-950 cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={blApplyProRata}
-                              onChange={(e) => {
-                                const nextVal = e.target.checked;
-                                if (selectedCt) {
-                                  applyServiceContractTemplateToBilling(
-                                    selectedCt,
-                                    blDate,
-                                    blIncludeOtInBilling,
-                                    nextVal
-                                  );
-                                } else {
-                                  setBlApplyProRata(nextVal);
-                                }
-                              }}
-                              className="w-4 h-4 accent-amber-700"
-                            />
-                            <span>
-                              투입인원 입사일 기준 일할계산 반영 ({targetYm} 근무일수 비례)
-                            </span>
-                          </label>
-                          <div className="text-xs font-mono font-bold text-[#1c1917]">
-                            월 기본합계: {formatErpCurrency(baseSum)} ➔{" "}
-                            <span className="text-amber-900 font-extrabold">
-                              당월 적용합계: {formatErpCurrency(blApplyProRata ? effSum : baseSum)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[#b5a894] text-[11px]">
-                          {details.map(({ emp, calc }) => (
-                            <span
-                              key={emp.employeeId}
-                              className={`px-2 py-0.5 rounded border font-mono ${
-                                calc.isProRated
-                                  ? "bg-amber-50 border-amber-400 text-amber-950 font-bold"
-                                  : "bg-[#f4efe4] border-[#b5a894] text-[#1c1917]"
-                              }`}
-                            >
-                              <strong>{emp.name}</strong> ({emp.joinDate || "입사일미상"}):{" "}
-                              {calc.shortBadge} ➔ {formatErpCurrency(calc.effectiveAmount)}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="p-3 rounded border border-indigo-300 bg-[#ebe5d8] flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <label className="inline-flex items-center gap-2 font-bold text-xs text-indigo-900 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={blIncludeOtInBilling}
-                          onChange={(e) => {
-                            const nextVal = e.target.checked;
-                            const ct = contracts.find((c) => String(c.id) === blContractId);
-                            if (ct) {
-                              applyServiceContractTemplateToBilling(ct, blDate, nextVal);
-                            } else {
-                              setBlIncludeOtInBilling(nextVal);
-                            }
-                          }}
-                          className="w-4 h-4 accent-indigo-700"
-                        />
-                        <span>
-                          초과근무수당 청구 반영 ({blOtSummary.month || blDate.slice(0, 7)} 투입인원 초과근무수당 자동합산)
-                        </span>
-                      </label>
-                      <div className="text-xs font-mono font-bold text-indigo-900">
-                        합산 초과근무: {blOtSummary.totalHours}시간 | 합산 수당액:{" "}
-                        <span className="text-blue-800">{formatErpCurrency(blOtSummary.totalOtPay)}</span>
-                      </div>
-                    </div>
-                    {blOtSummary.items.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[#b5a894] text-[11px]">
-                        {blOtSummary.items.map((it) => (
-                          <span
-                            key={it.employeeId}
-                            className="px-2 py-0.5 rounded bg-[#f4efe4] border border-[#b5a894] font-mono text-[#1c1917]"
-                          >
-                            <strong>{it.employeeName}</strong>: {it.hours}h ({formatErpCurrency(it.otPay)})
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* 청구별 세금계산서 다중 품목 명세 (예: 운영용역비 + 초과근무 + 퇴직금 + 연차수당) */}
-              <ContractTaxInvoiceSection
-                spec={blTaxSpec}
-                onChange={setBlTaxSpec}
-                hideBuyerFields={true}
-                onTotalChange={(totalSupply, totalVat) => {
-                  setBlSupplyAmount(toErpInputString(totalSupply));
-                  setBlVatAmount(toErpInputString(totalVat));
-                }}
-                domainLabel="당월 청구 품목"
-              />
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#b5a894] mt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowAddBillingModal(false)}
-                  className="h-8 px-3 rounded font-bold border border-[#b5a894] bg-[#ebe5d8] hover:bg-[#e2dbcd]"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="h-8 px-4 rounded font-bold text-white bg-emerald-700 hover:bg-emerald-800 shadow-sm"
-                >
-                  청구 등록
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AddBillingModal
+        activeType={activeType}
+        applyServiceContractTemplateToBilling={applyServiceContractTemplateToBilling}
+        blApplyProRata={blApplyProRata}
+        blContractId={blContractId}
+        blDate={blDate}
+        blIncludeOtInBilling={blIncludeOtInBilling}
+        blMilestoneName={blMilestoneName}
+        blOtSummary={blOtSummary}
+        blSupplyAmount={blSupplyAmount}
+        blTaxSpec={blTaxSpec}
+        blVatAmount={blVatAmount}
+        contracts={contracts}
+        enrichAssignedEmployeeJoinDates={enrichAssignedEmployeeJoinDates}
+        handleAddBilling={handleAddBilling}
+        serviceContractOptions={serviceContractOptions}
+        setBlApplyProRata={setBlApplyProRata}
+        setBlContractId={setBlContractId}
+        setBlDate={setBlDate}
+        setBlIncludeOtInBilling={setBlIncludeOtInBilling}
+        setBlMilestoneName={setBlMilestoneName}
+        setBlSupplyAmount={setBlSupplyAmount}
+        setBlTaxSpec={setBlTaxSpec}
+        setBlVatAmount={setBlVatAmount}
+        setShowAddBillingModal={setShowAddBillingModal}
+        showAddBillingModal={showAddBillingModal}
+      />
 
       {/* ============================================================== */}
       {/* MODAL 4: DOCUMENT VIEWER                                       */}

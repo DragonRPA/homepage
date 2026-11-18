@@ -2,6 +2,9 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { selectPreferredBizItem } from "@/lib/erpFormat";
+import { ensurePartnerStatusSchema } from "@/lib/partnerStatusService";
+import { decryptPii, encryptPii } from "@/lib/piiCrypto";
+import { ensureErpCoreIndexes } from "@/lib/erpSchemaCache";
 
 // GET /api/erp/partners
 // Query params: id (optional single partner with file blobs), type (CUSTOMER | VENDOR | BOTH | ALL), search, status, managerEmployeeId, includeFiles
@@ -16,6 +19,7 @@ export async function GET(request: Request) {
     const includeFiles = searchParams.get("includeFiles") === "1";
 
     const pool = getErpPool();
+    await Promise.all([ensurePartnerStatusSchema(pool), ensureErpCoreIndexes(pool)]);
 
     // Fast path: Single partner document/detail lookup on-demand
     if (idParam) {
@@ -24,6 +28,12 @@ export async function GET(request: Request) {
         SELECT 
           p.id,
           p.name,
+          p.status,
+          p.nts_biz_state AS "ntsBizState",
+          p.nts_tax_type AS "ntsTaxType",
+          p.nts_closed_date AS "ntsClosedDate",
+          p.nts_status_msg AS "ntsStatusMsg",
+          p.nts_checked_at AS "ntsCheckedAt",
           p.biz_cert_file_url AS "bizCertFileUrl",
           p.biz_cert_file_name AS "bizCertFileName",
           p.bank_copy_file_url AS "bankCopyFileUrl",
@@ -76,6 +86,11 @@ export async function GET(request: Request) {
         p.tax_invoice_closing_day AS "taxInvoiceClosingDay",
         p.payment_due_day AS "paymentDueDay",
         p.status,
+        p.nts_biz_state AS "ntsBizState",
+        p.nts_tax_type AS "ntsTaxType",
+        p.nts_closed_date AS "ntsClosedDate",
+        p.nts_status_msg AS "ntsStatusMsg",
+        p.nts_checked_at AS "ntsCheckedAt",
         p.memo,
         ${includeFiles ? `p.biz_cert_file_url AS "bizCertFileUrl",` : `NULL AS "bizCertFileUrl",`}
         p.biz_cert_file_name AS "bizCertFileName",
@@ -165,20 +180,27 @@ export async function GET(request: Request) {
           COUNT(CASE WHEN partner_type IN ('CUSTOMER', 'BOTH') THEN 1 END)::int AS "customerCount",
           COUNT(CASE WHEN partner_type IN ('VENDOR', 'BOTH') THEN 1 END)::int AS "vendorCount",
           COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END)::int AS "activeCount",
+          COUNT(CASE WHEN status = 'BLOCKED' OR nts_biz_state IN ('SUSPENDED', 'CLOSED') THEN 1 END)::int AS "blockedCount",
           COUNT(CASE WHEN biz_cert_file_url IS NOT NULL AND biz_cert_file_url <> '' THEN 1 END)::int AS "withBizCertCount",
           COUNT(CASE WHEN contract_file_url IS NOT NULL AND contract_file_url <> '' THEN 1 END)::int AS "withContractCount"
         FROM erp_partners
       `),
     ]);
 
+    const partners = res.rows.map((row: any) => ({
+      ...row,
+      bankAccountNo: row.bankAccountNo ? decryptPii(row.bankAccountNo) : null,
+    }));
+
     return NextResponse.json({
       success: true,
-      partners: res.rows,
+      partners,
       kpi: kpiRes.rows[0] || {
         totalCount: 0,
         customerCount: 0,
         vendorCount: 0,
         activeCount: 0,
+        blockedCount: 0,
         withBizCertCount: 0,
         withContractCount: 0,
       },
@@ -218,6 +240,11 @@ export async function POST(request: Request) {
       taxInvoiceClosingDay = "익월 10일",
       paymentDueDay = "익월 15일",
       status = "ACTIVE",
+      ntsBizState,
+      ntsTaxType,
+      ntsClosedDate,
+      ntsStatusMsg,
+      ntsCheckedAt,
       memo,
       bizCertFileUrl,
       bizCertFileName,
@@ -239,6 +266,7 @@ export async function POST(request: Request) {
     }
 
     const pool = getErpPool();
+    await Promise.all([ensurePartnerStatusSchema(pool), ensureErpCoreIndexes(pool)]);
     const client = await pool.connect();
 
     try {
@@ -305,20 +333,28 @@ export async function POST(request: Request) {
         }
       }
 
+      const resolvedInitialStatus =
+        ntsBizState === "SUSPENDED" || ntsBizState === "CLOSED"
+          ? "BLOCKED"
+          : status || "ACTIVE";
+
       const insRes = await client.query(
         `
         INSERT INTO erp_partners (
           partner_type, partner_code, name, business_no, corporate_no, ceo_name,
           biz_type, biz_item, address, address_detail, main_phone, main_email, sub_email,
           fax_no, manager_employee_id, manager_name, statement_closing_day,
-          tax_invoice_closing_day, payment_due_day, status, memo,
+          tax_invoice_closing_day, payment_due_day, status,
+          nts_biz_state, nts_tax_type, nts_closed_date, nts_status_msg, nts_checked_at,
+          memo,
           biz_cert_file_url, biz_cert_file_name,
           bank_name, bank_account_no, bank_account_holder, bank_copy_file_url, bank_copy_file_name,
           contract_file_url, contract_file_name,
           created_at, updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-          $23, $24, $25, $26, $27, $28, $29, $30,
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+          $21, $22, $23, $24, $25,
+          $26, $27, $28, $29, $30, $31, $32, $33, $34, $35,
           NOW(), NOW()
         ) RETURNING *
         `,
@@ -342,12 +378,17 @@ export async function POST(request: Request) {
           statementClosingDay || "매월 25일",
           taxInvoiceClosingDay || "익월 10일",
           paymentDueDay || "익월 15일",
-          status || "ACTIVE",
+          resolvedInitialStatus,
+          ntsBizState || null,
+          ntsTaxType || null,
+          ntsClosedDate || null,
+          ntsStatusMsg || null,
+          ntsCheckedAt || (ntsBizState ? new Date().toISOString() : null),
           memo || null,
           bizCertFileUrl || null,
           bizCertFileName || null,
           bankName || null,
-          bankAccountNo || null,
+          bankAccountNo ? encryptPii(String(bankAccountNo).trim()) : null,
           bankAccountHolder || null,
           bankCopyFileUrl || null,
           bankCopyFileName || null,
@@ -441,7 +482,12 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         message: "거래처가 성공적으로 등록되었습니다.",
-        partner: createdPartner,
+        partner: {
+          ...createdPartner,
+          bank_account_no: createdPartner.bank_account_no
+            ? decryptPii(createdPartner.bank_account_no)
+            : null,
+        },
       });
     } catch (err: any) {
       await client.query("ROLLBACK");
@@ -494,6 +540,11 @@ export async function PUT(request: Request) {
       taxInvoiceClosingDay,
       paymentDueDay,
       status,
+      ntsBizState,
+      ntsTaxType,
+      ntsClosedDate,
+      ntsStatusMsg,
+      ntsCheckedAt,
       memo,
       bizCertFileUrl,
       bizCertFileName,
@@ -514,6 +565,7 @@ export async function PUT(request: Request) {
     }
 
     const pool = getErpPool();
+    await Promise.all([ensurePartnerStatusSchema(pool), ensureErpCoreIndexes(pool)]);
 
     // Check if new partner_code collides with another partner
     if (partnerCode && partnerCode.trim()) {
@@ -565,6 +617,11 @@ export async function PUT(request: Request) {
         bank_copy_file_name = CASE WHEN $27::text = '__DELETE__' THEN NULL ELSE COALESCE($28, bank_copy_file_name) END,
         contract_file_url = CASE WHEN $29::text = '__DELETE__' THEN NULL ELSE COALESCE($29, contract_file_url) END,
         contract_file_name = CASE WHEN $29::text = '__DELETE__' THEN NULL ELSE COALESCE($30, contract_file_name) END,
+        nts_biz_state = COALESCE($32, nts_biz_state),
+        nts_tax_type = COALESCE($33, nts_tax_type),
+        nts_closed_date = CASE WHEN $32::text IS NOT NULL THEN $34 ELSE nts_closed_date END,
+        nts_status_msg = COALESCE($35, nts_status_msg),
+        nts_checked_at = COALESCE($36::timestamptz, nts_checked_at),
         updated_at = NOW()
       WHERE id = $31
       RETURNING *
@@ -589,18 +646,23 @@ export async function PUT(request: Request) {
         statementClosingDay,
         taxInvoiceClosingDay,
         paymentDueDay,
-        status,
+        ntsBizState === "SUSPENDED" || ntsBizState === "CLOSED" ? "BLOCKED" : status,
         memo || null,
         bizCertFileUrl || null,
         bizCertFileName || null,
         bankName || null,
-        bankAccountNo || null,
+        bankAccountNo ? encryptPii(String(bankAccountNo).trim()) : null,
         bankAccountHolder || null,
         bankCopyFileUrl || null,
         bankCopyFileName || null,
         contractFileUrl || null,
         contractFileName || null,
         id,
+        ntsBizState || null,
+        ntsTaxType || null,
+        ntsClosedDate || null,
+        ntsStatusMsg || null,
+        ntsCheckedAt || (ntsBizState ? new Date().toISOString() : null),
       ]
     );
 
@@ -665,7 +727,12 @@ export async function PUT(request: Request) {
     return NextResponse.json({
       success: true,
       message: "거래처 정보가 성공적으로 수정되었습니다.",
-      partner: updatedPartner,
+      partner: {
+        ...updatedPartner,
+        bank_account_no: updatedPartner.bank_account_no
+          ? decryptPii(updatedPartner.bank_account_no)
+          : null,
+      },
     });
   } catch (error: any) {
     console.error("PUT /api/erp/partners error:", error);

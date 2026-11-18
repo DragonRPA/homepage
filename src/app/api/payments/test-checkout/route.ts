@@ -1,8 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createOrderAndIssueLicense } from "@/lib/licenseService";
+import { getErpSessionFromRequest } from "@/lib/erpSecurityAudit";
 
 export async function POST(req: NextRequest) {
   try {
+    if (process.env.NODE_ENV === "production") {
+      const session = await getErpSessionFromRequest(req);
+      if (!session || session.roleCode !== "ADMIN") {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "운영 환경에서는 관리자(ADMIN) 권한이 있는 세션만 모의 결제를 실행할 수 있습니다.",
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const body = await req.json();
     const {
       productId = "MANUAL_STUDIO",

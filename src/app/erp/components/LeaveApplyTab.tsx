@@ -6,15 +6,11 @@ import {
   RefreshCw,
   Send,
   Trash2,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   ShieldCheck,
   UserCheck,
 } from "lucide-react";
 import {
   sortErpItems,
-  SortDirection,
   formatErpNumber,
   formatErpLeaveDays,
   calculateAnnualLeaveEntitlement,
@@ -25,6 +21,7 @@ import {
   getLeaveTypeLabel,
   calculateWeekdayCount,
 } from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
 
 interface LeaveRequest {
   id: number;
@@ -70,46 +67,23 @@ export const LeaveApplyTab: React.FC<{ currentUser: any }> = ({ currentUser }) =
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [allLeaves, setAllLeaves] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(false);
-  const [sortKey, setSortKey] = useState<string>("startDate");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
+  const { sortKey, sortDir, handleSort } = useErpTableSort("startDate", "desc");
 
   const renderSortTh = (
     label: string,
     colKey: string,
     align: "left" | "right" | "center" = "left"
   ) => (
-    <th
-      onClick={() => handleSort(colKey)}
-      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none transition ${
-        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
-      } hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60`}
-    >
-      <div
-        className={`inline-flex items-center gap-1.5 ${
-          align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"
-        }`}
-      >
-        <span>{label}</span>
-        {sortKey === colKey ? (
-          sortDir === "asc" ? (
-            <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
-          ) : (
-            <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
-          )
-        ) : (
-          <ArrowUpDown className="w-3.5 h-3.5 opacity-30 group-hover:opacity-100" />
-        )}
-      </div>
-    </th>
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60"
+      iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+    />
   );
 
   // 각자 본인의 연차만 상신 및 조회하도록 로그인한 본인 사원 정보로 고정

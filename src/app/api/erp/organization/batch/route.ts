@@ -1,8 +1,15 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
-import { encryptPii, decryptPii, hashPassword } from "@/lib/piiCrypto";
+import {
+  encryptPii,
+  decryptPii,
+  hashPassword,
+  maskBankAccount,
+  maskResidentRegNo,
+} from "@/lib/piiCrypto";
 import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
+import { getErpSessionFromRequest } from "@/lib/erpSecurityAudit";
 
 function normalizeStatusToDb(rawStatus: string | null | undefined, leaveDate?: string | null): "ACTIVE" | "LEAVE" | "RETIRED" {
   if (leaveDate && String(leaveDate).trim() !== "") return "RETIRED";
@@ -21,6 +28,12 @@ function normalizeStatusToEbro(rawStatus: string | null | undefined, leaveDate?:
 }
 
 export async function POST(request: Request) {
+  const session = await getErpSessionFromRequest(request);
+  if (!session) {
+    return NextResponse.json({ error: "인증 세션이 필요합니다." }, { status: 401 });
+  }
+  const canReadAllPii = session.roleCode === "ADMIN" || session.roleCode === "MANAGER";
+
   const pool = getErpPool();
   const client = await pool.connect();
 
@@ -123,11 +136,12 @@ export async function POST(request: Request) {
       const role = u.role || "USER";
       const roleCode = u.roleCode || (role === "ADMIN" ? "ADMIN" : role === "MANAGER" ? "MANAGER" : "EMPLOYEE");
       const dbStatus = normalizeStatusToDb(u.status || u.employmentStatus || "ACTIVE");
-      const baseSalary = u.baseSalary !== undefined ? Number(u.baseSalary) || 0 : 3500000;
-      const hourlyWage =
-        u.hourlyWage !== undefined && u.hourlyWage !== null && u.hourlyWage !== "" && !isNaN(Number(u.hourlyWage))
-          ? Number(u.hourlyWage)
-          : Math.round((baseSalary || 3500000) / 209);
+      const baseSalary = u.baseSalary !== undefined ? Number(String(u.baseSalary).replace(/,/g, "")) || 0 : 3500000;
+      const parsedHw =
+        u.hourlyWage !== undefined && u.hourlyWage !== null && u.hourlyWage !== ""
+          ? Number(String(u.hourlyWage).replace(/,/g, ""))
+          : 0;
+      const hourlyWage = isNaN(parsedHw) ? 0 : Math.round(parsedHw);
       const mealAllowance = u.mealAllowance !== undefined ? Number(u.mealAllowance) || 0 : 200000;
       const vehicleAllowance = u.vehicleAllowance !== undefined ? Number(u.vehicleAllowance) || 0 : 0;
       const insNationalPension = u.insNationalPension !== undefined ? Boolean(u.insNationalPension) : true;
@@ -135,8 +149,21 @@ export async function POST(request: Request) {
       const insEmploymentInsurance = u.insEmploymentInsurance !== undefined ? Boolean(u.insEmploymentInsurance) : true;
       const insIndustrialAccident = u.insIndustrialAccident !== undefined ? Boolean(u.insIndustrialAccident) : true;
       const salaryBankName = u.salaryBankName ? String(u.salaryBankName).trim() : null;
-      const salaryAccountNo = u.salaryAccountNo ? encryptPii(String(u.salaryAccountNo).trim()) : null;
+      const rawAccountNo = u.salaryAccountNo ? String(u.salaryAccountNo).trim() : "";
+      const hasPlainAccountInput = Boolean(rawAccountNo && !rawAccountNo.includes("****"));
+      const salaryAccountNo = hasPlainAccountInput
+        ? encryptPii(rawAccountNo)
+        : rawAccountNo.includes("****")
+        ? undefined
+        : null;
       const salaryAccountHolder = u.salaryAccountHolder ? String(u.salaryAccountHolder).trim() : null;
+      const rawRrnInput = u.residentRegNo ? String(u.residentRegNo).trim() : "";
+      const hasPlainRrnInput = Boolean(rawRrnInput && !rawRrnInput.includes("****"));
+      const residentRegNo = hasPlainRrnInput
+        ? encryptPii(rawRrnInput)
+        : rawRrnInput.includes("****")
+        ? undefined
+        : null;
       const phone = u.phone ? String(u.phone).trim() : null;
       const email = u.email ? String(u.email).trim() : null;
       const birthDate = u.birthDate && String(u.birthDate).trim() ? String(u.birthDate).substring(0, 10) : null;
@@ -181,7 +208,7 @@ export async function POST(request: Request) {
                ins_employment_insurance = $16,
                ins_industrial_accident = $17,
                salary_bank_name = $18,
-               salary_account_no = $19,
+               salary_account_no = CASE WHEN $19 = '__PRESERVE__' THEN salary_account_no ELSE $19 END,
                salary_account_holder = $20,
                phone = $21,
                email = $22,
@@ -193,6 +220,7 @@ export async function POST(request: Request) {
                login_id = COALESCE($28, login_id),
                password_hash = COALESCE($29, password_hash),
                annual_leave_grant = $30,
+               resident_reg_no = CASE WHEN $32 = '__PRESERVE__' THEN resident_reg_no ELSE $32 END,
                updated_at = NOW()
            WHERE id = $31`,
           [
@@ -214,7 +242,7 @@ export async function POST(request: Request) {
             insEmploymentInsurance,
             insIndustrialAccident,
             salaryBankName,
-            salaryAccountNo,
+            salaryAccountNo === undefined ? "__PRESERVE__" : salaryAccountNo,
             salaryAccountHolder,
             phone,
             email,
@@ -227,6 +255,7 @@ export async function POST(request: Request) {
             pwdToSave,
             resolvedGrant,
             Number(rawUserId),
+            residentRegNo === undefined ? "__PRESERVE__" : residentRegNo,
           ]
         );
       } else {
@@ -245,7 +274,7 @@ export async function POST(request: Request) {
             department_id, department, role, role_code, employment_status, base_salary, hourly_wage,
             meal_allowance, vehicle_allowance,
             ins_national_pension, ins_health_insurance, ins_employment_insurance, ins_industrial_accident,
-            salary_bank_name, salary_account_no, salary_account_holder,
+            salary_bank_name, salary_account_no, salary_account_holder, resident_reg_no,
             phone, email, birth_date, join_date, leave_date, address, profile_image_url,
             annual_leave_grant, must_change_password, created_at, updated_at
           ) VALUES (
@@ -253,7 +282,7 @@ export async function POST(request: Request) {
             $8, $9, $10, $11, $12, $13, $14,
             $15, $16,
             $17, $18, $19, $20,
-            $21, $22, $23,
+            $21, $22, $23, $32,
             $24, $25, $26, $27, $28, $29, $30,
             $31, true, NOW(), NOW()
           )`,
@@ -279,7 +308,7 @@ export async function POST(request: Request) {
             insEmploymentInsurance,
             insIndustrialAccident,
             salaryBankName,
-            salaryAccountNo,
+            salaryAccountNo ?? null,
             salaryAccountHolder,
             phone,
             email,
@@ -289,6 +318,7 @@ export async function POST(request: Request) {
             address,
             profileImageUrl,
             autoEntitlement.grantDays,
+            residentRegNo ?? null,
           ]
         );
       }
@@ -333,7 +363,7 @@ export async function POST(request: Request) {
         e.role, 
         e.role_code as "roleCode",
         e.base_salary as "baseSalary",
-        COALESCE(e.hourly_wage, ROUND(COALESCE(e.base_salary, 3500000) / 209.0))::numeric as "hourlyWage",
+        COALESCE(e.hourly_wage, 0)::numeric as "hourlyWage",
         COALESCE(e.meal_allowance, 200000)::numeric as "mealAllowance",
         COALESCE(e.vehicle_allowance, 0)::numeric as "vehicleAllowance",
         COALESCE(e.ins_national_pension, TRUE) as "insNationalPension",
@@ -367,13 +397,19 @@ export async function POST(request: Request) {
       ORDER BY e.id ASC
     `);
 
-    const finalUsers = finalEmpsRes.rows.map((row: any) => ({
-      ...row,
-      salaryAccountNo: decryptPii(row.salaryAccountNo),
-      residentRegNo: decryptPii(row.residentRegNo),
-      status: normalizeStatusToEbro(row.employmentStatus, row.leaveDate),
-      employmentStatus: normalizeStatusToDb(row.employmentStatus, row.leaveDate),
-    }));
+    const finalUsers = finalEmpsRes.rows.map((row: any) => {
+      const isSelf = Number(row.id) === session.uid;
+      const revealPii = canReadAllPii || isSelf;
+      const plainAcct = decryptPii(row.salaryAccountNo);
+      const plainRrn = decryptPii(row.residentRegNo);
+      return {
+        ...row,
+        salaryAccountNo: revealPii ? plainAcct : maskBankAccount(plainAcct),
+        residentRegNo: revealPii ? plainRrn : maskResidentRegNo(plainRrn),
+        status: normalizeStatusToEbro(row.employmentStatus, row.leaveDate),
+        employmentStatus: normalizeStatusToDb(row.employmentStatus, row.leaveDate),
+      };
+    });
 
     return NextResponse.json({
       success: true,

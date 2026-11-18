@@ -1,6 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
+import { assertPartnerTradable, PartnerTradeBlockedError } from "@/lib/partnerStatusService";
+import { computeElapsedDays, getTodayKstDateString } from "@/lib/tradeInventoryDomain";
 
 // GET: List all purchases
 export async function GET() {
@@ -10,11 +12,18 @@ export async function GET() {
       SELECT 
         p.id,
         p.purchase_no as "purchaseNo",
-        p.purchase_date as "purchaseDate",
+        TO_CHAR(p.purchase_date, 'YYYY-MM-DD') as "purchaseDate",
         p.vendor_name as "vendorName",
         p.product_id as "productId",
         tp.sku_code as "skuCode",
         tp.name as "productName",
+        COALESCE(tp.item_class, 'GENERAL') as "itemClass",
+        COALESCE(tp.category, '') as "category",
+        COALESCE(tp.manufacturer, '') as "manufacturer",
+        COALESCE(tp.part_no, '') as "partNo",
+        COALESCE(tp.spec, '') as "spec",
+        COALESCE(tp.spec_data, '{}'::jsonb) as "specData",
+        COALESCE(tp.current_stock, 0)::float as "currentStock",
         tp.unit,
         p.qty,
         p.unit_cost as "unitCost",
@@ -27,7 +36,15 @@ export async function GET() {
       ORDER BY p.purchase_date DESC, p.id DESC
     `;
     const res = await pool.query(query);
-    return NextResponse.json({ success: true, purchases: res.rows });
+    const todayKst = getTodayKstDateString();
+    const purchases = (res.rows || []).map((row: any) => ({
+      ...row,
+      qty: Number(row.qty || 0),
+      unitCost: Number(row.unitCost || 0),
+      totalAmount: Number(row.totalAmount || 0),
+      elapsedDays: computeElapsedDays(row.purchaseDate, todayKst),
+    }));
+    return NextResponse.json({ success: true, referenceDate: todayKst, purchases });
   } catch (error: any) {
     console.error("GET Purchases Error:", error);
     return NextResponse.json({ error: "구매 목록 조회 실패" }, { status: 500 });
@@ -70,6 +87,7 @@ export async function POST(request: Request) {
 
     try {
       await client.query("BEGIN");
+      await assertPartnerTradable(client, { customerName: vendorName });
 
       const datePart = (purchaseDate || new Date().toISOString().split("T")[0])
         .slice(2, 10)
@@ -148,6 +166,9 @@ export async function POST(request: Request) {
       client.release();
     }
   } catch (error: any) {
+    if (error instanceof PartnerTradeBlockedError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+    }
     console.error("POST Purchase Error:", error);
     return NextResponse.json({ error: "구매 등록 실패: " + error.message }, { status: 500 });
   }

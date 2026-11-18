@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { calculateServiceEmployeeMonthlyProRata } from "@/lib/erpFormat";
+import { assertPartnerTradable, PartnerTradeBlockedError } from "@/lib/partnerStatusService";
 
 // GET: List all service contracts (filter by service_type: 'OPERATIONAL' or 'DEVELOPMENT' & entityType, or id for single contract file)
 export async function GET(request: Request) {
@@ -83,7 +84,55 @@ export async function GET(request: Request) {
     query += " ORDER BY c.start_date DESC, c.id DESC";
 
     const res = await pool.query(query, params);
-    return NextResponse.json({ success: true, contracts: res.rows });
+
+    const empRes = await pool.query(
+      `SELECT id, employee_no AS "employeeNo", name,
+              join_date::text AS "joinDate", leave_date::text AS "leaveDate",
+              COALESCE(base_salary, 0)::numeric AS "baseSalary"
+       FROM erp_employees`
+    );
+    const empById = new Map<number, { joinDate: string; leaveDate: string; baseSalary: number }>();
+    const empByNo = new Map<string, { joinDate: string; leaveDate: string; baseSalary: number }>();
+    const empByName = new Map<string, { joinDate: string; leaveDate: string; baseSalary: number }>();
+    for (const emp of empRes.rows) {
+      const info = {
+        joinDate: emp.joinDate ? String(emp.joinDate).slice(0, 10) : "",
+        leaveDate: emp.leaveDate ? String(emp.leaveDate).slice(0, 10) : "",
+        baseSalary: Math.round(Number(emp.baseSalary || 0)),
+      };
+      const eid = Number(emp.id || 0);
+      const eno = String(emp.employeeNo || "").trim();
+      const ename = String(emp.name || "").trim();
+      if (eid > 0) empById.set(eid, info);
+      if (eno) empByNo.set(eno, info);
+      if (ename) empByName.set(ename, info);
+    }
+
+    const enrichedContracts = res.rows.map((ct: any) => {
+      const assigned = Array.isArray(ct.assignedEmployees) ? ct.assignedEmployees : [];
+      if (assigned.length === 0) return ct;
+      return {
+        ...ct,
+        assignedEmployees: assigned.map((item: any) => {
+          const eid = Number(item?.employeeId || 0);
+          const eno = String(item?.employeeNo || "").trim();
+          const ename = String(item?.name || "").trim();
+          const matched =
+            (eid > 0 ? empById.get(eid) : undefined) ??
+            (eno ? empByNo.get(eno) : undefined) ??
+            (ename ? empByName.get(ename) : undefined);
+          return {
+            ...item,
+            joinDate: item?.joinDate ? String(item.joinDate).slice(0, 10) : (matched?.joinDate || ""),
+            leaveDate: item?.leaveDate ? String(item.leaveDate).slice(0, 10) : (matched?.leaveDate || ""),
+            baseSalary: Math.round(Number(item?.baseSalary || matched?.baseSalary || 0)),
+            proRataEnabled: item?.proRataEnabled !== false,
+          };
+        }),
+      };
+    });
+
+    return NextResponse.json({ success: true, contracts: enrichedContracts });
   } catch (error: any) {
     console.error("GET Service Contracts Error:", error);
     return NextResponse.json({ error: "용역 계약 목록 조회 실패" }, { status: 500 });
@@ -160,6 +209,9 @@ async function syncAssignedEmployeeContractRates(pool: any) {
     const monthRateByEmpId = new Map<number, number>();
     const monthRateByEmpNo = new Map<string, number>();
     const monthRateByName = new Map<string, number>();
+    const assignedInMonthEmpId = new Set<number>();
+    const assignedInMonthEmpNo = new Set<string>();
+    const assignedInMonthName = new Set<string>();
 
     for (const ct of ctRes.rows) {
       const sDate = ct.start_date ? new Date(ct.start_date) : null;
@@ -174,6 +226,10 @@ async function syncAssignedEmployeeContractRates(pool: any) {
         const eid = Number(item?.employeeId || 0);
         const eno = String(item?.employeeNo || "").trim();
         const ename = String(item?.name || "").trim();
+        if (eid > 0) assignedInMonthEmpId.add(eid);
+        if (eno) assignedInMonthEmpNo.add(eno);
+        if (ename) assignedInMonthName.add(ename);
+
         const jLookup =
           (eid > 0 ? empJoinById.get(eid) : undefined) ??
           (eno ? empJoinByNo.get(eno) : undefined) ??
@@ -189,7 +245,7 @@ async function syncAssignedEmployeeContractRates(pool: any) {
           proRataEnabled,
           true
         );
-        const rate = calc.effectiveAmount;
+        const rate = Math.round(calc.effectiveAmount);
         if (rate <= 0) continue;
         if (eid > 0) monthRateByEmpId.set(eid, (monthRateByEmpId.get(eid) || 0) + rate);
         if (eno) monthRateByEmpNo.set(eno, (monthRateByEmpNo.get(eno) || 0) + rate);
@@ -201,13 +257,17 @@ async function syncAssignedEmployeeContractRates(pool: any) {
       const eid = Number(emp.id);
       const eno = String(emp.employee_no || "").trim();
       const ename = String(emp.name || "").trim();
+      const isMatchedInContract =
+        assignedInMonthEmpId.has(eid) ||
+        (eno ? assignedInMonthEmpNo.has(eno) : false) ||
+        (ename ? assignedInMonthName.has(ename) : false);
       const ymRate =
         monthRateByEmpId.get(eid) ??
         (eno ? monthRateByEmpNo.get(eno) : undefined) ??
         (ename ? monthRateByName.get(ename) : undefined) ??
         0;
 
-      if (ymRate > 0) {
+      if (isMatchedInContract || ymRate > 0) {
         await pool.query(
           `UPDATE erp_payroll_records
            SET service_contract_amount = $1, updated_at = NOW()
@@ -294,6 +354,11 @@ export async function POST(request: Request) {
     const normalizedAssignedEmployees = Array.isArray(assignedEmployees) ? assignedEmployees : [];
 
     const pool = getErpPool();
+    await assertPartnerTradable(pool, {
+      partnerId,
+      customerName,
+      businessNo: customerBizNo,
+    });
     const insRes = await pool.query(
       `
       INSERT INTO erp_service_contracts (
@@ -368,6 +433,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, contract: insRes.rows[0] });
   } catch (error: any) {
+    if (error instanceof PartnerTradeBlockedError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+    }
     console.error("POST Service Contract Error:", error);
     return NextResponse.json({ error: "용역 계약 등록 실패: " + error.message }, { status: 500 });
   }

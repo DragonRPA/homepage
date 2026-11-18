@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Shield, Check, Lock, Save, Plus, Users, 
-  Search, RefreshCw, Key, CheckSquare, Square, Info,
-  ArrowUpDown, ArrowUp, ArrowDown
+  Search, RefreshCw, Key, CheckSquare, Square, Info
 } from "lucide-react";
-import { sortErpItems, SortDirection, formatErpNumber } from "@/lib/erpFormat";
+import { sortErpItems, formatErpNumber } from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
 
 interface CustomRole {
   id: number;
@@ -52,6 +52,8 @@ const MENU_DEFS: Array<{ key: string; name: string; category: string; hasBilling
   { key: "vendor", name: "매입거래처 관리", category: "거래처" },
   { key: "product", name: "제품 관리", category: "자산관리" },
   { key: "asset", name: "자산 관리", category: "자산관리" },
+  { key: "warranty", name: "차대번호 보증관리", category: "자산관리" },
+  { key: "rental_maintenance", name: "렌탈 정비·부품관리", category: "자산관리" },
   { key: "outbound_reg", name: "출고등록", category: "입출고관리" },
   { key: "inbound_reg", name: "입고등록", category: "입출고관리" },
   { key: "trade", name: "판매용 (커머스)", category: "영업", hasBilling: true },
@@ -300,35 +302,30 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
     }
   };
 
-  const [userSortKey, setUserSortKey] = useState<string>("employeeNo");
-  const [userSortDir, setUserSortDir] = useState<SortDirection>("asc");
-
-  const handleUserSort = (key: string) => {
-    if (userSortKey === key) {
-      setUserSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setUserSortKey(key);
-      setUserSortDir("asc");
-    }
-  };
+  const { sortKey: userSortKey, sortDir: userSortDir, handleSort: handleUserSort } = useErpTableSort("employeeNo", "asc");
+  const menuSort = useErpTableSort("", null);
 
   const renderSortTh = (label: string, colKey: string, align: "left" | "right" | "center" = "left") => (
-    <th
-      onClick={() => handleUserSort(colKey)}
-      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none transition ${
-        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
-      } hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60`}
-    >
-      <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"}`}>
-        <span>{label}</span>
-        {userSortKey === colKey ? (
-          userSortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" /> : <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
-        ) : (
-          <ArrowUpDown className="w-3.5 h-3.5 opacity-30 group-hover:opacity-100" />
-        )}
-      </div>
-    </th>
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={userSortKey}
+      sortDir={userSortDir}
+      onSort={handleUserSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60"
+      iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+    />
   );
+
+  const sortedMenuDefs = useMemo(() => {
+    return sortErpItems(MENU_DEFS, menuSort.sortKey, menuSort.sortDir, (m, key) => {
+      if (key === "canView") return Boolean(workingPerms[m.key]?.canView);
+      if (key === "canSave") return Boolean(workingPerms[m.key]?.canSave);
+      if (key === "canBill") return m.hasBilling ? Boolean(workingPerms[m.key]?.canBill) : null;
+      return (m as Record<string, unknown>)[key];
+    });
+  }, [menuSort.sortKey, menuSort.sortDir, workingPerms]);
 
   const filteredEmployees = employees.filter((emp) => {
     if (userDeptFilter !== "ALL" && emp.department !== userDeptFilter) return false;
@@ -500,15 +497,58 @@ export const PermissionsTab: React.FC<{ currentUser: any; onPermissionsChanged?:
                 <table className="w-full text-xs text-left border-collapse">
                   <thead className="bg-[#e2dbcd] text-[#0f172a] uppercase tracking-wider font-semibold border-b border-[#b5a894] sticky top-0 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
                     <tr>
-                      <th className="py-2.5 px-3">카테고리</th>
-                      <th className="py-2.5 px-3">메뉴명 (기능 모듈)</th>
-                      <th className="py-2.5 px-3 text-center w-36">청구생성 권한 (Bill)</th>
-                      <th className="py-2.5 px-3 text-center w-28">조회 권한 (View)</th>
-                      <th className="py-2.5 px-3 text-center w-28">저장/수정 권한 (Save)</th>
+                      <SortableTh
+                        label="카테고리"
+                        colKey="category"
+                        sortKey={menuSort.sortKey}
+                        sortDir={menuSort.sortDir}
+                        onSort={menuSort.handleSort}
+                        className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60"
+                        iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+                      />
+                      <SortableTh
+                        label="메뉴명 (기능 모듈)"
+                        colKey="name"
+                        sortKey={menuSort.sortKey}
+                        sortDir={menuSort.sortDir}
+                        onSort={menuSort.handleSort}
+                        className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60"
+                        iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+                      />
+                      <SortableTh
+                        label="청구생성 권한 (Bill)"
+                        colKey="canBill"
+                        sortKey={menuSort.sortKey}
+                        sortDir={menuSort.sortDir}
+                        onSort={menuSort.handleSort}
+                        align="center"
+                        className="py-2.5 px-3 w-36 hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60"
+                        iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+                      />
+                      <SortableTh
+                        label="조회 권한 (View)"
+                        colKey="canView"
+                        sortKey={menuSort.sortKey}
+                        sortDir={menuSort.sortDir}
+                        onSort={menuSort.handleSort}
+                        align="center"
+                        className="py-2.5 px-3 w-28 hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60"
+                        iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+                      />
+                      <SortableTh
+                        label="저장/수정 권한 (Save)"
+                        colKey="canSave"
+                        sortKey={menuSort.sortKey}
+                        sortDir={menuSort.sortDir}
+                        onSort={menuSort.handleSort}
+                        align="center"
+                        className="py-2.5 px-3 w-28 hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60"
+                        iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+                      />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800">
-                    {MENU_DEFS.map((m) => {
+                    {sortedMenuDefs.map((m) => {
                       const cur = workingPerms[m.key] || { canView: false, canSave: false, canBill: false };
                       return (
                         <tr key={m.key} className="hover:bg-[#f4efe4] dark:hover:bg-slate-800/40 transition">

@@ -1,11 +1,11 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
+import { runSchemaInitOnce } from "@/lib/erpSchemaCache";
+import { invalidateRbacCache } from "@/lib/erpRbacGuard";
 
-// GET: 역할 마스터, 역할별 권한 매핑, 사원별 배정 현황 조회
-export async function GET() {
-  try {
-    const pool = getErpPool();
+async function ensurePermissionsSchema(pool: ReturnType<typeof getErpPool>) {
+  await runSchemaInitOnce("erp_permissions_defaults_v1", async () => {
     await pool.query(
       "ALTER TABLE erp_role_permissions ADD COLUMN IF NOT EXISTS can_bill BOOLEAN NOT NULL DEFAULT false"
     );
@@ -46,40 +46,57 @@ export async function GET() {
       FROM erp_custom_roles
       ON CONFLICT (role_code, menu_key) DO NOTHING
     `);
-
-    // 1. 역할 목록
-    const rolesRes = await pool.query(`
-      SELECT 
-        r.id,
-        r.role_code as "roleCode",
-        r.role_name as "roleName",
-        r.description,
-        r.created_at as "createdAt",
-        COUNT(e.id)::int as "assignedCount"
-      FROM erp_custom_roles r
-      LEFT JOIN erp_employees e ON e.role_code = r.role_code AND e.employment_status = 'ACTIVE'
-      GROUP BY r.id
-      ORDER BY r.id ASC
+    await pool.query(`
+      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
+      SELECT role_code, 'warranty', true, true, false
+      FROM erp_custom_roles
+      ON CONFLICT (role_code, menu_key) DO NOTHING
     `);
-
-    // 2. 역할별 권한 매핑
-    const permsRes = await pool.query(`
-      SELECT 
-        id,
-        role_code as "roleCode",
-        menu_key as "menuKey",
-        can_view as "canView",
-        can_save as "canSave",
-        COALESCE(can_bill, false) as "canBill"
-      FROM erp_role_permissions
-      ORDER BY role_code, menu_key
+    await pool.query(`
+      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
+      SELECT role_code, 'rental_maintenance', true, true, false
+      FROM erp_custom_roles
+      ON CONFLICT (role_code, menu_key) DO NOTHING
     `);
+  });
+}
 
-    // 3. 사원별 실시간 역할 매핑
-    const empRolesRes = await pool.query(`
-      SELECT id, role, role_code as "roleCode"
-      FROM erp_employees
-    `);
+// GET: 역할 마스터, 역할별 권한 매핑, 사원별 배정 현황 조회
+export async function GET() {
+  try {
+    const pool = getErpPool();
+    await ensurePermissionsSchema(pool);
+
+    const [rolesRes, permsRes, empRolesRes] = await Promise.all([
+      pool.query(`
+        SELECT 
+          r.id,
+          r.role_code as "roleCode",
+          r.role_name as "roleName",
+          r.description,
+          r.created_at as "createdAt",
+          COUNT(e.id)::int as "assignedCount"
+        FROM erp_custom_roles r
+        LEFT JOIN erp_employees e ON e.role_code = r.role_code AND e.employment_status = 'ACTIVE'
+        GROUP BY r.id
+        ORDER BY r.id ASC
+      `),
+      pool.query(`
+        SELECT 
+          id,
+          role_code as "roleCode",
+          menu_key as "menuKey",
+          can_view as "canView",
+          can_save as "canSave",
+          COALESCE(can_bill, false) as "canBill"
+        FROM erp_role_permissions
+        ORDER BY role_code, menu_key
+      `),
+      pool.query(`
+        SELECT id, role, role_code as "roleCode"
+        FROM erp_employees
+      `),
+    ]);
 
     return NextResponse.json({
       success: true,
@@ -138,46 +155,7 @@ export async function PUT(request: Request) {
     }
 
     const pool = getErpPool();
-    await pool.query(
-      "ALTER TABLE erp_role_permissions ADD COLUMN IF NOT EXISTS can_bill BOOLEAN NOT NULL DEFAULT false"
-    );
-    // 근로기준법 제14조 의거: 모든 역할에 대해 취업규칙(work_rules) 기본 열람 권한 보장
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'work_rules', true, false, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO UPDATE SET can_view = true
-    `);
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'cloud_share', true, true, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO NOTHING
-    `);
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'work_improvement', true, true, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO NOTHING
-    `);
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'gov_support', true, true, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO NOTHING
-    `);
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'obsidian_vault', true, true, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO NOTHING
-    `);
-    await pool.query(`
-      INSERT INTO erp_role_permissions (role_code, menu_key, can_view, can_save, can_bill)
-      SELECT role_code, 'rental_biz_dir', true, true, false
-      FROM erp_custom_roles
-      ON CONFLICT (role_code, menu_key) DO NOTHING
-    `);
+    await ensurePermissionsSchema(pool);
     if (permissions.length > 0) {
       const menuKeys = permissions.map((p: any) => String(p.menuKey));
       const canViews = permissions.map((p: any) => Boolean(p.canView));
@@ -191,6 +169,7 @@ export async function PUT(request: Request) {
          DO UPDATE SET can_view = EXCLUDED.can_view, can_save = EXCLUDED.can_save, can_bill = EXCLUDED.can_bill`,
         [roleCode, menuKeys, canViews, canSaves, canBills]
       );
+      invalidateRbacCache(roleCode);
     }
 
     return NextResponse.json({ success: true, message: "권한이 갱신되었습니다." });

@@ -48,11 +48,9 @@ export interface ObsidianNoteRecord {
 
 interface R2SyncConfig {
   hasCredentials: boolean;
-  endpoint: string;
+  endpointMasked: string;
   region: string;
   bucket: string;
-  accessKeyId: string;
-  secretAccessKey: string;
   vaultPrefix: string;
 }
 
@@ -99,7 +97,6 @@ export const ObsidianVaultTab: React.FC<{ currentUser: any }> = ({ currentUser }
   // 모달 상태
   const [showSyncGuideModal, setShowSyncGuideModal] = useState(false);
   const [r2Config, setR2Config] = useState<R2SyncConfig | null>(null);
-  const [showSecrets, setShowSecrets] = useState(false);
 
   // 알림 및 에러 모달
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -1250,35 +1247,28 @@ created: ${today}
                   <div className="space-y-2 pt-1">
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-[#0f172a]">
-                        당사 Cloudflare R2 (S3 호환) 연동 키 정보
+                        Cloudflare R2 서버 보안 볼트 연동 상태
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowSecrets((s) => !s)}
-                        className="px-2 py-0.5 rounded bg-[#0f172a] text-white text-[11px] font-bold"
+                      <span
+                        className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                          r2Config.hasCredentials
+                            ? "bg-emerald-700 text-white"
+                            : "bg-rose-700 text-white"
+                        }`}
                       >
-                        {showSecrets ? "보안 키 숨기기" : "보안 키 표시"}
-                      </button>
+                        {r2Config.hasCredentials ? "서버 키 연동됨" : "서버 키 미설정"}
+                      </span>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div className="p-2 rounded bg-[#f4efe4] border border-[#c5bba8] flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-bold text-[#64748b]">Endpoint (S3 엔드포인트)</div>
-                          <div className="font-mono font-bold truncate">{r2Config.endpoint || "-"}</div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => copyText("Endpoint", r2Config.endpoint)}
-                          className="px-2 py-1 rounded bg-[#e2dbcd] hover:bg-[#d5ccb8] font-bold text-[11px] shrink-0 flex items-center gap-1"
-                        >
-                          <Copy className="w-3 h-3" /> 복사
-                        </button>
+                      <div className="p-2 rounded bg-[#f4efe4] border border-[#c5bba8]">
+                        <div className="text-[10px] font-bold text-[#64748b]">Endpoint</div>
+                        <div className="font-mono font-bold truncate">{r2Config.endpointMasked || "-"}</div>
                       </div>
 
                       <div className="p-2 rounded bg-[#f4efe4] border border-[#c5bba8] flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="text-[10px] font-bold text-[#64748b]">Region / Bucket Name</div>
+                          <div className="text-[10px] font-bold text-[#64748b]">Region / Bucket</div>
                           <div className="font-mono font-bold truncate">
                             Region: <span className="text-violet-800">{r2Config.region}</span> | Bucket:{" "}
                             <span className="text-blue-800">{r2Config.bucket}</span>
@@ -1289,49 +1279,14 @@ created: ${today}
                           onClick={() => copyText("Bucket Name", r2Config.bucket)}
                           className="px-2 py-1 rounded bg-[#e2dbcd] hover:bg-[#d5ccb8] font-bold text-[11px] shrink-0 flex items-center gap-1"
                         >
-                          <Copy className="w-3 h-3" /> 버킷 복사
-                        </button>
-                      </div>
-
-                      <div className="p-2 rounded bg-[#f4efe4] border border-[#c5bba8] flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-bold text-[#64748b]">Access Key ID</div>
-                          <div className="font-mono font-bold truncate">
-                            {showSecrets
-                              ? r2Config.accessKeyId
-                              : r2Config.accessKeyId
-                              ? `${r2Config.accessKeyId.slice(0, 6)}••••••••••••`
-                              : "-"}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => copyText("Access Key ID", r2Config.accessKeyId)}
-                          className="px-2 py-1 rounded bg-[#e2dbcd] hover:bg-[#d5ccb8] font-bold text-[11px] shrink-0 flex items-center gap-1"
-                        >
                           <Copy className="w-3 h-3" /> 복사
                         </button>
                       </div>
+                    </div>
 
-                      <div className="p-2 rounded bg-[#f4efe4] border border-[#c5bba8] flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-bold text-[#64748b]">Secret Access Key</div>
-                          <div className="font-mono font-bold truncate">
-                            {showSecrets
-                              ? r2Config.secretAccessKey
-                              : r2Config.secretAccessKey
-                              ? "••••••••••••••••••••••••"
-                              : "-"}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => copyText("Secret Access Key", r2Config.secretAccessKey)}
-                          className="px-2 py-1 rounded bg-[#e2dbcd] hover:bg-[#d5ccb8] font-bold text-[11px] shrink-0 flex items-center gap-1"
-                        >
-                          <Copy className="w-3 h-3" /> 복사
-                        </button>
-                      </div>
+                    <div className="p-2.5 rounded bg-[#f4efe4] border border-[#c5bba8] text-[11px] text-[#334155]">
+                      Access Key 및 Secret Key는 보안 정책에 따라 브라우저로 전송되지 않으며, 서버 환경에서만 처리됩니다.
+                      모바일/PC 외부 앱 직결 키 발급은 시스템 관리자에게 문의하십시오.
                     </div>
                   </div>
                 )}

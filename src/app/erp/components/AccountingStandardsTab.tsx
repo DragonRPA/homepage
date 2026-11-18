@@ -19,11 +19,14 @@ import {
   ACCOUNTING_STANDARDS_META,
   STANDARD_CHAPTERS,
   COMMENTARY_CHAPTERS,
-  STANDARD_ARTICLES,
-  COMMENTARY_SECTIONS,
-  StandardArticle,
-  CommentarySection,
-} from "../data/accountingStandardsData";
+  type StandardArticle,
+  type CommentarySection,
+} from "../data/accountingStandardsMeta";
+
+let cachedSmeStandardsData: {
+  articles: StandardArticle[];
+  commentaries: CommentarySection[];
+} | null = null;
 
 const QUICK_KEYWORDS = [
   "유형자산",
@@ -140,11 +143,43 @@ export default function AccountingStandardsTab() {
   const [leftFilterOnlyMatched, setLeftFilterOnlyMatched] = useState(false);
   const [rightFilterOnlyMatched, setRightFilterOnlyMatched] = useState(false);
 
+  const [standardArticles, setStandardArticles] = useState<StandardArticle[]>(
+    () => cachedSmeStandardsData?.articles || []
+  );
+  const [commentarySections, setCommentarySections] = useState<CommentarySection[]>(
+    () => cachedSmeStandardsData?.commentaries || []
+  );
+
   // 현재 포커스된 항목 ID 및 매칭 인덱스
   const [focusedLeftId, setFocusedLeftId] = useState<string>("art-1");
   const [focusedRightId, setFocusedRightId] = useState<string>("com-0-1");
   const [leftMatchIndex, setLeftMatchIndex] = useState<number>(0);
   const [rightMatchIndex, setRightMatchIndex] = useState<number>(0);
+
+  useEffect(() => {
+    if (cachedSmeStandardsData) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/erp/accounting-standards?kind=sme");
+        if (!res.ok) return;
+        const json = await res.json();
+        cachedSmeStandardsData = {
+          articles: json.articles || [],
+          commentaries: json.commentaries || [],
+        };
+        if (!cancelled) {
+          setStandardArticles(cachedSmeStandardsData.articles);
+          setCommentarySections(cachedSmeStandardsData.commentaries);
+        }
+      } catch {
+        // ignore network error
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 좌우 독립 스크롤 컨테이너 Ref
   const leftScrollRef = useRef<HTMLDivElement | null>(null);
@@ -152,7 +187,7 @@ export default function AccountingStandardsTab() {
 
   // 장별 필터가 적용된 좌측 기준서 목록
   const visibleLeftArticles = useMemo(() => {
-    return STANDARD_ARTICLES.filter((art) => {
+    return standardArticles.filter((art) => {
       if (leftChapterFilter !== "ALL" && art.chapterNo !== leftChapterFilter) {
         return false;
       }
@@ -161,11 +196,11 @@ export default function AccountingStandardsTab() {
       }
       return true;
     });
-  }, [leftChapterFilter, leftFilterOnlyMatched, leftQuery]);
+  }, [standardArticles, leftChapterFilter, leftFilterOnlyMatched, leftQuery]);
 
   // 장별 필터가 적용된 우측 해설서 목록
   const visibleRightSections = useMemo(() => {
-    return COMMENTARY_SECTIONS.filter((sec) => {
+    return commentarySections.filter((sec) => {
       if (rightChapterFilter !== "ALL" && sec.chapterNo !== rightChapterFilter) {
         return false;
       }
@@ -174,7 +209,7 @@ export default function AccountingStandardsTab() {
       }
       return true;
     });
-  }, [rightChapterFilter, rightFilterOnlyMatched, rightQuery]);
+  }, [commentarySections, rightChapterFilter, rightFilterOnlyMatched, rightQuery]);
 
   // 좌측 검색 매칭 항목 리스트
   const leftMatchedArticles = useMemo(() => {
@@ -309,16 +344,16 @@ export default function AccountingStandardsTab() {
   // ID로 조문 번호 조회 헬퍼
   const articleMap = useMemo(() => {
     const map = new Map<string, StandardArticle>();
-    STANDARD_ARTICLES.forEach((a) => map.set(a.id, a));
+    standardArticles.forEach((a) => map.set(a.id, a));
     return map;
-  }, []);
+  }, [standardArticles]);
 
   // ID로 해설 섹션 조회 헬퍼
   const commentaryMap = useMemo(() => {
     const map = new Map<string, CommentarySection>();
-    COMMENTARY_SECTIONS.forEach((c) => map.set(c.id, c));
+    commentarySections.forEach((c) => map.set(c.id, c));
     return map;
-  }, []);
+  }, [commentarySections]);
 
   return (
     <div className="flex flex-col gap-3 w-full">
@@ -446,7 +481,7 @@ export default function AccountingStandardsTab() {
                 중소기업회계기준 조문
               </span>
               <span className="text-[11px] text-slate-300 bg-slate-800 px-2 py-0.5 rounded whitespace-nowrap">
-                총 {STANDARD_ARTICLES.length}개 항목 (제1조~제56조·부칙·별지)
+                총 {standardArticles.length}개 항목 (제1조~제56조·부칙·별지)
               </span>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
@@ -668,7 +703,7 @@ export default function AccountingStandardsTab() {
                 중소기업회계기준 해설
               </span>
               <span className="text-[11px] text-emerald-200 bg-emerald-900 px-2 py-0.5 rounded whitespace-nowrap">
-                총 {COMMENTARY_SECTIONS.length}개 주제 (서문·제1장~제18장·사례·세법참고)
+                총 {commentarySections.length}개 주제 (서문·제1장~제18장·사례·세법참고)
               </span>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">

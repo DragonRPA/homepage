@@ -2,12 +2,33 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { resolveContractItemTemplate } from "@/lib/erpFormat";
+import { ensureRentalRateSchema } from "@/lib/rentalSchemaInit";
+import { ensureForkliftSchema } from "@/lib/forkliftSchemaInit";
+import { ensureRentalMaintenanceSchema } from "@/lib/rentalMaintenanceSchema";
+import {
+  assertPartnerTradable,
+  ensurePartnerStatusSchema,
+  PartnerTradeBlockedError,
+} from "@/lib/partnerStatusService";
+import {
+  formatAttachedOptionsSummary,
+  normalizeAttachedOptions,
+} from "@/lib/forkliftDomain";
+import {
+  calculateAutoDailyRentalFee,
+  inferRentalRateBasis,
+  parseNumericInput,
+  resolveDailyRentalFee,
+  type RentalRateBasis,
+} from "@/lib/rentalFeeUtils";
 
 function computeMonthlyProRata(
   yearMonth: string,
   contractStartDate: string,
   contractEndDate: string,
   monthlyRate: number,
+  dailyRate: number,
+  rateBasis: RentalRateBasis,
   acquisitionCost: number,
   salvageValue: number,
   usefulLifeYears: number
@@ -27,13 +48,22 @@ function computeMonthlyProRata(
     Math.round((eDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
   );
 
+  const effectiveDaily =
+    rateBasis === "DAILY_AUTO"
+      ? calculateAutoDailyRentalFee(monthlyRate)
+      : resolveDailyRentalFee(monthlyRate, dailyRate);
   const isFullMonth = effStart === monthStart && effEnd === monthEnd;
+  const isExplicitDailyMode =
+    rateBasis === "DAILY_MANUAL" || rateBasis === "DAILY_AUTO";
+
   const proRataRevenue =
     operatingDays <= 0
       ? 0
+      : isExplicitDailyMode
+      ? Math.round(effectiveDaily * operatingDays)
       : isFullMonth
       ? Math.round(monthlyRate)
-      : Math.min(Math.round(monthlyRate), Math.round((monthlyRate / 30) * operatingDays));
+      : Math.min(Math.round(monthlyRate), Math.round(effectiveDaily * operatingDays));
 
   const depreciationCogs = Math.round(
     (acquisitionCost - salvageValue) / Math.max(1, usefulLifeYears * 12)
@@ -62,6 +92,9 @@ export async function GET(request: Request) {
     const mode = (searchParams.get("mode") || "ALL").toUpperCase();
 
     const pool = getErpPool();
+    await ensureRentalRateSchema(pool);
+    await ensureForkliftSchema(pool);
+    await ensurePartnerStatusSchema(pool);
 
     const [assetsRes, logsRes, partnersRes, billingsRes] = await Promise.all([
       // 1. Fetch all rental assets with product info and customer master contract info
@@ -79,6 +112,8 @@ export async function GET(request: Request) {
           COALESCE(p.standard_daily_rate, 0)::numeric AS "standardDailyRate",
           p.spec AS "productSpec",
           a.custom_spec AS "customSpec",
+          COALESCE(a.attached_options, '[]'::jsonb) AS "attachedOptions",
+          COALESCE(a.operating_hours, 0)::numeric AS "operatingHours",
           a.owner_type AS "ownerType",
           a.status,
           a.current_customer AS "currentCustomer",
@@ -86,6 +121,7 @@ export async function GET(request: Request) {
           a.contract_no AS "contractNo",
           a.current_contract_id AS "currentContractId",
           COALESCE(a.current_monthly_rate, 0)::numeric AS "currentMonthlyRate",
+          COALESCE(a.current_daily_rate, 0)::numeric AS "currentDailyRate",
           TO_CHAR(a.outbound_date, 'YYYY-MM-DD') AS "outboundDate",
           COALESCE(a.acquisition_cost, 0)::numeric AS "acquisitionCost",
           COALESCE(a.salvage_value, 0)::numeric AS "salvageValue",
@@ -98,7 +134,9 @@ export async function GET(request: Request) {
           c.entity_type AS "activeEntityType",
           TO_CHAR(c.start_date, 'YYYY-MM-DD') AS "activeStartDate",
           TO_CHAR(c.end_date, 'YYYY-MM-DD') AS "activeEndDate",
-          COALESCE(NULLIF(a.current_monthly_rate, 0), p.standard_monthly_rate, c.monthly_rate, 0)::numeric AS "activeMonthlyRate"
+          COALESCE(NULLIF(a.current_monthly_rate, 0), p.standard_monthly_rate, c.monthly_rate, 0)::numeric AS "activeMonthlyRate",
+          COALESCE(NULLIF(a.current_daily_rate, 0), p.standard_daily_rate, c.daily_rate, 0)::numeric AS "activeDailyRate",
+          COALESCE(c.rate_basis, 'MONTHLY') AS "activeRateBasis"
         FROM erp_rental_assets a
         LEFT JOIN erp_rental_products p ON a.rental_product_id = p.id
         LEFT JOIN LATERAL (
@@ -137,10 +175,16 @@ export async function GET(request: Request) {
       mode === "INBOUND"
         ? Promise.resolve({ rows: [] })
         : pool.query(`
-            SELECT DISTINCT name AS "customerName", business_no AS "businessNo", ceo_name AS "ceoName"
+            SELECT id,
+                   name AS "customerName",
+                   business_no AS "businessNo",
+                   ceo_name AS "ceoName",
+                   status,
+                   nts_biz_state AS "ntsBizState",
+                   nts_closed_date AS "ntsClosedDate"
             FROM erp_partners
-            WHERE partner_type IN ('CUSTOMER', 'BOTH') AND status = 'ACTIVE'
-            ORDER BY name ASC
+            WHERE partner_type IN ('CUSTOMER', 'BOTH')
+            ORDER BY CASE WHEN status = 'ACTIVE' AND COALESCE(nts_biz_state, 'ACTIVE') = 'ACTIVE' THEN 0 ELSE 1 END, name ASC
           `),
       // 4. Fetch monthly billings (skip if mode === 'INBOUND')
       mode === "INBOUND"
@@ -165,6 +209,8 @@ export async function GET(request: Request) {
               TO_CHAR(b.end_date, 'YYYY-MM-DD') AS "endDate",
               b.operating_days AS "operatingDays",
               COALESCE(c.monthly_rate, 0)::numeric AS "monthlyRate",
+              COALESCE(c.daily_rate, 0)::numeric AS "dailyRate",
+              COALESCE(c.rate_basis, 'MONTHLY') AS "rateBasis",
               COALESCE(b.pro_rata_revenue, 0)::numeric AS "proRataRevenue",
               COALESCE(b.depreciation_cogs, 0)::numeric AS "depreciationCogs",
               COALESCE(b.net_margin, 0)::numeric AS "netMargin",
@@ -180,23 +226,37 @@ export async function GET(request: Request) {
           ),
     ]);
 
+    const normalizedAssets = assetsRes.rows.map((r: any) => {
+      const stdMonthly = Math.round(parseNumericInput(r.standardMonthlyRate));
+      const stdDaily = resolveDailyRentalFee(stdMonthly, r.standardDailyRate);
+      const actMonthly = Math.round(parseNumericInput(r.activeMonthlyRate));
+      const actDaily = resolveDailyRentalFee(actMonthly, r.activeDailyRate);
+      return {
+        ...r,
+        standardMonthlyRate: stdMonthly,
+        standardDailyRate: stdDaily,
+        activeMonthlyRate: actMonthly,
+        activeDailyRate: actDaily,
+      };
+    });
+
     // If lookup query is provided, also return matched asset directly
     let matchedAsset = null;
     if (lookup) {
       const qUpper = lookup.toUpperCase();
       matchedAsset =
-        assetsRes.rows.find(
+        normalizedAssets.find(
           (r) =>
             (r.assetNo && r.assetNo.toUpperCase() === qUpper) ||
             (r.serialNo && r.serialNo.toUpperCase() === qUpper)
         ) ||
-        assetsRes.rows.find(
+        normalizedAssets.find(
           (r) =>
             r.status === "RENTED" &&
             ((r.assetNo && r.assetNo.toUpperCase().includes(qUpper)) ||
               (r.serialNo && r.serialNo.toUpperCase().includes(qUpper)))
         ) ||
-        assetsRes.rows.find(
+        normalizedAssets.find(
           (r) =>
             (r.assetNo && r.assetNo.toUpperCase().includes(qUpper)) ||
             (r.serialNo && r.serialNo.toUpperCase().includes(qUpper))
@@ -236,7 +296,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       yearMonth,
-      assets: assetsRes.rows,
+      assets: normalizedAssets,
       matchedAsset,
       logs: logsRes.rows,
       partners: partnersRes.rows,
@@ -256,6 +316,8 @@ export async function GET(request: Request) {
 // Handles action: "OUTBOUND" | "INBOUND"
 export async function POST(request: Request) {
   const pool = getErpPool();
+  await ensureRentalRateSchema(pool);
+  await ensureRentalMaintenanceSchema(pool);
   const client = await pool.connect();
 
   try {
@@ -271,11 +333,13 @@ export async function POST(request: Request) {
         billingStartDate,
         endDate,
         monthlyRate,
+        dailyRate: explicitDailyRate,
+        rateBasis: requestedRateBasis,
         entityType,
         deposit,
         memo,
         actorName,
-        useProRata, // 특별한 경우에만 true로 전달받아 일할 계산, 기본은 false(출고 월단가 정액)
+        useProRata,
       } = body;
 
       if ((!assetId && !assetNo) || !customerName || !billingStartDate || monthlyRate === undefined) {
@@ -285,7 +349,7 @@ export async function POST(request: Request) {
         );
       }
 
-      const numMonthlyRate = Math.round(Number(monthlyRate));
+      const numMonthlyRate = Math.round(parseNumericInput(monthlyRate));
       if (isNaN(numMonthlyRate) || numMonthlyRate < 0) {
         return NextResponse.json(
           { error: "유효한 월 단가를 입력해 주십시오." },
@@ -327,8 +391,21 @@ export async function POST(request: Request) {
       }
 
       const cleanCustomer = customerName.trim();
+      await assertPartnerTradable(client, { customerName: cleanCustomer });
       const effectiveEndDate = endDate || "2099-12-31";
-      const dailyRate = Math.round(numMonthlyRate / 30);
+      const resolvedBasis = inferRentalRateBasis(
+        numMonthlyRate,
+        explicitDailyRate,
+        requestedRateBasis || (useProRata === true ? "DAILY_AUTO" : undefined)
+      );
+      const effectiveDailyRate =
+        resolvedBasis === "DAILY_AUTO"
+          ? calculateAutoDailyRentalFee(numMonthlyRate)
+          : resolveDailyRentalFee(numMonthlyRate, explicitDailyRate);
+      const useDailyBilling =
+        resolvedBasis === "DAILY_MANUAL" ||
+        resolvedBasis === "DAILY_AUTO" ||
+        useProRata === true;
 
       // 2. 고객별 임대계약은 1건 원칙: 기존 고객 마스터 임대계약 조회 (없으면 1건 생성)
       let contract: any = null;
@@ -355,10 +432,10 @@ export async function POST(request: Request) {
           `
           INSERT INTO erp_rental_contracts
           (contract_no, entity_type, partner_id, customer_name, site_name, asset_id, start_date, end_date,
-           monthly_rate, daily_rate, vat_amount, deposit, status, memo,
+           monthly_rate, daily_rate, rate_basis, vat_amount, deposit, status, memo,
            customer_biz_no, customer_ceo_name, customer_address, customer_biz_type, customer_biz_class, customer_email,
            tax_purpose, tax_memo, tax_items)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ACTIVE', $13, $14, $15, $16, $17, $18, $19, '청구', '{1번째 아이템} 외', '[]'::jsonb)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'ACTIVE', $14, $15, $16, $17, $18, $19, $20, '청구', '{1번째 아이템} 외', '[]'::jsonb)
           RETURNING *
         `,
           [
@@ -371,7 +448,8 @@ export async function POST(request: Request) {
             billingStartDate,
             effectiveEndDate,
             numMonthlyRate,
-            dailyRate,
+            effectiveDailyRate,
+            resolvedBasis,
             Math.round(numMonthlyRate * 0.1),
             Number(deposit || 0),
             memo || null,
@@ -386,7 +464,24 @@ export async function POST(request: Request) {
         contract = contractRes.rows[0];
       }
 
-      // 3. Update asset status to RENTED and save outbound monthlyRate on the asset
+      const normalizedAttachedOptions =
+        body.attachedOptions !== undefined
+          ? normalizeAttachedOptions(body.attachedOptions)
+          : normalizeAttachedOptions(asset.attached_options);
+      const attachedSummary = formatAttachedOptionsSummary(normalizedAttachedOptions);
+
+      await client.query(
+        `UPDATE erp_rental_assets
+         SET next_pm_due_date = CASE
+               WHEN next_pm_due_date IS NULL OR next_pm_due_date < $1::date
+                 THEN ($1::date + (COALESCE(pm_interval_days, 30) * INTERVAL '1 day'))::date
+               ELSE next_pm_due_date
+             END
+         WHERE id = $2`,
+        [billingStartDate, asset.id]
+      );
+
+      // 3. Update asset status to RENTED and save outbound monthlyRate & dailyRate on the asset
       await client.query(
         `
         UPDATE erp_rental_assets
@@ -396,9 +491,11 @@ export async function POST(request: Request) {
             contract_no = $3,
             current_contract_id = $4,
             current_monthly_rate = $5,
-            outbound_date = $6,
+            current_daily_rate = $6,
+            outbound_date = $7,
+            attached_options = $9::jsonb,
             updated_at = NOW()
-        WHERE id = $7
+        WHERE id = $8
       `,
         [
           cleanCustomer,
@@ -406,16 +503,18 @@ export async function POST(request: Request) {
           contract.contract_no,
           contract.id,
           numMonthlyRate,
+          effectiveDailyRate,
           billingStartDate,
           asset.id,
+          JSON.stringify(normalizedAttachedOptions),
         ]
       );
 
-      // 4. 고객의 현재 출고(대여중)된 전체 자산을 집계하여 마스터 임대계약의 월 임대료 및 품목(tax_items)에 가산(+) 반영
+      // 4. 고객의 현재 출고(대여중)된 전체 자산을 집계하여 마스터 임대계약의 월/일 임대료 및 품목(tax_items)에 가산(+) 반영
       const rentedAssetsRes = await client.query(
-        `SELECT a.id, a.asset_no, a.current_monthly_rate, a.outbound_date, a.current_site,
-                a.acquisition_cost, a.salvage_value, a.useful_life_years,
-                p.model_name, p.standard_monthly_rate
+        `SELECT a.id, a.asset_no, a.current_monthly_rate, a.current_daily_rate, a.outbound_date, a.current_site,
+                a.attached_options, a.acquisition_cost, a.salvage_value, a.useful_life_years,
+                p.model_name, p.standard_monthly_rate, p.standard_daily_rate
          FROM erp_rental_assets a
          LEFT JOIN erp_rental_products p ON a.rental_product_id = p.id
          WHERE a.status = 'RENTED' AND (a.current_contract_id = $1 OR a.current_customer = $2)
@@ -429,24 +528,31 @@ export async function POST(request: Request) {
 
       const updatedTaxItems = rentedAssets.map((ra: any) => {
         const itemRate = Math.round(Number(ra.current_monthly_rate || ra.standard_monthly_rate || numMonthlyRate));
+        const itemDailyRate = resolveDailyRentalFee(
+          itemRate,
+          ra.current_daily_rate || ra.standard_daily_rate
+        );
         const itemVat = Math.round(itemRate * 0.1);
         const outDt = ra.outbound_date ? String(ra.outbound_date).slice(0, 10) : billingStartDate;
+        const optText = formatAttachedOptionsSummary(ra.attached_options);
         return {
           assetId: ra.id,
           assetNo: ra.asset_no,
           month: outDt.slice(5, 7) || mm,
           day: outDt.slice(8, 10) || dd,
           itemName: `${ra.model_name || "임대장비"} (${ra.asset_no})`,
-          spec: ra.current_site || (siteName || "").trim() || "",
+          spec: optText ? `${ra.current_site || (siteName || "").trim() || ""} [옵션: ${optText}]`.trim() : ra.current_site || (siteName || "").trim() || "",
           qty: 1,
           unitCost: itemRate,
+          dailyRate: itemDailyRate,
           supplyAmount: itemRate,
           vatAmount: itemVat,
-          note: `출고일: ${outDt}`,
+          note: `출고일: ${outDt}${optText ? ` / 옵션: ${optText}` : ""}`,
         };
       });
 
       const totalContractMonthlyRate = updatedTaxItems.reduce((acc: number, it: any) => acc + Number(it.supplyAmount || 0), 0);
+      const totalContractDailyRate = updatedTaxItems.reduce((acc: number, it: any) => acc + Number(it.dailyRate || 0), 0);
       const totalContractVat = updatedTaxItems.reduce((acc: number, it: any) => acc + Number(it.vatAmount || 0), 0);
       const firstAssetId = rentedAssets[0]?.id || asset.id;
 
@@ -457,24 +563,28 @@ export async function POST(request: Request) {
              site_name = COALESCE(NULLIF($2, ''), site_name),
              monthly_rate = $3,
              daily_rate = $4,
-             vat_amount = $5,
+             rate_basis = $5,
+             vat_amount = $6,
              tax_memo = COALESCE(NULLIF(tax_memo, ''), '{1번째 아이템} 외'),
-             tax_items = $6::jsonb
-         WHERE id = $7
+             tax_items = $7::jsonb,
+             attached_options = CASE WHEN jsonb_array_length($9::jsonb) > 0 THEN $9::jsonb ELSE attached_options END
+         WHERE id = $8
          RETURNING *`,
         [
           firstAssetId,
           (siteName || "").trim(),
           totalContractMonthlyRate,
-          Math.round(totalContractMonthlyRate / 30),
+          totalContractDailyRate,
+          resolvedBasis,
           totalContractVat,
           JSON.stringify(updatedTaxItems),
           contract.id,
+          JSON.stringify(normalizedAttachedOptions),
         ]
       );
       contract = updatedCtRes.rows[0];
 
-      // 5. 당월 청구 생성/갱신 (원칙: 특별한 경우가 아니면 일할 임대료를 정하지 않고 출고 단가 정액으로 반영)
+      // 5. 당월 청구 생성/갱신
       const startYearMonth = billingStartDate.slice(0, 7);
       const now = new Date();
       const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -503,12 +613,14 @@ export async function POST(request: Request) {
         let effStart = monthStart;
         let effEnd = monthEnd;
 
-        if (useProRata === true) {
+        if (useDailyBilling) {
           const calc = computeMonthlyProRata(
             ym,
             billingStartDate,
             effectiveEndDate,
             numMonthlyRate,
+            effectiveDailyRate,
+            resolvedBasis,
             Number(asset.acquisition_cost || 0),
             Number(asset.salvage_value || 0),
             Number(asset.useful_life_years || 5)
@@ -538,7 +650,7 @@ export async function POST(request: Request) {
 
         if (existingBillRes.rows.length > 0) {
           const existingBill = existingBillRes.rows[0];
-          const nextRevenue = useProRata === true
+          const nextRevenue = useDailyBilling
             ? Math.round(Number(existingBill.pro_rata_revenue || 0)) + targetRevenue
             : totalContractMonthlyRate;
           const nextVat = Math.round(nextRevenue * 0.1);
@@ -599,9 +711,10 @@ export async function POST(request: Request) {
       }
 
       // 6. Record OUTBOUND event in erp_asset_inout_logs
-      const logMemo =
+      const baseLogMemo =
         memo ||
         `출고등록 완료 (고객계약: ${contract.contract_no}, 출고단가: ₩${numMonthlyRate.toLocaleString()} 가산 → 고객 총 ${rentedAssets.length}대 / 월 ₩${totalContractMonthlyRate.toLocaleString()})`;
+      const logMemo = `${baseLogMemo}${attachedSummary ? ` [부착옵션: ${attachedSummary}]` : ""}`;
       await client.query(
         `
         INSERT INTO erp_asset_inout_logs
@@ -740,6 +853,13 @@ export async function POST(request: Request) {
         asset.active_customer_name || asset.current_customer || "미지정 고객사";
       const fromSite = asset.active_site_name || asset.current_site || null;
       const deductedRate = Math.round(Number(asset.current_monthly_rate || asset.standard_monthly_rate || 0));
+      const inboundOptSummary = formatAttachedOptionsSummary(asset.attached_options);
+      const inboundOpHours =
+        body.operatingHours !== undefined && body.operatingHours !== ""
+          ? Math.max(Number(asset.operating_hours || 0), Number(parseNumericInput(body.operatingHours)) || 0)
+          : Number(asset.operating_hours || 0);
+
+      const prevAssetOpHours = Number(asset.operating_hours || 0);
 
       // 2. 먼저 반납된 자산의 상태를 AVAILABLE/REPAIRING으로 전환하고 고객 배정 해제
       await client.query(
@@ -750,11 +870,46 @@ export async function POST(request: Request) {
              contract_no = NULL,
              current_contract_id = NULL,
              current_monthly_rate = 0,
+             current_daily_rate = 0,
              outbound_date = NULL,
+             operating_hours = GREATEST(COALESCE(operating_hours, 0), $3),
+             last_hour_recorded_at = CASE WHEN $3 > COALESCE(operating_hours, 0) THEN NOW() ELSE last_hour_recorded_at END,
              updated_at = NOW()
          WHERE id = $2`,
-        [targetNextStatus, asset.id]
+        [targetNextStatus, asset.id, inboundOpHours]
       );
+
+      if (inboundOpHours > prevAssetOpHours) {
+        const kstToday = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+        await client.query(
+          `INSERT INTO erp_asset_hour_logs (
+             asset_id, recorded_date, previous_hours, recorded_hours, delta_hours,
+             source_type, source_id, recorded_by, note
+           ) VALUES (
+             $1, $2::date, $3, $4, $5,
+             'INBOUND', NULL, $6, $7
+           )`,
+          [
+            asset.id,
+            kstToday,
+            prevAssetOpHours,
+            inboundOpHours,
+            Math.round((inboundOpHours - prevAssetOpHours) * 10) / 10,
+            String(body.actorName || "입고담당자").trim() || "입고담당자",
+            "반납 입고 가동시간 기록",
+          ]
+        );
+      }
+
+      if (inboundOpHours > 0) {
+        await client.query(
+          `UPDATE erp_forklift_warranties
+           SET current_operating_hours = GREATEST(current_operating_hours, $1),
+               updated_at = NOW()
+           WHERE asset_id = $2`,
+          [inboundOpHours, asset.id]
+        );
+      }
 
       // 3. 고객의 마스터 임대계약에서 반납된 자산만 차감(-) 업데이트 (계약 자체는 고객 마스터로 ACTIVE 유지)
       let updatedBilling = null;
@@ -763,9 +918,9 @@ export async function POST(request: Request) {
 
       if (activeContractId) {
         const remainingRes = await client.query(
-          `SELECT a.id, a.asset_no, a.current_monthly_rate, a.outbound_date, a.current_site,
+          `SELECT a.id, a.asset_no, a.current_monthly_rate, a.current_daily_rate, a.outbound_date, a.current_site,
                   a.acquisition_cost, a.salvage_value, a.useful_life_years,
-                  p.model_name, p.standard_monthly_rate
+                  p.model_name, p.standard_monthly_rate, p.standard_daily_rate
            FROM erp_rental_assets a
            LEFT JOIN erp_rental_products p ON a.rental_product_id = p.id
            WHERE a.status = 'RENTED' AND (a.current_contract_id = $1 OR a.current_customer = $2)
@@ -780,6 +935,10 @@ export async function POST(request: Request) {
 
         const nextTaxItems = remainingAssets.map((ra: any) => {
           const itemRate = Math.round(Number(ra.current_monthly_rate || ra.standard_monthly_rate || 0));
+          const itemDailyRate = resolveDailyRentalFee(
+            itemRate,
+            ra.current_daily_rate || ra.standard_daily_rate
+          );
           const itemVat = Math.round(itemRate * 0.1);
           const outDt = ra.outbound_date ? String(ra.outbound_date).slice(0, 10) : effectiveInboundDate;
           return {
@@ -791,6 +950,7 @@ export async function POST(request: Request) {
             spec: ra.current_site || fromSite || "",
             qty: 1,
             unitCost: itemRate,
+            dailyRate: itemDailyRate,
             supplyAmount: itemRate,
             vatAmount: itemVat,
             note: `출고일: ${outDt}`,
@@ -798,6 +958,7 @@ export async function POST(request: Request) {
         });
 
         remainingMonthlyRate = nextTaxItems.reduce((acc: number, it: any) => acc + Number(it.supplyAmount || 0), 0);
+        const remainingDailyRate = nextTaxItems.reduce((acc: number, it: any) => acc + Number(it.dailyRate || 0), 0);
         const remainingVat = nextTaxItems.reduce((acc: number, it: any) => acc + Number(it.vatAmount || 0), 0);
         const nextFirstAssetId = remainingAssets[0]?.id || null;
 
@@ -812,7 +973,7 @@ export async function POST(request: Request) {
           [
             nextFirstAssetId,
             remainingMonthlyRate,
-            Math.round(remainingMonthlyRate / 30),
+            remainingDailyRate,
             remainingVat,
             JSON.stringify(nextTaxItems),
             activeContractId,
@@ -862,9 +1023,10 @@ export async function POST(request: Request) {
       }
 
       // 4. Insert INBOUND log and Audit Log
-      const logMemo =
+      const baseInboundMemo =
         memo ||
         `[${fromCustomer}${fromSite ? " / " + fromSite : ""}] 입고 완료 (단가 ₩${deductedRate.toLocaleString()} 차감 → 잔여 ${remainingAssetCount}대 / 월 ₩${remainingMonthlyRate.toLocaleString()})`;
+      const logMemo = `${baseInboundMemo}${inboundOptSummary ? ` [반납확인 옵션: ${inboundOptSummary}]` : ""}`;
       const auditDetails = JSON.stringify({
         assetId: asset.id,
         assetNo: asset.asset_no,
@@ -941,6 +1103,12 @@ export async function POST(request: Request) {
     }
   } catch (error: any) {
     await client.query("ROLLBACK");
+    if (error instanceof PartnerTradeBlockedError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 400 }
+      );
+    }
     console.error("POST /api/erp/inout error:", error);
     return NextResponse.json(
       { error: "입출고 처리 실패: " + error.message },

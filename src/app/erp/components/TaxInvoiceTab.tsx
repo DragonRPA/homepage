@@ -5,13 +5,18 @@ import {
   FileText, Plus, RefreshCw, Download, Upload, Search, 
   CheckCircle2, Printer, AlertCircle, X, ExternalLink, Send,
   Building2, UserCheck, ShieldCheck, Check,
-  ArrowUpDown, CheckSquare, Square,
+  CheckSquare, Square,
   Layers, ArrowLeftRight, Sparkles, Unlink, Link2, Database
 } from "lucide-react";
 import { EntityType, getEntity } from "@/lib/businessEntities";
-import { formatErpNumber, formatErpCurrency, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import { formatErpNumber, formatErpCurrency, matchHangulAny, sortCustomersByName, sortErpItems } from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
 import { STANDARD_ACCOUNT_SUBJECTS } from "@/lib/erpAccountSubjects";
+import { SearchSelectCombobox, SearchSelectOption } from "./SearchSelectCombobox";
 import { ContractTaxInvoiceSection, BuyerTaxSpec, createDefaultTaxSpec, extractPartnerTaxSpec } from "./ContractTaxInvoiceSection";
+import { findBlockedPartnerMatch, getPartnerTradeBlockInfo } from "@/lib/partnerStatusClient";
+import { ReconcileModal } from "./tax-invoice/TaxInvoiceReconcileModal";
+import { IssueModal, DetailModal } from "./tax-invoice/TaxInvoiceIssueAndDetailModals";
 
 interface TaxInvoiceTabProps {
   currentUser: any;
@@ -53,30 +58,16 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   const [settlementFilter, setSettlementFilter] = useState<"ALL" | "UNPAID" | "PARTIAL" | "PAID">("ALL");
   const [entityFilter, setEntityFilter] = useState<"ALL" | "CORP" | "INDIVIDUAL">(selectedEntity);
   const [searchTerm, setSearchTerm] = useState("");
-  const [sortKey, setSortKey] = useState<string>("issueDate");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+  const { sortKey, sortDir, handleSort } = useErpTableSort("issueDate", "desc");
 
-  // Unissued Sorting
-  const [unissuedSortKey, setUnissuedSortKey] = useState<string>("billingDate");
-  const [unissuedSortDir, setUnissuedSortDir] = useState<SortDirection>("desc");
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
-  };
-
-  const handleUnissuedSort = (key: string) => {
-    if (unissuedSortKey === key) {
-      setUnissuedSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setUnissuedSortKey(key);
-      setUnissuedSortDir("desc");
-    }
-  };
+  // Unissued Sorting & Reconciliation Modal Sub-Table Sorting (3단계: asc ➔ desc ➔ null)
+  const {
+    sortKey: unissuedSortKey,
+    sortDir: unissuedSortDir,
+    handleSort: handleUnissuedSort,
+  } = useErpTableSort("billingDate", "desc");
+  const linkedBankSort = useErpTableSort("", null);
+  const candBankSort = useErpTableSort("", null);
 
   useEffect(() => {
     setEntityFilter(selectedEntity);
@@ -98,8 +89,6 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     selectedEntity === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP"
   );
   const [custName, setCustName] = useState("");
-  const [custSearch, setCustSearch] = useState("");
-  const [showCustDropdown, setShowCustDropdown] = useState(false);
   const [issueDate, setIssueDate] = useState(new Date().toISOString().split("T")[0]);
   const [domainType, setDomainType] = useState("TRADE_SALE");
   const [manualNtsConfirmNo, setManualNtsConfirmNo] = useState("");
@@ -294,15 +283,17 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         if (settlementFilter === "PARTIAL" && st !== "PARTIAL") return false;
         if (settlementFilter === "PAID" && st !== "PAID") return false;
       }
-      const term = searchTerm.toLowerCase();
-      return (
-        !term ||
-        i.customerName?.toLowerCase().includes(term) ||
-        i.itemName?.toLowerCase().includes(term) ||
-        i.invoiceNo?.toLowerCase().includes(term) ||
-        i.ntsConfirmNo?.toLowerCase().includes(term) ||
-        i.supplierCorpName?.toLowerCase().includes(term) ||
-        i.businessNo?.includes(term)
+      if (!searchTerm.trim()) return true;
+      return matchHangulAny(
+        [
+          i.customerName,
+          i.itemName,
+          i.invoiceNo,
+          i.ntsConfirmNo,
+          i.supplierCorpName,
+          i.businessNo,
+        ],
+        searchTerm
       );
     });
   }, [activeSubTab, saleInvoices, purchaseInvoices, domainFilter, settlementFilter, searchTerm]);
@@ -321,16 +312,18 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
         if (domainFilter === "TRADE_SALE" && b.domainType !== "TRADE_SALE") return false;
       }
       if (entityFilter !== "ALL" && b.entityType !== entityFilter) return false;
-      if (!searchTerm) return true;
-      const term = searchTerm.toLowerCase();
-      return (
-        b.customerName?.toLowerCase().includes(term) ||
-        b.itemName?.toLowerCase().includes(term) ||
-        b.billingNo?.toLowerCase().includes(term) ||
-        b.contractNo?.toLowerCase().includes(term) ||
-        b.businessNo?.includes(term) ||
-        b.siteName?.toLowerCase().includes(term) ||
-        b.projectName?.toLowerCase().includes(term)
+      if (!searchTerm.trim()) return true;
+      return matchHangulAny(
+        [
+          b.customerName,
+          b.itemName,
+          b.billingNo,
+          b.contractNo,
+          b.businessNo,
+          b.siteName,
+          b.projectName,
+        ],
+        searchTerm
       );
     });
   }, [unissuedBillings, domainFilter, entityFilter, searchTerm]);
@@ -756,6 +749,17 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       showToast("발행할 청구건을 1건 이상 선택해주세요.", "error");
       return;
     }
+    for (const b of selectedList) {
+      const blocked = findBlockedPartnerMatch(registeredPartners, {
+        partnerId: b.partnerId,
+        name: b.customerName,
+        businessNo: b.customerBizNo || b.businessNo,
+      });
+      if (blocked) {
+        showToast(`[${blocked.name}] ${getPartnerTradeBlockInfo(blocked).reason}`, "error");
+        return;
+      }
+    }
 
     const totalSumFormatted = formatErpCurrency(selectedSummary.total);
     const confirmMsg = consolidate
@@ -793,6 +797,16 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
   };
 
   const handleSingleIssueFromBilling = async (billing: any) => {
+    const blocked = findBlockedPartnerMatch(registeredPartners, {
+      partnerId: billing.partnerId,
+      name: billing.customerName,
+      businessNo: billing.customerBizNo || billing.businessNo,
+    });
+    if (blocked) {
+      showToast(`[${blocked.name}] ${getPartnerTradeBlockInfo(blocked).reason}`, "error");
+      return;
+    }
+
     if (!window.confirm(
       `[${billing.customerName}] ${billing.itemName}\n공급가액: ${formatErpCurrency(billing.supplyAmount)} (합계: ${formatErpCurrency(billing.totalAmount)})\n국세청 전자세금계산서를 즉시 발행하시겠습니까?`
     )) {
@@ -837,6 +851,15 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       return;
     }
 
+    const blocked = findBlockedPartnerMatch(registeredPartners, {
+      name: custName.trim(),
+      businessNo: manualTaxSpec.customerBizNo,
+    });
+    if (blocked) {
+      showToast(`[${blocked.name}] ${getPartnerTradeBlockInfo(blocked).reason}`, "error");
+      return;
+    }
+
     try {
       const res = await fetch("/api/erp/tax-invoices", {
         method: "POST",
@@ -874,7 +897,6 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       );
       setShowIssueModal(false);
       setCustName("");
-      setCustSearch("");
       setManualNtsConfirmNo("");
       setManualTaxSpec(createDefaultTaxSpec("용역/판매 품목", 1000000));
       await fetchIssuedInvoices();
@@ -1067,17 +1089,69 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
     }
   };
 
+  const sortedLinkedBankTxs = useMemo(
+    () =>
+      sortErpItems(linkedBankTxs, linkedBankSort.sortKey, linkedBankSort.sortDir, (tx, k) => {
+        if (k === "amount") {
+          return reconcileInvoice?.ioType === "PURCHASE"
+            ? tx.withdrawalAmount || tx.amount
+            : tx.depositAmount || tx.amount;
+        }
+        return undefined;
+      }),
+    [linkedBankTxs, linkedBankSort.sortKey, linkedBankSort.sortDir, reconcileInvoice?.ioType]
+  );
+
   const filteredCandidateTxs = useMemo(() => {
-    const q = bankSearchTerm.trim().toLowerCase();
-    if (!q) return candidateBankTxs;
-    return candidateBankTxs.filter((tx) =>
-      [tx.senderReceiver, tx.counterpartyHolder, tx.memo, tx.transDate, String(tx.depositAmount || tx.withdrawalAmount || "")]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q)
+    const base = !bankSearchTerm.trim()
+      ? candidateBankTxs
+      : candidateBankTxs.filter((tx) =>
+          matchHangulAny(
+            [
+              tx.senderReceiver,
+              tx.counterpartyHolder,
+              tx.memo,
+              tx.transDate,
+              tx.depositAmount || tx.withdrawalAmount,
+            ],
+            bankSearchTerm
+          )
+        );
+    return sortErpItems(base, candBankSort.sortKey, candBankSort.sortDir, (tx, k) => {
+      if (k === "amount") return reconcileInvoice?.ioType === "PURCHASE" ? tx.withdrawalAmount || tx.amount : tx.depositAmount || tx.amount;
+      return tx?.[k];
+    });
+  }, [candidateBankTxs, bankSearchTerm, candBankSort.sortKey, candBankSort.sortDir, reconcileInvoice?.ioType]);
+
+  const manualPartners = useMemo(() => {
+    const filtered = registeredPartners.filter((p) =>
+      modalIoType === "PURCHASE"
+        ? p.partnerType === "VENDOR" || p.partnerType === "BOTH"
+        : p.partnerType === "CUSTOMER" || p.partnerType === "BOTH"
     );
-  }, [candidateBankTxs, bankSearchTerm]);
+    return sortCustomersByName(filtered);
+  }, [registeredPartners, modalIoType]);
+
+  const manualPartnerOptions = useMemo<SearchSelectOption[]>(() => {
+    return manualPartners.map((p) => {
+      const block = getPartnerTradeBlockInfo(p);
+      return {
+        value: String(p.id),
+        label: p.name,
+        subLabel: `사업자: ${p.businessNo || "-"} | 대표: ${p.ceoName || "-"}`,
+        badgeText: block.blocked ? block.badgeText : (p.partnerCode || undefined),
+        badgeColor: block.blocked ? "rose" : "blue",
+        searchKeywords: [p.name, p.businessNo, p.ceoName, p.partnerCode],
+        disabled: block.blocked,
+      };
+    });
+  }, [manualPartners]);
+
+  const selectedManualPartnerId = useMemo(() => {
+    if (!custName) return "";
+    const found = manualPartners.find((p) => p.name === custName);
+    return found ? String(found.id) : "";
+  }, [manualPartners, custName]);
 
   const modalAccountSubjects = useMemo(() => {
     const isPurchase = reconcileInvoice?.ioType === "PURCHASE";
@@ -1641,54 +1715,14 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                       </button>
                     </th>
                     <th className="p-2 text-center w-24 border-r border-[#b5a894] whitespace-nowrap">단건발행</th>
-                    <th className="p-2 text-left w-20 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleUnissuedSort("domainType")}>
-                        <span>매출분과</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-left w-28 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleUnissuedSort("billingNo")}>
-                        <span>청구번호</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-left w-24 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleUnissuedSort("billingDate")}>
-                        <span>청구일자</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-left border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleUnissuedSort("customerName")}>
-                        <span>공급받는자 (거래처)</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-left border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleUnissuedSort("itemName")}>
-                        <span>품목명 / 프로젝트</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-right w-28 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleUnissuedSort("supplyAmount")}>
-                        <span>공급가액</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-right w-24 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleUnissuedSort("vatAmount")}>
-                        <span>세액 (VAT)</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-right w-28 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleUnissuedSort("totalAmount")}>
-                        <span>합계금액</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
+                    <SortableTh label="매출분과" colKey="domainType" sortKey={unissuedSortKey} sortDir={unissuedSortDir} onSort={handleUnissuedSort} className="p-2 w-20 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="청구번호" colKey="billingNo" sortKey={unissuedSortKey} sortDir={unissuedSortDir} onSort={handleUnissuedSort} className="p-2 w-28 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="청구일자" colKey="billingDate" sortKey={unissuedSortKey} sortDir={unissuedSortDir} onSort={handleUnissuedSort} className="p-2 w-24 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="공급받는자 (거래처)" colKey="customerName" sortKey={unissuedSortKey} sortDir={unissuedSortDir} onSort={handleUnissuedSort} className="p-2 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="품목명 / 프로젝트" colKey="itemName" sortKey={unissuedSortKey} sortDir={unissuedSortDir} onSort={handleUnissuedSort} className="p-2 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="공급가액" colKey="supplyAmount" sortKey={unissuedSortKey} sortDir={unissuedSortDir} onSort={handleUnissuedSort} align="right" className="p-2 w-28 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="세액 (VAT)" colKey="vatAmount" sortKey={unissuedSortKey} sortDir={unissuedSortDir} onSort={handleUnissuedSort} align="right" className="p-2 w-24 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="합계금액" colKey="totalAmount" sortKey={unissuedSortKey} sortDir={unissuedSortDir} onSort={handleUnissuedSort} align="right" className="p-2 w-28 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
                     <th className="p-2 text-center w-28 whitespace-nowrap">발행사업자</th>
                   </tr>
                 </thead>
@@ -1938,60 +1972,15 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
                     <th className="p-2 text-center w-48 border-r border-[#b5a894] whitespace-nowrap">
                       <span>입출금 대사 · 세금계산서 조치</span>
                     </th>
-                    <th className="p-2 text-center w-24 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center justify-center gap-1 cursor-pointer" onClick={() => handleSort("settlementStatus")}>
-                        <span>{isPurchaseTab ? "지급상태" : "수납상태"}</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-left w-24 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleSort("issueDate")}>
-                        <span>작성일자</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-left border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleSort("customerName")}>
-                        <span>{isPurchaseTab ? "공급자 (매입거래처)" : "공급받는자 (매출거래처)"}</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-left border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleSort("itemName")}>
-                        <span>품목명</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-right w-28 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleSort("supplyAmount")}>
-                        <span>공급가액</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-right w-24 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleSort("vatAmount")}>
-                        <span>세액</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-right w-28 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleSort("totalAmount")}>
-                        <span>합계금액</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-right w-28 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleSort("settledAmount")}>
-                        <span>{isPurchaseTab ? "지급완료액" : "수납완료액"}</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
-                    <th className="p-2 text-right w-32 border-r border-[#b5a894] whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1 cursor-pointer" onClick={() => handleSort("unpaidAmount")}>
-                        <span>{isPurchaseTab ? "미지급 채무잔액" : "미수납 채권잔액"}</span>
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      </div>
-                    </th>
+                    <SortableTh label={isPurchaseTab ? "지급상태" : "수납상태"} colKey="settlementStatus" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="center" className="p-2 w-24 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="작성일자" colKey="issueDate" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="p-2 w-24 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label={isPurchaseTab ? "공급자 (매입거래처)" : "공급받는자 (매출거래처)"} colKey="customerName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="p-2 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="품목명" colKey="itemName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="p-2 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="공급가액" colKey="supplyAmount" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="right" className="p-2 w-28 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="세액" colKey="vatAmount" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="right" className="p-2 w-24 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label="합계금액" colKey="totalAmount" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="right" className="p-2 w-28 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label={isPurchaseTab ? "지급완료액" : "수납완료액"} colKey="settledAmount" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="right" className="p-2 w-28 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
+                    <SortableTh label={isPurchaseTab ? "미지급 채무잔액" : "미수납 채권잔액"} colKey="unpaidAmount" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="right" className="p-2 w-32 border-r border-[#b5a894]" iconClassName="w-3 h-3" />
                     <th className="p-2 text-center w-24 border-r border-[#b5a894] whitespace-nowrap">
                       <span>수집/발행출처</span>
                     </th>
@@ -2402,904 +2391,73 @@ export const TaxInvoiceTab: React.FC<TaxInvoiceTabProps> = ({
       {/* ===================================================================== */}
       {/* MODAL 1: 세금계산서 ↔ 통장 입출금 1:1 / 1:N 비교 대사 모달              */}
       {/* ===================================================================== */}
-      {reconcileInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4">
-          <div className="bg-[#f4efe4] border-2 border-[#b5a894] rounded-lg max-w-4xl w-full p-5 shadow-2xl max-h-[92vh] flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894] shrink-0">
-              <div className="flex items-center gap-2">
-                <ArrowLeftRight className="w-5 h-5 text-teal-700" />
-                <h3 className="font-bold text-sm text-[#1c1917]">
-                  {reconcileInvoice.ioType === "PURCHASE"
-                    ? "매입 세금계산서 ↔ 통장 출금 내역 비교 대사 (매입채무 관리)"
-                    : "매출 세금계산서 ↔ 통장 입금 내역 비교 대사 (매출채권 관리)"}
-                </h3>
-              </div>
-              <button onClick={() => setReconcileInvoice(null)} className="text-[#78716c] hover:text-[#1c1917]">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Selected Invoice Summary Banner */}
-            <div className="my-3 p-3 rounded border border-[#b5a894] bg-[#ebe5d8] grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs shrink-0">
-              <div className="flex flex-col">
-                <span className="text-[10px] text-[#78716c] font-bold">거래처명</span>
-                <span className="font-bold text-[#1c1917] truncate">{reconcileInvoice.customerName}</span>
-                <span className="text-[10px] font-mono text-[#78716c]">{reconcileInvoice.businessNo}</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-[#78716c] font-bold">작성일자 / 품목</span>
-                <span className="font-mono font-bold text-[#1c1917]">
-                  {reconcileInvoice.issueDate ? String(reconcileInvoice.issueDate).slice(0, 10) : "-"}
-                </span>
-                <span className="text-[10px] truncate text-[#57534e]">{reconcileInvoice.itemName}</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-[#78716c] font-bold">세금계산서 합계금액</span>
-                <span className="font-mono font-bold text-sm text-[#1c1917]">
-                  {formatErpCurrency(reconcileInvoice.totalAmount)}
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-[#78716c] font-bold">
-                  {reconcileInvoice.ioType === "PURCHASE" ? "지급 완료 금액" : "수납 완료 금액"}
-                </span>
-                <span className="font-mono font-bold text-sm text-emerald-800">
-                  {formatErpCurrency(reconcileInvoice.settledAmount || 0)}
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-[#78716c] font-bold">
-                  {reconcileInvoice.ioType === "PURCHASE" ? "미지급 채무 잔액" : "미수납 채권 잔액"}
-                </span>
-                <span className="font-mono font-bold text-sm text-rose-700">
-                  {formatErpCurrency(
-                    Math.max(0, Number(reconcileInvoice.totalAmount || 0) - Number(reconcileInvoice.settledAmount || 0))
-                  )}
-                </span>
-              </div>
-            </div>
-
-            {/* Body: Linked Transactions + Candidate Bank Transactions */}
-            <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
-              {/* 1. Already Linked Bank Transactions */}
-              <div className="border border-[#b5a894] rounded bg-[#ebe5d8] overflow-hidden">
-                <div className="px-3 py-2 bg-[#dfd7c7] border-b border-[#b5a894] flex items-center justify-between font-bold">
-                  <span>연결 완료된 통장 입출금 내역 ({linkedBankTxs.length}건)</span>
-                  {linkedBankTxs.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => handleUnmatchBankTx()}
-                      className="px-2 py-0.5 rounded bg-rose-700 text-white text-[10px] font-bold flex items-center gap-1 hover:bg-rose-800"
-                    >
-                      <Unlink className="w-3 h-3" />
-                      <span>전체 연결 해제</span>
-                    </button>
-                  )}
-                </div>
-                {linkedBankTxs.length === 0 ? (
-                  <div className="p-3 text-center text-[#78716c]">아직 연결된 통장 입출금 내역이 없습니다.</div>
-                ) : (
-                  <table className="w-full text-xs border-collapse">
-                    <thead className="bg-[#ded6c5] border-b border-[#b5a894] font-bold">
-                      <tr>
-                        <th className="p-2 text-center w-20 border-r border-[#b5a894]">조치</th>
-                        <th className="p-2 text-left w-28 border-r border-[#b5a894]">거래일자</th>
-                        <th className="p-2 text-left border-r border-[#b5a894]">기재내용 / 예금주</th>
-                        <th className="p-2 text-right w-32 border-r border-[#b5a894]">
-                          {reconcileInvoice.ioType === "PURCHASE" ? "출금금액" : "입금금액"}
-                        </th>
-                        <th className="p-2 text-left">계좌번호</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#b5a894]">
-                      {linkedBankTxs.map((tx) => (
-                        <tr key={tx.id} className="bg-emerald-50/40">
-                          <td className="p-2 text-center border-r border-[#b5a894]">
-                            <button
-                              type="button"
-                              onClick={() => handleUnmatchBankTx(Number(tx.id))}
-                              className="px-2 py-0.5 rounded border border-rose-600 text-rose-700 hover:bg-rose-100 font-bold text-[10px]"
-                            >
-                              해제
-                            </button>
-                          </td>
-                          <td className="p-2 font-mono border-r border-[#b5a894]">{tx.transDate}</td>
-                          <td className="p-2 border-r border-[#b5a894] font-bold">
-                            {tx.senderReceiver} {tx.counterpartyHolder ? `(${tx.counterpartyHolder})` : ""}
-                          </td>
-                          <td className="p-2 text-right font-mono font-bold text-emerald-800 border-r border-[#b5a894]">
-                            {formatErpCurrency(
-                              reconcileInvoice.ioType === "PURCHASE" ? tx.withdrawalAmount || tx.amount : tx.depositAmount || tx.amount
-                            )}
-                          </td>
-                          <td className="p-2 font-mono text-[#78716c]">{tx.accountNo}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {/* 2. Candidate Bank Transactions from IBK erp_bank_transactions */}
-              <div className="border border-[#b5a894] rounded bg-[#ebe5d8] overflow-hidden">
-                <div className="px-3 py-2 bg-[#dfd7c7] border-b border-[#b5a894] flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-bold">
-                      통장 {reconcileInvoice.ioType === "PURCHASE" ? "출금" : "입금"} 후보 목록 ({filteredCandidateTxs.length}건)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (selectedBankTxIds.size === filteredCandidateTxs.length && filteredCandidateTxs.length > 0) {
-                          setSelectedBankTxIds(new Set());
-                        } else {
-                          setSelectedBankTxIds(new Set(filteredCandidateTxs.map((t) => Number(t.id))));
-                        }
-                      }}
-                      className="px-2 py-0.5 rounded border border-[#b5a894] bg-[#f4efe4] hover:bg-[#e2dbcd] text-[10px] font-bold"
-                    >
-                      {selectedBankTxIds.size === filteredCandidateTxs.length && filteredCandidateTxs.length > 0
-                        ? "전체 선택 해제"
-                        : "현재 목록 전체 선택"}
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {/* 선택 건 일괄 계정과목 정리 바 (세금계산서 외 일반 입출금 일괄 소거) */}
-                    {selectedBankTxIds.size > 0 && (
-                      <div className="flex items-center gap-1.5 bg-[#f4efe4] px-2 py-1 rounded border border-[#b5a894]">
-                        <span className="text-[10px] font-bold text-[#44403c] whitespace-nowrap">
-                          선택 {selectedBankTxIds.size}건 계정과목 정리:
-                        </span>
-                        <select
-                          value={batchSubject || modalAccountSubjects[0]?.label || ""}
-                          onChange={(e) => setBatchSubject(e.target.value)}
-                          className="h-6 px-1.5 rounded border border-[#b5a894] bg-white text-[11px] font-bold text-[#1c1917]"
-                        >
-                          {modalAccountSubjects.map((s) => (
-                            <option key={s.code} value={s.label}>
-                              {s.label}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleClassifyBankTxInModal(
-                              Array.from(selectedBankTxIds),
-                              batchSubject || modalAccountSubjects[0]?.label || ""
-                            )
-                          }
-                          className="h-6 px-2 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-[10px] font-bold whitespace-nowrap"
-                        >
-                          일괄 정리 확정
-                        </button>
-                      </div>
-                    )}
-                    <input
-                      type="text"
-                      value={bankSearchTerm}
-                      onChange={(e) => setBankSearchTerm(e.target.value)}
-                      placeholder="입출금자명, 금액, 일자 검색..."
-                      className="h-7 px-2.5 rounded border border-[#b5a894] bg-[#f4efe4] text-xs w-48"
-                    />
-                  </div>
-                </div>
-
-                <div className="max-h-64 overflow-y-auto">
-                  <table className="w-full text-xs border-collapse">
-                    <thead className="sticky top-0 bg-[#ded6c5] border-b border-[#b5a894] font-bold z-10">
-                      <tr>
-                        <th className="p-2 text-center w-10 border-r border-[#b5a894] whitespace-nowrap">선택</th>
-                        <th className="p-2 text-center w-24 border-r border-[#b5a894] whitespace-nowrap">매칭 분석</th>
-                        <th className="p-2 text-left w-24 border-r border-[#b5a894] whitespace-nowrap">거래일자</th>
-                        <th className="p-2 text-left border-r border-[#b5a894] whitespace-nowrap">기재내용 / 상대예금주</th>
-                        <th className="p-2 text-right w-28 border-r border-[#b5a894] whitespace-nowrap">
-                          {reconcileInvoice.ioType === "PURCHASE" ? "출금금액" : "입금금액"}
-                        </th>
-                        <th className="p-2 text-left w-64 border-r border-[#b5a894] whitespace-nowrap">
-                          세금계산서 외 계정과목 지정 정리
-                        </th>
-                        <th className="p-2 text-left whitespace-nowrap">계좌번호</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#b5a894]">
-                      {reconcileLoading ? (
-                        <tr>
-                          <td colSpan={7} className="p-6 text-center text-[#78716c]">
-                            통장 입출금 내역을 비교 분석하는 중입니다...
-                          </td>
-                        </tr>
-                      ) : filteredCandidateTxs.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="p-6 text-center text-[#78716c]">
-                            조건에 해당하는 미매칭 통장 입출금 내역이 없습니다.
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredCandidateTxs.map((tx) => {
-                          const txId = Number(tx.id);
-                          const checked = selectedBankTxIds.has(txId);
-                          const amt = reconcileInvoice.ioType === "PURCHASE"
-                            ? Number(tx.withdrawalAmount || tx.amount || 0)
-                            : Number(tx.depositAmount || tx.amount || 0);
-                          const currentSubj =
-                            rowSubjectMap[txId] || tx.recommendedAccount || modalAccountSubjects[0]?.label || "";
-                          return (
-                            <tr
-                              key={tx.id}
-                              onClick={() => {
-                                setSelectedBankTxIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(txId)) next.delete(txId);
-                                  else next.add(txId);
-                                  return next;
-                                });
-                              }}
-                              className={`cursor-pointer hover:bg-[#dfd7c7] transition ${
-                                checked ? "bg-teal-50" : tx.matchScore >= 50 ? "bg-amber-50/40" : ""
-                              }`}
-                            >
-                              <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
-                                {checked ? (
-                                  <CheckSquare className="w-4 h-4 text-teal-700 mx-auto" />
-                                ) : (
-                                  <Square className="w-4 h-4 text-[#78716c] mx-auto" />
-                                )}
-                              </td>
-                              <td className="p-2 text-center border-r border-[#b5a894] whitespace-nowrap">
-                                {tx.matchScore >= 80 ? (
-                                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                                    강력추천 ({tx.matchReasons?.join("·")})
-                                  </span>
-                                ) : tx.matchScore >= 40 ? (
-                                  <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[10px]">
-                                    유사후보 ({tx.matchReasons?.join("·")})
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] text-[#78716c]">일반내역</span>
-                                )}
-                              </td>
-                              <td className="p-2 font-mono border-r border-[#b5a894] whitespace-nowrap">{tx.transDate}</td>
-                              <td className="p-2 border-r border-[#b5a894] whitespace-nowrap">
-                                <span className="font-bold text-[#1c1917]">{tx.senderReceiver}</span>
-                                {tx.counterpartyHolder && (
-                                  <span className="text-[10px] text-[#78716c] ml-1.5">({tx.counterpartyHolder})</span>
-                                )}
-                              </td>
-                              <td className="p-2 text-right font-mono font-bold border-r border-[#b5a894] whitespace-nowrap text-blue-900">
-                                {formatErpCurrency(amt)}
-                              </td>
-                              <td
-                                className="p-1.5 border-r border-[#b5a894] whitespace-nowrap"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <div className="flex items-center gap-1">
-                                  <select
-                                    value={currentSubj}
-                                    onChange={(e) =>
-                                      setRowSubjectMap((prev) => ({
-                                        ...prev,
-                                        [txId]: e.target.value,
-                                      }))
-                                    }
-                                    className="h-6 px-1.5 rounded border border-[#b5a894] bg-[#f4efe4] text-[10px] font-bold text-[#1c1917] flex-1 min-w-[140px]"
-                                  >
-                                    {modalAccountSubjects.map((s) => (
-                                      <option key={s.code} value={s.label}>
-                                        {s.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleClassifyBankTxInModal([txId], currentSubj)}
-                                    className="h-6 px-2 rounded bg-slate-700 hover:bg-slate-800 text-white text-[10px] font-bold shrink-0"
-                                  >
-                                    계정정리
-                                  </button>
-                                </div>
-                              </td>
-                              <td className="p-2 text-[10px] text-[#78716c] font-mono whitespace-nowrap">
-                                {tx.accountNo}
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* 2-B. 선택 통장내역 금액 비교 및 차액 정산 사유 바 */}
-              {selectedBankTxIds.size > 0 && (
-                <div className="p-2.5 rounded border border-teal-700 bg-teal-50/70 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-3 font-mono">
-                    <span>
-                      미결 잔액: <b className="text-rose-700">{formatErpCurrency(reconcileUnpaidBalance)}</b>
-                    </span>
-                    <span>|</span>
-                    <span>
-                      선택 통장합계 ({selectedBankTxIds.size}건):{" "}
-                      <b className="text-teal-800">{formatErpCurrency(selectedBankTxSum)}</b>
-                    </span>
-                    <span>|</span>
-                    <span>
-                      차액:{" "}
-                      <b
-                        className={
-                          Math.abs(reconcileUnpaidBalance - selectedBankTxSum) <= 1000
-                            ? "text-emerald-700"
-                            : "text-amber-800"
-                        }
-                      >
-                        {formatErpCurrency(reconcileUnpaidBalance - selectedBankTxSum)}
-                      </b>
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-bold text-[#44403c] whitespace-nowrap">차액 종결 사유:</span>
-                    <select
-                      value={settleReasonInput}
-                      onChange={(e) => setSettleReasonInput(e.target.value)}
-                      className="h-6 px-2 rounded border border-[#b5a894] bg-white text-[11px] font-bold text-[#1c1917]"
-                    >
-                      <option value="수수료/단수절사 차액 상계 완납">수수료/단수절사 차액 상계 완납</option>
-                      <option value="합산이체/복합결제 정산 완납">합산이체/복합결제 정산 완납</option>
-                      <option value="일부 감액/에누리 합의 완납">일부 감액/에누리 합의 완납</option>
-                      <option value="원천징수/공제 후 입금 완납">원천징수/공제 후 입금 완납</option>
-                      <option value="타계좌/카드 분할정산 완납">타계좌/카드 분할정산 완납</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {/* 3. Manual Settle Amount Adjustment */}
-              <div className="p-3 rounded border border-[#b5a894] bg-[#ebe5d8] flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-[#57534e]">직접 정산액 지정 (현금·상계·카드결제 등):</span>
-                  <input
-                    type="text"
-                    value={manualSettleInput}
-                    onChange={(e) => setManualSettleInput(e.target.value)}
-                    className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] font-mono font-bold w-36 text-right"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setManualSettleInput(String(Math.round(Number(reconcileInvoice.totalAmount || 0))))}
-                    className="px-2 py-1 rounded border border-[#b5a894] bg-[#f4efe4] hover:bg-[#dfd7c7] text-[10px] font-bold"
-                  >
-                    전액 완납 입력
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleManualSettleSave}
-                  className="px-3 py-1 rounded bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs"
-                >
-                  직접 정산액 저장
-                </button>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="pt-3 mt-3 border-t border-[#b5a894] flex flex-wrap items-center justify-between gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setReconcileInvoice(null)}
-                className="h-8 px-4 rounded border border-[#b5a894] bg-[#ebe5d8] hover:bg-[#e2dbcd] font-bold text-xs"
-              >
-                닫기
-              </button>
-              <div className="flex flex-wrap items-center gap-2">
-                {selectedBankTxIds.size > 0 && selectedBankTxSum < reconcileUnpaidBalance - 1000 && (
-                  <button
-                    type="button"
-                    disabled={reconcileLoading}
-                    onClick={() => handleConfirmBankMatch(false)}
-                    className="h-8 px-3 rounded border border-teal-700 bg-[#f4efe4] hover:bg-teal-50 text-teal-900 font-bold text-xs flex items-center gap-1.5"
-                  >
-                    <Link2 className="w-3.5 h-3.5" />
-                    <span>선택 금액({formatErpCurrency(selectedBankTxSum)})만큼만 부분수납 반영</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  disabled={selectedBankTxIds.size === 0 || reconcileLoading}
-                  onClick={() => handleConfirmBankMatch(true)}
-                  className={`h-8 px-4 rounded font-bold text-xs flex items-center gap-1.5 shadow ${
-                    selectedBankTxIds.size > 0
-                      ? "bg-teal-700 hover:bg-teal-800 text-white cursor-pointer"
-                      : "bg-[#d8d0c2] text-[#a8a29e] cursor-not-allowed"
-                  }`}
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>
-                    {selectedBankTxIds.size > 0 && Math.abs(reconcileUnpaidBalance - selectedBankTxSum) > 1000
-                      ? `선택 통장내역 (${selectedBankTxIds.size}건) 엮어 전액 완납 종결 확정`
-                      : `선택한 통장 내역 (${selectedBankTxIds.size}건) 대사 완결 확정`}
-                  </span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ReconcileModal
+        bankSearchTerm={bankSearchTerm}
+        batchSubject={batchSubject}
+        candBankSort={candBankSort}
+        filteredCandidateTxs={filteredCandidateTxs}
+        handleClassifyBankTxInModal={handleClassifyBankTxInModal}
+        handleConfirmBankMatch={handleConfirmBankMatch}
+        handleManualSettleSave={handleManualSettleSave}
+        handleUnmatchBankTx={handleUnmatchBankTx}
+        linkedBankSort={linkedBankSort}
+        linkedBankTxs={linkedBankTxs}
+        manualSettleInput={manualSettleInput}
+        modalAccountSubjects={modalAccountSubjects}
+        reconcileInvoice={reconcileInvoice}
+        reconcileLoading={reconcileLoading}
+        reconcileUnpaidBalance={reconcileUnpaidBalance}
+        rowSubjectMap={rowSubjectMap}
+        selectedBankTxIds={selectedBankTxIds}
+        selectedBankTxSum={selectedBankTxSum}
+        setBankSearchTerm={setBankSearchTerm}
+        setBatchSubject={setBatchSubject}
+        setManualSettleInput={setManualSettleInput}
+        setReconcileInvoice={setReconcileInvoice}
+        setRowSubjectMap={setRowSubjectMap}
+        setSelectedBankTxIds={setSelectedBankTxIds}
+        setSettleReasonInput={setSettleReasonInput}
+        settleReasonInput={settleReasonInput}
+        sortedLinkedBankTxs={sortedLinkedBankTxs}
+      />
 
       {/* ===================================================================== */}
       {/* MODAL 2: 매출 세금계산서 수동 발행 / 매입 세금계산서 수동 등록 모달     */}
       {/* ===================================================================== */}
-      {showIssueModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-[#f4efe4] border-2 border-[#b5a894] rounded-lg max-w-3xl w-full p-5 shadow-2xl max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894] mb-4">
-              <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-blue-700" />
-                <h3 className="font-bold text-sm text-[#1c1917]">
-                  {modalIoType === "PURCHASE" ? "매입 세금계산서 등록 (미지급 매입채무 생성)" : "매출 세금계산서 수동 발행"}
-                </h3>
-              </div>
-              <button onClick={() => setShowIssueModal(false)} className="text-[#78716c] hover:text-[#1c1917]">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleManualIssue} className="flex flex-col gap-3 text-xs">
-              {/* 구분 선택 (매출 vs 매입) */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setModalIoType("SALE")}
-                  className={`p-2 rounded border font-bold text-center transition ${
-                    modalIoType === "SALE"
-                      ? "border-blue-600 bg-blue-50 text-blue-900 ring-1 ring-blue-500"
-                      : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
-                  }`}
-                >
-                  매출 세금계산서 발행 (매출채권)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setModalIoType("PURCHASE")}
-                  className={`p-2 rounded border font-bold text-center transition ${
-                    modalIoType === "PURCHASE"
-                      ? "border-amber-600 bg-amber-50 text-amber-900 ring-1 ring-amber-500"
-                      : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
-                  }`}
-                >
-                  매입 세금계산서 등록 (매입채무)
-                </button>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="font-bold text-[#78716c]">당사 사업자 주체</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setModalSupplierEntity("CORP")}
-                    className={`p-2 rounded border text-left font-bold transition ${
-                      modalSupplierEntity === "CORP"
-                        ? "border-blue-600 bg-blue-50 text-blue-900 ring-1 ring-blue-500"
-                        : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
-                    }`}
-                  >
-                    <div>(주)드래곤알피에이 [법인]</div>
-                    <div className="text-[10px] font-normal font-mono opacity-80">806-88-03266</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModalSupplierEntity("INDIVIDUAL")}
-                    className={`p-2 rounded border text-left font-bold transition ${
-                      modalSupplierEntity === "INDIVIDUAL"
-                        ? "border-amber-600 bg-amber-50 text-amber-900 ring-1 ring-amber-500"
-                        : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
-                    }`}
-                  >
-                    <div>드래곤알피에이 [개인]</div>
-                    <div className="text-[10px] font-normal font-mono opacity-80">295-03-02683</div>
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                {modalIoType === "SALE" ? (
-                  <div className="flex flex-col gap-1">
-                    <label className="font-bold text-[#78716c]">매출 분과</label>
-                    <select
-                      value={domainType}
-                      onChange={(e) => setDomainType(e.target.value)}
-                      className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917]"
-                    >
-                      <option value="TRADE_SALE">판매 (유통 커머스)</option>
-                      <option value="RENTAL">임대 (장비 렌탈)</option>
-                      <option value="OP_SERVICE">운영용역 (유지보수)</option>
-                      <option value="DEV_SERVICE">개발용역 (SI 구축)</option>
-                    </select>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    <label className="font-bold text-[#78716c]">국세청 승인번호 (선택)</label>
-                    <input
-                      type="text"
-                      value={manualNtsConfirmNo}
-                      onChange={(e) => setManualNtsConfirmNo(e.target.value)}
-                      placeholder="예: 20261030-10000000-00000000"
-                      className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono"
-                    />
-                  </div>
-                )}
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-[#78716c]">작성/발행일자</label>
-                  <input
-                    type="date"
-                    value={issueDate}
-                    onChange={(e) => setIssueDate(e.target.value)}
-                    className="h-8 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono"
-                  />
-                </div>
-              </div>
-
-              {/* 등록 거래처 조회 선택 */}
-              <div className="flex flex-col gap-1 relative">
-                <label className="font-bold text-[#78716c]">
-                  {modalIoType === "PURCHASE" ? "공급자 상호 (매입거래처 조회 선택) *" : "공급받는자 상호 (매출고객사 조회 선택) *"}
-                </label>
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-[#78716c] absolute left-2.5 top-2.5" />
-                  <input
-                    type="text"
-                    value={custSearch}
-                    onFocus={() => setShowCustDropdown(true)}
-                    onChange={(e) => {
-                      setCustSearch(e.target.value);
-                      setCustName(e.target.value);
-                      setShowCustDropdown(true);
-                    }}
-                    placeholder="거래처명, 사업자번호 검색하여 선택 또는 직접 입력"
-                    required
-                    className="w-full h-8 pl-8 pr-8 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-semibold"
-                  />
-                  {custSearch && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCustSearch("");
-                        setCustName("");
-                        setShowCustDropdown(true);
-                      }}
-                      className="absolute right-2 top-2 text-[#78716c] hover:text-[#1c1917]"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {showCustDropdown && (
-                  <div className="absolute top-[56px] left-0 right-0 z-30 max-h-48 overflow-y-auto rounded border border-[#b5a894] bg-[#f4efe4] shadow-xl divide-y divide-[#d0c6b4]">
-                    {registeredPartners
-                      .filter((p) =>
-                        modalIoType === "PURCHASE"
-                          ? p.partnerType === "VENDOR" || p.partnerType === "BOTH"
-                          : p.partnerType === "CUSTOMER" || p.partnerType === "BOTH"
-                      )
-                      .filter((p) => {
-                        const q = custSearch.trim().toLowerCase();
-                        if (!q) return true;
-                        return [p.name, p.businessNo, p.ceoName, p.partnerCode]
-                          .filter(Boolean)
-                          .join(" ")
-                          .toLowerCase()
-                          .includes(q);
-                      })
-                      .map((p) => (
-                        <button
-                          type="button"
-                          key={p.id}
-                          onClick={() => {
-                            setCustName(p.name);
-                            setCustSearch(p.name);
-                            setShowCustDropdown(false);
-                            setManualTaxSpec((prev) => extractPartnerTaxSpec(p, prev));
-                          }}
-                          className="w-full px-3 py-2 text-left hover:bg-[#e2dbcd] flex items-center justify-between gap-2 transition"
-                        >
-                          <div className="flex flex-col">
-                            <div className="font-bold text-[#1c1917] flex items-center gap-1.5">
-                              <Building2 className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                              <span>{p.name}</span>
-                              <span className="text-[10px] font-mono text-blue-700">({p.partnerCode})</span>
-                            </div>
-                            <div className="text-[10px] text-[#78716c] font-mono">
-                              사업자: {p.businessNo || "-"} | 대표: {p.ceoName || "-"}
-                            </div>
-                          </div>
-                          <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px] shrink-0">
-                            선택
-                          </span>
-                        </button>
-                      ))}
-                  </div>
-                )}
-              </div>
-
-              <ContractTaxInvoiceSection
-                spec={manualTaxSpec}
-                onChange={setManualTaxSpec}
-                domainLabel={modalIoType === "PURCHASE" ? "매입 세금계산서" : "매출 세금계산서"}
-              />
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#b5a894] mt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowIssueModal(false)}
-                  className="h-8 px-3 rounded font-bold border border-[#b5a894] bg-[#ebe5d8] hover:bg-[#e2dbcd]"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="h-8 px-4 rounded font-bold text-white bg-blue-700 hover:bg-blue-800 shadow-sm"
-                >
-                  {modalIoType === "PURCHASE" ? "매입 세금계산서 저장" : "국세청 전자세금계산서 발행"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <IssueModal
+        custName={custName}
+        domainType={domainType}
+        handleManualIssue={handleManualIssue}
+        issueDate={issueDate}
+        manualNtsConfirmNo={manualNtsConfirmNo}
+        manualPartnerOptions={manualPartnerOptions}
+        manualPartners={manualPartners}
+        manualTaxSpec={manualTaxSpec}
+        modalIoType={modalIoType}
+        modalSupplierEntity={modalSupplierEntity}
+        selectedManualPartnerId={selectedManualPartnerId}
+        setCustName={setCustName}
+        setDomainType={setDomainType}
+        setIssueDate={setIssueDate}
+        setManualNtsConfirmNo={setManualNtsConfirmNo}
+        setManualTaxSpec={setManualTaxSpec}
+        setModalIoType={setModalIoType}
+        setModalSupplierEntity={setModalSupplierEntity}
+        setShowIssueModal={setShowIssueModal}
+        showIssueModal={showIssueModal}
+      />
 
       {/* ===================================================================== */}
       {/* MODAL 3: 전자세금계산서 상세조회 Modal (Hometax / Popbill Style)       */}
       {/* ===================================================================== */}
-      {detailInvoice && (() => {
-        const inv = detailInvoice;
-        const isPurchase = inv.ioType === "PURCHASE";
-        const ourEntity = getEntity(inv.supplierEntityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP");
-        const writeDateStr = inv.issueDate ? String(inv.issueDate).slice(0, 10) : new Date().toISOString().slice(0, 10);
-        const [, mm = "10", dd = "29"] = writeDateStr.split("-");
-        const rawItems = Array.isArray(inv.taxItems) && inv.taxItems.length > 0
-          ? inv.taxItems
-          : [
-              {
-                month: mm,
-                day: dd,
-                itemName: inv.itemName || "용역/렌탈/판매 공급",
-                spec: "",
-                qty: 1,
-                unitCost: Number(inv.supplyAmount || 0),
-                supplyAmount: Number(inv.supplyAmount || 0),
-                vatAmount: Number(inv.vatAmount || 0),
-                remark: "",
-              },
-            ];
-        const paddedRows = [...rawItems];
-        while (paddedRows.length < 4) {
-          paddedRows.push({ isBlank: true });
-        }
-
-        const supplierBizNo = isPurchase ? (inv.businessNo || "-") : (inv.supplierCorpNum || ourEntity.bizNum);
-        const supplierName = isPurchase ? inv.customerName : (inv.supplierCorpName || ourEntity.corpName);
-        const supplierCeo = isPurchase ? (inv.ceoName || "-") : (inv.supplierCeoName || ourEntity.ceoName);
-        const supplierAddr = isPurchase ? (inv.customerAddress || "-") : ourEntity.address;
-
-        const buyerBizNo = isPurchase ? ourEntity.bizNum : (inv.businessNo || "-");
-        const buyerName = isPurchase ? ourEntity.corpName : inv.customerName;
-        const buyerCeo = isPurchase ? ourEntity.ceoName : (inv.ceoName || "-");
-        const buyerAddr = isPurchase ? ourEntity.address : (inv.customerAddress || "-");
-
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="bg-white border border-slate-300 rounded shadow-2xl max-w-4xl w-full max-h-[94vh] overflow-y-auto text-slate-900">
-              <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
-                <h3 className="font-bold text-base text-slate-900">
-                  전자세금계산서 상세조회 ({isPurchase ? "매입" : "매출"})
-                </h3>
-                <button
-                  onClick={() => setDetailInvoice(null)}
-                  className="text-slate-500 hover:text-slate-900 p-1"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="p-5 flex flex-col gap-3 text-xs">
-                <div className="flex items-center justify-between text-[11px] text-slate-600 px-1">
-                  <div>
-                    <span className="font-bold text-slate-800">계산서번호:</span>{" "}
-                    <span className="font-mono">{inv.invoiceNo}</span>
-                  </div>
-                  <div>
-                    <span className="font-bold text-slate-800">국세청 승인번호:</span>{" "}
-                    <span className="font-mono text-blue-700 font-semibold">{inv.ntsConfirmNo || "-"}</span>
-                  </div>
-                </div>
-
-                <table className="w-full border-collapse border border-slate-300 text-xs">
-                  <tbody>
-                    <tr>
-                      <th rowSpan={4} className="w-9 bg-[#f8d7da] text-[#842029] border border-red-300 font-bold text-center leading-tight p-1">
-                        공<br />급<br />자
-                      </th>
-                      <th className="w-20 bg-[#fff0f1] text-slate-700 border border-red-200 p-2 text-center font-semibold">등록번호</th>
-                      <td className="border border-red-200 p-2 font-mono font-bold text-center text-slate-900">
-                        {supplierBizNo}
-                      </td>
-                      <th className="w-16 bg-[#fff0f1] text-slate-700 border border-red-200 p-2 text-center font-semibold">종사업장</th>
-                      <td className="w-20 border border-red-200 p-2 text-center text-slate-600">-</td>
-
-                      <th rowSpan={4} className="w-9 bg-[#cfe2ff] text-[#084298] border border-blue-300 font-bold text-center leading-tight p-1">
-                        공<br />급<br />받<br />는<br />자
-                      </th>
-                      <th className="w-20 bg-[#eef4ff] text-slate-700 border border-blue-200 p-2 text-center font-semibold">등록번호</th>
-                      <td className="border border-blue-200 p-2 font-mono font-bold text-center text-slate-900">
-                        {buyerBizNo}
-                      </td>
-                      <th className="w-16 bg-[#eef4ff] text-slate-700 border border-blue-200 p-2 text-center font-semibold">종사업장</th>
-                      <td className="w-20 border border-blue-200 p-2 text-center text-slate-600">-</td>
-                    </tr>
-                    <tr>
-                      <th className="bg-[#fff0f1] text-slate-700 border border-red-200 p-2 text-center font-semibold">상호</th>
-                      <td className="border border-red-200 p-2 font-semibold text-slate-900">{supplierName}</td>
-                      <th className="bg-[#fff0f1] text-slate-700 border border-red-200 p-2 text-center font-semibold">성명</th>
-                      <td className="border border-red-200 p-2 text-slate-900">{supplierCeo}</td>
-
-                      <th className="bg-[#eef4ff] text-slate-700 border border-blue-200 p-2 text-center font-semibold">상호</th>
-                      <td className="border border-blue-200 p-2 font-semibold text-slate-900">{buyerName}</td>
-                      <th className="bg-[#eef4ff] text-slate-700 border border-blue-200 p-2 text-center font-semibold">성명</th>
-                      <td className="border border-blue-200 p-2 text-slate-900">{buyerCeo}</td>
-                    </tr>
-                    <tr>
-                      <th className="bg-[#fff0f1] text-slate-700 border border-red-200 p-2 text-center font-semibold">사업장</th>
-                      <td colSpan={3} className="border border-red-200 p-2 text-slate-800">{supplierAddr}</td>
-
-                      <th className="bg-[#eef4ff] text-slate-700 border border-blue-200 p-2 text-center font-semibold">사업장</th>
-                      <td colSpan={3} className="border border-blue-200 p-2 text-slate-800">{buyerAddr}</td>
-                    </tr>
-                    <tr>
-                      <th className="bg-[#fff0f1] text-slate-700 border border-red-200 p-2 text-center font-semibold">이메일</th>
-                      <td colSpan={3} className="border border-red-200 p-2 font-mono text-slate-800">
-                        {isPurchase ? (inv.customerEmail || "-") : ourEntity.email}
-                      </td>
-
-                      <th className="bg-[#eef4ff] text-slate-700 border border-blue-200 p-2 text-center font-semibold">이메일</th>
-                      <td colSpan={3} className="border border-blue-200 p-2 font-mono text-slate-800">
-                        {isPurchase ? ourEntity.email : (inv.customerEmail || "-")}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-
-                <table className="w-full border-collapse border border-slate-300 text-xs">
-                  <thead>
-                    <tr className="bg-[#ebf7f6] text-slate-800 font-bold">
-                      <th className="border border-slate-300 p-2 text-center w-28">작성일자</th>
-                      <th className="border border-slate-300 p-2 text-center w-36">공급가액</th>
-                      <th className="border border-slate-300 p-2 text-center w-32">세액</th>
-                      <th className="border border-slate-300 p-2 text-center w-36">합계금액</th>
-                      <th className="border border-slate-300 p-2 text-center">비고</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td className="border border-slate-300 p-2 text-center font-mono">{writeDateStr}</td>
-                      <td className="border border-slate-300 p-2 text-right font-mono font-bold">
-                        {Number(inv.supplyAmount || 0).toLocaleString("ko-KR")}
-                      </td>
-                      <td className="border border-slate-300 p-2 text-right font-mono font-bold">
-                        {Number(inv.vatAmount || 0).toLocaleString("ko-KR")}
-                      </td>
-                      <td className="border border-slate-300 p-2 text-right font-mono font-bold text-blue-900">
-                        {Number(inv.totalAmount || 0).toLocaleString("ko-KR")}
-                      </td>
-                      <td className="border border-slate-300 p-2 text-left">{inv.memo || inv.itemName || ""}</td>
-                    </tr>
-                  </tbody>
-                </table>
-
-                <table className="w-full border-collapse border border-slate-300 text-xs">
-                  <thead>
-                    <tr className="bg-[#ebf7f6] text-slate-800 font-bold">
-                      <th className="border border-slate-300 p-2 text-center w-10">월</th>
-                      <th className="border border-slate-300 p-2 text-center w-10">일</th>
-                      <th className="border border-slate-300 p-2 text-center">품목</th>
-                      <th className="border border-slate-300 p-2 text-center w-24">규격</th>
-                      <th className="border border-slate-300 p-2 text-center w-16">수량</th>
-                      <th className="border border-slate-300 p-2 text-center w-28">단가</th>
-                      <th className="border border-slate-300 p-2 text-center w-28">공급가액</th>
-                      <th className="border border-slate-300 p-2 text-center w-24">세액</th>
-                      <th className="border border-slate-300 p-2 text-center w-28">비고</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paddedRows.map((row: any, idx: number) =>
-                      row.isBlank ? (
-                        <tr key={idx} className="h-8">
-                          <td className="border border-slate-300 p-2">&nbsp;</td>
-                          <td className="border border-slate-300 p-2"></td>
-                          <td className="border border-slate-300 p-2"></td>
-                          <td className="border border-slate-300 p-2"></td>
-                          <td className="border border-slate-300 p-2"></td>
-                          <td className="border border-slate-300 p-2"></td>
-                          <td className="border border-slate-300 p-2"></td>
-                          <td className="border border-slate-300 p-2"></td>
-                          <td className="border border-slate-300 p-2"></td>
-                        </tr>
-                      ) : (
-                        <tr key={idx}>
-                          <td className="border border-slate-300 p-2 text-center font-mono">{row.month || mm}</td>
-                          <td className="border border-slate-300 p-2 text-center font-mono">{row.day || dd}</td>
-                          <td className="border border-slate-300 p-2 font-medium">{row.itemName}</td>
-                          <td className="border border-slate-300 p-2 text-center">{row.spec || ""}</td>
-                          <td className="border border-slate-300 p-2 text-right font-mono">
-                            {row.qty != null ? Number(row.qty).toLocaleString("ko-KR") : "1"}
-                          </td>
-                          <td className="border border-slate-300 p-2 text-right font-mono">
-                            {row.unitCost != null ? Number(row.unitCost).toLocaleString("ko-KR") : ""}
-                          </td>
-                          <td className="border border-slate-300 p-2 text-right font-mono font-semibold">
-                            {row.supplyAmount != null ? Number(row.supplyAmount).toLocaleString("ko-KR") : ""}
-                          </td>
-                          <td className="border border-slate-300 p-2 text-right font-mono">
-                            {row.vatAmount != null ? Number(row.vatAmount).toLocaleString("ko-KR") : ""}
-                          </td>
-                          <td className="border border-slate-300 p-2">{row.remark || ""}</td>
-                        </tr>
-                      )
-                    )}
-                  </tbody>
-                </table>
-
-                <div className="flex items-center justify-center gap-2 pt-3 border-t border-slate-200 mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setDetailInvoice(null)}
-                    className="px-4 py-1.5 rounded border border-blue-500 text-blue-600 hover:bg-blue-50 font-semibold text-xs"
-                  >
-                    닫기
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const target = detailInvoice;
-                      setDetailInvoice(null);
-                      openReconcileModal(target);
-                    }}
-                    className="px-4 py-1.5 rounded bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs"
-                  >
-                    통장 입출금 대사 연결
-                  </button>
-                  {!isPurchase && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenPopbillView(inv)}
-                        className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs"
-                      >
-                        국세청 서식 창 열기
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenPopbillPrint(inv)}
-                        className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs"
-                      >
-                        출력 (인쇄)
-                      </button>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteInvoice(inv)}
-                    className="px-3.5 py-1.5 rounded border border-rose-600 text-rose-700 hover:bg-rose-50 font-bold text-xs"
-                  >
-                    삭제
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      <DetailModal
+        detailInvoice={detailInvoice}
+        handleDeleteInvoice={handleDeleteInvoice}
+        handleOpenPopbillPrint={handleOpenPopbillPrint}
+        handleOpenPopbillView={handleOpenPopbillView}
+        openReconcileModal={openReconcileModal}
+        setDetailInvoice={setDetailInvoice}
+      />
     </div>
   );
 };

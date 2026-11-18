@@ -24,8 +24,8 @@ import {
   cleanErpNumber,
   toErpInputString,
   sortErpItems,
-  SortDirection,
 } from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
 
 interface ExpenseReceiptItem {
   id: number;
@@ -45,6 +45,8 @@ interface ExpenseReceiptItem {
   receipt_file_name?: string;
   receipt_r2_key?: string;
   receipt_file_url?: string;
+  hasReceipt?: boolean;
+  has_receipt?: boolean;
   status: "PENDING" | "APPROVED" | "REJECTED";
   approved_by?: string;
   approved_at?: string;
@@ -124,6 +126,30 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
   // 영수증 스캔본 미리보기 모달
   const [previewItem, setPreviewItem] = useState<ExpenseReceiptItem | null>(null);
 
+  // 영수증 단건 지연 로딩 (Base64/첨부파일 목록 페이로드 최소화 대응)
+  useEffect(() => {
+    if (
+      previewItem &&
+      !previewItem.receipt_file_url &&
+      !previewItem.receipt_r2_key &&
+      (previewItem.hasReceipt || previewItem.has_receipt) &&
+      previewItem.id
+    ) {
+      fetch(`/api/erp/expenses?id=${previewItem.id}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.receipt?.receiptFileUrl) {
+            setPreviewItem((prev) =>
+              prev && prev.id === previewItem.id
+                ? { ...prev, receipt_file_url: data.receipt.receiptFileUrl }
+                : prev
+            );
+          }
+        })
+        .catch(() => {});
+    }
+  }, [previewItem?.id, previewItem?.hasReceipt, previewItem?.has_receipt, previewItem?.receipt_file_url, previewItem?.receipt_r2_key]);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [toastMessage, setToastMessage] = useState<{
@@ -131,8 +157,7 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
     type: "success" | "error";
   } | null>(null);
 
-  const [sortKey, setSortKey] = useState<string>("expense_date");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+  const { sortKey, sortDir, handleSort: toggleSort } = useErpTableSort("expense_date", "desc");
 
   const showToast = (text: string, type: "success" | "error" = "success") => {
     setToastMessage({ text, type });
@@ -531,46 +556,23 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
     document.body.removeChild(link);
   };
 
-  const toggleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
-
   const renderSortTh = (
     label: string,
     key: string,
     align: "left" | "center" | "right" = "left",
     extraClass = ""
-  ) => {
-    const active = sortKey === key;
-    const alignCls =
-      align === "right"
-        ? "justify-end text-right"
-        : align === "center"
-        ? "justify-center text-center"
-        : "justify-start text-left";
-    return (
-      <th
-        onClick={() => toggleSort(key)}
-        className={`py-2 px-2.5 whitespace-nowrap cursor-pointer select-none hover:bg-[#d8d0c0] dark:hover:bg-slate-700/60 transition ${extraClass}`}
-      >
-        <div className={`inline-flex items-center gap-1 w-full ${alignCls}`}>
-          <span>{label}</span>
-          <span
-            className={`text-[9px] leading-none ${
-              active ? "text-[#1d4ed8] font-extrabold" : "text-[#94a3b8]"
-            }`}
-          >
-            {active ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
-          </span>
-        </div>
-      </th>
-    );
-  };
+  ) => (
+    <SortableTh
+      label={label}
+      colKey={key}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={toggleSort}
+      align={align}
+      className={`py-2 px-2.5 hover:bg-[#d8d0c0] dark:hover:bg-slate-700/60 ${extraClass}`}
+      iconClassName="w-3 h-3 text-[#1d4ed8]"
+    />
+  );
 
   return (
     <div className="flex flex-col h-full bg-[#ebe5d8] text-[#0f172a] overflow-hidden font-sans dark:bg-slate-950 dark:text-slate-100">
@@ -859,7 +861,7 @@ export const ExpenseReceiptTab: React.FC<ExpenseReceiptTabProps> = ({ currentUse
                         {r.description || "-"}
                       </td>
                       <td className="py-2 px-2.5 text-center whitespace-nowrap font-sans">
-                        {r.receipt_r2_key || r.receipt_file_url ? (
+                        {r.receipt_r2_key || r.receipt_file_url || r.hasReceipt || r.has_receipt ? (
                           <button
                             onClick={() => setPreviewItem(r)}
                             className="px-2 py-0.5 bg-[#dbeafe] hover:bg-[#bfdbfe] text-[#1d4ed8] border border-[#93c5fd] rounded text-[10px] font-bold inline-flex items-center gap-1 transition"

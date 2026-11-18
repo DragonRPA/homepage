@@ -4,17 +4,46 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Truck, Plus, Calendar, RefreshCw, FileText, CheckCircle2, 
   RotateCcw, DollarSign, Layers, Search, Wrench, ShieldCheck, X,
-  ArrowUpDown, ArrowUp, ArrowDown, Building2, FileUp, Download,
+  Building2, FileUp, Download,
   Edit, Trash2
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, formatErpInputNumber, toErpInputString, cleanErpNumber, sortErpItems, SortDirection, resolveContractItemTemplate, resolveContractTaxItemsTemplate } from "@/lib/erpFormat";
+import {
+  formatErpNumber,
+  formatErpCurrency,
+  formatErpQty,
+  formatErpInputNumber,
+  toErpInputString,
+  cleanErpNumber,
+  sortErpItems,
+  SortDirection,
+  cycleErpSort,
+  resolveContractItemTemplate,
+  resolveContractTaxItemsTemplate,
+  RentalRateBasis,
+  RENTAL_RATE_BASIS_OPTIONS,
+  calculateAutoDailyRentalFee,
+  resolveDailyRentalFee,
+  inferRentalRateBasis,
+  getRentalRateBasisShortLabel,
+  computeRentalSupplyByBasis,
+  createHangulMatcher,
+  sortCustomersByName,
+  AttachedForkliftOption,
+  calculateAttachedOptionsTotals,
+  formatAttachedOptionsSummary,
+  normalizeAttachedOptions,
+  normalizeItemClass,
+} from "@/lib/erpFormat";
+import { fetchCachedMasterData, useMasterDataSync } from "@/lib/erpMasterDataBus";
+import { SortableTh } from "./SortableTh";
 import { ContractTaxInvoiceSection, BuyerTaxSpec, createDefaultTaxSpec, extractPartnerTaxSpec } from "./ContractTaxInvoiceSection";
+import { SearchSelectCombobox, SearchSelectOption } from "./SearchSelectCombobox";
+import ForkliftOptionAttachPanel, { CatalogOptionItem } from "./ForkliftOptionAttachPanel";
+import { findBlockedPartnerMatch, getPartnerTradeBlockInfo } from "@/lib/partnerStatusClient";
+import { AcquireAssetModal, AddModelModal, AddBillingModal } from "./rental/RentalAssetModelModals";
+import { AddContractModal, EditContractModal } from "./rental/RentalContractModals";
 
-interface RentalItemDraft {
-  productId: string;
-  qty: string;
-  unitCost: string;
-}
+import type { RentalItemDraft } from "./rental/rentalTypes";
 
 interface RentalTabProps {
   currentUser: any;
@@ -39,6 +68,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
 
   // Filter
   const [selectedYm, setSelectedYm] = useState(new Date().toISOString().slice(0, 7));
+  const [rentalSearchQuery, setRentalSearchQuery] = useState("");
 
   // Modals
   const [showAddModelModal, setShowAddModelModal] = useState(false);
@@ -61,6 +91,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [editCtEnd, setEditCtEnd] = useState("");
   const [editCtMonthlyRate, setEditCtMonthlyRate] = useState("0");
   const [editCtDailyRate, setEditCtDailyRate] = useState("0");
+  const [editCtRateBasis, setEditCtRateBasis] = useState<RentalRateBasis>("MONTHLY");
   const [editCtDeposit, setEditCtDeposit] = useState("0");
   const [editCtVatAmount, setEditCtVatAmount] = useState("0");
   const [editCtBillingDay, setEditCtBillingDay] = useState("25");
@@ -72,6 +103,9 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [editCtFileUrl, setEditCtFileUrl] = useState("");
   const [editCtFileName, setEditCtFileName] = useState("");
   const [editCtAddItems, setEditCtAddItems] = useState<RentalItemDraft[]>([]);
+  const [editCtAttachedOptions, setEditCtAttachedOptions] = useState<AttachedForkliftOption[]>([]);
+  const [ctAttachedOptions, setCtAttachedOptions] = useState<AttachedForkliftOption[]>([]);
+  const [optionCatalog, setOptionCatalog] = useState<CatalogOptionItem[]>([]);
 
   // Contract Form
   const [ctEntityType, setCtEntityType] = useState<"CORP" | "INDIVIDUAL">(
@@ -88,7 +122,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [modelName, setModelName] = useState("");
   const [manufacturer, setManufacturer] = useState("Skyjack");
   const [modelMonthlyRate, setModelMonthlyRate] = useState("600,000");
-  const [modelDailyRate, setModelDailyRate] = useState("30,000");
+  const [modelDailyRate, setModelDailyRate] = useState("20,000");
+  const [modelDailyManual, setModelDailyManual] = useState(false);
   const [modelSpec, setModelSpec] = useState("작업높이 8m / 전폭 0.81m");
 
   // Asset Form
@@ -105,8 +140,6 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [ctBaseContractId, setCtBaseContractId] = useState<string>("");
   const [ctPartnerId, setCtPartnerId] = useState<number | null>(null);
   const [ctCustomer, setCtCustomer] = useState("");
-  const [ctCustomerSearch, setCtCustomerSearch] = useState("");
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [ctSite, setCtSite] = useState("");
   const [ctAssetId, setCtAssetId] = useState("");
   const [ctRentalItems, setCtRentalItems] = useState<RentalItemDraft[]>([
@@ -116,7 +149,9 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [ctEnd, setCtEnd] = useState(
     new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
   );
+  const [ctRateBasis, setCtRateBasis] = useState<RentalRateBasis>("MONTHLY");
   const [ctMonthlyRate, setCtMonthlyRate] = useState("0");
+  const [ctDailyRate, setCtDailyRate] = useState("0");
   const [ctVatAmount, setCtVatAmount] = useState("0");
   const [ctBillingDay, setCtBillingDay] = useState("25");
   const [ctDeposit, setCtDeposit] = useState("0");
@@ -134,6 +169,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const [blStart, setBlStart] = useState(new Date().toISOString().slice(0, 7) + "-01");
   const [blEnd, setBlEnd] = useState(new Date().toISOString().split("T")[0]);
   const [blDays, setBlDays] = useState("30");
+  const [blRateBasis, setBlRateBasis] = useState<RentalRateBasis>("MONTHLY");
+  const [blDailyRate, setBlDailyRate] = useState("20,000");
   const [blUseProRata, setBlUseProRata] = useState(false); // 원칙: 특별한 경우가 아니면 일할 계산하지 않고 월 임대료 정액 적용
   const [blSupplyAmount, setBlSupplyAmount] = useState("600,000");
   const [blVatAmount, setBlVatAmount] = useState("60,000");
@@ -148,7 +185,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Sorting State (탭별 기본 정렬 키/방향 자동 적용)
+  // Sorting State (탭별 기본 정렬 키/방향 자동 적용 · 3단계: asc ➔ desc ➔ null 정렬안함)
   const [sortStateByTab, setSortStateByTab] = useState<
     Record<"assets" | "contracts" | "billings" | "models", { key: string; dir: SortDirection }>
   >({
@@ -164,57 +201,105 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
   const handleSort = (key: string) => {
     setSortStateByTab((prev) => {
       const current = prev[subTab];
-      if (current.key === key) {
-        return {
-          ...prev,
-          [subTab]: { key, dir: current.dir === "asc" ? "desc" : "asc" },
-        };
-      }
       return {
         ...prev,
-        [subTab]: { key, dir: "asc" },
+        [subTab]: cycleErpSort(current.key, current.dir, key),
       };
     });
   };
 
   const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
-    const isActive = sortKey === key;
+    const isActive = sortKey === key && sortDir !== null;
     return (
-      <th
-        onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-[#d0c6b4] dark:hover:bg-slate-800 transition text-${align} ${isActive ? "text-[#1d4ed8] dark:text-blue-400 font-bold" : ""}`}
-        title={`${label} 기준 정렬`}
-      >
-        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
-          <span>{label}</span>
-          <span className="shrink-0">
-            {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-            ) : (
-              <ArrowUpDown className="w-3 h-3 opacity-30" />
-            )}
-          </span>
-        </div>
-      </th>
+      <SortableTh
+        label={label}
+        colKey={key}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onSort={handleSort}
+        align={align}
+        className={`py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-800 ${isActive ? "text-[#1d4ed8] dark:text-blue-400 font-bold" : ""}`}
+        iconClassName="w-3.5 h-3.5 text-blue-600 dark:text-blue-400"
+      />
     );
   };
 
-  // Sorted Lists
+  // Filtered & Sorted Lists (통합 초성검색 + 정렬)
+  const searchMatcher = useMemo(
+    () => createHangulMatcher(rentalSearchQuery),
+    [rentalSearchQuery]
+  );
+
+  const filteredAssets = useMemo(() => {
+    if (!rentalSearchQuery.trim()) return assets;
+    return assets.filter((a) =>
+      searchMatcher.testAny([
+        a.assetNo,
+        a.modelName,
+        a.modelCode,
+        a.manufacturer,
+        a.serialNo,
+        a.status,
+      ])
+    );
+  }, [assets, rentalSearchQuery, searchMatcher]);
+
+  const filteredContracts = useMemo(() => {
+    if (!rentalSearchQuery.trim()) return contracts;
+    return contracts.filter((c) =>
+      searchMatcher.testAny([
+        c.contractNo,
+        c.customerName,
+        c.modelName,
+        c.assetNo,
+        c.siteName,
+        c.memo,
+      ])
+    );
+  }, [contracts, rentalSearchQuery, searchMatcher]);
+
+  const filteredBillings = useMemo(() => {
+    if (!rentalSearchQuery.trim()) return billings;
+    return billings.filter((b) =>
+      searchMatcher.testAny([
+        b.billingNo,
+        b.customerName,
+        b.assetNo,
+        b.modelName,
+        b.taxInvoiceNo,
+      ])
+    );
+  }, [billings, rentalSearchQuery, searchMatcher]);
+
+  const filteredModels = useMemo(() => {
+    if (!rentalSearchQuery.trim()) return models;
+    return models.filter((m) =>
+      searchMatcher.testAny([
+        m.model_code,
+        m.modelCode,
+        m.model_name,
+        m.modelName,
+        m.manufacturer,
+        m.spec,
+      ])
+    );
+  }, [models, rentalSearchQuery, searchMatcher]);
+
   const sortedAssets = useMemo(
-    () => sortErpItems(assets, sortStateByTab.assets.key, sortStateByTab.assets.dir),
-    [assets, sortStateByTab.assets]
+    () => sortErpItems(filteredAssets, sortStateByTab.assets.key, sortStateByTab.assets.dir),
+    [filteredAssets, sortStateByTab.assets]
   );
   const sortedContracts = useMemo(
-    () => sortErpItems(contracts, sortStateByTab.contracts.key, sortStateByTab.contracts.dir),
-    [contracts, sortStateByTab.contracts]
+    () => sortErpItems(filteredContracts, sortStateByTab.contracts.key, sortStateByTab.contracts.dir),
+    [filteredContracts, sortStateByTab.contracts]
   );
   const sortedBillings = useMemo(
-    () => sortErpItems(billings, sortStateByTab.billings.key, sortStateByTab.billings.dir),
-    [billings, sortStateByTab.billings]
+    () => sortErpItems(filteredBillings, sortStateByTab.billings.key, sortStateByTab.billings.dir),
+    [filteredBillings, sortStateByTab.billings]
   );
   const sortedModels = useMemo(
-    () => sortErpItems(models, sortStateByTab.models.key, sortStateByTab.models.dir),
-    [models, sortStateByTab.models]
+    () => sortErpItems(filteredModels, sortStateByTab.models.key, sortStateByTab.models.dir),
+    [filteredModels, sortStateByTab.models]
   );
 
   // 재고(AVAILABLE)가 1대 이상 있는 제품 모델만 집계
@@ -242,6 +327,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       modelName: string;
       manufacturer: string;
       standardMonthlyRate: number;
+      standardDailyRate: number;
       availableCount: number;
     }> = [];
 
@@ -249,12 +335,18 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       const pid = String(m.id);
       const info = countMap[pid];
       if (info && info.count > 0) {
+        const monthly = Number(m.standard_monthly_rate ?? m.standardMonthlyRate ?? 0);
+        const daily = resolveDailyRentalFee(
+          monthly,
+          Number(m.standard_daily_rate ?? m.standardDailyRate ?? 0)
+        );
         result.push({
           id: Number(m.id),
           modelCode: m.model_code || m.modelCode || info.sampleModelCode || "",
           modelName: m.model_name || m.modelName || info.sampleModelName || "제품",
           manufacturer: m.manufacturer || info.manufacturer || "",
-          standardMonthlyRate: Number(m.standard_monthly_rate ?? m.standardMonthlyRate ?? 0),
+          standardMonthlyRate: monthly,
+          standardDailyRate: daily,
           availableCount: info.count,
         });
       }
@@ -262,11 +354,73 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     return result;
   }, [models, assets]);
 
+  // SearchSelectCombobox 옵션 목록 (초성검색 지원)
+  const partnerComboboxOptions = useMemo<SearchSelectOption[]>(() => {
+    return sortCustomersByName(partners).map((p: any) => {
+      const block = getPartnerTradeBlockInfo(p);
+      return {
+        value: String(p.id),
+        label: p.name || "",
+        subLabel: [p.businessNo, p.ceoName].filter(Boolean).join(" · ") || undefined,
+        badgeText: block.blocked ? block.badgeText : undefined,
+        badgeColor: block.blocked ? "rose" : undefined,
+        searchKeywords: [p.name, p.businessNo, p.ceoName, p.partnerCode],
+        disabled: block.blocked,
+      };
+    });
+  }, [partners]);
+
+  const modelComboboxOptions = useMemo<SearchSelectOption[]>(() => {
+    return models.map((m: any) => {
+      const code = m.model_code || m.modelCode || "";
+      const name = m.model_name || m.modelName || "";
+      const monthly = Number(m.standard_monthly_rate ?? m.standardMonthlyRate ?? 0);
+      const daily = resolveDailyRentalFee(
+        monthly,
+        Number(m.standard_daily_rate ?? m.standardDailyRate ?? 0)
+      );
+      return {
+        value: String(m.id),
+        label: `[${code}] ${name}`,
+        subLabel: [m.manufacturer, `월 ${formatErpCurrency(monthly)}`, `일 ${formatErpCurrency(daily)}`]
+          .filter(Boolean)
+          .join(" · "),
+        searchKeywords: [code, name, m.manufacturer, m.spec],
+      };
+    });
+  }, [models]);
+
+  const inStockProductComboboxOptions = useMemo<SearchSelectOption[]>(() => {
+    return inStockProducts.map((p) => ({
+      value: String(p.id),
+      label: `[${p.modelCode}] ${p.modelName}`,
+      subLabel: `월 ${formatErpCurrency(p.standardMonthlyRate)} · 일 ${formatErpCurrency(p.standardDailyRate)}`,
+      badgeText: `재고 ${formatErpNumber(p.availableCount)}대`,
+      badgeColor: "emerald",
+      searchKeywords: [p.modelCode, p.modelName, p.manufacturer],
+    }));
+  }, [inStockProducts]);
+
+  const contractComboboxOptions = useMemo<SearchSelectOption[]>(() => {
+    return contracts.map((c: any) => {
+      const daily = resolveDailyRentalFee(c.monthlyRate, c.dailyRate);
+      return {
+        value: String(c.id),
+        label: `[${c.contractNo}] ${c.customerName}`,
+        subLabel: `${c.assetNo || c.modelName || "장비"} · 월 ${formatErpCurrency(c.monthlyRate)} · 일 ${formatErpCurrency(daily)}`,
+        badgeText: c.entityType === "INDIVIDUAL" ? "개인" : "법인",
+        badgeColor: c.entityType === "INDIVIDUAL" ? "amber" : "blue",
+        searchKeywords: [c.contractNo, c.customerName, c.assetNo, c.modelName],
+      };
+    });
+  }, [contracts]);
+
   // 선택된 재고 제품 행들의 합계 계산 헬퍼
   const recalcDraftItemsTotals = (
     drafts: RentalItemDraft[],
     isEditMode = false,
-    existingTaxItems: any[] = []
+    existingTaxItems: any[] = [],
+    basisOverride?: RentalRateBasis
   ) => {
     let draftSupplySum = 0;
     let draftVatSum = 0;
@@ -295,6 +449,9 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     if (!isEditMode) {
       setCtMonthlyRate(toErpInputString(draftSupplySum));
       setCtVatAmount(toErpInputString(draftVatSum));
+      if ((basisOverride ?? ctRateBasis) !== "DAILY_MANUAL") {
+        setCtDailyRate(toErpInputString(calculateAutoDailyRentalFee(draftSupplySum)));
+      }
       setCtTaxSpec((prev) => ({
         ...prev,
         taxMemo: prev.taxMemo || "{1번째 아이템} 외",
@@ -307,26 +464,18 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       const totalVat = baseVat + draftVatSum;
       setEditCtMonthlyRate(toErpInputString(totalSup));
       setEditCtVatAmount(toErpInputString(totalVat));
-      setEditCtDailyRate(toErpInputString(Math.round(totalSup / 30)));
+      if ((basisOverride ?? editCtRateBasis) !== "DAILY_MANUAL") {
+        setEditCtDailyRate(toErpInputString(calculateAutoDailyRentalFee(totalSup)));
+      }
     }
   };
 
-  const filteredPartners = useMemo(() => {
-    const q = ctCustomerSearch.trim().toLowerCase();
-    if (!q) return partners;
-    return partners.filter((p) => {
-      const hay = [p.name, p.businessNo, p.ceoName, p.partnerCode]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [partners, ctCustomerSearch]);
-
   const fetchPartners = async () => {
     try {
-      const res = await fetch("/api/erp/partners?type=CUSTOMER", { cache: "no-store" });
-      const data = await res.json();
+      const data = await fetchCachedMasterData("partners_customer", async () => {
+        const res = await fetch("/api/erp/partners?type=CUSTOMER", { cache: "no-store" });
+        return res.json();
+      });
       if (data.success && Array.isArray(data.partners)) {
         setPartners(data.partners);
       }
@@ -335,17 +484,11 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     }
   };
 
+  useMasterDataSync("partners", fetchPartners);
+
   useEffect(() => {
     fetchPartners();
   }, []);
-
-  const handleSelectCustomerPartner = (p: any) => {
-    setCtPartnerId(p.id);
-    setCtCustomer(p.name);
-    setCtCustomerSearch(p.name);
-    setShowCustomerDropdown(false);
-    setCtTaxSpec((prev) => extractPartnerTaxSpec(p, prev));
-  };
 
   const handleContractFileUpload = (file: File) => {
     if (!file) return;
@@ -402,19 +545,57 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
         ? `/api/erp/rental/contracts?entityType=${selectedEntity}`
         : "/api/erp/rental/contracts";
 
-      const [mRes, aRes, cRes, bRes] = await Promise.all([
+      const [mRes, aRes, cRes, bRes, tRes] = await Promise.all([
         fetch("/api/erp/rental/products", { cache: "no-store" }),
         fetch("/api/erp/rental/assets", { cache: "no-store" }),
         fetch(contractsUrl, { cache: "no-store" }),
-        fetch(`/api/erp/rental/billings?yearMonth=${selectedYm}`, { cache: "no-store" })
+        fetch(`/api/erp/rental/billings?yearMonth=${selectedYm}`, { cache: "no-store" }),
+        fetch("/api/erp/trade/products", { cache: "no-store" }).catch(() => null),
       ]);
 
       const mData = await mRes.json();
       const aData = await aRes.json();
       const cData = await cRes.json();
       const bData = await bRes.json();
+      const tData = tRes ? await tRes.json().catch(() => null) : null;
 
-      if (mData.success) setModels(mData.products);
+      const catalogList: CatalogOptionItem[] = [];
+      if (mData.success) {
+        setModels(mData.products);
+        for (const m of mData.products || []) {
+          if (normalizeItemClass(m.itemClass || m.item_class, m.category) === "OPTION") {
+            catalogList.push({
+              id: m.id,
+              source: "RENTAL",
+              skuCode: m.modelCode || m.model_code || undefined,
+              name: m.modelName || m.model_name || m.name,
+              spec: m.spec || undefined,
+              unitPrice: 0,
+              installFee: Number(m.installFee ?? m.install_fee ?? 0),
+              monthlyAddonRate: Number(m.standardMonthlyRate ?? m.standard_monthly_rate ?? 0),
+              dailyAddonRate: Number(m.standardDailyRate ?? m.standard_daily_rate ?? 0),
+            });
+          }
+        }
+      }
+      if (tData?.success && Array.isArray(tData.products)) {
+        for (const p of tData.products) {
+          if (normalizeItemClass(p.item_class, p.category) === "OPTION") {
+            catalogList.push({
+              id: p.id,
+              source: "TRADE",
+              skuCode: p.sku_code || undefined,
+              name: p.name,
+              spec: p.spec || undefined,
+              unitPrice: Number(p.standard_price || 0),
+              installFee: Number(p.install_fee || 0),
+              monthlyAddonRate: Number(p.addon_monthly_rate || 0),
+              dailyAddonRate: Number(p.addon_daily_rate || 0),
+            });
+          }
+        }
+      }
+      setOptionCatalog(catalogList);
       if (aData.success) setAssets(aData.assets);
       if (cData.success) setContracts(cData.contracts);
       if (bData.success) setBillings(bData.billings);
@@ -458,6 +639,9 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       setShowAddModelModal(false);
       setModelCode("");
       setModelName("");
+      setModelMonthlyRate("600,000");
+      setModelDailyRate("20,000");
+      setModelDailyManual(false);
       await fetchData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -556,6 +740,15 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       showToast("기본 계약(고객사), 계약 시작일, 종료일은 필수입니다.", "error");
       return;
     }
+    const blockedCust = findBlockedPartnerMatch(partners, {
+      partnerId: ctPartnerId,
+      name: ctCustomer,
+      businessNo: ctTaxSpec.customerBizNo,
+    });
+    if (blockedCust) {
+      showToast(`[${blockedCust.name}] ${getPartnerTradeBlockInfo(blockedCust).reason}`, "error");
+      return;
+    }
 
     const validRentalItems = ctRentalItems
       .filter((r) => r.productId && (cleanErpNumber(r.qty) || 0) > 0)
@@ -577,9 +770,12 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           siteName: "",
           assetId: ctAssetId || null,
           rentalItems: validRentalItems,
+          attachedOptions: ctAttachedOptions,
           startDate: ctStart,
           endDate: ctEnd,
+          rateBasis: ctRateBasis,
           monthlyRate: cleanErpNumber(ctMonthlyRate),
+          dailyRate: cleanErpNumber(ctDailyRate),
           vatAmount: cleanErpNumber(ctVatAmount),
           billingDay: ctBillingDay,
           deposit: cleanErpNumber(ctDeposit),
@@ -609,11 +805,13 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       setCtBaseContractId("");
       setCtPartnerId(null);
       setCtCustomer("");
-      setCtCustomerSearch("");
       setCtSite("");
       setCtAssetId("");
       setCtRentalItems([{ productId: "", qty: "1", unitCost: "0" }]);
+      setCtAttachedOptions([]);
+      setCtRateBasis("MONTHLY");
       setCtMonthlyRate("0");
+      setCtDailyRate("0");
       setCtVatAmount("0");
       setCtFileUrl("");
       setCtFileName("");
@@ -655,8 +853,11 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     setEditCtSite("");
     setEditCtStart(c.startDate ? String(c.startDate).slice(0, 10) : "");
     setEditCtEnd(c.endDate ? String(c.endDate).slice(0, 10) : "");
+    const resolvedBasis = inferRentalRateBasis(c.monthlyRate, c.dailyRate, c.rateBasis);
+    const resolvedDaily = resolveDailyRentalFee(c.monthlyRate, c.dailyRate);
     setEditCtMonthlyRate(toErpInputString(c.monthlyRate));
-    setEditCtDailyRate(toErpInputString(c.dailyRate));
+    setEditCtDailyRate(toErpInputString(resolvedDaily));
+    setEditCtRateBasis(resolvedBasis);
     setEditCtDeposit(toErpInputString(c.deposit));
     const baseSupply = Number(c.monthlyRate || 0);
     const baseVat = c.vatAmount != null ? Number(c.vatAmount) : Math.round(baseSupply * 0.1);
@@ -667,6 +868,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     setEditCtFileUrl("");
     setEditCtFileName(c.contractFileName || "");
     setEditCtAddItems([]);
+    setEditCtAttachedOptions(normalizeAttachedOptions(c.attachedOptions));
 
     const defaultItemLabel = "{1번째 아이템} 외";
     const defSpec = createDefaultTaxSpec(defaultItemLabel, baseSupply);
@@ -730,8 +932,10 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           customerName: editCtCustomer,
           siteName: "",
           rentalItems: validAddItems,
+          attachedOptions: editCtAttachedOptions,
           startDate: editCtStart,
           endDate: editCtEnd,
+          rateBasis: editCtRateBasis,
           monthlyRate: cleanErpNumber(editCtMonthlyRate),
           dailyRate: cleanErpNumber(editCtDailyRate),
           vatAmount: cleanErpNumber(editCtVatAmount),
@@ -808,11 +1012,53 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     }
   };
 
+  const recalcBillingAmounts = (params: {
+    contract?: any;
+    basis: RentalRateBasis;
+    dailyRateStr: string;
+    daysStr: string;
+    useProRata: boolean;
+  }) => {
+    const monthlyNum = Number(params.contract?.monthlyRate ?? 0);
+    const dailyNum = cleanErpNumber(params.dailyRateStr);
+    const daysNum = Math.max(1, parseInt(params.daysStr || "30", 10) || 30);
+    const computed = computeRentalSupplyByBasis({
+      monthlyRate: monthlyNum,
+      dailyRate: dailyNum,
+      rateBasis: params.basis,
+      operatingDays: daysNum,
+      useProRata: params.useProRata,
+    });
+    const nextVat =
+      params.basis === "MONTHLY" &&
+      !params.useProRata &&
+      daysNum === 30 &&
+      params.contract?.vatAmount != null
+        ? Number(params.contract.vatAmount)
+        : Math.round(computed.supplyAmount * 0.1);
+    setBlSupplyAmount(toErpInputString(computed.supplyAmount));
+    setBlVatAmount(toErpInputString(nextVat));
+  };
+
   // 임대계약의 치환식({1번째 아이템} 외, {yymm} 등)을 평가하여 청구 폼에 적용하는 헬퍼
   const applyRentalContractTemplateToBilling = (ct: any, ymStr: string) => {
     if (!ct) return;
-    const baseSupply = Number(ct.monthlyRate || 600000);
-    const baseVat = ct.vatAmount != null ? Number(ct.vatAmount) : Math.round(baseSupply * 0.1);
+    const contractMonthly = Number(ct.monthlyRate || 600000);
+    const basis = inferRentalRateBasis(contractMonthly, ct.dailyRate, ct.rateBasis);
+    const dailyNum = resolveDailyRentalFee(contractMonthly, ct.dailyRate);
+    const useDailyDefault = basis === "DAILY_MANUAL" || basis === "DAILY_AUTO";
+    const supplyResult = computeRentalSupplyByBasis({
+      monthlyRate: contractMonthly,
+      dailyRate: dailyNum,
+      rateBasis: basis,
+      operatingDays: 30,
+      useProRata: useDailyDefault,
+    });
+    const baseSupply = supplyResult.supplyAmount;
+    const baseVat =
+      !useDailyDefault && ct.vatAmount != null
+        ? Number(ct.vatAmount)
+        : Math.round(baseSupply * 0.1);
     const fallbackFirst = ct.modelName ? `${ct.modelName} (${ct.assetNo || ""})` : (ct.assetNo || "장비 임대료");
     const rawItems =
       Array.isArray(ct.taxItems) && ct.taxItems.length > 0
@@ -843,7 +1089,9 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
     });
 
     setBlDays("30");
-    setBlUseProRata(false);
+    setBlRateBasis(basis);
+    setBlDailyRate(toErpInputString(dailyNum));
+    setBlUseProRata(useDailyDefault);
     setBlSupplyAmount(toErpInputString(baseSupply));
     setBlVatAmount(toErpInputString(baseVat));
     setBlTaxSpec({
@@ -884,6 +1132,8 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           startDate: blStart,
           endDate: blEnd,
           operatingDays: blDays,
+          rateBasis: blRateBasis,
+          dailyRate: cleanErpNumber(blDailyRate),
           useProRata: blUseProRata,
           supplyAmount: cleanErpNumber(blSupplyAmount),
           vatAmount: cleanErpNumber(blVatAmount),
@@ -1045,7 +1295,13 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
           )}
           {subTab === "models" && (
             <button
-              onClick={() => setShowAddModelModal(true)}
+              onClick={() => {
+                setModelDailyManual(false);
+                setModelDailyRate(
+                  toErpInputString(calculateAutoDailyRentalFee(cleanErpNumber(modelMonthlyRate)))
+                );
+                setShowAddModelModal(true);
+              }}
               className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded flex items-center gap-1.5 transition shadow"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -1063,10 +1319,10 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       </div>
 
       {/* Scope / Filter Bar (Z-Pattern ①) */}
-      {subTab === "billings" && (
-        <div className="flex items-center gap-3 bg-[#e2dbcd] p-2.5 rounded border border-[#b5a894] text-xs text-[#0f172a] dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-200">
-          <div className="flex items-center gap-2">
-            <label className="text-[11px] text-slate-400 font-semibold">정산 연월:</label>
+      <div className="flex flex-wrap items-end gap-3 bg-[#e2dbcd] p-2.5 rounded border border-[#b5a894] text-xs text-[#0f172a] dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-200">
+        {subTab === "billings" && (
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-semibold whitespace-nowrap">정산 연월</label>
             <input
               type="month"
               value={selectedYm}
@@ -1074,11 +1330,36 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
               className="h-8 px-2 bg-[#f4efe4] border border-[#b5a894] rounded text-xs text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
             />
           </div>
-          <span className="text-slate-500 text-[11px]">
-            ※ 헌장 4.1 일할 계산: 월임대료 / 30 * 가동일수 & 감가상각 매출원가 정밀 매핑
-          </span>
+        )}
+        <div className="flex flex-col gap-1 min-w-[260px] flex-1 max-w-md">
+          <label className="text-[11px] font-semibold whitespace-nowrap">통합 검색</label>
+          <div className="relative flex items-center">
+            <Search className="w-3.5 h-3.5 text-[#64748b] absolute left-2.5 pointer-events-none" />
+            <input
+              type="text"
+              value={rentalSearchQuery}
+              onChange={(e) => setRentalSearchQuery(e.target.value)}
+              placeholder="초성·고객사·자산번호·모델명 검색"
+              className="w-full h-8 pl-8 pr-7 bg-[#f4efe4] border border-[#b5a894] rounded text-xs text-[#0f172a] font-medium focus:outline-none focus:border-[#1d4ed8]"
+            />
+            {rentalSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setRentalSearchQuery("")}
+                className="absolute right-2 text-[#64748b] hover:text-[#0f172a]"
+                title="검색어 초기화"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
-      )}
+        {subTab === "billings" && (
+          <span className="text-[#475569] text-[11px] whitespace-nowrap pb-1">
+            과금 기준 3원칙 적용: 월단가 · 일단가 지정 · 월단가÷30 천원반올림
+          </span>
+        )}
+      </div>
 
       {/* Main Inspection Grid (Z-Pattern ③) */}
       <div className="flex-1 bg-[#f4efe4] border border-[#b5a894] rounded overflow-auto shadow-inner dark:bg-slate-900 dark:border-slate-800">
@@ -1149,6 +1430,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                 {renderSortTh("배정 자산", "assetNo")}
                 {renderSortTh("계약기간", "startDate")}
                 {renderSortTh("월임대료", "monthlyRate", "right")}
+                {renderSortTh("일단가 / 과금기준", "dailyRate", "right")}
                 <th className="py-2.5 px-3 text-center">계약서</th>
                 {renderSortTh("계약상태", "status", "center")}
                 <th className="py-2.5 px-3 text-center">반납 조치</th>
@@ -1157,7 +1439,7 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
             <tbody className="divide-y divide-[#c4b6a0] dark:divide-slate-800/60">
               {sortedContracts.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-8 text-center text-slate-500">
+                  <td colSpan={12} className="py-8 text-center text-slate-500">
                     등록된 임대계약이 없습니다.
                   </td>
                 </tr>
@@ -1220,7 +1502,19 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                       </td>
                       <td className="py-2 px-3 font-mono text-blue-400">{c.contractNo}</td>
                       <td className="py-2 px-3 font-bold text-slate-100">{c.customerName}</td>
-                      <td className="py-2 px-3 font-semibold text-slate-200">{productSummary}</td>
+                      <td className="py-2 px-3 font-semibold text-slate-200">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{productSummary}</span>
+                          {normalizeAttachedOptions(c.attachedOptions).length > 0 && (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 border border-amber-500/30 text-amber-800 dark:text-amber-300"
+                              title={formatAttachedOptionsSummary(c.attachedOptions)}
+                            >
+                              부착옵션 {normalizeAttachedOptions(c.attachedOptions).length}종
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="py-2 px-3 font-mono font-bold text-blue-300">
                         {c.activeAssetCount > 1
                           ? `${c.assetNo || "-"} 외 ${c.activeAssetCount - 1}대 (총 ${c.activeAssetCount}대)`
@@ -1228,6 +1522,16 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                       </td>
                       <td className="py-2 px-3 font-mono text-slate-300">{c.startDate ? String(c.startDate).slice(0, 10) : "-"} ~ {c.endDate ? String(c.endDate).slice(0, 10) : "-"}</td>
                       <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(c.monthlyRate)}</td>
+                      <td className="py-2 px-3 text-right font-mono whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className="font-bold text-[#1e3a8a] dark:text-blue-300">
+                            {formatErpCurrency(resolveDailyRentalFee(c.monthlyRate, c.dailyRate))}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#e2dbcd] text-[#334155] border border-[#b5a894] whitespace-nowrap shrink-0">
+                            {getRentalRateBasisShortLabel(inferRentalRateBasis(c.monthlyRate, c.dailyRate, c.rateBasis))}
+                          </span>
+                        </div>
+                      </td>
                       <td className="py-2 px-3 text-center">
                         {c.hasContractFile ? (
                           <button
@@ -1377,7 +1681,9 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
                     <td className="py-2 px-3 text-slate-300">{m.manufacturer}</td>
                     <td className="py-2 px-3 text-slate-400">{m.spec || "-"}</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-slate-100">{formatErpCurrency(m.standard_monthly_rate)}</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-300">{formatErpCurrency(m.standard_daily_rate)}</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-300">
+                      {formatErpCurrency(resolveDailyRentalFee(m.standard_monthly_rate, m.standard_daily_rate))}
+                    </td>
                     <td className="py-2 px-3 text-center">
                       <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-bold">
                         정상가동
@@ -1405,1538 +1711,180 @@ export const RentalTab: React.FC<RentalTabProps> = ({ currentUser, selectedEntit
       </div>
 
       {/* Modal: Acquire Asset */}
-      {showAcquireAssetModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-blue-400" />
-                <span>장비 구매 및 자산 취득 등록</span>
-              </h3>
-              <button onClick={() => setShowAcquireAssetModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAcquireAsset} className="mt-4 flex flex-col gap-3 text-xs">
-              <div className="grid grid-cols-12 gap-2">
-                <div className="col-span-5 flex flex-col gap-1">
-                  <label className="text-slate-400">시작 자산번호 (DR + yymm + 3자리)</label>
-                  <input
-                    type="text"
-                    value={assetNo}
-                    onChange={(e) => setAssetNo(e.target.value)}
-                    placeholder="예: DR2610001"
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    required
-                  />
-                </div>
-                <div className="col-span-2 flex flex-col gap-1">
-                  <label className="text-slate-400">취득 수량(대)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={200}
-                    value={assetQty}
-                    onChange={(e) => setAssetQty(e.target.value)}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono font-bold text-right dark:bg-slate-800 dark:border-slate-700 dark:text-emerald-400"
-                    required
-                  />
-                </div>
-                <div className="col-span-5 flex flex-col gap-1">
-                  <label className="text-slate-400">기종 모델</label>
-                  <select
-                    value={assetModelId}
-                    onChange={(e) => setAssetModelId(e.target.value)}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    required
-                  >
-                    <option value="">선택하십시오</option>
-                    {models.map(m => (
-                      <option key={m.id} value={m.id}>[{m.model_code}] {m.model_name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">시리얼 번호</label>
-                  <input
-                    type="text"
-                    value={serialNo}
-                    onChange={(e) => setSerialNo(e.target.value)}
-                    placeholder="차대번호"
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">취득일자</label>
-                  <input
-                    type="date"
-                    value={acqDate}
-                    onChange={(e) => {
-                      const nextDate = e.target.value;
-                      setAcqDate(nextDate);
-                      setAssetNo(computeNextRentalAssetNo(nextDate, assets));
-                    }}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">취득원가 (원)</label>
-                  <input
-                    type="text"
-                    value={acqCost}
-                    onChange={(e) => setAcqCost(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    placeholder="예: 12,000,000"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">잔존가치 (원)</label>
-                  <input
-                    type="text"
-                    value={salvageValue}
-                    onChange={(e) => setSalvageValue(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    placeholder="예: 1,200,000"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">내용연수(년)</label>
-                  <input
-                    type="number"
-                    value={usefulLife}
-                    onChange={(e) => setUsefulLife(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 mt-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAcquireAssetModal(false)}
-                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 font-bold text-white rounded"
-                >
-                  자산 취득 확정
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AcquireAssetModal
+        acqCost={acqCost}
+        acqDate={acqDate}
+        assetModelId={assetModelId}
+        assetNo={assetNo}
+        assetQty={assetQty}
+        assets={assets}
+        computeNextRentalAssetNo={computeNextRentalAssetNo}
+        handleAcquireAsset={handleAcquireAsset}
+        modelComboboxOptions={modelComboboxOptions}
+        salvageValue={salvageValue}
+        serialNo={serialNo}
+        setAcqCost={setAcqCost}
+        setAcqDate={setAcqDate}
+        setAssetModelId={setAssetModelId}
+        setAssetNo={setAssetNo}
+        setAssetQty={setAssetQty}
+        setSalvageValue={setSalvageValue}
+        setSerialNo={setSerialNo}
+        setShowAcquireAssetModal={setShowAcquireAssetModal}
+        setUsefulLife={setUsefulLife}
+        showAcquireAssetModal={showAcquireAssetModal}
+        usefulLife={usefulLife}
+      />
 
       {/* Modal: Add Model */}
-      {showAddModelModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border border-[#b5a894] w-full text-[#0f172a] dark:bg-slate-900 dark:border-slate-700 dark:text-white max-w-md rounded shadow-2xl p-5 text-white">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-blue-400" />
-                <span>임대 기종 모델 등록</span>
-              </h3>
-              <button onClick={() => setShowAddModelModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddModel} className="mt-4 flex flex-col gap-3 text-xs">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">모델 코드</label>
-                  <input
-                    type="text"
-                    value={modelCode}
-                    onChange={(e) => setModelCode(e.target.value)}
-                    placeholder="예: SJ3219"
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">모델명</label>
-                  <input
-                    type="text"
-                    value={modelName}
-                    onChange={(e) => setModelName(e.target.value)}
-                    placeholder="예: 스카이잭 8m 배터리형"
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">기준 월임대료</label>
-                  <input
-                    type="text"
-                    value={modelMonthlyRate}
-                    onChange={(e) => setModelMonthlyRate(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    placeholder="예: 600,000"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-slate-400">기준 일일단가</label>
-                  <input
-                    type="text"
-                    value={modelDailyRate}
-                    onChange={(e) => setModelDailyRate(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                    placeholder="예: 30,000"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-slate-400">제원 사양</label>
-                <input
-                  type="text"
-                  value={modelSpec}
-                  onChange={(e) => setModelSpec(e.target.value)}
-                  className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 mt-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModelModal(false)}
-                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894] dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 font-bold text-white rounded"
-                >
-                  모델 등록
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AddModelModal
+        handleAddModel={handleAddModel}
+        modelCode={modelCode}
+        modelDailyManual={modelDailyManual}
+        modelDailyRate={modelDailyRate}
+        modelMonthlyRate={modelMonthlyRate}
+        modelName={modelName}
+        modelSpec={modelSpec}
+        setModelCode={setModelCode}
+        setModelDailyManual={setModelDailyManual}
+        setModelDailyRate={setModelDailyRate}
+        setModelMonthlyRate={setModelMonthlyRate}
+        setModelName={setModelName}
+        setModelSpec={setModelSpec}
+        setShowAddModelModal={setShowAddModelModal}
+        showAddModelModal={showAddModelModal}
+      />
 
       {/* Modal: Add Contract (기본 계약 선택 + 재고 제품 선택 + 수량 + 단가 입력 간략 구성) */}
-      {showAddContractModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border-2 border-[#b5a894] w-full text-[#0f172a] max-w-3xl max-h-[92vh] overflow-y-auto rounded shadow-2xl p-5">
-            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894]">
-              <h3 className="font-bold text-sm text-[#0f172a] flex items-center gap-2">
-                <Truck className="w-4 h-4 text-[#1d4ed8]" />
-                <span>신규 임대계약 체결</span>
-              </h3>
-              <button onClick={() => setShowAddContractModal(false)} className="text-[#475569] hover:text-[#0f172a]">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddContract} className="mt-4 flex flex-col gap-3 text-xs">
-              {/* 1. 귀속 사업자 & 기본 계약(고객사) 선택 */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                <div className="md:col-span-5 flex flex-col gap-1 p-2 rounded bg-[#ebe5d8] border border-[#b5a894]">
-                  <label className="text-[#1e293b] font-semibold text-[11px]">계약 귀속 사업자</label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setCtEntityType("CORP")}
-                      className={`p-2 rounded border text-left transition ${
-                        ctEntityType === "CORP"
-                          ? "border-[#1d4ed8] bg-[#dbeafe] text-[#1e40af] font-bold"
-                          : "border-[#b5a894] bg-[#f4efe4] text-[#475569] hover:bg-[#e2dbcd]"
-                      }`}
-                    >
-                      <div className="whitespace-nowrap">(주)드래곤알피에이 [법인]</div>
-                      <div className="font-mono text-[10px] opacity-75">806-88-03266</div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCtEntityType("INDIVIDUAL")}
-                      className={`p-2 rounded border text-left transition ${
-                        ctEntityType === "INDIVIDUAL"
-                          ? "border-[#d97706] bg-[#fef3c7] text-[#92400e] font-bold"
-                          : "border-[#b5a894] bg-[#f4efe4] text-[#475569] hover:bg-[#e2dbcd]"
-                      }`}
-                    >
-                      <div className="whitespace-nowrap">드래곤알피에이 [개인]</div>
-                      <div className="font-mono text-[10px] opacity-75">295-03-02683</div>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 기본 계약 선택 & 임차 고객사 */}
-                <div className="md:col-span-7 flex flex-col gap-1.5 p-2 rounded bg-[#ebe5d8] border border-[#b5a894]">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#1e293b] font-semibold text-[11px]">기본 계약 선택 *</label>
-                    <select
-                      value={ctBaseContractId}
-                      onChange={(e) => {
-                        const cid = e.target.value;
-                        setCtBaseContractId(cid);
-                        if (cid) {
-                          const foundCt = contracts.find((c) => String(c.id) === cid);
-                          if (foundCt) {
-                            setCtEntityType(foundCt.entityType === "INDIVIDUAL" ? "INDIVIDUAL" : "CORP");
-                            setCtPartnerId(foundCt.partnerId || null);
-                            setCtCustomer(foundCt.customerName || "");
-                            setCtCustomerSearch(foundCt.customerName || "");
-                            setCtBillingDay(String(foundCt.billingDay || "25"));
-                            if (foundCt.startDate) setCtStart(String(foundCt.startDate).slice(0, 10));
-                            if (foundCt.endDate) setCtEnd(String(foundCt.endDate).slice(0, 10));
-                            const matchedPartner = partners.find(
-                              (p) => p.id === foundCt.partnerId || p.name === foundCt.customerName
-                            );
-                            if (matchedPartner) {
-                              setCtTaxSpec((prev) => extractPartnerTaxSpec(matchedPartner, prev));
-                            }
-                          }
-                        } else {
-                          setCtPartnerId(null);
-                          setCtCustomer("");
-                          setCtCustomerSearch("");
-                        }
-                      }}
-                      className="h-8 px-2 bg-[#f4efe4] border border-[#b5a894] rounded text-[#0f172a] font-bold"
-                    >
-                      <option value="">+ 신규 기본 계약 (아래에서 고객사 선택)</option>
-                      {contracts.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          [{c.contractNo}] {c.customerName} ({c.entityType === "INDIVIDUAL" ? "개인" : "법인"} · 월 {formatErpCurrency(c.monthlyRate)})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* 임차 고객사 검색/선택 */}
-                  <div className="flex flex-col gap-1 relative">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[#1e293b] font-semibold text-[11px]">임차 고객사 *</label>
-                      {ctPartnerId ? (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#dcfce7] text-[#166534] border border-[#86efac] flex items-center gap-1">
-                          <CheckCircle2 className="w-2.5 h-2.5" />
-                          거래처 연동됨
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="relative flex items-center">
-                      <Search className="w-3.5 h-3.5 text-[#64748b] absolute left-2.5 pointer-events-none" />
-                      <input
-                        type="text"
-                        value={ctCustomerSearch}
-                        onFocus={() => setShowCustomerDropdown(true)}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setCtCustomerSearch(val);
-                          setCtCustomer(val);
-                          setCtPartnerId(null);
-                          setShowCustomerDropdown(true);
-                        }}
-                        placeholder="고객사명, 사업자번호, 대표자명으로 검색..."
-                        className="w-full h-8 pl-8 pr-7 bg-[#f4efe4] border border-[#b5a894] rounded text-[#0f172a] focus:border-blue-500 focus:outline-none font-bold"
-                        required
-                      />
-                      {ctCustomerSearch && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCtCustomerSearch("");
-                            setCtCustomer("");
-                            setCtPartnerId(null);
-                            setCtBaseContractId("");
-                            setShowCustomerDropdown(true);
-                          }}
-                          className="absolute right-2 text-[#64748b] hover:text-[#0f172a]"
-                          title="초기화"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-
-                    {showCustomerDropdown && (
-                      <div className="absolute top-[52px] left-0 right-0 z-30 max-h-48 overflow-y-auto bg-[#f4efe4] border border-[#b5a894] rounded shadow-xl divide-y divide-[#d0c6b4]">
-                        {filteredPartners.length === 0 ? (
-                          <div className="p-2.5 text-[11px] text-[#64748b] text-center">
-                            일치하는 등록 고객사가 없습니다.
-                          </div>
-                        ) : (
-                          filteredPartners.map((p: any) => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => {
-                                handleSelectCustomerPartner(p);
-                                const existingCt = contracts.find(
-                                  (c) => c.partnerId === p.id || c.customerName === p.name
-                                );
-                                if (existingCt) {
-                                  setCtBaseContractId(String(existingCt.id));
-                                }
-                              }}
-                              className="w-full px-3 py-2 text-left hover:bg-[#e2dbcd] flex items-center justify-between gap-2 transition"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <Building2 className="w-3.5 h-3.5 text-[#1d4ed8] shrink-0" />
-                                <span className="font-bold text-[#0f172a] truncate">{p.name}</span>
-                                {p.ceoName && (
-                                  <span className="text-[10px] text-[#475569] shrink-0">({p.ceoName})</span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0 font-mono text-[10px] text-[#475569]">
-                                <span>{p.businessNo || "-"}</span>
-                              </div>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* 2. 계약 기간 및 정기 청구일 */}
-              <div className="grid grid-cols-3 gap-2" onClick={() => setShowCustomerDropdown(false)}>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#1e293b] font-semibold">계약 시작일 *</label>
-                  <input
-                    type="date"
-                    value={ctStart}
-                    onChange={(e) => setCtStart(e.target.value)}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#1e293b] font-semibold">계약 종료일 *</label>
-                  <input
-                    type="date"
-                    value={ctEnd}
-                    onChange={(e) => setCtEnd(e.target.value)}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#1e293b] font-semibold">정기 청구일</label>
-                  <select
-                    value={ctBillingDay}
-                    onChange={(e) => setCtBillingDay(e.target.value)}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a]"
-                  >
-                    <option value="5">매월 5일</option>
-                    <option value="10">매월 10일</option>
-                    <option value="15">매월 15일</option>
-                    <option value="20">매월 20일</option>
-                    <option value="25">매월 25일</option>
-                    <option value="31">매월 말일</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* 3. 재고가 있는 제품 선택 + 수량 + 단가 입력 */}
-              <div
-                className="flex flex-col gap-2 p-3 rounded border border-[#b5a894] bg-[#ebe5d8]/90"
-                onClick={() => setShowCustomerDropdown(false)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-[#1d4ed8]" />
-                    <span className="font-bold text-[#1e3a8a]">임대 제품 및 수량·단가 입력</span>
-                    <span className="text-[11px] text-[#475569]">
-                      (가용 재고 보유 제품 {formatErpNumber(inStockProducts.length)}종)
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = [...ctRentalItems, { productId: "", qty: "1", unitCost: "0" }];
-                      setCtRentalItems(next);
-                    }}
-                    className="px-2.5 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-[11px] font-bold flex items-center gap-1 transition"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>제품 추가</span>
-                  </button>
-                </div>
-
-                {inStockProducts.length === 0 ? (
-                  <div className="p-3 rounded bg-[#f4efe4] border border-[#b5a894] text-center text-[#64748b]">
-                    현재 임대가능(AVAILABLE) 재고가 있는 제품이 없습니다. (제품 미지정 상태로 기본 계약만 선체결 가능)
-                  </div>
-                ) : (
-                  <table className="w-full text-xs border-collapse bg-[#f4efe4] rounded overflow-hidden border border-[#b5a894]">
-                    <thead className="bg-[#e2dbcd] text-[#1e293b] border-b border-[#b5a894] font-semibold">
-                      <tr>
-                        <th className="py-2 px-2.5 text-left">재고 보유 제품 선택</th>
-                        <th className="py-2 px-2 text-center w-24">가용 재고</th>
-                        <th className="py-2 px-2 text-right w-24">수량</th>
-                        <th className="py-2 px-2 text-right w-36">단가 (원)</th>
-                        <th className="py-2 px-2.5 text-right w-36">공급가액</th>
-                        <th className="py-2 px-2 text-center w-12">삭제</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#d0c6b4]">
-                      {ctRentalItems.map((row, idx) => {
-                        const selectedProd = inStockProducts.find((p) => String(p.id) === String(row.productId));
-                        const maxStock = selectedProd?.availableCount || 999;
-                        const qtyNum = Math.max(0, cleanErpNumber(row.qty) || 0);
-                        const unitNum = Math.max(0, cleanErpNumber(row.unitCost) || 0);
-                        const rowSupply = Math.round(qtyNum * unitNum);
-
-                        return (
-                          <tr key={idx}>
-                            <td className="py-1.5 px-2">
-                              <select
-                                value={row.productId}
-                                onChange={(e) => {
-                                  const pid = e.target.value;
-                                  const prod = inStockProducts.find((p) => String(p.id) === pid);
-                                  const defaultRate = prod ? prod.standardMonthlyRate : 0;
-                                  const next = ctRentalItems.map((r, i) =>
-                                    i === idx
-                                      ? {
-                                          productId: pid,
-                                          qty: "1",
-                                          unitCost: toErpInputString(defaultRate),
-                                        }
-                                      : r
-                                  );
-                                  setCtRentalItems(next);
-                                  recalcDraftItemsTotals(next, false);
-                                }}
-                                className="w-full h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-semibold"
-                              >
-                                <option value="">-- 재고 제품 선택 --</option>
-                                {inStockProducts.map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    [{p.modelCode}] {p.modelName} (재고 {formatErpNumber(p.availableCount)}대)
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="py-1.5 px-2 text-center font-mono font-bold text-[#047857]">
-                              {selectedProd ? `${formatErpNumber(selectedProd.availableCount)}대` : "-"}
-                            </td>
-                            <td className="py-1.5 px-2">
-                              <input
-                                type="text"
-                                value={row.qty}
-                                onChange={(e) => {
-                                  const raw = cleanErpNumber(e.target.value);
-                                  const clamped = Math.min(maxStock, Math.max(1, raw || 1));
-                                  const next = ctRentalItems.map((r, i) =>
-                                    i === idx ? { ...r, qty: formatErpInputNumber(String(clamped)) } : r
-                                  );
-                                  setCtRentalItems(next);
-                                  recalcDraftItemsTotals(next, false);
-                                }}
-                                className="w-full h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono font-bold text-right"
-                              />
-                            </td>
-                            <td className="py-1.5 px-2">
-                              <input
-                                type="text"
-                                value={row.unitCost}
-                                onChange={(e) => {
-                                  const formatted = formatErpInputNumber(e.target.value);
-                                  const next = ctRentalItems.map((r, i) =>
-                                    i === idx ? { ...r, unitCost: formatted } : r
-                                  );
-                                  setCtRentalItems(next);
-                                  recalcDraftItemsTotals(next, false);
-                                }}
-                                placeholder="0"
-                                className="w-full h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono font-bold text-right"
-                              />
-                            </td>
-                            <td className="py-1.5 px-2.5 text-right font-mono font-bold text-[#1e3a8a]">
-                              {formatErpCurrency(rowSupply)}
-                            </td>
-                            <td className="py-1.5 px-2 text-center">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (ctRentalItems.length <= 1) {
-                                    const reset = [{ productId: "", qty: "1", unitCost: "0" }];
-                                    setCtRentalItems(reset);
-                                    recalcDraftItemsTotals(reset, false);
-                                    return;
-                                  }
-                                  const next = ctRentalItems.filter((_, i) => i !== idx);
-                                  setCtRentalItems(next);
-                                  recalcDraftItemsTotals(next, false);
-                                }}
-                                className="p-1 text-rose-600 hover:bg-rose-100 rounded transition"
-                                title="행 삭제"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-
-                {/* 합계 요약 바 */}
-                <div className="grid grid-cols-3 gap-2 pt-1">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#1e293b] font-semibold text-[11px]">월 임대료 합계 (공급가)</label>
-                    <input
-                      type="text"
-                      value={ctMonthlyRate}
-                      onChange={(e) => {
-                        const formatted = formatErpInputNumber(e.target.value);
-                        setCtMonthlyRate(formatted);
-                        const num = cleanErpNumber(formatted);
-                        setCtVatAmount(toErpInputString(Math.round(num * 0.1)));
-                      }}
-                      className="h-8 px-2.5 bg-[#f4efe4] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#1e293b] font-semibold text-[11px]">세액 (VAT)</label>
-                    <input
-                      type="text"
-                      value={ctVatAmount}
-                      onChange={(e) => setCtVatAmount(formatErpInputNumber(e.target.value))}
-                      className="h-8 px-2.5 bg-[#f4efe4] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#1e293b] font-semibold text-[11px]">보증금 (원)</label>
-                    <input
-                      type="text"
-                      value={ctDeposit}
-                      onChange={(e) => setCtDeposit(formatErpInputNumber(e.target.value))}
-                      className="h-8 px-2.5 bg-[#f4efe4] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 4. 공급받는자 전자세금계산서 수신 이메일 및 사업자 제원 */}
-              <div
-                className="flex flex-col gap-2 p-3 rounded border border-[#b5a894] bg-[#ebe5d8]/90"
-                onClick={() => setShowCustomerDropdown(false)}
-              >
-                <div className="flex items-center justify-between border-b border-[#b5a894] pb-1.5">
-                  <div className="flex items-center gap-1.5 font-bold text-[#1e3a8a]">
-                    <FileText className="w-4 h-4 text-blue-700" />
-                    <span>공급받는자 세금계산서 수신 설정 및 사업자 제원 (팝빌 발송 연동)</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-bold text-[#57534e]">영수/청구 구분</span>
-                    <div className="inline-flex rounded border border-[#b5a894] overflow-hidden bg-[#f4efe4]">
-                      <button
-                        type="button"
-                        onClick={() => setCtTaxSpec({ ...ctTaxSpec, taxPurpose: "청구" })}
-                        className={`px-2.5 py-0.5 text-[11px] font-bold transition ${
-                          ctTaxSpec.taxPurpose === "청구"
-                            ? "bg-blue-700 text-white"
-                            : "text-[#57534e] hover:bg-[#e2dbcd]"
-                        }`}
-                      >
-                        청구
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCtTaxSpec({ ...ctTaxSpec, taxPurpose: "영수" })}
-                        className={`px-2.5 py-0.5 text-[11px] font-bold transition ${
-                          ctTaxSpec.taxPurpose === "영수"
-                            ? "bg-blue-700 text-white"
-                            : "text-[#57534e] hover:bg-[#e2dbcd]"
-                        }`}
-                      >
-                        영수
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-4 gap-2">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">등록번호 (사업자번호)</label>
-                    <input
-                      type="text"
-                      value={ctTaxSpec.customerBizNo}
-                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerBizNo: e.target.value })}
-                      placeholder="000-00-00000"
-                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] font-mono text-xs"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">성명 (대표자)</label>
-                    <input
-                      type="text"
-                      value={ctTaxSpec.customerCeoName}
-                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerCeoName: e.target.value })}
-                      placeholder="대표자 성명"
-                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">업태</label>
-                    <input
-                      type="text"
-                      value={ctTaxSpec.customerBizType}
-                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerBizType: e.target.value })}
-                      placeholder="예: 도매업, 서비스"
-                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">종목</label>
-                    <input
-                      type="text"
-                      value={ctTaxSpec.customerBizClass}
-                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerBizClass: e.target.value })}
-                      placeholder="예: 소프트웨어 개발, 전자제품"
-                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-12 gap-2">
-                  <div className="col-span-6 flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">사업장 주소</label>
-                    <input
-                      type="text"
-                      value={ctTaxSpec.customerAddress}
-                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerAddress: e.target.value })}
-                      placeholder="사업장 소재지 주소"
-                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] text-xs"
-                    />
-                  </div>
-                  <div className="col-span-3 flex flex-col gap-1">
-                    <label className="text-[11px] font-bold text-[#1e3a8a] whitespace-nowrap">이메일 1 (주 수신)</label>
-                    <input
-                      type="email"
-                      value={ctTaxSpec.customerEmail}
-                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerEmail: e.target.value })}
-                      placeholder="tax@company.co.kr"
-                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] font-mono text-xs"
-                    />
-                  </div>
-                  <div className="col-span-3 flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">이메일 2 (부 수신)</label>
-                    <input
-                      type="email"
-                      value={ctTaxSpec.customerEmail2}
-                      onChange={(e) => setCtTaxSpec({ ...ctTaxSpec, customerEmail2: e.target.value })}
-                      placeholder="보조 이메일 (선택)"
-                      className="h-7 px-2 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] font-mono text-xs"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 계약서 첨부 영역 */}
-              <div className="flex flex-col gap-1" onClick={() => setShowCustomerDropdown(false)}>
-                <label className="text-[#1e293b] font-semibold">임대계약서 파일 첨부 (선택)</label>
-                <input
-                  ref={ctFileInputRef}
-                  type="file"
-                  accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.hwp"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleContractFileUpload(file);
-                  }}
-                  className="hidden"
-                />
-                {ctFileName ? (
-                  <div className="flex items-center justify-between px-3 py-1.5 rounded bg-[#dbeafe]/60 border border-[#93c5fd]">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <FileText className="w-4 h-4 text-[#1d4ed8] shrink-0" />
-                      <span className="font-semibold text-[#1e3a8a] truncate">{ctFileName}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => ctFileInputRef.current?.click()}
-                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#0f172a] border border-[#b5a894]"
-                      >
-                        변경
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCtFileUrl("");
-                          setCtFileName("");
-                        }}
-                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-600 border border-rose-500/30"
-                      >
-                        제거
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setIsCtFileDragging(true);
-                    }}
-                    onDragLeave={() => setIsCtFileDragging(false)}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setIsCtFileDragging(false);
-                      const file = e.dataTransfer.files?.[0];
-                      if (file) handleContractFileUpload(file);
-                    }}
-                    onClick={() => ctFileInputRef.current?.click()}
-                    className={`flex items-center justify-center gap-2 py-2 px-3 rounded border border-dashed cursor-pointer transition ${
-                      isCtFileDragging
-                        ? "border-[#1d4ed8] bg-[#dbeafe]/50"
-                        : "border-[#b5a894] bg-[#ebe5d8]/70 hover:bg-[#e2dbcd]"
-                    }`}
-                  >
-                    <FileUp className="w-3.5 h-3.5 text-[#1d4ed8]" />
-                    <span className="text-[#334155] font-medium">
-                      클릭하거나 계약서 파일을 드래그하여 첨부
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end gap-2 mt-1 pt-3 border-t border-[#b5a894]">
-                <button
-                  type="button"
-                  onClick={() => setShowAddContractModal(false)}
-                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894]"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 font-bold text-white rounded"
-                >
-                  계약 체결
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AddContractModal
+        contractComboboxOptions={contractComboboxOptions}
+        contracts={contracts}
+        ctAttachedOptions={ctAttachedOptions}
+        ctBaseContractId={ctBaseContractId}
+        ctBillingDay={ctBillingDay}
+        ctCustomer={ctCustomer}
+        ctDailyRate={ctDailyRate}
+        ctDeposit={ctDeposit}
+        ctEnd={ctEnd}
+        ctEntityType={ctEntityType}
+        ctFileInputRef={ctFileInputRef}
+        ctFileName={ctFileName}
+        ctMonthlyRate={ctMonthlyRate}
+        ctPartnerId={ctPartnerId}
+        ctRateBasis={ctRateBasis}
+        ctRentalItems={ctRentalItems}
+        ctStart={ctStart}
+        ctTaxSpec={ctTaxSpec}
+        ctVatAmount={ctVatAmount}
+        handleAddContract={handleAddContract}
+        handleContractFileUpload={handleContractFileUpload}
+        inStockProductComboboxOptions={inStockProductComboboxOptions}
+        inStockProducts={inStockProducts}
+        isCtFileDragging={isCtFileDragging}
+        optionCatalog={optionCatalog}
+        partnerComboboxOptions={partnerComboboxOptions}
+        partners={partners}
+        recalcDraftItemsTotals={recalcDraftItemsTotals}
+        setCtAttachedOptions={setCtAttachedOptions}
+        setCtBaseContractId={setCtBaseContractId}
+        setCtBillingDay={setCtBillingDay}
+        setCtCustomer={setCtCustomer}
+        setCtDailyRate={setCtDailyRate}
+        setCtDeposit={setCtDeposit}
+        setCtEnd={setCtEnd}
+        setCtEntityType={setCtEntityType}
+        setCtFileName={setCtFileName}
+        setCtFileUrl={setCtFileUrl}
+        setCtMonthlyRate={setCtMonthlyRate}
+        setCtPartnerId={setCtPartnerId}
+        setCtRateBasis={setCtRateBasis}
+        setCtRentalItems={setCtRentalItems}
+        setCtStart={setCtStart}
+        setCtTaxSpec={setCtTaxSpec}
+        setCtVatAmount={setCtVatAmount}
+        setIsCtFileDragging={setIsCtFileDragging}
+        setShowAddContractModal={setShowAddContractModal}
+        showAddContractModal={showAddContractModal}
+      />
 
       {/* Modal: Edit Rental Contract */}
-      {showEditContractModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border-2 border-[#b5a894] w-full text-[#1c1917] max-w-3xl max-h-[92vh] overflow-y-auto rounded shadow-2xl p-5">
-            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894]">
-              <h3 className="font-bold text-sm text-[#1c1917] flex items-center gap-2">
-                <Edit className="w-4 h-4 text-blue-700" />
-                <span>임대계약 수정 [{editCtContractNo}]</span>
-              </h3>
-              <button onClick={() => setShowEditContractModal(false)} className="text-[#78716c] hover:text-[#1c1917]">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleUpdateContract} className="flex flex-col gap-3 mt-3 text-xs">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#78716c] font-semibold">계약 귀속 사업자</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditCtEntityType("CORP")}
-                      className={`p-2 rounded border text-left font-bold transition ${
-                        editCtEntityType === "CORP"
-                          ? "border-blue-600 bg-blue-50 text-blue-900 ring-1 ring-blue-500"
-                          : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
-                      }`}
-                    >
-                      <div>(주)드래곤알피에이 [법인]</div>
-                      <div className="text-[10px] font-normal font-mono opacity-80">806-88-03266</div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditCtEntityType("INDIVIDUAL")}
-                      className={`p-2 rounded border text-left font-bold transition ${
-                        editCtEntityType === "INDIVIDUAL"
-                          ? "border-amber-600 bg-amber-50 text-amber-900 ring-1 ring-amber-500"
-                          : "border-[#b5a894] bg-[#ebe5d8] text-[#78716c]"
-                      }`}
-                    >
-                      <div>드래곤알피에이 [개인]</div>
-                      <div className="text-[10px] font-normal font-mono opacity-80">295-03-02683</div>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[#78716c] font-semibold">고객사(임차인) 상호명 *</label>
-                    <select
-                      value={editCtPartnerId || ""}
-                      onChange={(e) => {
-                        const pid = Number(e.target.value) || null;
-                        setEditCtPartnerId(pid);
-                        const found = partners.find((p) => p.id === pid);
-                        if (found) {
-                          setEditCtCustomer(found.name);
-                          setEditCtTaxSpec((prev) => extractPartnerTaxSpec(found, prev));
-                        }
-                      }}
-                      className="h-6 px-1.5 rounded border border-[#b5a894] bg-[#ebe5d8] text-[10px] text-[#57534e]"
-                    >
-                      <option value="">등록 거래처에서 불러오기</option>
-                      {partners.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.businessNo || "-"})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <input
-                    type="text"
-                    value={editCtCustomer}
-                    onChange={(e) => setEditCtCustomer(e.target.value)}
-                    className="h-9 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-bold"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#78716c] font-semibold">계약 시작일 *</label>
-                  <input
-                    type="date"
-                    value={editCtStart}
-                    onChange={(e) => setEditCtStart(e.target.value)}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#78716c] font-semibold">계약 종료일 *</label>
-                  <input
-                    type="date"
-                    value={editCtEnd}
-                    onChange={(e) => setEditCtEnd(e.target.value)}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#78716c] font-semibold">정기 청구일</label>
-                  <select
-                    value={editCtBillingDay}
-                    onChange={(e) => setEditCtBillingDay(e.target.value)}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917]"
-                  >
-                    <option value="5">매월 5일</option>
-                    <option value="10">매월 10일</option>
-                    <option value="15">매월 15일</option>
-                    <option value="20">매월 20일</option>
-                    <option value="25">매월 25일</option>
-                    <option value="31">매월 말일</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* 현재 배정된 임대 제품 명세 및 수량/단가 수정 */}
-              <div className="flex flex-col gap-2 p-3 rounded border border-[#b5a894] bg-[#ebe5d8]/80">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#1e3a8a]">현재 임대 제품 및 수량·단가 명세</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-semibold text-[#57534e]">대표 품목 치환식:</span>
-                    <input
-                      type="text"
-                      value={editCtTaxSpec.taxMemo}
-                      onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, taxMemo: e.target.value })}
-                      className="h-7 px-2 w-44 rounded border border-[#b5a894] bg-[#f4efe4] text-[#1c1917] font-semibold text-xs"
-                    />
-                  </div>
-                </div>
-
-                <table className="w-full text-xs border-collapse bg-[#f4efe4] rounded overflow-hidden border border-[#b5a894]">
-                  <thead className="bg-[#e2dbcd] text-[#1e293b] border-b border-[#b5a894] font-semibold">
-                    <tr>
-                      <th className="py-1.5 px-2.5 text-left">제품명 (품목)</th>
-                      <th className="py-1.5 px-2 text-right w-24">수량</th>
-                      <th className="py-1.5 px-2 text-right w-36">단가 (원)</th>
-                      <th className="py-1.5 px-2.5 text-right w-36">공급가액</th>
-                      <th className="py-1.5 px-2 text-center w-12">삭제</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#d0c6b4]">
-                    {editCtTaxSpec.taxItems.map((it, idx) => (
-                      <tr key={idx}>
-                        <td className="py-1.5 px-2">
-                          <input
-                            type="text"
-                            value={it.itemName}
-                            onChange={(e) => {
-                              const nextItems = editCtTaxSpec.taxItems.map((row, i) =>
-                                i === idx ? { ...row, itemName: e.target.value } : row
-                              );
-                              setEditCtTaxSpec({ ...editCtTaxSpec, taxItems: nextItems });
-                            }}
-                            className="w-full h-7 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-semibold"
-                          />
-                        </td>
-                        <td className="py-1.5 px-2">
-                          <input
-                            type="text"
-                            value={toErpInputString(it.qty)}
-                            onChange={(e) => {
-                              const q = Math.max(1, cleanErpNumber(e.target.value) || 1);
-                              const nextItems = editCtTaxSpec.taxItems.map((row, i) => {
-                                if (i !== idx) return row;
-                                const sup = Math.round(q * (Number(row.unitCost) || 0));
-                                return { ...row, qty: q, supplyAmount: sup, vatAmount: Math.round(sup * 0.1) };
-                              });
-                              setEditCtTaxSpec({ ...editCtTaxSpec, taxItems: nextItems });
-                              recalcDraftItemsTotals(editCtAddItems, true, nextItems);
-                            }}
-                            className="w-full h-7 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono text-right font-bold"
-                          />
-                        </td>
-                        <td className="py-1.5 px-2">
-                          <input
-                            type="text"
-                            value={toErpInputString(it.unitCost)}
-                            onChange={(e) => {
-                              const u = cleanErpNumber(e.target.value) || 0;
-                              const nextItems = editCtTaxSpec.taxItems.map((row, i) => {
-                                if (i !== idx) return row;
-                                const sup = Math.round((Number(row.qty) || 1) * u);
-                                return { ...row, unitCost: u, supplyAmount: sup, vatAmount: Math.round(sup * 0.1) };
-                              });
-                              setEditCtTaxSpec({ ...editCtTaxSpec, taxItems: nextItems });
-                              recalcDraftItemsTotals(editCtAddItems, true, nextItems);
-                            }}
-                            className="w-full h-7 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono text-right font-bold"
-                          />
-                        </td>
-                        <td className="py-1.5 px-2.5 text-right font-mono font-bold text-[#1e3a8a]">
-                          {formatErpCurrency(it.supplyAmount)}
-                        </td>
-                        <td className="py-1.5 px-2 text-center">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (editCtTaxSpec.taxItems.length <= 1) return;
-                              const nextItems = editCtTaxSpec.taxItems.filter((_, i) => i !== idx);
-                              setEditCtTaxSpec({ ...editCtTaxSpec, taxItems: nextItems });
-                              recalcDraftItemsTotals(editCtAddItems, true, nextItems);
-                            }}
-                            className="p-1 text-rose-600 hover:bg-rose-100 rounded transition"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                {/* 재고 제품 추가 배정 */}
-                <div className="flex items-center justify-between pt-2 border-t border-[#c4b6a0]">
-                  <span className="font-semibold text-[#334155]">재고 보유 제품 추가 배정</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEditCtAddItems([...editCtAddItems, { productId: "", qty: "1", unitCost: "0" }])
-                    }
-                    className="px-2.5 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-[11px] font-bold flex items-center gap-1 transition"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>재고 제품 추가</span>
-                  </button>
-                </div>
-
-                {editCtAddItems.length > 0 && (
-                  <table className="w-full text-xs border-collapse bg-[#f4efe4] rounded overflow-hidden border border-[#b5a894]">
-                    <tbody className="divide-y divide-[#d0c6b4]">
-                      {editCtAddItems.map((row, idx) => {
-                        const selectedProd = inStockProducts.find((p) => String(p.id) === String(row.productId));
-                        const maxStock = selectedProd?.availableCount || 999;
-                        const qtyNum = Math.max(0, cleanErpNumber(row.qty) || 0);
-                        const unitNum = Math.max(0, cleanErpNumber(row.unitCost) || 0);
-                        const rowSupply = Math.round(qtyNum * unitNum);
-
-                        return (
-                          <tr key={idx}>
-                            <td className="py-1.5 px-2">
-                              <select
-                                value={row.productId}
-                                onChange={(e) => {
-                                  const pid = e.target.value;
-                                  const prod = inStockProducts.find((p) => String(p.id) === pid);
-                                  const defaultRate = prod ? prod.standardMonthlyRate : 0;
-                                  const next = editCtAddItems.map((r, i) =>
-                                    i === idx
-                                      ? { productId: pid, qty: "1", unitCost: toErpInputString(defaultRate) }
-                                      : r
-                                  );
-                                  setEditCtAddItems(next);
-                                  recalcDraftItemsTotals(next, true, editCtTaxSpec.taxItems);
-                                }}
-                                className="w-full h-7 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-semibold"
-                              >
-                                <option value="">-- 추가할 재고 제품 선택 --</option>
-                                {inStockProducts.map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    [{p.modelCode}] {p.modelName} (재고 {formatErpNumber(p.availableCount)}대)
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="py-1.5 px-2 w-24">
-                              <input
-                                type="text"
-                                value={row.qty}
-                                onChange={(e) => {
-                                  const raw = cleanErpNumber(e.target.value);
-                                  const clamped = Math.min(maxStock, Math.max(1, raw || 1));
-                                  const next = editCtAddItems.map((r, i) =>
-                                    i === idx ? { ...r, qty: formatErpInputNumber(String(clamped)) } : r
-                                  );
-                                  setEditCtAddItems(next);
-                                  recalcDraftItemsTotals(next, true, editCtTaxSpec.taxItems);
-                                }}
-                                className="w-full h-7 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono font-bold text-right"
-                              />
-                            </td>
-                            <td className="py-1.5 px-2 w-36">
-                              <input
-                                type="text"
-                                value={row.unitCost}
-                                onChange={(e) => {
-                                  const formatted = formatErpInputNumber(e.target.value);
-                                  const next = editCtAddItems.map((r, i) =>
-                                    i === idx ? { ...r, unitCost: formatted } : r
-                                  );
-                                  setEditCtAddItems(next);
-                                  recalcDraftItemsTotals(next, true, editCtTaxSpec.taxItems);
-                                }}
-                                className="w-full h-7 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono font-bold text-right"
-                              />
-                            </td>
-                            <td className="py-1.5 px-2.5 text-right font-mono font-bold text-[#047857] w-36">
-                              + {formatErpCurrency(rowSupply)}
-                            </td>
-                            <td className="py-1.5 px-2 text-center w-12">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const next = editCtAddItems.filter((_, i) => i !== idx);
-                                  setEditCtAddItems(next);
-                                  recalcDraftItemsTotals(next, true, editCtTaxSpec.taxItems);
-                                }}
-                                className="p-1 text-rose-600 hover:bg-rose-100 rounded transition"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#78716c] font-semibold">약정 월임대료</label>
-                  <input
-                    type="text"
-                    value={editCtMonthlyRate}
-                    onChange={(e) => {
-                      const formatted = formatErpInputNumber(e.target.value);
-                      setEditCtMonthlyRate(formatted);
-                      const num = cleanErpNumber(formatted);
-                      setEditCtVatAmount(toErpInputString(Math.round(num * 0.1)));
-                    }}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono text-right font-bold"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#78716c] font-semibold">세액 (VAT)</label>
-                  <input
-                    type="text"
-                    value={editCtVatAmount}
-                    onChange={(e) => setEditCtVatAmount(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono text-right"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#78716c] font-semibold">보증금</label>
-                  <input
-                    type="text"
-                    value={editCtDeposit}
-                    onChange={(e) => setEditCtDeposit(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917] font-mono text-right"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#78716c] font-semibold">계약 상태</label>
-                  <select
-                    value={editCtStatus}
-                    onChange={(e) => setEditCtStatus(e.target.value)}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917]"
-                  >
-                    <option value="ACTIVE">대여중 (ACTIVE)</option>
-                    <option value="RETURNED">반납완료 (RETURNED)</option>
-                    <option value="TERMINATED">중도해지 (TERMINATED)</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#78716c] font-semibold">비고</label>
-                  <input
-                    type="text"
-                    value={editCtMemo}
-                    onChange={(e) => setEditCtMemo(e.target.value)}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#1c1917]"
-                  />
-                </div>
-              </div>
-
-              {/* 공급받는자 세금계산서 수신 설정 및 사업자 제원 (용역계약과 동일 구조) */}
-              <div className="flex flex-col gap-2 p-3 rounded border border-[#b5a894] bg-[#ebe5d8]/80">
-                <div className="flex items-center justify-between border-b border-[#b5a894] pb-1.5">
-                  <div className="flex items-center gap-1.5 font-bold text-[#1e3a8a]">
-                    <FileText className="w-4 h-4 text-blue-700" />
-                    <span>전자세금계산서 발행 제원 (임대계약 · 고객 이메일 연동)</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-bold text-[#57534e]">영수/청구 구분</span>
-                    <div className="inline-flex rounded border border-[#b5a894] overflow-hidden bg-[#f4efe4]">
-                      <button
-                        type="button"
-                        onClick={() => setEditCtTaxSpec({ ...editCtTaxSpec, taxPurpose: "청구" })}
-                        className={`px-2.5 py-0.5 text-[11px] font-bold transition ${
-                          editCtTaxSpec.taxPurpose === "청구"
-                            ? "bg-blue-700 text-white"
-                            : "text-[#57534e] hover:bg-[#e2dbcd]"
-                        }`}
-                      >
-                        청구
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditCtTaxSpec({ ...editCtTaxSpec, taxPurpose: "영수" })}
-                        className={`px-2.5 py-0.5 text-[11px] font-bold transition ${
-                          editCtTaxSpec.taxPurpose === "영수"
-                            ? "bg-blue-700 text-white"
-                            : "text-[#57534e] hover:bg-[#e2dbcd]"
-                        }`}
-                      >
-                        영수
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-2 bg-[#f4efe4] p-2.5 rounded border border-[#c4b6a0]">
-                  <div className="text-[11px] font-bold text-[#1e3a8a] flex items-center justify-between">
-                    <span>공급받는자 세금계산서 제원</span>
-                    <span className="text-[10px] font-normal text-[#78716c]">고객 선택 시 자동 입력 / 직접 수정 가능</span>
-                  </div>
-
-                  <div className="grid grid-cols-4 gap-2">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">등록번호 (사업자번호)</label>
-                      <input
-                        type="text"
-                        value={editCtTaxSpec.customerBizNo}
-                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerBizNo: e.target.value })}
-                        placeholder="000-00-00000"
-                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-xs"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">성명 (대표자)</label>
-                      <input
-                        type="text"
-                        value={editCtTaxSpec.customerCeoName}
-                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerCeoName: e.target.value })}
-                        placeholder="대표자 성명"
-                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] text-xs"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">업태</label>
-                      <input
-                        type="text"
-                        value={editCtTaxSpec.customerBizType}
-                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerBizType: e.target.value })}
-                        placeholder="예: 도매업, 서비스"
-                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] text-xs"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">종목</label>
-                      <input
-                        type="text"
-                        value={editCtTaxSpec.customerBizClass}
-                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerBizClass: e.target.value })}
-                        placeholder="예: 소프트웨어 개발, 전자제품"
-                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 gap-2">
-                    <div className="col-span-6 flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">사업장 주소</label>
-                      <input
-                        type="text"
-                        value={editCtTaxSpec.customerAddress}
-                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerAddress: e.target.value })}
-                        placeholder="사업장 소재지 주소"
-                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] text-xs"
-                      />
-                    </div>
-                    <div className="col-span-3 flex flex-col gap-1">
-                      <label className="text-[11px] font-bold text-[#1e3a8a] whitespace-nowrap">이메일 1 (주 수신)</label>
-                      <input
-                        type="email"
-                        value={editCtTaxSpec.customerEmail}
-                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerEmail: e.target.value })}
-                        placeholder="account@company.co.kr"
-                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-xs"
-                      />
-                    </div>
-                    <div className="col-span-3 flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold text-[#57534e] whitespace-nowrap">이메일 2 (부 수신)</label>
-                      <input
-                        type="email"
-                        value={editCtTaxSpec.customerEmail2}
-                        onChange={(e) => setEditCtTaxSpec({ ...editCtTaxSpec, customerEmail2: e.target.value })}
-                        placeholder="보조 이메일 (선택)"
-                        className="h-7 px-2 rounded border border-[#b5a894] bg-[#ebe5d8] text-[#1c1917] font-mono text-xs"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 mt-1 pt-3 border-t border-[#b5a894]">
-                <button
-                  type="button"
-                  onClick={() => setShowEditContractModal(false)}
-                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#1c1917] rounded border border-[#b5a894]"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-blue-700 hover:bg-blue-800 font-bold text-white rounded shadow-sm"
-                >
-                  수정 내용 저장
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <EditContractModal
+        editCtAddItems={editCtAddItems}
+        editCtAttachedOptions={editCtAttachedOptions}
+        editCtBillingDay={editCtBillingDay}
+        editCtContractNo={editCtContractNo}
+        editCtCustomer={editCtCustomer}
+        editCtDailyRate={editCtDailyRate}
+        editCtDeposit={editCtDeposit}
+        editCtEnd={editCtEnd}
+        editCtEntityType={editCtEntityType}
+        editCtMemo={editCtMemo}
+        editCtMonthlyRate={editCtMonthlyRate}
+        editCtPartnerId={editCtPartnerId}
+        editCtRateBasis={editCtRateBasis}
+        editCtStart={editCtStart}
+        editCtStatus={editCtStatus}
+        editCtTaxSpec={editCtTaxSpec}
+        editCtVatAmount={editCtVatAmount}
+        handleUpdateContract={handleUpdateContract}
+        inStockProductComboboxOptions={inStockProductComboboxOptions}
+        inStockProducts={inStockProducts}
+        optionCatalog={optionCatalog}
+        partnerComboboxOptions={partnerComboboxOptions}
+        partners={partners}
+        recalcDraftItemsTotals={recalcDraftItemsTotals}
+        setEditCtAddItems={setEditCtAddItems}
+        setEditCtAttachedOptions={setEditCtAttachedOptions}
+        setEditCtBillingDay={setEditCtBillingDay}
+        setEditCtCustomer={setEditCtCustomer}
+        setEditCtDailyRate={setEditCtDailyRate}
+        setEditCtDeposit={setEditCtDeposit}
+        setEditCtEnd={setEditCtEnd}
+        setEditCtEntityType={setEditCtEntityType}
+        setEditCtMemo={setEditCtMemo}
+        setEditCtMonthlyRate={setEditCtMonthlyRate}
+        setEditCtPartnerId={setEditCtPartnerId}
+        setEditCtRateBasis={setEditCtRateBasis}
+        setEditCtStart={setEditCtStart}
+        setEditCtStatus={setEditCtStatus}
+        setEditCtTaxSpec={setEditCtTaxSpec}
+        setEditCtVatAmount={setEditCtVatAmount}
+        setShowEditContractModal={setShowEditContractModal}
+        showEditContractModal={showEditContractModal}
+      />
 
       {/* Modal: Add Billing (헌장 4.1 일할 청구 생성) */}
-      {showAddBillingModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#f4efe4] border-2 border-[#b5a894] w-full text-[#0f172a] max-w-4xl max-h-[92vh] overflow-y-auto rounded shadow-2xl p-5">
-            <div className="flex items-center justify-between pb-3 border-b border-[#b5a894]">
-              <h3 className="font-bold text-sm text-[#0f172a] flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-emerald-700" />
-                <span>일할 정산 청구서 생성 (헌장 4.1)</span>
-              </h3>
-              <button onClick={() => setShowAddBillingModal(false)} className="text-[#78716c] hover:text-[#0f172a]">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddBilling} className="mt-4 flex flex-col gap-3 text-xs">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#57534e] font-bold">대상 임대계약 선택 (선택 시 계약 품목·제원 자동 연동) *</label>
-                  <select
-                    value={blContractId}
-                    onChange={(e) => {
-                      const cid = e.target.value;
-                      setBlContractId(cid);
-                      const ct = contracts.find((c) => String(c.id) === cid);
-                      if (ct) {
-                        applyRentalContractTemplateToBilling(ct, blYm);
-                      }
-                    }}
-                    className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-semibold"
-                    required
-                  >
-                    <option value="">선택하십시오</option>
-                    {contracts.map(c => (
-                      <option key={c.id} value={c.id}>
-                        [{c.contractNo}] {c.customerName} - {c.assetNo} (월 {formatErpCurrency(c.monthlyRate)})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-4 gap-2">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#57534e] font-bold">정산 연월</label>
-                    <input
-                      type="month"
-                      value={blYm}
-                      onChange={(e) => {
-                        const nextYm = e.target.value;
-                        setBlYm(nextYm);
-                        const ct = contracts.find((c) => String(c.id) === blContractId);
-                        if (ct && nextYm) {
-                          applyRentalContractTemplateToBilling(ct, nextYm);
-                        }
-                      }}
-                      className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a]"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#57534e] font-bold flex items-center justify-between">
-                      <span>가동일수</span>
-                      <label className="inline-flex items-center gap-1 cursor-pointer text-[10px] text-blue-700">
-                        <input
-                          type="checkbox"
-                          checked={blUseProRata}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setBlUseProRata(checked);
-                            const ct = contracts.find((c) => String(c.id) === blContractId);
-                            if (ct) {
-                              const monthly = Number(ct.monthlyRate || 0);
-                              const daysNum = Math.max(1, parseInt(blDays || "30", 10));
-                              const nextSup = checked ? Math.round((monthly / 30) * daysNum) : Math.round(monthly);
-                              const nextVat = !checked && ct.vatAmount != null ? Number(ct.vatAmount) : Math.round(nextSup * 0.1);
-                              setBlSupplyAmount(toErpInputString(nextSup));
-                              setBlVatAmount(toErpInputString(nextVat));
-                            }
-                          }}
-                        />
-                        <span>특수 일할</span>
-                      </label>
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="31"
-                      value={blDays}
-                      onChange={(e) => {
-                        const d = e.target.value;
-                        setBlDays(d);
-                        const ct = contracts.find((c) => String(c.id) === blContractId);
-                        if (ct && blUseProRata) {
-                          const daysNum = Math.max(1, parseInt(d || "30", 10));
-                          const monthly = Number(ct.monthlyRate || 0);
-                          const proRata = Math.round((monthly / 30) * daysNum);
-                          const vat = daysNum === 30 && ct.vatAmount != null ? Number(ct.vatAmount) : Math.round(proRata * 0.1);
-                          setBlSupplyAmount(toErpInputString(proRata));
-                          setBlVatAmount(toErpInputString(vat));
-                        }
-                      }}
-                      className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a]"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#57534e] font-bold">정산 시작일</label>
-                    <input
-                      type="date"
-                      value={blStart}
-                      onChange={(e) => setBlStart(e.target.value)}
-                      className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a]"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[#57534e] font-bold">정산 종료일</label>
-                    <input
-                      type="date"
-                      value={blEnd}
-                      onChange={(e) => setBlEnd(e.target.value)}
-                      className="h-8 px-2 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a]"
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#57534e] font-bold">청구 공급가액 (원) *</label>
-                  <input
-                    type="text"
-                    value={blSupplyAmount}
-                    onChange={(e) => {
-                      const formatted = formatErpInputNumber(e.target.value);
-                      setBlSupplyAmount(formatted);
-                      const num = cleanErpNumber(formatted);
-                      setBlVatAmount(toErpInputString(Math.round(num * 0.1)));
-                    }}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[#57534e] font-bold">청구 세액 (VAT)</label>
-                  <input
-                    type="text"
-                    value={blVatAmount}
-                    onChange={(e) => setBlVatAmount(formatErpInputNumber(e.target.value))}
-                    className="h-8 px-2.5 bg-[#ebe5d8] border border-[#b5a894] rounded text-[#0f172a] font-mono text-right font-bold"
-                  />
-                </div>
-              </div>
-
-              <ContractTaxInvoiceSection
-                spec={blTaxSpec}
-                onChange={setBlTaxSpec}
-                hideBuyerFields={true}
-                onTotalChange={(totalSupply, totalVat) => {
-                  setBlSupplyAmount(toErpInputString(totalSupply));
-                  setBlVatAmount(toErpInputString(totalVat));
-                }}
-                domainLabel="당월 임대 청구 품목"
-              />
-
-              <div className="flex justify-end gap-2 mt-1 pt-3 border-t border-[#b5a894]">
-                <button
-                  type="button"
-                  onClick={() => setShowAddBillingModal(false)}
-                  className="px-3 py-1.5 bg-[#ebe5d8] hover:bg-[#d0c6b4] text-[#334155] rounded border border-[#b5a894]"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 font-bold text-white rounded"
-                >
-                  청구 생성
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AddBillingModal
+        applyRentalContractTemplateToBilling={applyRentalContractTemplateToBilling}
+        blContractId={blContractId}
+        blDailyRate={blDailyRate}
+        blDays={blDays}
+        blEnd={blEnd}
+        blRateBasis={blRateBasis}
+        blStart={blStart}
+        blSupplyAmount={blSupplyAmount}
+        blTaxSpec={blTaxSpec}
+        blUseProRata={blUseProRata}
+        blVatAmount={blVatAmount}
+        blYm={blYm}
+        contractComboboxOptions={contractComboboxOptions}
+        contracts={contracts}
+        handleAddBilling={handleAddBilling}
+        recalcBillingAmounts={recalcBillingAmounts}
+        setBlContractId={setBlContractId}
+        setBlDailyRate={setBlDailyRate}
+        setBlDays={setBlDays}
+        setBlEnd={setBlEnd}
+        setBlRateBasis={setBlRateBasis}
+        setBlStart={setBlStart}
+        setBlSupplyAmount={setBlSupplyAmount}
+        setBlTaxSpec={setBlTaxSpec}
+        setBlUseProRata={setBlUseProRata}
+        setBlVatAmount={setBlVatAmount}
+        setBlYm={setBlYm}
+        setShowAddBillingModal={setShowAddBillingModal}
+        showAddBillingModal={showAddBillingModal}
+      />
 
       {/* Modal: Depreciation Execution */}
       {showDeprecModal && (

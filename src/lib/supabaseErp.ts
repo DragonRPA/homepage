@@ -2,7 +2,7 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import { Pool } from "pg";
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "https://dummy.supabase.co";
+const supabaseUrl = process.env.SUPABASE_URL || "https://dummy.supabase.co";
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "dummy-service-key";
 
 export const supabaseErp = createClient(supabaseUrl, supabaseKey, {

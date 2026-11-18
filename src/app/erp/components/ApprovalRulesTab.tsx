@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   ShieldAlert, Save, RefreshCw, Check, X, 
-  HelpCircle, Settings, Layers, AlertCircle,
-  ArrowUpDown, ArrowUp, ArrowDown
+  HelpCircle, Settings, Layers, AlertCircle
 } from "lucide-react";
-import { sortErpItems, SortDirection, formatErpNumber } from "@/lib/erpFormat";
+import { sortErpItems, formatErpNumber } from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
 
 interface ApprovalRule {
   id: number;
@@ -27,34 +27,19 @@ export const ApprovalRulesTab: React.FC<{ currentUser: any }> = ({ currentUser }
   const [loading, setLoading] = useState(false);
   const [editingRules, setEditingRules] = useState<Record<number, ApprovalRule>>({});
   const [isDirty, setIsDirty] = useState(false);
-  const [sortKey, setSortKey] = useState<string>("id");
-  const [sortDir, setSortDir] = useState<SortDirection>("asc");
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
+  const { sortKey, sortDir, handleSort } = useErpTableSort("id", "asc");
 
   const renderSortTh = (label: string, colKey: string, align: "left" | "right" | "center" = "left") => (
-    <th
-      onClick={() => handleSort(colKey)}
-      className={`py-2.5 px-3 whitespace-nowrap cursor-pointer select-none transition ${
-        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
-      } hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60`}
-    >
-      <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"}`}>
-        <span>{label}</span>
-        {sortKey === colKey ? (
-          sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" /> : <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
-        ) : (
-          <ArrowUpDown className="w-3.5 h-3.5 opacity-30 group-hover:opacity-100" />
-        )}
-      </div>
-    </th>
+    <SortableTh
+      label={label}
+      colKey={colKey}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-700/60"
+      iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+    />
   );
 
   const sortedRules = useMemo(() => {

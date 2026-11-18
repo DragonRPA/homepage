@@ -1,6 +1,13 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { ensureForkliftSchema } from "@/lib/forkliftSchemaInit";
+import {
+  computeWarrantyStatus,
+  formatAttachedOptionsSummary,
+  normalizeAttachedOptions,
+} from "@/lib/forkliftDomain";
+import { parseNumericInput } from "@/lib/rentalFeeUtils";
 import {
   computeAssetAccumDeprecAsOf,
   computeAssetDisposalLossForYm,
@@ -47,6 +54,11 @@ export async function GET(request: Request) {
         a.current_site as "currentSite",
         a.contract_no as "contractNo",
         a.custom_spec as "customSpec",
+        COALESCE(a.attached_options, '[]'::jsonb) as "attachedOptions",
+        COALESCE(a.operating_hours, 0)::numeric as "operatingHours",
+        TO_CHAR(a.warranty_start_date, 'YYYY-MM-DD') as "warrantyStartDate",
+        TO_CHAR(a.warranty_end_date, 'YYYY-MM-DD') as "warrantyEndDate",
+        COALESCE(a.warranty_hours, 2000) as "warrantyHours",
         a.memo,
         a.created_at as "createdAt",
         a.updated_at as "updatedAt"
@@ -197,6 +209,13 @@ export async function POST(request: Request) {
         itemSerials.push(itemSerial);
       }
 
+      const normalizedAttachedOptions = normalizeAttachedOptions(body.attachedOptions);
+      const attachedSummary = formatAttachedOptionsSummary(normalizedAttachedOptions);
+      const parsedOperatingHours = Math.max(0, Number(parseNumericInput(body.operatingHours ?? 0)) || 0);
+      const cleanWarrantyStart = body.warrantyStartDate ? String(body.warrantyStartDate).slice(0, 10) : null;
+      const cleanWarrantyEnd = body.warrantyEndDate ? String(body.warrantyEndDate).slice(0, 10) : null;
+      const parsedWarrantyHours = Math.max(0, Math.round(parseNumericInput(body.warrantyHours ?? 2000)));
+
       // 1) 일괄 Bulk INSERT (N회 왕복 대신 단일 UNNEST 쿼리로 처리 + 제품 모델 정보 즉시 JOIN 반환)
       const bulkInsertRes = await client.query(
         `WITH inserted AS (
@@ -204,7 +223,8 @@ export async function POST(request: Request) {
              asset_no, rental_product_id, serial_no, owner_type, status,
              acquisition_date, acquisition_cost, salvage_value, useful_life_years, useful_life_months,
              depreciation_method, accumulated_depreciation, book_value, monthly_depreciation,
-             supplier, renter, current_customer, current_site, contract_no, custom_spec, memo
+             supplier, renter, current_customer, current_site, contract_no, custom_spec, memo,
+             attached_options, operating_hours, warranty_start_date, warranty_end_date, warranty_hours
            )
            SELECT
              u.asset_no,
@@ -227,7 +247,12 @@ export async function POST(request: Request) {
              $16,
              $17,
              $18,
-             $19
+             $19,
+             $21::jsonb,
+             $22::numeric,
+             $23::date,
+             $24::date,
+             $25::int
            FROM UNNEST($1::text[], $2::text[]) WITH ORDINALITY AS u(asset_no, serial_no, ord)
            ORDER BY u.ord
            RETURNING *
@@ -261,6 +286,11 @@ export async function POST(request: Request) {
            a.current_site as "currentSite",
            a.contract_no as "contractNo",
            a.custom_spec as "customSpec",
+           COALESCE(a.attached_options, '[]'::jsonb) as "attachedOptions",
+           COALESCE(a.operating_hours, 0)::numeric as "operatingHours",
+           TO_CHAR(a.warranty_start_date, 'YYYY-MM-DD') as "warrantyStartDate",
+           TO_CHAR(a.warranty_end_date, 'YYYY-MM-DD') as "warrantyEndDate",
+           COALESCE(a.warranty_hours, 2000) as "warrantyHours",
            a.memo,
            a.created_at as "createdAt",
            a.updated_at as "updatedAt"
@@ -288,6 +318,11 @@ export async function POST(request: Request) {
           customSpec || null,
           memo || null,
           lifeMonths,
+          JSON.stringify(normalizedAttachedOptions),
+          parsedOperatingHours,
+          cleanWarrantyStart,
+          cleanWarrantyEnd,
+          parsedWarrantyHours,
         ]
       );
 
@@ -295,6 +330,11 @@ export async function POST(request: Request) {
         ...r,
         acquisitionDate: r.acquisitionDate ? String(r.acquisitionDate).slice(0, 10) : "",
         disposedDate: r.disposedDate ? String(r.disposedDate).slice(0, 10) : "",
+        attachedOptions: normalizeAttachedOptions(r.attachedOptions),
+        operatingHours: Number(r.operatingHours || 0),
+        warrantyStartDate: r.warrantyStartDate || "",
+        warrantyEndDate: r.warrantyEndDate || "",
+        warrantyHours: Number(r.warrantyHours ?? 2000),
         acquisitionCost: Number(r.acquisitionCost || 0),
         salvageValue: Number(r.salvageValue || 0),
         usefulLifeYears: Number(r.usefulLifeYears || 4),
@@ -303,6 +343,57 @@ export async function POST(request: Request) {
         bookValue: Number(r.bookValue || 0),
         monthlyDepreciation: Number(r.monthlyDepreciation || 0),
       }));
+
+      // Auto-register chassis warranty cards if serialNo + warrantyEndDate are set
+      if (cleanWarrantyEnd) {
+        const wStart = cleanWarrantyStart || dateStr;
+        const wComputed = computeWarrantyStatus({
+          warrantyEndDate: cleanWarrantyEnd,
+          warrantyHours: parsedWarrantyHours,
+          currentOperatingHours: parsedOperatingHours,
+        });
+        for (const ca of createdAssets) {
+          const chassis = String(ca.serialNo || "").trim().toUpperCase();
+          if (!chassis) continue;
+          const wNo = `WR${wStart.slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
+          await client.query(
+            `INSERT INTO erp_forklift_warranties
+             (warranty_no, chassis_no, source_type, asset_id, product_id, model_name, manufacturer,
+              customer_name, site_name, delivery_date, warranty_start_date, warranty_months,
+              warranty_end_date, warranty_hours, current_operating_hours, attached_options, status, memo)
+             VALUES ($1, $2, 'RENTAL_ASSET', $3, $4, $5, $6,
+                     $7, $8, $9, $10, 12,
+                     $11, $12, $13, $14::jsonb, $15, $16)
+             ON CONFLICT (chassis_no) DO UPDATE SET
+               asset_id = EXCLUDED.asset_id,
+               warranty_start_date = EXCLUDED.warranty_start_date,
+               warranty_end_date = EXCLUDED.warranty_end_date,
+               warranty_hours = EXCLUDED.warranty_hours,
+               current_operating_hours = GREATEST(erp_forklift_warranties.current_operating_hours, EXCLUDED.current_operating_hours),
+               attached_options = EXCLUDED.attached_options,
+               status = EXCLUDED.status,
+               updated_at = NOW()`,
+            [
+              wNo,
+              chassis,
+              ca.id,
+              ca.rentalProductId,
+              ca.modelName || "",
+              ca.manufacturer || "",
+              ca.currentCustomer || "",
+              ca.currentSite || "",
+              dateStr,
+              wStart,
+              cleanWarrantyEnd,
+              parsedWarrantyHours,
+              parsedOperatingHours,
+              JSON.stringify(normalizedAttachedOptions),
+              wComputed.status,
+              memo || "",
+            ]
+          );
+        }
+      }
 
       // 2) 일괄 이력 감사 로그 기록 (ACQUISITION + OUTBOUND 단일 쿼리)
       const logAssetIds: number[] = [];
@@ -319,7 +410,9 @@ export async function POST(request: Request) {
         logCustomers.push(supplier || renter || "공급처");
         logSites.push("본사 장부");
         logMemos.push(
-          `신규 자산 취득 등록 (${batchQty > 1 ? `일괄 ${batchQty}대 중 ${i + 1}번째, ` : ""}취득원가: ${cost.toLocaleString()}원, 잔존가: ${salvage.toLocaleString()}원)`
+          `신규 자산 취득 등록 (${batchQty > 1 ? `일괄 ${batchQty}대 중 ${i + 1}번째, ` : ""}취득원가: ${cost.toLocaleString()}원, 잔존가: ${salvage.toLocaleString()}원)${
+            attachedSummary ? ` [부착옵션: ${attachedSummary}]` : ""
+          }`
         );
 
         if (initialStatus === "RENTED" && currentCustomer) {
@@ -328,7 +421,11 @@ export async function POST(request: Request) {
           logEventTypes.push("OUTBOUND");
           logCustomers.push(currentCustomer);
           logSites.push(currentSite || "현장");
-          logMemos.push(`초기 등록 시 계약(${contractNo || "-"}) 출고 상태 설정`);
+          logMemos.push(
+            `초기 등록 시 계약(${contractNo || "-"}) 출고 상태 설정${
+              attachedSummary ? ` [부착옵션: ${attachedSummary}]` : ""
+            }`
+          );
         }
       });
 
@@ -439,6 +536,31 @@ export async function PUT(request: Request) {
       bookVal = Math.max(salvage, cost - accumDeprec);
     }
 
+    const nextAttachedOptions =
+      body.attachedOptions !== undefined
+        ? normalizeAttachedOptions(body.attachedOptions)
+        : normalizeAttachedOptions(prevAsset.attached_options);
+    const nextOperatingHours =
+      body.operatingHours !== undefined
+        ? Math.max(0, Number(parseNumericInput(body.operatingHours)) || 0)
+        : Number(prevAsset.operating_hours || 0);
+    const nextWarrantyStart =
+      body.warrantyStartDate !== undefined
+        ? body.warrantyStartDate || null
+        : prevAsset.warranty_start_date
+        ? String(prevAsset.warranty_start_date).slice(0, 10)
+        : null;
+    const nextWarrantyEnd =
+      body.warrantyEndDate !== undefined
+        ? body.warrantyEndDate || null
+        : prevAsset.warranty_end_date
+        ? String(prevAsset.warranty_end_date).slice(0, 10)
+        : null;
+    const nextWarrantyHours =
+      body.warrantyHours !== undefined
+        ? Math.max(0, Math.round(parseNumericInput(body.warrantyHours)))
+        : Number(prevAsset.warranty_hours ?? 2000);
+
     const updateQuery = `
       WITH updated AS (
         UPDATE erp_rental_assets
@@ -463,6 +585,11 @@ export async function PUT(request: Request) {
           contract_no = $16,
           custom_spec = $17,
           memo = $18,
+          attached_options = $22::jsonb,
+          operating_hours = $23,
+          warranty_start_date = $24::date,
+          warranty_end_date = $25::date,
+          warranty_hours = $26,
           updated_at = NOW()
         WHERE id = $19
         RETURNING *
@@ -498,6 +625,11 @@ export async function PUT(request: Request) {
         a.current_site as "currentSite",
         a.contract_no as "contractNo",
         a.custom_spec as "customSpec",
+        COALESCE(a.attached_options, '[]'::jsonb) as "attachedOptions",
+        COALESCE(a.operating_hours, 0)::numeric as "operatingHours",
+        TO_CHAR(a.warranty_start_date, 'YYYY-MM-DD') as "warrantyStartDate",
+        TO_CHAR(a.warranty_end_date, 'YYYY-MM-DD') as "warrantyEndDate",
+        COALESCE(a.warranty_hours, 2000) as "warrantyHours",
         a.memo,
         a.created_at as "createdAt",
         a.updated_at as "updatedAt"
@@ -527,6 +659,11 @@ export async function PUT(request: Request) {
       id,
       lifeMonths,
       nextDisposedDate,
+      JSON.stringify(nextAttachedOptions),
+      nextOperatingHours,
+      nextWarrantyStart,
+      nextWarrantyEnd,
+      nextWarrantyHours,
     ]);
 
     const rawUpdated = res.rows[0];
@@ -534,6 +671,11 @@ export async function PUT(request: Request) {
       ...rawUpdated,
       acquisitionDate: rawUpdated.acquisitionDate ? String(rawUpdated.acquisitionDate).slice(0, 10) : "",
       disposedDate: rawUpdated.disposedDate ? String(rawUpdated.disposedDate).slice(0, 10) : "",
+      attachedOptions: normalizeAttachedOptions(rawUpdated.attachedOptions),
+      operatingHours: Number(rawUpdated.operatingHours || 0),
+      warrantyStartDate: rawUpdated.warrantyStartDate || "",
+      warrantyEndDate: rawUpdated.warrantyEndDate || "",
+      warrantyHours: Number(rawUpdated.warrantyHours ?? 2000),
       acquisitionCost: Number(rawUpdated.acquisitionCost || 0),
       salvageValue: Number(rawUpdated.salvageValue || 0),
       usefulLifeYears: Number(rawUpdated.usefulLifeYears || 4),
@@ -542,6 +684,55 @@ export async function PUT(request: Request) {
       bookValue: Number(rawUpdated.bookValue || 0),
       monthlyDepreciation: Number(rawUpdated.monthlyDepreciation || 0),
     };
+
+    const nextChassis = String(updatedAsset.serialNo || "").trim().toUpperCase();
+    if (nextChassis && nextWarrantyEnd) {
+      const wStart = nextWarrantyStart || dateStr;
+      const wComputed = computeWarrantyStatus({
+        warrantyEndDate: nextWarrantyEnd,
+        warrantyHours: nextWarrantyHours,
+        currentOperatingHours: nextOperatingHours,
+      });
+      const wNo = `WR${wStart.slice(2, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
+      await pool.query(
+        `INSERT INTO erp_forklift_warranties
+         (warranty_no, chassis_no, source_type, asset_id, product_id, model_name, manufacturer,
+          customer_name, site_name, delivery_date, warranty_start_date, warranty_months,
+          warranty_end_date, warranty_hours, current_operating_hours, attached_options, status, memo)
+         VALUES ($1, $2, 'RENTAL_ASSET', $3, $4, $5, $6,
+                 $7, $8, $9, $10, 12,
+                 $11, $12, $13, $14::jsonb, $15, $16)
+         ON CONFLICT (chassis_no) DO UPDATE SET
+           asset_id = EXCLUDED.asset_id,
+           model_name = EXCLUDED.model_name,
+           manufacturer = EXCLUDED.manufacturer,
+           warranty_start_date = EXCLUDED.warranty_start_date,
+           warranty_end_date = EXCLUDED.warranty_end_date,
+           warranty_hours = EXCLUDED.warranty_hours,
+           current_operating_hours = GREATEST(erp_forklift_warranties.current_operating_hours, EXCLUDED.current_operating_hours),
+           attached_options = EXCLUDED.attached_options,
+           status = EXCLUDED.status,
+           updated_at = NOW()`,
+        [
+          wNo,
+          nextChassis,
+          updatedAsset.id,
+          updatedAsset.rentalProductId,
+          updatedAsset.modelName || "",
+          updatedAsset.manufacturer || "",
+          updatedAsset.currentCustomer || "",
+          updatedAsset.currentSite || "",
+          dateStr,
+          wStart,
+          nextWarrantyEnd,
+          nextWarrantyHours,
+          nextOperatingHours,
+          JSON.stringify(nextAttachedOptions),
+          wComputed.status,
+          memo || "",
+        ]
+      );
+    }
 
     // 상태 변경 시 이력 로그 무누락 기록
     if (status && status !== prevAsset.status) {

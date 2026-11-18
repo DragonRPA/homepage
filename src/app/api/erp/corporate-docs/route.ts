@@ -2,41 +2,44 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { putErpPrivateObject, deleteErpPrivateObject } from "@/lib/r2ErpVault";
+import { runSchemaInitOnce } from "@/lib/erpSchemaCache";
 
 async function ensureCorporateDocTables(pool: any) {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS erp_corporate_documents (
-      id SERIAL PRIMARY KEY,
-      doc_code VARCHAR(80) UNIQUE NOT NULL,
-      entity_type VARCHAR(20) NOT NULL DEFAULT 'CORP',
-      category VARCHAR(80) NOT NULL DEFAULT '설립·정관·등기',
-      title VARCHAR(200) NOT NULL,
-      description TEXT DEFAULT '',
-      current_version INT NOT NULL DEFAULT 1,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
+  await runSchemaInitOnce("erp_corporate_docs_schema_v1", async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_corporate_documents (
+        id SERIAL PRIMARY KEY,
+        doc_code VARCHAR(80) UNIQUE NOT NULL,
+        entity_type VARCHAR(20) NOT NULL DEFAULT 'CORP',
+        category VARCHAR(80) NOT NULL DEFAULT '설립·정관·등기',
+        title VARCHAR(200) NOT NULL,
+        description TEXT DEFAULT '',
+        current_version INT NOT NULL DEFAULT 1,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS erp_corporate_document_versions (
-      id SERIAL PRIMARY KEY,
-      document_id INT NOT NULL REFERENCES erp_corporate_documents(id) ON DELETE CASCADE,
-      version_no INT NOT NULL,
-      version_label VARCHAR(50) NOT NULL DEFAULT 'v1.0',
-      effective_date DATE,
-      file_name VARCHAR(255) NOT NULL,
-      file_ext VARCHAR(20) NOT NULL DEFAULT 'pdf',
-      mime_type VARCHAR(120) NOT NULL DEFAULT 'application/pdf',
-      file_size BIGINT NOT NULL DEFAULT 0,
-      r2_key VARCHAR(400) NOT NULL,
-      vault_url VARCHAR(500) NOT NULL,
-      change_note TEXT DEFAULT '',
-      uploaded_by VARCHAR(100) DEFAULT 'ADMIN',
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE (document_id, version_no)
-    )
-  `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_corporate_document_versions (
+        id SERIAL PRIMARY KEY,
+        document_id INT NOT NULL REFERENCES erp_corporate_documents(id) ON DELETE CASCADE,
+        version_no INT NOT NULL,
+        version_label VARCHAR(50) NOT NULL DEFAULT 'v1.0',
+        effective_date DATE,
+        file_name VARCHAR(255) NOT NULL,
+        file_ext VARCHAR(20) NOT NULL DEFAULT 'pdf',
+        mime_type VARCHAR(120) NOT NULL DEFAULT 'application/pdf',
+        file_size BIGINT NOT NULL DEFAULT 0,
+        r2_key VARCHAR(400) NOT NULL,
+        vault_url VARCHAR(500) NOT NULL,
+        change_note TEXT DEFAULT '',
+        uploaded_by VARCHAR(100) DEFAULT 'ADMIN',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (document_id, version_no)
+      )
+    `);
+  });
 }
 
 async function resequenceDocumentVersions(client: any, docId: number) {
@@ -104,50 +107,51 @@ export async function GET(request: Request) {
       where += ` AND d.category = $${params.length}`;
     }
 
-    const docsRes = await pool.query(
-      `SELECT d.id,
-              d.doc_code AS "docCode",
-              d.entity_type AS "entityType",
-              d.category,
-              d.title,
-              d.description,
-              d.current_version AS "currentVersion",
-              d.created_at AS "createdAt",
-              d.updated_at AS "updatedAt"
-       FROM erp_corporate_documents d
-       ${where}
-       ORDER BY
-         CASE d.category
-           WHEN '정관·등기·의사록' THEN 1
-           WHEN '주주·주식·자본' THEN 2
-           WHEN '세무·공과·인증' THEN 3
-           WHEN '부동산·임대차' THEN 4
-           WHEN '기타 중요문서' THEN 5
-           WHEN '법인설립 원시서류 (보존용)' THEN 99
-           ELSE 50
-         END ASC,
-         d.id ASC`,
-      params
-    );
-
-    const verRes = await pool.query(
-      `SELECT v.id,
-              v.document_id AS "documentId",
-              v.version_no AS "versionNo",
-              v.version_label AS "versionLabel",
-              v.effective_date::text AS "effectiveDate",
-              v.file_name AS "fileName",
-              v.file_ext AS "fileExt",
-              v.mime_type AS "mimeType",
-              v.file_size::bigint AS "fileSize",
-              v.r2_key AS "r2Key",
-              v.vault_url AS "vaultUrl",
-              v.change_note AS "changeNote",
-              v.uploaded_by AS "uploadedBy",
-              v.created_at AS "createdAt"
-       FROM erp_corporate_document_versions v
-       ORDER BY v.document_id ASC, v.version_no DESC, v.id DESC`
-    );
+    const [docsRes, verRes] = await Promise.all([
+      pool.query(
+        `SELECT d.id,
+                d.doc_code AS "docCode",
+                d.entity_type AS "entityType",
+                d.category,
+                d.title,
+                d.description,
+                d.current_version AS "currentVersion",
+                d.created_at AS "createdAt",
+                d.updated_at AS "updatedAt"
+         FROM erp_corporate_documents d
+         ${where}
+         ORDER BY
+           CASE d.category
+             WHEN '정관·등기·의사록' THEN 1
+             WHEN '주주·주식·자본' THEN 2
+             WHEN '세무·공과·인증' THEN 3
+             WHEN '부동산·임대차' THEN 4
+             WHEN '기타 중요문서' THEN 5
+             WHEN '법인설립 원시서류 (보존용)' THEN 99
+             ELSE 50
+           END ASC,
+           d.id ASC`,
+        params
+      ),
+      pool.query(
+        `SELECT v.id,
+                v.document_id AS "documentId",
+                v.version_no AS "versionNo",
+                v.version_label AS "versionLabel",
+                v.effective_date::text AS "effectiveDate",
+                v.file_name AS "fileName",
+                v.file_ext AS "fileExt",
+                v.mime_type AS "mimeType",
+                v.file_size::bigint AS "fileSize",
+                v.r2_key AS "r2Key",
+                v.vault_url AS "vaultUrl",
+                v.change_note AS "changeNote",
+                v.uploaded_by AS "uploadedBy",
+                v.created_at AS "createdAt"
+         FROM erp_corporate_document_versions v
+         ORDER BY v.document_id ASC, v.version_no DESC, v.id DESC`
+      ),
+    ]);
 
     const versionsByDoc = new Map<number, any[]>();
     for (const v of verRes.rows) {

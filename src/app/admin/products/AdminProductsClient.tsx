@@ -28,6 +28,7 @@ import { Product, ProductPlan } from "@/lib/productService";
 export default function AdminProductsClient() {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [authRequired, setAuthRequired] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isAddingProduct, setIsAddingProduct] = useState(false);
 
@@ -45,7 +46,13 @@ export default function AdminProductsClient() {
   const fetchProducts = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/products?admin=true");
+      const res = await fetch("/api/products?admin=true", { cache: "no-store" });
+      if (res.status === 401 || res.status === 403) {
+        setAuthRequired(true);
+        setProducts([]);
+        return;
+      }
+      setAuthRequired(false);
       const data = await res.json();
       if (data.success) {
         setProducts(data.products || []);
@@ -419,6 +426,24 @@ export default function AdminProductsClient() {
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
             )}
             <span>{statusMessage.text}</span>
+          </div>
+        )}
+
+        {authRequired && (
+          <div className="mt-4 p-5 rounded-2xl bg-amber-950/50 border border-amber-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Shield className="w-5 h-5 text-amber-400 shrink-0" />
+              <div className="text-xs text-amber-200">
+                <div className="font-bold text-sm text-white mb-0.5">관리자 인증 필요</div>
+                <span>카탈로그 관리 기능은 ERP 관리자 로그인 세션 확인 후 이용할 수 있습니다.</span>
+              </div>
+            </div>
+            <Link
+              href="/erp"
+              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shrink-0 text-center"
+            >
+              ERP 로그인 이동
+            </Link>
           </div>
         )}
       </div>

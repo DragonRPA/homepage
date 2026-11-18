@@ -15,13 +15,16 @@ import {
   Scale,
   Calculator,
 } from "lucide-react";
-import {
-  GENERAL_STANDARD_CHAPTERS,
-  GENERAL_STANDARD_ARTICLES,
-  GENERAL_GUIDANCE_SECTIONS,
+import type {
   GeneralStandardArticle,
   GeneralGuidanceSection,
-} from "../data/generalAccountingStandardsData";
+} from "../data/generalAccountingStandardsTypes";
+
+let cachedGeneralStandardsData: {
+  chapters: { no: string; title: string; pdfUrl: string }[];
+  articles: GeneralStandardArticle[];
+  guidances: GeneralGuidanceSection[];
+} | null = null;
 
 const GENERAL_ACCOUNTING_STANDARDS_META = {
   standardEnacted: "한국회계기준원 회계기준위원회 의결 (2009. 11. 27. 제정 · 2023. 12. 26. 개정 반영)",
@@ -136,15 +139,58 @@ export default function GeneralAccountingStandardsTab() {
   const [leftFilterOnlyMatched, setLeftFilterOnlyMatched] = useState(false);
   const [rightFilterOnlyMatched, setRightFilterOnlyMatched] = useState(false);
 
+  const [chapters, setChapters] = useState<{ no: string; title: string; pdfUrl: string }[]>(
+    () => cachedGeneralStandardsData?.chapters || []
+  );
+  const [articles, setArticles] = useState<GeneralStandardArticle[]>(
+    () => cachedGeneralStandardsData?.articles || []
+  );
+  const [guidances, setGuidances] = useState<GeneralGuidanceSection[]>(
+    () => cachedGeneralStandardsData?.guidances || []
+  );
+
   // 현재 포커스된 항목 ID 및 매칭 인덱스
   const [focusedLeftId, setFocusedLeftId] = useState<string>(
-    GENERAL_STANDARD_ARTICLES[0]?.id || "kgaap-art-00-01"
+    () => cachedGeneralStandardsData?.articles[0]?.id || "kgaap-art-00-01"
   );
   const [focusedRightId, setFocusedRightId] = useState<string>(
-    GENERAL_GUIDANCE_SECTIONS[0]?.id || "kgaap-sec-00-01"
+    () => cachedGeneralStandardsData?.guidances[0]?.id || "kgaap-sec-00-01"
   );
   const [leftMatchIndex, setLeftMatchIndex] = useState<number>(0);
   const [rightMatchIndex, setRightMatchIndex] = useState<number>(0);
+
+  useEffect(() => {
+    if (cachedGeneralStandardsData) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/erp/accounting-standards?kind=general");
+        if (!res.ok) return;
+        const json = await res.json();
+        cachedGeneralStandardsData = {
+          chapters: json.chapters || [],
+          articles: json.articles || [],
+          guidances: json.guidances || [],
+        };
+        if (!cancelled) {
+          setChapters(cachedGeneralStandardsData.chapters);
+          setArticles(cachedGeneralStandardsData.articles);
+          setGuidances(cachedGeneralStandardsData.guidances);
+          if (cachedGeneralStandardsData.articles[0]?.id) {
+            setFocusedLeftId(cachedGeneralStandardsData.articles[0].id);
+          }
+          if (cachedGeneralStandardsData.guidances[0]?.id) {
+            setFocusedRightId(cachedGeneralStandardsData.guidances[0].id);
+          }
+        }
+      } catch {
+        // ignore network error
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 좌우 독립 스크롤 컨테이너 Ref
   const leftScrollRef = useRef<HTMLDivElement | null>(null);
@@ -153,13 +199,13 @@ export default function GeneralAccountingStandardsTab() {
   // 장 번호 -> 장 제목 매핑
   const chapterTitleMap = useMemo(() => {
     const map = new Map<string, string>();
-    GENERAL_STANDARD_CHAPTERS.forEach((ch) => map.set(ch.no, ch.title));
+    chapters.forEach((ch) => map.set(ch.no, ch.title));
     return map;
-  }, []);
+  }, [chapters]);
 
   // 장별 필터가 적용된 좌측 기준서 목록 (정확히 일치하는 장만 필터링)
   const visibleLeftArticles = useMemo(() => {
-    return GENERAL_STANDARD_ARTICLES.filter((art) => {
+    return articles.filter((art) => {
       if (leftChapterFilter !== "ALL" && art.chapterNo !== leftChapterFilter) {
         return false;
       }
@@ -168,11 +214,11 @@ export default function GeneralAccountingStandardsTab() {
       }
       return true;
     });
-  }, [leftChapterFilter, leftFilterOnlyMatched, leftQuery]);
+  }, [articles, leftChapterFilter, leftFilterOnlyMatched, leftQuery]);
 
   // 장별 필터가 적용된 우측 부록·해설 목록 (정확히 일치하는 장만 필터링)
   const visibleRightSections = useMemo(() => {
-    return GENERAL_GUIDANCE_SECTIONS.filter((sec) => {
+    return guidances.filter((sec) => {
       if (rightChapterFilter !== "ALL" && sec.chapterNo !== rightChapterFilter) {
         return false;
       }
@@ -181,7 +227,7 @@ export default function GeneralAccountingStandardsTab() {
       }
       return true;
     });
-  }, [rightChapterFilter, rightFilterOnlyMatched, rightQuery]);
+  }, [guidances, rightChapterFilter, rightFilterOnlyMatched, rightQuery]);
 
   // 좌측 검색 매칭 항목 리스트
   const leftMatchedArticles = useMemo(() => {
@@ -238,13 +284,13 @@ export default function GeneralAccountingStandardsTab() {
     setLeftChapterFilter(chNo);
     setRightChapterFilter(chNo);
     if (chNo !== "ALL") {
-      const foundCh = GENERAL_STANDARD_CHAPTERS.find((c) => c.no === chNo);
+      const foundCh = chapters.find((c) => c.no === chNo);
       if (foundCh) {
         setSelectedPdfUrl(foundCh.pdfUrl);
       }
-      const firstArt = GENERAL_STANDARD_ARTICLES.find((a) => a.chapterNo === chNo);
+      const firstArt = articles.find((a) => a.chapterNo === chNo);
       if (firstArt) setFocusedLeftId(firstArt.id);
-      const firstSec = GENERAL_GUIDANCE_SECTIONS.find((s) => s.chapterNo === chNo);
+      const firstSec = guidances.find((s) => s.chapterNo === chNo);
       if (firstSec) setFocusedRightId(firstSec.id);
     }
     requestAnimationFrame(() => {
@@ -257,7 +303,7 @@ export default function GeneralAccountingStandardsTab() {
   const handleSelectRightChapter = (chNo: string) => {
     setRightChapterFilter(chNo);
     if (chNo !== "ALL") {
-      const firstSec = GENERAL_GUIDANCE_SECTIONS.find((s) => s.chapterNo === chNo);
+      const firstSec = guidances.find((s) => s.chapterNo === chNo);
       if (firstSec) setFocusedRightId(firstSec.id);
     }
     requestAnimationFrame(() => {
@@ -268,7 +314,7 @@ export default function GeneralAccountingStandardsTab() {
   // 상단 PDF 드롭다운 변경 시: 해당 장으로 좌·우 화면도 함께 이동
   const handleSelectPdfDropdown = (pdfUrl: string) => {
     setSelectedPdfUrl(pdfUrl);
-    const foundCh = GENERAL_STANDARD_CHAPTERS.find((c) => c.pdfUrl === pdfUrl);
+    const foundCh = chapters.find((c) => c.pdfUrl === pdfUrl);
     if (foundCh) {
       handleSelectLeftChapter(foundCh.no);
     }
@@ -332,11 +378,11 @@ export default function GeneralAccountingStandardsTab() {
     setRightChapterFilter("ALL");
     setLeftFilterOnlyMatched(false);
     setRightFilterOnlyMatched(false);
-    if (GENERAL_STANDARD_ARTICLES[0]) {
-      scrollToLeftArticle(GENERAL_STANDARD_ARTICLES[0].id);
+    if (articles[0]) {
+      scrollToLeftArticle(articles[0].id);
     }
-    if (GENERAL_GUIDANCE_SECTIONS[0]) {
-      scrollToRightSection(GENERAL_GUIDANCE_SECTIONS[0].id);
+    if (guidances[0]) {
+      scrollToRightSection(guidances[0].id);
     }
   };
 
@@ -365,16 +411,16 @@ export default function GeneralAccountingStandardsTab() {
   // ID로 기준서 문단 조회 헬퍼
   const articleMap = useMemo(() => {
     const map = new Map<string, GeneralStandardArticle>();
-    GENERAL_STANDARD_ARTICLES.forEach((a) => map.set(a.id, a));
+    articles.forEach((a) => map.set(a.id, a));
     return map;
-  }, []);
+  }, [articles]);
 
   // ID로 부록·해설 섹션 조회 헬퍼
   const guidanceMap = useMemo(() => {
     const map = new Map<string, GeneralGuidanceSection>();
-    GENERAL_GUIDANCE_SECTIONS.forEach((g) => map.set(g.id, g));
+    guidances.forEach((g) => map.set(g.id, g));
     return map;
-  }, []);
+  }, [guidances]);
 
   // 원문 문단 라인 렌더링 헬퍼 (소제목 ■, 용어정의 •, 표 | 구분 렌더링)
   const renderVerbatimLine = (line: string, query: string, idx: number, accent: "blue" | "emerald") => {
@@ -471,7 +517,7 @@ export default function GeneralAccountingStandardsTab() {
                 aria-label="일반기업회계기준 장별 원문 PDF 선택"
                 className="px-2 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-md text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
               >
-                {GENERAL_STANDARD_CHAPTERS.map((ch) => (
+                {chapters.map((ch) => (
                   <option key={ch.no} value={ch.pdfUrl}>
                     [원문 PDF] {ch.no} — {ch.title}
                   </option>
@@ -577,7 +623,7 @@ export default function GeneralAccountingStandardsTab() {
               </span>
               <span className="text-[11px] text-slate-300 bg-slate-800 px-2 py-0.5 rounded whitespace-nowrap">
                 {leftChapterFilter === "ALL"
-                  ? `전체 35개 장 · ${GENERAL_STANDARD_ARTICLES.length}개 섹션`
+                  ? `전체 35개 장 · ${articles.length}개 섹션`
                   : `${leftChapterFilter} · ${visibleLeftArticles.length}개 섹션`}
               </span>
             </div>
@@ -620,7 +666,7 @@ export default function GeneralAccountingStandardsTab() {
                 className="w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-600 text-slate-900"
               >
                 <option value="ALL">전체 35개 장 보기 (개념체계 · 제1장~제33장 · 경과규정)</option>
-                {GENERAL_STANDARD_CHAPTERS.map((ch) => (
+                {chapters.map((ch) => (
                   <option key={ch.no} value={ch.no}>
                     {ch.no} — {ch.title}
                   </option>
@@ -809,7 +855,7 @@ export default function GeneralAccountingStandardsTab() {
               </span>
               <span className="text-[11px] text-emerald-200 bg-emerald-900 px-2 py-0.5 rounded whitespace-nowrap">
                 {rightChapterFilter === "ALL"
-                  ? `전체 35개 장 · ${GENERAL_GUIDANCE_SECTIONS.length}개 섹션`
+                  ? `전체 35개 장 · ${guidances.length}개 섹션`
                   : `${rightChapterFilter} · ${visibleRightSections.length}개 섹션`}
               </span>
             </div>
@@ -852,7 +898,7 @@ export default function GeneralAccountingStandardsTab() {
                 className="w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-emerald-600 text-slate-900"
               >
                 <option value="ALL">전체 35개 장 부록·해설 보기 (개념체계 · 제1장~제33장 · 경과규정)</option>
-                {GENERAL_STANDARD_CHAPTERS.map((ch) => (
+                {chapters.map((ch) => (
                   <option key={ch.no} value={ch.no}>
                     {ch.no} — {ch.title}
                   </option>

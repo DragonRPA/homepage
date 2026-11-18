@@ -2,42 +2,36 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
 import { putErpPrivateObject } from "@/lib/r2ErpVault";
-
-const GROQ_API_KEY =
-  process.env.GROQ_API_KEY ||
-  String.fromCharCode(
-    ...[
-      103, 115, 107, 95, 66, 106, 53, 72, 78, 48, 111, 97, 48, 70, 48, 72, 111,
-      118, 109, 86, 120, 72, 73, 99, 87, 71, 100, 121, 98, 51, 70, 89, 81, 111,
-      121, 78, 66, 107, 85, 105, 51, 82, 112, 52, 88, 75, 53, 84, 112, 107, 109,
-      80, 121, 70, 74, 66,
-    ]
-  );
+import { getGroqApiKey } from "@/lib/groqServerKey";
+import { runSchemaInitOnce } from "@/lib/erpSchemaCache";
+import { requireMenuPermission } from "@/lib/erpRbacGuard";
 
 async function ensureExpenseSchema(pool: any) {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS erp_expense_receipts (
-      id SERIAL PRIMARY KEY,
-      employee_id BIGINT NOT NULL REFERENCES erp_employees(id) ON DELETE CASCADE,
-      expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
-      year_month VARCHAR(7) NOT NULL,
-      category VARCHAR(50) NOT NULL DEFAULT '식대·회식비',
-      merchant_name VARCHAR(200) NOT NULL DEFAULT '',
-      amount NUMERIC NOT NULL DEFAULT 0,
-      payment_method VARCHAR(50) NOT NULL DEFAULT '개인카드',
-      reason TEXT NOT NULL DEFAULT '',
-      receipt_file_url TEXT,
-      receipt_file_name TEXT,
-      status VARCHAR(20) NOT NULL DEFAULT 'APPROVED',
-      approver_id BIGINT,
-      approved_at TIMESTAMPTZ,
-      memo TEXT,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    ALTER TABLE erp_payroll_records
-    ADD COLUMN IF NOT EXISTS personal_expense_amount NUMERIC NOT NULL DEFAULT 0;
-  `);
+  await runSchemaInitOnce("erp_expenses_schema_v1", async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_expense_receipts (
+        id SERIAL PRIMARY KEY,
+        employee_id BIGINT NOT NULL REFERENCES erp_employees(id) ON DELETE CASCADE,
+        expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        year_month VARCHAR(7) NOT NULL,
+        category VARCHAR(50) NOT NULL DEFAULT '식대·회식비',
+        merchant_name VARCHAR(200) NOT NULL DEFAULT '',
+        amount NUMERIC NOT NULL DEFAULT 0,
+        payment_method VARCHAR(50) NOT NULL DEFAULT '개인카드',
+        reason TEXT NOT NULL DEFAULT '',
+        receipt_file_url TEXT,
+        receipt_file_name TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'APPROVED',
+        approver_id BIGINT,
+        approved_at TIMESTAMPTZ,
+        memo TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      ALTER TABLE erp_payroll_records
+      ADD COLUMN IF NOT EXISTS personal_expense_amount NUMERIC NOT NULL DEFAULT 0;
+    `);
+  });
 }
 
 /**
@@ -97,13 +91,65 @@ async function syncPayrollPersonalExpense(
 // GET: 개인경비 영수증 목록 조회
 export async function GET(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["expense_receipt", "expense_receipts", "EXPENSE_RECEIPT"],
+      "view"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const { searchParams } = new URL(request.url);
-    const yearMonth = searchParams.get("yearMonth") || searchParams.get("month");
-    const employeeId = searchParams.get("employeeId");
-    const status = searchParams.get("status");
+    const idParam = searchParams.get("id");
+    const includeFiles = searchParams.get("includeFiles") === "true";
 
     const pool = getErpPool();
     await ensureExpenseSchema(pool);
+
+    // Fast path: 단건 영수증 이미지 및 상세 지연 로딩
+    if (idParam) {
+      const singleRes = await pool.query(
+        `SELECT
+          r.id,
+          r.employee_id AS "employeeId",
+          COALESCE(e.employee_no, '') AS "employeeNo",
+          COALESCE(e.name, '') AS "employeeName",
+          COALESCE(e.department, '') AS "department",
+          COALESCE(e.position, '') AS "position",
+          COALESCE(e.duty, '') AS "duty",
+          r.expense_date::text AS "expenseDate",
+          r.year_month AS "yearMonth",
+          r.category,
+          r.merchant_name AS "merchantName",
+          COALESCE(r.amount, 0)::numeric AS "amount",
+          r.payment_method AS "paymentMethod",
+          r.reason,
+          r.receipt_file_url AS "receiptFileUrl",
+          r.receipt_file_name AS "receiptFileName",
+          (r.receipt_file_url IS NOT NULL AND r.receipt_file_url <> '') AS "hasReceipt",
+          r.status,
+          r.approver_id AS "approverId",
+          a.name AS "approverName",
+          r.approved_at AS "approvedAt",
+          r.memo,
+          r.created_at AS "createdAt"
+        FROM erp_expense_receipts r
+        JOIN erp_employees e ON r.employee_id = e.id
+        LEFT JOIN erp_employees a ON r.approver_id = a.id
+        WHERE r.id = $1
+        LIMIT 1`,
+        [Number(idParam)]
+      );
+      if (singleRes.rows.length === 0) {
+        return NextResponse.json({ success: false, error: "해당 경비 영수증을 찾을 수 없습니다." }, { status: 404 });
+      }
+      return NextResponse.json({ success: true, receipt: singleRes.rows[0] });
+    }
+
+    const yearMonth = searchParams.get("yearMonth") || searchParams.get("month");
+    const employeeId = searchParams.get("employeeId");
+    const status = searchParams.get("status");
 
     let query = `
       SELECT
@@ -121,8 +167,9 @@ export async function GET(request: Request) {
         COALESCE(r.amount, 0)::numeric AS "amount",
         r.payment_method AS "paymentMethod",
         r.reason,
-        r.receipt_file_url AS "receiptFileUrl",
+        ${includeFiles ? `r.receipt_file_url AS "receiptFileUrl",` : `CASE WHEN r.receipt_file_url LIKE 'data:%' THEN NULL ELSE r.receipt_file_url END AS "receiptFileUrl",`}
         r.receipt_file_name AS "receiptFileName",
+        (r.receipt_file_url IS NOT NULL AND r.receipt_file_url <> '') AS "hasReceipt",
         r.status,
         r.approver_id AS "approverId",
         a.name AS "approverName",
@@ -175,6 +222,8 @@ export async function GET(request: Request) {
         merchant_name: row.merchantName || "",
         payment_method: row.paymentMethod || "",
         description: row.reason || "",
+        hasReceipt: Boolean(row.hasReceipt || row.receiptFileUrl),
+        has_receipt: Boolean(row.hasReceipt || row.receiptFileUrl),
         receipt_file_url: row.receiptFileUrl || null,
         receipt_file_name: row.receiptFileName || null,
         approved_by: row.approverName || (row.approverId ? String(row.approverId) : null),
@@ -199,6 +248,15 @@ export async function GET(request: Request) {
 // POST: 개인경비 영수증 등록 또는 영수증 파일 업로드 + AI 자동인식
 export async function POST(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["expense_receipt", "expense_receipts", "EXPENSE_RECEIPT"],
+      "save"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const contentType = request.headers.get("content-type") || "";
     const pool = getErpPool();
     await ensureExpenseSchema(pool);
@@ -248,41 +306,44 @@ export async function POST(request: Request) {
         // 이미지 파일인 경우 AI Vision으로 가맹점명, 결제금액, 결제일자 자동 추출 시도
         if (mimeType.startsWith("image/") && fileBuffer.length < 4 * 1024 * 1024) {
           try {
-            const base64Img = fileBuffer.toString("base64");
-            const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${GROQ_API_KEY}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model: "meta-llama/llama-4-scout-17b-16e-instruct",
-                temperature: 0.1,
-                response_format: { type: "json_object" },
-                messages: [
-                  {
-                    role: "user",
-                    content: [
-                      {
-                        type: "text",
-                        text: `다음 영수증 이미지에서 결제일자(YYYY-MM-DD), 가맹점명(상호), 총 결제금액(숫자만), 경비구분(식대·회식비 / 유류비·주차·통행료 / 출장·교통비 / 소모품·현장자재 / 접대·업무추진비 / 기타 업무경비 중 택1)을 JSON으로 추출하세요. 형식: {"expenseDate":"YYYY-MM-DD","merchantName":"상호명","amount":15000,"category":"식대·회식비"}`,
-                      },
-                      {
-                        type: "image_url",
-                        image_url: {
-                          url: `data:${mimeType};base64,${base64Img}`,
+            const groqApiKey = await getGroqApiKey();
+            if (groqApiKey) {
+              const base64Img = fileBuffer.toString("base64");
+              const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${groqApiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model: "meta-llama/llama-4-scout-17b-16e-instruct",
+                  temperature: 0.1,
+                  response_format: { type: "json_object" },
+                  messages: [
+                    {
+                      role: "user",
+                      content: [
+                        {
+                          type: "text",
+                          text: `다음 영수증 이미지에서 결제일자(YYYY-MM-DD), 가맹점명(상호), 총 결제금액(숫자만), 경비구분(식대·회식비 / 유류비·주차·통행료 / 출장·교통비 / 소모품·현장자재 / 접대·업무추진비 / 기타 업무경비 중 택1)을 JSON으로 추출하세요. 형식: {"expenseDate":"YYYY-MM-DD","merchantName":"상호명","amount":15000,"category":"식대·회식비"}`,
                         },
-                      },
-                    ],
-                  },
-                ],
-              }),
-            });
-            if (aiRes.ok) {
-              const aiData = await aiRes.json();
-              const rawJson = aiData.choices?.[0]?.message?.content;
-              if (rawJson) {
-                parsedInfo = JSON.parse(rawJson);
+                        {
+                          type: "image_url",
+                          image_url: {
+                            url: `data:${mimeType};base64,${base64Img}`,
+                          },
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              });
+              if (aiRes.ok) {
+                const aiData = await aiRes.json();
+                const rawJson = aiData.choices?.[0]?.message?.content;
+                if (rawJson) {
+                  parsedInfo = JSON.parse(rawJson);
+                }
               }
             }
           } catch (ocrErr) {
@@ -445,6 +506,15 @@ export async function POST(request: Request) {
 // PATCH: 개인경비 영수증 승인 / 반려 처리 (단건 및 일괄 승인 지원)
 export async function PATCH(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["expense_receipt", "expense_receipts", "EXPENSE_RECEIPT"],
+      "save"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const body = await request.json();
     const { id, action, status, approverId, approved_by, yearMonth } = body;
 
@@ -532,6 +602,15 @@ export async function PATCH(request: Request) {
 // DELETE: 개인경비 영수증 삭제 및 급여 정산 재동기화
 export async function DELETE(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["expense_receipt", "expense_receipts", "EXPENSE_RECEIPT"],
+      "save"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) {

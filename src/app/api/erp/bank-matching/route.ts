@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
+import { requireMenuPermission } from "@/lib/erpRbacGuard";
 import {
   parseBankFileBuffer,
   parseCsvOrTsvTextToRows,
@@ -68,6 +69,19 @@ function classifyPayrollItem(item: ParsedBankTransaction) {
   }
   if (!empName && KNOWN_PAYROLL_ACCOUNTS[acc]) {
     empName = KNOWN_PAYROLL_ACCOUNTS[acc].emp;
+  }
+  // 대량/통합 급여 이체 건 처리 (예: sender_receiver가 '급여', '상여' 등이고 출금액이 발생한 경우)
+  if (!empName && wAmt > 0 && (/^(급여|임직원급여|월급여|정기급여)(\s*\d{2,4})?$/.test(sr) || sr.includes("대량급여"))) {
+    const m4 = (sr + " " + memo).match(/(24|25|26|27)(0[1-9]|1[0-2])/);
+    const ym = m4 ? m4[0] : prevYearMonth(transDate);
+    const fullYm = `20${ym.slice(0, 2)}-${ym.slice(2, 4)}`;
+    return {
+      matchedType: "PAYROLL",
+      matchedId: `급여-임직원통합(${ym})`,
+      holder: holder || "임직원급여",
+      bank: bank || "기업은행",
+      memo: memo || `임직원 급여 통합지급 (${fullYm} 귀속)`,
+    };
   }
   if (!empName) return null;
 
@@ -180,11 +194,172 @@ function classifyPayrollItem(item: ParsedBankTransaction) {
 function normalizeCompanyForMatch(raw?: string): string {
   if (!raw) return "";
   return String(raw)
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
+    .replace(/nbp|엔비피/gi, "네이버클라우드")
     .replace(/\(주\)|주식회사|（주）|\(유\)|유한회사|㈜|사단법인|\(사\)|재단법인|\(재\)/g, "")
     .replace(/\([^)]*\)/g, "")
     .replace(/[^가-힣a-zA-Z0-9]/g, "")
     .toLowerCase()
     .trim();
+}
+
+const RECONCILE_DAY_MS = 1000 * 60 * 60 * 24;
+
+function parseReconcileDayMs(raw: unknown): number {
+  return new Date(String(raw ?? "").slice(0, 10)).getTime();
+}
+
+function isBankTxCounterpartyMatch(invName: string, invCeo: string, tx: any): boolean {
+  const sr = normalizeCompanyForMatch(tx.sender_receiver);
+  const ch = normalizeCompanyForMatch(tx.counterparty_holder);
+  const mm = normalizeCompanyForMatch(tx.memo);
+
+  return Boolean(
+    (sr && (sr.includes(invName) || invName.includes(sr))) ||
+      (ch && (ch.includes(invName) || invName.includes(ch))) ||
+      (mm && mm.includes(invName)) ||
+      (invCeo && invCeo.length >= 2 && ((sr && sr.includes(invCeo)) || (ch && ch.includes(invCeo))))
+  );
+}
+
+async function applyBankReconcileMatch(
+  client: any,
+  invoices: any[],
+  txId: number,
+  ioType: string
+): Promise<void> {
+  const invoiceNos: string[] = [];
+
+  for (const inv of invoices) {
+    invoiceNos.push(inv.invoice_no);
+    const totalAmt = Number(inv.total_amount || 0);
+    const prevIds: number[] = Array.isArray(inv.matched_bank_tx_ids)
+      ? inv.matched_bank_tx_ids.map((n: any) => Number(n)).filter((n: number) => n > 0)
+      : [];
+    const mergedIds = Array.from(new Set([...prevIds, txId]));
+
+    await client.query(
+      `UPDATE erp_tax_invoices
+       SET settled_amount = $1,
+           settlement_status = 'PAID',
+           matched_bank_tx_ids = $2::jsonb,
+           settled_at = NOW()
+       WHERE id = $3`,
+      [totalAmt, JSON.stringify(mergedIds), inv.id]
+    );
+
+    const domainType = inv.domain_type || "";
+    const refId = inv.ref_id ? Number(inv.ref_id) : -1;
+
+    // 원천 청구(용역·렌탈·무역) 수납완료 자동 동기화
+    await client.query(
+      `UPDATE erp_service_billings
+       SET payment_status = 'PAID'
+       WHERE tax_invoice_id = $1 OR ($2 IN ('SERVICE', 'OP_SERVICE', 'DEV_SERVICE') AND id = $3)`,
+      [inv.id, domainType, refId]
+    );
+    await client.query(
+      `UPDATE erp_rental_billings
+       SET payment_status = 'PAID', paid_amount = total_amount
+       WHERE tax_invoice_id = $1 OR ($2 = 'RENTAL' AND id = $3)`,
+      [inv.id, domainType, refId]
+    );
+    await client.query(
+      `UPDATE erp_trade_billings
+       SET payment_status = 'PAID', paid_amount = total_amount
+       WHERE tax_invoice_id = $1 OR ($2 IN ('TRADE', 'TRADE_SALE') AND id = $3)`,
+      [inv.id, domainType, refId]
+    );
+  }
+
+  await client.query(
+    `UPDATE erp_bank_transactions
+     SET is_matched = true,
+         matched_type = $1,
+         matched_id = $2,
+         matched_at = NOW()
+     WHERE id = $3`,
+    [ioType === "PURCHASE" ? "PURCHASE_INVOICE" : "SALE_INVOICE", invoiceNos.join(","), txId]
+  );
+}
+
+/**
+ * 동일 거래처의 미결 세금계산서 K건(2 <= K <= 6) 미결 잔액 합계가 단일 통장 거래 1건과 일치하는 최적 집합을 탐색한다.
+ */
+function findConsolidatedUnpaidSubsetForTx(
+  groupInvs: any[],
+  tx: any,
+  ioType: string
+): any[] | null {
+  const txAmt = ioType === "PURCHASE" ? Number(tx.withdrawal_amount) : Number(tx.deposit_amount);
+  if (txAmt <= 0) return null;
+  const txDate = parseReconcileDayMs(tx.trans_date);
+  if (Number.isNaN(txDate)) return null;
+
+  const MAX_K = 6;
+  const MAX_POOL = 12;
+  const maxPruningSum = txAmt + Math.max(100, MAX_K * 500);
+
+  let bestSubset: any[] | null = null;
+  let bestDiff = Number.POSITIVE_INFINITY;
+
+  for (let startIdx = 0; startIdx < groupInvs.length; startIdx++) {
+    const pool = groupInvs.slice(startIdx, startIdx + MAX_POOL);
+    if (pool.length < 2) break;
+
+    const dfs = (
+      idx: number,
+      chosen: any[],
+      sumRemaining: number,
+      earliestDate: number,
+      latestDate: number
+    ) => {
+      if (chosen.length >= 2) {
+        const tolerance = Math.max(100, chosen.length * 500);
+        const diff = Math.abs(txAmt - sumRemaining);
+        if (
+          diff <= tolerance &&
+          txDate >= earliestDate - 35 * RECONCILE_DAY_MS &&
+          txDate <= latestDate + 90 * RECONCILE_DAY_MS
+        ) {
+          if (
+            diff < bestDiff ||
+            (diff === bestDiff && bestSubset !== null && chosen.length < bestSubset.length)
+          ) {
+            bestDiff = diff;
+            bestSubset = [...chosen];
+          }
+        }
+      }
+      if (chosen.length >= MAX_K || sumRemaining > maxPruningSum) return;
+
+      for (let i = idx; i < pool.length; i++) {
+        const inv = pool[i];
+        const rem = Math.max(0, Number(inv.total_amount || 0) - Number(inv.settled_amount || 0));
+        if (rem <= 0 || sumRemaining + rem > maxPruningSum) continue;
+        const invDate = parseReconcileDayMs(inv.issue_date);
+        if (Number.isNaN(invDate)) continue;
+
+        chosen.push(inv);
+        dfs(
+          i + 1,
+          chosen,
+          sumRemaining + rem,
+          Math.min(earliestDate, invDate),
+          Math.max(latestDate, invDate)
+        );
+        chosen.pop();
+      }
+    };
+
+    const firstRem = Math.max(0, Number(pool[0].total_amount || 0) - Number(pool[0].settled_amount || 0));
+    const firstDate = parseReconcileDayMs(pool[0].issue_date);
+    if (firstRem > 0 && firstRem <= maxPruningSum && !Number.isNaN(firstDate)) {
+      dfs(1, [pool[0]], firstRem, firstDate, firstDate);
+    }
+  }
+
+  return bestSubset;
 }
 
 // 통장 거래내역 업로드/등록 직후 미수납/미지급 세금계산서(erp_tax_invoices) 및 원천 청구와 자동 대사 수행
@@ -193,6 +368,7 @@ async function autoReconcileUnpaidInvoicesWithBank(client: any): Promise<number>
     await client.query(`
       SELECT id, invoice_no, COALESCE(io_type, 'SALE') AS io_type,
              COALESCE(supplier_entity_type, 'CORP') AS entity_type,
+             domain_type, ref_id,
              customer_name, ceo_name, issue_date::text AS issue_date,
              COALESCE(total_amount, 0)::numeric AS total_amount,
              COALESCE(settled_amount, 0)::numeric AS settled_amount,
@@ -223,8 +399,10 @@ async function autoReconcileUnpaidInvoicesWithBank(client: any): Promise<number>
   if (unmatchedTxs.length === 0) return 0;
 
   const usedTxIds = new Set<number>();
+  const matchedInvIds = new Set<number>();
   let newlyReconciledCount = 0;
 
+  // 1단계: 1:1 자동 대사
   for (const inv of unpaidInvs) {
     const ioType = inv.io_type || "SALE";
     const entityType = inv.entity_type || "CORP";
@@ -237,7 +415,7 @@ async function autoReconcileUnpaidInvoicesWithBank(client: any): Promise<number>
     const invCeo = normalizeCompanyForMatch(inv.ceo_name);
     if (!invName || invName.length < 2) continue;
 
-    const invDate = new Date(String(inv.issue_date).slice(0, 10)).getTime();
+    const invDate = parseReconcileDayMs(inv.issue_date);
     let matchedTx: any = null;
 
     for (const tx of unmatchedTxs) {
@@ -248,21 +426,11 @@ async function autoReconcileUnpaidInvoicesWithBank(client: any): Promise<number>
       if (txAmt <= 0) continue;
       if (Math.abs(txAmt - remainingAmt) > 1000 && Math.abs(txAmt - totalAmt) > 1000) continue;
 
-      const txDate = new Date(String(tx.trans_date).slice(0, 10)).getTime();
-      const diffDays = Math.round((txDate - invDate) / (1000 * 60 * 60 * 24));
+      const txDate = parseReconcileDayMs(tx.trans_date);
+      const diffDays = Math.round((txDate - invDate) / RECONCILE_DAY_MS);
       if (diffDays < -35 || diffDays > 60) continue;
 
-      const sr = normalizeCompanyForMatch(tx.sender_receiver);
-      const ch = normalizeCompanyForMatch(tx.counterparty_holder);
-      const mm = normalizeCompanyForMatch(tx.memo);
-
-      const isNameMatched =
-        (sr && (sr.includes(invName) || invName.includes(sr))) ||
-        (ch && (ch.includes(invName) || invName.includes(ch))) ||
-        (mm && mm.includes(invName)) ||
-        (invCeo && invCeo.length >= 2 && ((sr && sr.includes(invCeo)) || (ch && ch.includes(invCeo))));
-
-      if (isNameMatched) {
+      if (isBankTxCounterpartyMatch(invName, invCeo, tx)) {
         matchedTx = tx;
         break;
       }
@@ -271,43 +439,59 @@ async function autoReconcileUnpaidInvoicesWithBank(client: any): Promise<number>
     if (matchedTx) {
       const txId = Number(matchedTx.id);
       usedTxIds.add(txId);
-      const prevIds: number[] = Array.isArray(inv.matched_bank_tx_ids)
-        ? inv.matched_bank_tx_ids.map((n: any) => Number(n)).filter((n: number) => n > 0)
-        : [];
-      const mergedIds = Array.from(new Set([...prevIds, txId]));
-
-      await client.query(
-        `UPDATE erp_tax_invoices
-         SET settled_amount = $1,
-             settlement_status = 'PAID',
-             matched_bank_tx_ids = $2::jsonb,
-             settled_at = NOW()
-         WHERE id = $3`,
-        [totalAmt, JSON.stringify(mergedIds), inv.id]
-      );
-
-      await client.query(
-        `UPDATE erp_bank_transactions
-         SET is_matched = true,
-             matched_type = $1,
-             matched_id = $2,
-             matched_at = NOW()
-         WHERE id = $3`,
-        [ioType === "PURCHASE" ? "PURCHASE_INVOICE" : "SALE_INVOICE", inv.invoice_no, txId]
-      );
-
-      // 원천 청구(용역·렌탈·무역) 수납완료 자동 동기화
-      await client.query(`UPDATE erp_service_billings SET payment_status = 'PAID' WHERE tax_invoice_id = $1`, [inv.id]);
-      await client.query(
-        `UPDATE erp_rental_billings SET payment_status = 'PAID', paid_amount = total_amount WHERE tax_invoice_id = $1`,
-        [inv.id]
-      );
-      await client.query(
-        `UPDATE erp_trade_billings SET payment_status = 'PAID', paid_amount = total_amount WHERE tax_invoice_id = $1`,
-        [inv.id]
-      );
-
+      matchedInvIds.add(Number(inv.id));
+      await applyBankReconcileMatch(client, [inv], txId, ioType);
       newlyReconciledCount++;
+    }
+  }
+
+  // 2단계: 다개월 합산 이체 (2 <= K <= 6) 자동 대사
+  const consolidatedGroups = new Map<string, any[]>();
+  for (const inv of unpaidInvs) {
+    if (matchedInvIds.has(Number(inv.id))) continue;
+    const totalAmt = Number(inv.total_amount || 0);
+    const prevSettled = Number(inv.settled_amount || 0);
+    if (totalAmt - prevSettled <= 0) continue;
+
+    const invName = normalizeCompanyForMatch(inv.customer_name);
+    if (!invName || invName.length < 2) continue;
+
+    const entityType = inv.entity_type || "CORP";
+    const ioType = inv.io_type || "SALE";
+    const key = `${entityType}::${ioType}::${invName}`;
+    const list = consolidatedGroups.get(key) || [];
+    list.push(inv);
+    consolidatedGroups.set(key, list);
+  }
+
+  for (const groupInvs of consolidatedGroups.values()) {
+    if (groupInvs.length < 2) continue;
+    const entityType = groupInvs[0].entity_type || "CORP";
+    const ioType = groupInvs[0].io_type || "SALE";
+    const invName = normalizeCompanyForMatch(groupInvs[0].customer_name);
+
+    for (const tx of unmatchedTxs) {
+      if (usedTxIds.has(Number(tx.id))) continue;
+      if (tx.entity_type !== entityType) continue;
+
+      const remGroupInvs = groupInvs.filter((i: any) => !matchedInvIds.has(Number(i.id)));
+      if (remGroupInvs.length < 2) break;
+
+      const nameMatched = remGroupInvs.some((i: any) =>
+        isBankTxCounterpartyMatch(invName, normalizeCompanyForMatch(i.ceo_name), tx)
+      );
+      if (!nameMatched) continue;
+
+      const bestSubset = findConsolidatedUnpaidSubsetForTx(remGroupInvs, tx, ioType);
+      if (bestSubset && bestSubset.length >= 2) {
+        const txId = Number(tx.id);
+        usedTxIds.add(txId);
+        for (const mInv of bestSubset) {
+          matchedInvIds.add(Number(mInv.id));
+        }
+        await applyBankReconcileMatch(client, bestSubset, txId, ioType);
+        newlyReconciledCount += bestSubset.length;
+      }
     }
   }
 
@@ -419,6 +603,15 @@ async function bulkUpsertBankTransactions(items: ParsedBankTransaction[]) {
 // GET: 은행 입출금 거래내역 및 1:1 대사 통계 조회
 export async function GET(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["bank_matching", "BANK_MATCHING"],
+      "view"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get("startDate");
     const endDate = searchParams.get("endDate");
@@ -672,6 +865,15 @@ export async function GET(request: Request) {
 // POST: 통장 거래내역 파일 업로드(.xlsx, .xls, .csv, .txt), 텍스트 붙여넣기, 또는 수기 단건 등록
 export async function POST(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["bank_matching", "BANK_MATCHING"],
+      "save"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const contentType = request.headers.get("content-type") || "";
 
     // 1. Multipart file upload (.xlsx, .xls, .csv, .txt)
@@ -895,6 +1097,15 @@ export async function POST(request: Request) {
 
 // PATCH: 거래 대사(매칭), 계정과목 일괄 지정, 세금계산서 연동 매칭, 메모 수정 또는 대사 취소
 export async function PATCH(request: Request) {
+  const guard = await requireMenuPermission(
+    request,
+    ["bank_matching", "BANK_MATCHING"],
+    "save"
+  );
+  if (!guard.authorized) {
+    return guard.response!;
+  }
+
   const pool = getErpPool();
   const client = await pool.connect();
 
@@ -1191,6 +1402,15 @@ export async function PATCH(request: Request) {
 // DELETE: 거래내역 삭제
 export async function DELETE(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["bank_matching", "BANK_MATCHING"],
+      "save"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 

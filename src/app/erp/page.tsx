@@ -1,231 +1,253 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { 
-  Users, ShoppingCart, Truck, Briefcase, FileText, 
-  Building2, Shield, CheckSquare, Settings, Calendar, 
-  Clock, DollarSign, CreditCard, ChevronDown, ChevronRight,
-  FolderTree, Database, Package, Layers, PackageCheck, PackagePlus, ArrowLeftRight, BookOpen,
-  SlidersHorizontal, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, X, Star, BarChart3, Menu, FileSignature, Receipt, Compass
+import dynamic from "next/dynamic";
+import {
+  CheckSquare,
+  DollarSign,
+  CreditCard,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  FolderTree,
+  BookOpen,
+  SlidersHorizontal,
+  X,
+  BarChart3,
+  Menu,
 } from "lucide-react";
+
+import {
+  MenuHistoryState,
+  createMenuHistory,
+  pushMenuHistory,
+  stepMenuHistoryBack,
+  stepMenuHistoryForward,
+  pruneMenuHistoryByAllowed,
+  canStepMenuBack,
+  canStepMenuForward,
+  getPrevMenuEntry,
+  getNextMenuEntry,
+} from "@/lib/erpMenuHistory";
 
 import { ErpLogin } from "./components/ErpLogin";
 import { ErpHeader, EntityScope, ErpThemeMode } from "./components/ErpHeader";
 import { PasswordChangeModal } from "./components/PasswordChangeModal";
+import { MenuPersonalizeModal } from "./components/MenuPersonalizeModal";
+import {
+  CATEGORIES,
+  MENU_PERM_KEY_MAP,
+  ErpCategoryKey,
+  ErpMenuKey,
+} from "./erpMenuConfig";
+export type { ErpCategoryKey, ErpMenuKey };
 
-// ebro_it 모방 핵심 모듈군
-import { OrganizationTab } from "./components/OrganizationTab";
-import { CorporateDocumentTab } from "./components/CorporateDocumentTab";
-import { PermissionsTab } from "./components/PermissionsTab";
-import { ApprovalInboxTab } from "./components/ApprovalInboxTab";
-import { ApprovalRulesTab } from "./components/ApprovalRulesTab";
-import { WorkImprovementTab } from "./components/WorkImprovementTab";
-import { LeaveApplyTab } from "./components/LeaveApplyTab";
-import { LeaveManageTab } from "./components/LeaveManageTab";
-import { OtManagementTab } from "./components/OtManagementTab";
-import { ExpenseReceiptTab } from "./components/ExpenseReceiptTab";
-import { WorkRulesTab } from "./components/WorkRulesTab";
-import { RetirementPensionGuideTab } from "./components/RetirementPensionGuideTab";
-import { EmploymentContractTab } from "./components/EmploymentContractTab";
-import { BankMatchingTab } from "./components/BankMatchingTab";
-import { PayrollTab } from "./components/PayrollTab";
-import { FinancialReportTab } from "./components/FinancialReportTab";
-import AccountingStandardsTab from "./components/AccountingStandardsTab";
-import GeneralAccountingStandardsTab from "./components/GeneralAccountingStandardsTab";
+const TabLoadingSkeleton = () => (
+  <div className="p-6 text-xs text-slate-500 font-mono">화면 모듈 불러오는 중...</div>
+);
 
-// ebro_it 제품관리 및 자산관리
-import { ProductManagementTab } from "./components/ProductManagementTab";
-import { AssetManagementTab } from "./components/AssetManagementTab";
+const OrganizationTab = dynamic(
+  () => import("./components/OrganizationTab").then((m) => m.OrganizationTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const CorporateDocumentTab = dynamic(
+  () => import("./components/CorporateDocumentTab").then((m) => m.CorporateDocumentTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const PermissionsTab = dynamic(
+  () => import("./components/PermissionsTab").then((m) => m.PermissionsTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const ApprovalInboxTab = dynamic(
+  () => import("./components/ApprovalInboxTab").then((m) => m.ApprovalInboxTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const ApprovalRulesTab = dynamic(
+  () => import("./components/ApprovalRulesTab").then((m) => m.ApprovalRulesTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const WorkImprovementTab = dynamic(
+  () => import("./components/WorkImprovementTab").then((m) => m.WorkImprovementTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const LeaveApplyTab = dynamic(
+  () => import("./components/LeaveApplyTab").then((m) => m.LeaveApplyTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const LeaveManageTab = dynamic(
+  () => import("./components/LeaveManageTab").then((m) => m.LeaveManageTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const OtManagementTab = dynamic(
+  () => import("./components/OtManagementTab").then((m) => m.OtManagementTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const ExpenseReceiptTab = dynamic(
+  () => import("./components/ExpenseReceiptTab").then((m) => m.ExpenseReceiptTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const WorkRulesTab = dynamic(
+  () => import("./components/WorkRulesTab").then((m) => m.WorkRulesTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const RetirementPensionGuideTab = dynamic(
+  () => import("./components/RetirementPensionGuideTab").then((m) => m.RetirementPensionGuideTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const EmploymentContractTab = dynamic(
+  () => import("./components/EmploymentContractTab").then((m) => m.EmploymentContractTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const BankMatchingTab = dynamic(
+  () => import("./components/BankMatchingTab").then((m) => m.BankMatchingTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const PayrollTab = dynamic(
+  () => import("./components/PayrollTab").then((m) => m.PayrollTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const FinancialReportTab = dynamic(
+  () => import("./components/FinancialReportTab").then((m) => m.FinancialReportTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const AccountingStandardsTab = dynamic(() => import("./components/AccountingStandardsTab"), {
+  ssr: false,
+  loading: TabLoadingSkeleton,
+});
+const GeneralAccountingStandardsTab = dynamic(
+  () => import("./components/GeneralAccountingStandardsTab"),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
 
-// 거래처 관리 (고객 관리 & 매입거래처 관리)
-import { PartnerManagementTab } from "./components/PartnerManagementTab";
+const ProductManagementTab = dynamic(
+  () => import("./components/ProductManagementTab").then((m) => m.ProductManagementTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const AssetManagementTab = dynamic(
+  () => import("./components/AssetManagementTab").then((m) => m.AssetManagementTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const WarrantyManagementTab = dynamic(() => import("./components/WarrantyManagementTab"), {
+  ssr: false,
+  loading: TabLoadingSkeleton,
+});
+const RentalMaintenanceTab = dynamic(() => import("./components/RentalMaintenanceTab"), {
+  ssr: false,
+  loading: TabLoadingSkeleton,
+});
 
-// 영업 및 서비스 도메인
-import { TradeTab } from "./components/TradeTab";
-import { RentalTab } from "./components/RentalTab";
-import { ServiceTab } from "./components/ServiceTab";
-import { TaxInvoiceTab } from "./components/TaxInvoiceTab";
-import { OutboundRegTab } from "./components/OutboundRegTab";
-import { InboundRegTab } from "./components/InboundRegTab";
-import { CloudShareTab } from "./components/CloudShareTab";
-import { GovSupportIntelTab } from "./components/GovSupportIntelTab";
-import { ObsidianVaultTab } from "./components/ObsidianVaultTab";
-import { RentalBizDirectoryTab } from "./components/RentalBizDirectoryTab";
+const PartnerManagementTab = dynamic(
+  () => import("./components/PartnerManagementTab").then((m) => m.PartnerManagementTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+
+const TradeTab = dynamic(
+  () => import("./components/TradeTab").then((m) => m.TradeTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const RentalTab = dynamic(
+  () => import("./components/RentalTab").then((m) => m.RentalTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const ServiceTab = dynamic(
+  () => import("./components/ServiceTab").then((m) => m.ServiceTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const TaxInvoiceTab = dynamic(
+  () => import("./components/TaxInvoiceTab").then((m) => m.TaxInvoiceTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const OutboundRegTab = dynamic(
+  () => import("./components/OutboundRegTab").then((m) => m.OutboundRegTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const InboundRegTab = dynamic(
+  () => import("./components/InboundRegTab").then((m) => m.InboundRegTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const CloudShareTab = dynamic(
+  () => import("./components/CloudShareTab").then((m) => m.CloudShareTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const GovSupportIntelTab = dynamic(
+  () => import("./components/GovSupportIntelTab").then((m) => m.GovSupportIntelTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const ObsidianVaultTab = dynamic(
+  () => import("./components/ObsidianVaultTab").then((m) => m.ObsidianVaultTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
+const RentalBizDirectoryTab = dynamic(
+  () => import("./components/RentalBizDirectoryTab").then((m) => m.RentalBizDirectoryTab),
+  { ssr: false, loading: TabLoadingSkeleton }
+);
 import "./erp-theme.css";
 
-export type ErpCategoryKey = "HR" | "APPROVAL" | "FINANCE" | "PARTNER" | "ASSET" | "INOUT" | "BUSINESS";
+const MAX_MOUNTED_MENUS = 12; // 최근 사용 탭 최대 12개 LRU 유지
 
-export type ErpMenuKey =
-  | "ORG"
-  | "CORPORATE_DOCS"
-  | "EMPLOYMENT_CONTRACT"
-  | "PERMISSIONS"
-  | "LEAVE_APPLY"
-  | "LEAVE_MANAGE"
-  | "OT_MANAGE"
-  | "EXPENSE_RECEIPT"
-  | "WORK_RULES"
-  | "RETIREMENT_PENSION_GUIDE"
-  | "APPROVAL_INBOX"
-  | "WORK_IMPROVEMENT"
-  | "APPROVAL_RULES"
-  | "FINANCIAL_REPORT"
-  | "BANK_MATCHING"
-  | "PAYROLL"
-  | "ACCOUNTING_STANDARD"
-  | "GENERAL_ACCOUNTING_STANDARD"
-  | "TAX"
-  | "CUSTOMER"
-  | "VENDOR"
-  | "PRODUCT"
-  | "ASSET"
-  | "OUTBOUND_REG"
-  | "INBOUND_REG"
-  | "TRADE"
-  | "RENTAL"
-  | "SERVICES"
-  | "CLOUD_SHARE"
-  | "GOV_SUPPORT"
-  | "OBSIDIAN_VAULT"
-  | "RENTAL_BIZ_DIR";
-
-interface MenuItem {
-  key: ErpMenuKey;
-  label: string;
-  icon: React.ElementType;
+interface KeepAlivePaneProps {
+  menuKey: ErpMenuKey;
+  isActive: boolean;
+  paneRef: (el: HTMLDivElement | null) => void;
+  renderContent: (key: ErpMenuKey) => React.ReactNode;
 }
 
-interface CategoryConfig {
-  key: ErpCategoryKey;
-  label: string;
-  icon: React.ElementType;
-  items: MenuItem[];
-}
-
-const CATEGORIES: CategoryConfig[] = [
-  {
-    key: "HR",
-    label: "인사·근태",
-    icon: Users,
-    items: [
-      { key: "ORG", label: "조직 인사관리", icon: Building2 },
-      { key: "CORPORATE_DOCS", label: "법인 중요문서 (설립·정관)", icon: FolderTree },
-      { key: "EMPLOYMENT_CONTRACT", label: "근로계약서 관리", icon: FileSignature },
-      { key: "PERMISSIONS", label: "사용자 및 권한", icon: Shield },
-      { key: "LEAVE_APPLY", label: "연차 신청", icon: Calendar },
-      { key: "LEAVE_MANAGE", label: "연차 관리", icon: Users },
-      { key: "OT_MANAGE", label: "초과근무 관리", icon: Clock },
-      { key: "EXPENSE_RECEIPT", label: "개인경비 영수증 등록", icon: Receipt },
-      { key: "WORK_RULES", label: "취업규칙 (표준안)", icon: BookOpen },
-      { key: "RETIREMENT_PENSION_GUIDE", label: "퇴직연금 도입 안내", icon: FileText },
-    ],
+const KeepAlivePane = React.memo(
+  function KeepAlivePane({
+    menuKey,
+    isActive,
+    paneRef,
+    renderContent,
+  }: KeepAlivePaneProps) {
+    return (
+      <div
+        ref={paneRef}
+        aria-hidden={!isActive}
+        className={
+          isActive
+            ? "h-full w-full overflow-y-auto overflow-x-hidden"
+            : "hidden"
+        }
+      >
+        {renderContent(menuKey)}
+      </div>
+    );
   },
-  {
-    key: "APPROVAL",
-    label: "전자결재",
-    icon: CheckSquare,
-    items: [
-      { key: "APPROVAL_INBOX", label: "내 결재함", icon: CheckSquare },
-      { key: "WORK_IMPROVEMENT", label: "업무개선 보고서", icon: FileText },
-      { key: "APPROVAL_RULES", label: "결재선 규칙 설정", icon: Settings },
-    ],
-  },
-  {
-    key: "FINANCE",
-    label: "재무·회계",
-    icon: DollarSign,
-    items: [
-      { key: "FINANCIAL_REPORT", label: "경영지표 보고서", icon: BarChart3 },
-      { key: "BANK_MATCHING", label: "은행 입출금 대장", icon: DollarSign },
-      { key: "PAYROLL", label: "급여 정산", icon: CreditCard },
-      { key: "ACCOUNTING_STANDARD", label: "중소기업회계기준", icon: BookOpen },
-      { key: "GENERAL_ACCOUNTING_STANDARD", label: "일반기업회계기준", icon: BookOpen },
-    ],
-  },
-  {
-    key: "PARTNER",
-    label: "거래처 관리",
-    icon: Building2,
-    items: [
-      { key: "CUSTOMER", label: "고객 관리 (매출처)", icon: Users },
-      { key: "VENDOR", label: "매입거래처 관리", icon: Truck },
-    ],
-  },
-  {
-    key: "ASSET",
-    label: "자산관리",
-    icon: Layers,
-    items: [
-      { key: "PRODUCT", label: "제품 관리", icon: Package },
-      { key: "ASSET", label: "자산 관리", icon: Layers },
-    ],
-  },
-  {
-    key: "INOUT",
-    label: "입출고관리",
-    icon: ArrowLeftRight,
-    items: [
-      { key: "OUTBOUND_REG", label: "출고등록", icon: PackageCheck },
-      { key: "INBOUND_REG", label: "입고등록", icon: PackagePlus },
-    ],
-  },
-  {
-    key: "BUSINESS",
-    label: "영업·계약",
-    icon: Briefcase,
-    items: [
-      { key: "TRADE", label: "판매용 (커머스)", icon: ShoppingCart },
-      { key: "RENTAL", label: "임대 계약/청구", icon: Truck },
-      { key: "SERVICES", label: "용역 관리 (운영/개발)", icon: Briefcase },
-      { key: "TAX", label: "매입·매출 세금계산서", icon: FileText },
-      { key: "CLOUD_SHARE", label: "클라우드 자료실", icon: Database },
-      { key: "GOV_SUPPORT", label: "정부지원·뉴스·트렌드", icon: Compass },
-      { key: "RENTAL_BIZ_DIR", label: "렌탈 사업자 DB (FL·AWP·OA)", icon: Building2 },
-      { key: "OBSIDIAN_VAULT", label: "옵시디언 노트 (PC·폰 연동)", icon: BookOpen },
-    ],
-  },
-];
-
-const MENU_PERM_KEY_MAP: Record<ErpMenuKey, string> = {
-  ORG: "org",
-  CORPORATE_DOCS: "org",
-  EMPLOYMENT_CONTRACT: "org",
-  PERMISSIONS: "users",
-  LEAVE_APPLY: "leave_apply",
-  LEAVE_MANAGE: "leave_manage",
-  OT_MANAGE: "ot_manage",
-  EXPENSE_RECEIPT: "expense_receipt",
-  WORK_RULES: "work_rules",
-  RETIREMENT_PENSION_GUIDE: "work_rules",
-  APPROVAL_INBOX: "approval_inbox",
-  WORK_IMPROVEMENT: "work_improvement",
-  APPROVAL_RULES: "approval_rules",
-  FINANCIAL_REPORT: "bank_matching",
-  BANK_MATCHING: "bank_matching",
-  PAYROLL: "payroll",
-  ACCOUNTING_STANDARD: "bank_matching",
-  GENERAL_ACCOUNTING_STANDARD: "bank_matching",
-  TAX: "tax_invoice",
-  CUSTOMER: "customer",
-  VENDOR: "vendor",
-  PRODUCT: "product",
-  ASSET: "asset",
-  OUTBOUND_REG: "outbound_reg",
-  INBOUND_REG: "inbound_reg",
-  TRADE: "trade",
-  RENTAL: "rental",
-  SERVICES: "service",
-  CLOUD_SHARE: "cloud_share",
-  GOV_SUPPORT: "gov_support",
-  OBSIDIAN_VAULT: "obsidian_vault",
-  RENTAL_BIZ_DIR: "rental_biz_dir",
-};
+  (prev, next) => {
+    // 비활성 탭이 계속 비활성 상태로 유지되는 경우 리렌더링 및 renderContent 재호출을 0회로 원천 차단
+    if (!prev.isActive && !next.isActive) {
+      return true;
+    }
+    return prev.isActive === next.isActive && prev.menuKey === next.menuKey;
+  }
+);
 
 export default function ErpMainPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<ErpCategoryKey>("FINANCE");
-  const [activeMenu, setActiveMenu] = useState<ErpMenuKey>("FINANCIAL_REPORT");
+  const [menuHistory, setMenuHistory] = useState<
+    MenuHistoryState<ErpMenuKey, ErpCategoryKey>
+  >(() =>
+    createMenuHistory<ErpMenuKey, ErpCategoryKey>("FINANCIAL_REPORT", "FINANCE")
+  );
+  const menuHistoryRef = React.useRef(menuHistory);
+  menuHistoryRef.current = menuHistory;
+
+  const currentHistoryEntry = menuHistory.entries[menuHistory.index] || {
+    menu: "FINANCIAL_REPORT" as ErpMenuKey,
+    category: "FINANCE" as ErpCategoryKey,
+  };
+  const activeMenu = currentHistoryEntry.menu;
+  const activeCategory = currentHistoryEntry.category;
+
+  const [mountedMenus, setMountedMenus] = useState<ErpMenuKey[]>([]);
+  type ScrollSnapshotItem = { el: HTMLElement; top: number; left: number };
+  const paneRefs = React.useRef<Partial<Record<ErpMenuKey, HTMLDivElement | null>>>({});
+  const scrollSnapshotsRef = React.useRef<
+    Partial<Record<ErpMenuKey, ScrollSnapshotItem[]>>
+  >({});
+  const lastHardwareNavAtRef = React.useRef<number>(0);
+
   const [targetWorkImprovementId, setTargetWorkImprovementId] = useState<number | null>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -294,13 +316,12 @@ export default function ErpMainPage() {
     }
   };
 
-  // Restore session & theme from localStorage on mount
+  // Restore server session & UI theme on mount
   useEffect(() => {
+    let cancelled = false;
+
     try {
-      const stored = localStorage.getItem("dragonrpa_erp_user");
-      if (stored) {
-        setCurrentUser(JSON.parse(stored));
-      }
+      localStorage.removeItem("dragonrpa_erp_user");
       const savedTheme = localStorage.getItem("dragonrpa_erp_theme");
       if (savedTheme === "white") {
         setTheme("white");
@@ -312,17 +333,41 @@ export default function ErpMainPage() {
       if (savedEntity === "ALL" || savedEntity === "CORP" || savedEntity === "INDIVIDUAL") {
         setSelectedEntity(savedEntity);
       }
-    } catch (e) {
-      console.error("Session restore error:", e);
-    } finally {
-      setIsInitialized(true);
+    } catch {
+      // ignore storage access failure
     }
+
+    (async () => {
+      try {
+        const res = await fetch("/api/erp/auth/session", { cache: "no-store" });
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          if (data?.success && data.user) {
+            setCurrentUser(data.user);
+          }
+        }
+      } catch {
+        // ignore network errors on boot
+      } finally {
+        if (!cancelled) {
+          setIsInitialized(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (currentUser) {
       setPermsLoaded(false);
       fetchRolePermissions();
+      scrollSnapshotsRef.current = {};
+      setMountedMenus([]);
+      let startMenu: ErpMenuKey = "FINANCIAL_REPORT";
+      let startCat: ErpCategoryKey = "FINANCE";
       try {
         const prefKey = `dragonrpa_erp_menu_prefs_${currentUser.id || currentUser.loginId || "default"}`;
         const rawPref = localStorage.getItem(prefKey);
@@ -344,8 +389,8 @@ export default function ErpMainPage() {
           if (parsed.defaultMenu) {
             const matchedCat = CATEGORIES.find((c) => c.items.some((i) => i.key === parsed.defaultMenu));
             if (matchedCat) {
-              setActiveCategory(matchedCat.key);
-              setActiveMenu(parsed.defaultMenu);
+              startMenu = parsed.defaultMenu;
+              startCat = matchedCat.key;
             }
           }
         } else {
@@ -358,6 +403,9 @@ export default function ErpMainPage() {
       } catch (err) {
         console.error("Failed to load menu prefs:", err);
       }
+      const init = createMenuHistory<ErpMenuKey, ErpCategoryKey>(startMenu, startCat);
+      menuHistoryRef.current = init;
+      setMenuHistory(init);
     }
   }, [currentUser?.id, currentUser?.role, currentUser?.roleCode]);
 
@@ -434,49 +482,334 @@ export default function ErpMainPage() {
       .filter((cat) => cat.items.length > 0);
   }, [permittedCategories, menuPrefs]);
 
-  // 현재 선택된 메뉴가 권한 허용 목록에 없으면 첫 번째 허용 메뉴로 자동 전환
+  const isMenuAllowed = visibleCategories.some((c) =>
+    c.items.some((i) => i.key === activeMenu)
+  );
+
+  // 권한 또는 숨김 설정 변경 시 방문 이력 및 Keep-Alive 마운트 목록 정리
   useEffect(() => {
     if (!currentUser || visibleCategories.length === 0) return;
-    const isCurrentAllowed = visibleCategories.some((cat) =>
-      cat.items.some((item) => item.key === activeMenu)
+    const firstCat = visibleCategories[0];
+    const firstItem = firstCat?.items[0];
+    if (!firstCat || !firstItem) return;
+
+    const allowedSet = new Set<ErpMenuKey>(
+      visibleCategories.flatMap((c) => c.items.map((i) => i.key))
     );
-    if (!isCurrentAllowed) {
-      const firstCat = visibleCategories[0];
-      const firstItem = firstCat.items[0];
-      if (firstCat && firstItem) {
-        setActiveCategory(firstCat.key);
-        setActiveMenu(firstItem.key);
+
+    setMenuHistory((prev) => {
+      const next = pruneMenuHistoryByAllowed(prev, allowedSet, {
+        menu: firstItem.key,
+        category: firstCat.key,
+      });
+      menuHistoryRef.current = next;
+      return next;
+    });
+
+    setMountedMenus((prev) => {
+      const next = prev.filter((m) => allowedSet.has(m));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [currentUser, visibleCategories]);
+
+  // 실제 스크롤이 발생한 컨테이너만 기록하여 Layout Thrashing(querySelectorAll("*")) 완전 제거
+  const scrolledElementsRef = React.useRef<Map<ErpMenuKey, Set<HTMLElement>>>(new Map());
+
+  React.useEffect(() => {
+    const handlePassiveScroll = (e: Event) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+
+      const currentRoot = paneRefs.current[activeMenu];
+      if (!currentRoot) return;
+
+      if (target === currentRoot || currentRoot.contains(target)) {
+        let set = scrolledElementsRef.current.get(activeMenu);
+        if (!set) {
+          set = new Set<HTMLElement>();
+          scrolledElementsRef.current.set(activeMenu, set);
+        }
+        set.add(target);
+      }
+    };
+
+    window.addEventListener("scroll", handlePassiveScroll, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener("scroll", handlePassiveScroll, { capture: true });
+    };
+  }, [activeMenu]);
+
+  // 인가된 활성 메뉴만 최초 방문 시 Lazy-Mount 후 Keep-Alive 유지 (최근 MAX_MOUNTED_MENUS개 LRU 상한)
+  useEffect(() => {
+    if (!currentUser || !isMenuAllowed) return;
+    setMountedMenus((prev) => {
+      const filtered = prev.filter((m) => m !== activeMenu);
+      const next = [...filtered, activeMenu];
+      if (next.length > MAX_MOUNTED_MENUS) {
+        return next.slice(next.length - MAX_MOUNTED_MENUS);
+      }
+      return next;
+    });
+  }, [currentUser, activeMenu, isMenuAllowed]);
+
+  const saveMenuScrollSnapshot = React.useCallback((menuKey: ErpMenuKey) => {
+    const root = paneRefs.current[menuKey];
+    if (!root) return;
+    const items: ScrollSnapshotItem[] = [];
+    if (root.scrollTop > 0 || root.scrollLeft > 0) {
+      items.push({ el: root, top: root.scrollTop, left: root.scrollLeft });
+    }
+
+    const tracked = scrolledElementsRef.current.get(menuKey);
+    if (tracked && tracked.size > 0) {
+      for (const node of tracked) {
+        if (node !== root && node.isConnected) {
+          if (node.scrollTop > 0 || node.scrollLeft > 0) {
+            items.push({ el: node, top: node.scrollTop, left: node.scrollLeft });
+          }
+        }
       }
     }
-  }, [currentUser, visibleCategories, activeMenu]);
+    scrollSnapshotsRef.current[menuKey] = items;
+  }, []);
 
-  const activeMenuCanSave = React.useMemo(() => {
-    if (effectiveRoleCode === "ADMIN") return true;
-    const permKey = MENU_PERM_KEY_MAP[activeMenu];
-    const found = rolePerms.find(
-      (p) => p.roleCode === effectiveRoleCode && p.menuKey === permKey
-    );
-    return found ? Boolean(found.canSave) : false;
-  }, [effectiveRoleCode, activeMenu, rolePerms]);
+  React.useLayoutEffect(() => {
+    const items = scrollSnapshotsRef.current[activeMenu];
+    if (!items || items.length === 0) return;
+    for (const item of items) {
+      if (item.el && item.el.isConnected) {
+        item.el.scrollTop = item.top;
+        item.el.scrollLeft = item.left;
+      }
+    }
+  }, [activeMenu]);
 
-  const activeMenuCanBill = React.useMemo(() => {
-    if (effectiveRoleCode === "ADMIN") return true;
-    const permKey = MENU_PERM_KEY_MAP[activeMenu];
-    const found = rolePerms.find(
-      (p) => p.roleCode === effectiveRoleCode && p.menuKey === permKey
-    );
-    return found ? Boolean(found.canBill) : false;
-  }, [effectiveRoleCode, activeMenu, rolePerms]);
+  const resolveCategoryForMenu = React.useCallback(
+    (menuKey: ErpMenuKey): ErpCategoryKey => {
+      const visibleCat = visibleCategories.find((c) =>
+        c.items.some((i) => i.key === menuKey)
+      );
+      if (visibleCat) return visibleCat.key;
+      const staticCat = CATEGORIES.find((c) =>
+        c.items.some((i) => i.key === menuKey)
+      );
+      return staticCat ? staticCat.key : "FINANCE";
+    },
+    [visibleCategories]
+  );
 
-  const enrichedUser = React.useMemo(() => {
-    if (!currentUser) return null;
-    return {
-      ...currentUser,
-      roleCode: effectiveRoleCode,
-      canSave: activeMenuCanSave,
-      canBill: activeMenuCanBill,
+  const navigateToMenu = React.useCallback(
+    (nextMenu: ErpMenuKey, explicitCategory?: ErpCategoryKey) => {
+      const nextCat = explicitCategory || resolveCategoryForMenu(nextMenu);
+      const currentEntry =
+        menuHistoryRef.current.entries[menuHistoryRef.current.index];
+      if (currentEntry && currentEntry.menu !== nextMenu) {
+        saveMenuScrollSnapshot(currentEntry.menu);
+      }
+      const nextState = pushMenuHistory(
+        menuHistoryRef.current,
+        nextMenu,
+        nextCat
+      );
+      menuHistoryRef.current = nextState;
+      setMenuHistory(nextState);
+      setExpandedGroups((prev) =>
+        prev[nextCat] === true ? prev : { ...prev, [nextCat]: true }
+      );
+      setIsMobileSidebarOpen(false);
+    },
+    [resolveCategoryForMenu, saveMenuScrollSnapshot]
+  );
+
+  const handleGoBack = React.useCallback((): boolean => {
+    if (!canStepMenuBack(menuHistoryRef.current)) return false;
+    const currentEntry =
+      menuHistoryRef.current.entries[menuHistoryRef.current.index];
+    if (currentEntry) {
+      saveMenuScrollSnapshot(currentEntry.menu);
+    }
+    const nextState = stepMenuHistoryBack(menuHistoryRef.current);
+    menuHistoryRef.current = nextState;
+    setMenuHistory(nextState);
+    const targetCat = nextState.entries[nextState.index]?.category;
+    if (targetCat) {
+      setExpandedGroups((prev) =>
+        prev[targetCat] === true ? prev : { ...prev, [targetCat]: true }
+      );
+    }
+    setIsMobileSidebarOpen(false);
+    return true;
+  }, [saveMenuScrollSnapshot]);
+
+  const handleGoForward = React.useCallback((): boolean => {
+    if (!canStepMenuForward(menuHistoryRef.current)) return false;
+    const currentEntry =
+      menuHistoryRef.current.entries[menuHistoryRef.current.index];
+    if (currentEntry) {
+      saveMenuScrollSnapshot(currentEntry.menu);
+    }
+    const nextState = stepMenuHistoryForward(menuHistoryRef.current);
+    menuHistoryRef.current = nextState;
+    setMenuHistory(nextState);
+    const targetCat = nextState.entries[nextState.index]?.category;
+    if (targetCat) {
+      setExpandedGroups((prev) =>
+        prev[targetCat] === true ? prev : { ...prev, [targetCat]: true }
+      );
+    }
+    setIsMobileSidebarOpen(false);
+    return true;
+  }, [saveMenuScrollSnapshot]);
+
+  // 5버튼 마우스 사이드 버튼(3=뒤로, 4=앞으로), 하드웨어 키, Alt+화살표 및 popstate 가드
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const ensureSentinel = () => {
+      try {
+        if (window.history.state?.dragonErpSentinel !== true) {
+          window.history.pushState(
+            { ...(window.history.state || {}), dragonErpSentinel: true },
+            "",
+            window.location.href
+          );
+        }
+      } catch {}
     };
-  }, [currentUser, effectiveRoleCode, activeMenuCanSave, activeMenuCanBill]);
+
+    ensureSentinel();
+
+    const isEditableTarget = (el: EventTarget | null): boolean => {
+      const node =
+        el instanceof HTMLElement
+          ? el
+          : document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+      if (!node) return false;
+      const tag = node.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+        return true;
+      }
+      return node.isContentEditable;
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) {
+        e.preventDefault();
+      }
+    };
+
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 3) {
+        e.preventDefault();
+        e.stopPropagation();
+        lastHardwareNavAtRef.current = performance.now();
+        handleGoBack();
+      } else if (e.button === 4) {
+        e.preventDefault();
+        e.stopPropagation();
+        lastHardwareNavAtRef.current = performance.now();
+        handleGoForward();
+      }
+    };
+
+    const onAuxClick = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "BrowserBack") {
+        e.preventDefault();
+        e.stopPropagation();
+        lastHardwareNavAtRef.current = performance.now();
+        handleGoBack();
+        return;
+      }
+      if (e.key === "BrowserForward") {
+        e.preventDefault();
+        e.stopPropagation();
+        lastHardwareNavAtRef.current = performance.now();
+        handleGoForward();
+        return;
+      }
+      if (
+        e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.shiftKey &&
+        (e.key === "ArrowLeft" || e.key === "ArrowRight")
+      ) {
+        if (isEditableTarget(e.target)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        lastHardwareNavAtRef.current = performance.now();
+        if (e.key === "ArrowLeft") {
+          handleGoBack();
+        } else {
+          handleGoForward();
+        }
+      }
+    };
+
+    const onPopState = () => {
+      if (performance.now() - lastHardwareNavAtRef.current < 200) {
+        ensureSentinel();
+        return;
+      }
+      if (canStepMenuBack(menuHistoryRef.current)) {
+        handleGoBack();
+        ensureSentinel();
+      }
+    };
+
+    window.addEventListener("mousedown", onMouseDown, { capture: true });
+    window.addEventListener("mouseup", onMouseUp, { capture: true });
+    window.addEventListener("auxclick", onAuxClick, { capture: true });
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    window.addEventListener("popstate", onPopState);
+
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown, { capture: true });
+      window.removeEventListener("mouseup", onMouseUp, { capture: true });
+      window.removeEventListener("auxclick", onAuxClick, { capture: true });
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, [currentUser, handleGoBack, handleGoForward]);
+
+  const enrichedUserByMenu = React.useMemo(() => {
+    const result = {} as Record<ErpMenuKey, any>;
+    if (!currentUser) return result;
+    const menuKeys = Object.keys(MENU_PERM_KEY_MAP) as ErpMenuKey[];
+    for (const menuKey of menuKeys) {
+      if (effectiveRoleCode === "ADMIN") {
+        result[menuKey] = {
+          ...currentUser,
+          roleCode: effectiveRoleCode,
+          canSave: true,
+          canBill: true,
+        };
+        continue;
+      }
+      const permKey = MENU_PERM_KEY_MAP[menuKey];
+      const found = rolePerms.find(
+        (p) => p.roleCode === effectiveRoleCode && p.menuKey === permKey
+      );
+      result[menuKey] = {
+        ...currentUser,
+        roleCode: effectiveRoleCode,
+        canSave: found ? Boolean(found.canSave) : false,
+        canBill: found ? Boolean(found.canBill) : false,
+      };
+    }
+    return result;
+  }, [currentUser, effectiveRoleCode, rolePerms]);
+
+  const enrichedUser = enrichedUserByMenu[activeMenu] || null;
 
   const toggleTheme = () => {
     const next: ErpThemeMode = theme === "light" ? "white" : "light";
@@ -488,15 +821,247 @@ export default function ErpMainPage() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("dragonrpa_erp_user");
+  const handleLogout = async () => {
+    try {
+      localStorage.removeItem("dragonrpa_erp_user");
+    } catch {}
+    try {
+      await fetch("/api/erp/auth/logout", { method: "POST" });
+    } catch {}
+    scrollSnapshotsRef.current = {};
+    setMountedMenus([]);
+    const init = createMenuHistory<ErpMenuKey, ErpCategoryKey>(
+      "FINANCIAL_REPORT",
+      "FINANCE"
+    );
+    menuHistoryRef.current = init;
+    setMenuHistory(init);
     setCurrentUser(null);
   };
 
-  const navigateToTax = () => {
-    setActiveCategory("BUSINESS");
-    setActiveMenu("TAX");
-    setExpandedGroups((prev) => ({ ...prev, BUSINESS: true }));
+  // 개인정보 보호법 안전성 확보조치: 30분 이상 미사용 시 자동 로그아웃
+  useEffect(() => {
+    if (!currentUser) return;
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+    let lastActivityAt = Date.now();
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
+    const triggerIdleLogout = () => {
+      void handleLogout();
+    };
+
+    const scheduleTimer = () => {
+      if (timerId) clearTimeout(timerId);
+      timerId = setTimeout(triggerIdleLogout, IDLE_TIMEOUT_MS);
+    };
+
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityAt < 10000) return;
+      lastActivityAt = now;
+      scheduleTimer();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastActivityAt >= IDLE_TIMEOUT_MS) {
+        triggerIdleLogout();
+      }
+    };
+
+    scheduleTimer();
+    const events: (keyof WindowEventMap)[] = ["mousemove", "mousedown", "keydown", "scroll", "touchstart"];
+    for (const ev of events) {
+      window.addEventListener(ev, onActivity, { passive: true });
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      if (timerId) clearTimeout(timerId);
+      for (const ev of events) {
+        window.removeEventListener(ev, onActivity);
+      }
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [currentUser]);
+
+  const navigateToTax = React.useCallback(() => {
+    navigateToMenu("TAX", "BUSINESS");
+  }, [navigateToMenu]);
+
+  const renderMenuContent = (menuKey: ErpMenuKey) => {
+    const menuUser = enrichedUserByMenu[menuKey] || enrichedUser;
+    switch (menuKey) {
+      case "ORG":
+        return <OrganizationTab currentUser={menuUser} />;
+      case "CORPORATE_DOCS":
+        return <CorporateDocumentTab currentUser={menuUser} selectedEntity={selectedEntity} />;
+      case "EMPLOYMENT_CONTRACT":
+        return <EmploymentContractTab currentUser={menuUser} />;
+      case "PERMISSIONS":
+        return (
+          <PermissionsTab
+            currentUser={menuUser}
+            onPermissionsChanged={fetchRolePermissions}
+          />
+        );
+      case "LEAVE_APPLY":
+        return <LeaveApplyTab currentUser={menuUser} />;
+      case "LEAVE_MANAGE":
+        return <LeaveManageTab currentUser={menuUser} />;
+      case "OT_MANAGE":
+        return <OtManagementTab currentUser={menuUser} />;
+      case "EXPENSE_RECEIPT":
+        return <ExpenseReceiptTab currentUser={menuUser} />;
+      case "WORK_RULES":
+        return <WorkRulesTab currentUser={menuUser} />;
+      case "RETIREMENT_PENSION_GUIDE":
+        return <RetirementPensionGuideTab currentUser={menuUser} />;
+      case "APPROVAL_INBOX":
+        return (
+          <ApprovalInboxTab
+            currentUser={menuUser}
+            onOpenWorkImprovement={(reportId) => {
+              setTargetWorkImprovementId(reportId);
+              navigateToMenu("WORK_IMPROVEMENT", "APPROVAL");
+            }}
+          />
+        );
+      case "WORK_IMPROVEMENT":
+        return (
+          <WorkImprovementTab
+            currentUser={menuUser}
+            initialReportId={targetWorkImprovementId}
+          />
+        );
+      case "APPROVAL_RULES":
+        return <ApprovalRulesTab currentUser={menuUser} />;
+      case "FINANCIAL_REPORT":
+        return <FinancialReportTab currentUser={menuUser} selectedEntity={selectedEntity} />;
+      case "BANK_MATCHING":
+        return <BankMatchingTab currentUser={menuUser} selectedEntity={selectedEntity} />;
+      case "PAYROLL":
+        return <PayrollTab currentUser={menuUser} />;
+      case "ACCOUNTING_STANDARD":
+        return (
+          <div className="p-4">
+            <AccountingStandardsTab />
+          </div>
+        );
+      case "GENERAL_ACCOUNTING_STANDARD":
+        return (
+          <div className="p-4">
+            <GeneralAccountingStandardsTab />
+          </div>
+        );
+      case "TAX":
+        return (
+          <TaxInvoiceTab
+            currentUser={menuUser}
+            selectedEntity={selectedEntity}
+            onSelectEntity={(e) => {
+              setSelectedEntity(e);
+              try {
+                localStorage.setItem("dragonrpa_erp_entity", e);
+              } catch (err) {}
+            }}
+          />
+        );
+      case "CUSTOMER":
+        return (
+          <PartnerManagementTab
+            currentUser={menuUser}
+            initialType="CUSTOMER"
+            onSelectTypeTab={(type) => {
+              if (type === "CUSTOMER" || type === "VENDOR") {
+                navigateToMenu(type, "PARTNER");
+              }
+            }}
+            onNavigateToTax={navigateToTax}
+          />
+        );
+      case "VENDOR":
+        return (
+          <PartnerManagementTab
+            currentUser={menuUser}
+            initialType="VENDOR"
+            onSelectTypeTab={(type) => {
+              if (type === "CUSTOMER" || type === "VENDOR") {
+                navigateToMenu(type, "PARTNER");
+              }
+            }}
+            onNavigateToTax={navigateToTax}
+          />
+        );
+      case "PRODUCT":
+        return (
+          <ProductManagementTab
+            currentUser={menuUser}
+            onNavigateToAsset={() => navigateToMenu("ASSET", "ASSET")}
+          />
+        );
+      case "ASSET":
+        return <AssetManagementTab currentUser={menuUser} />;
+      case "WARRANTY":
+        return (
+          <div className="p-3 h-full">
+            <WarrantyManagementTab currentUser={menuUser} />
+          </div>
+        );
+      case "RENTAL_MAINTENANCE":
+        return (
+          <div className="p-3 h-full">
+            <RentalMaintenanceTab currentUser={menuUser} />
+          </div>
+        );
+      case "OUTBOUND_REG":
+        return (
+          <div className="p-4">
+            <OutboundRegTab currentUser={menuUser} />
+          </div>
+        );
+      case "INBOUND_REG":
+        return (
+          <div className="p-4">
+            <InboundRegTab currentUser={menuUser} />
+          </div>
+        );
+      case "TRADE":
+        return (
+          <TradeTab
+            currentUser={menuUser}
+            selectedEntity={selectedEntity}
+            onNavigateToTax={navigateToTax}
+          />
+        );
+      case "RENTAL":
+        return (
+          <RentalTab
+            currentUser={menuUser}
+            selectedEntity={selectedEntity}
+            onNavigateToTax={navigateToTax}
+          />
+        );
+      case "SERVICES":
+        return (
+          <ServiceTab
+            currentUser={menuUser}
+            selectedEntity={selectedEntity}
+            onNavigateToTax={navigateToTax}
+          />
+        );
+      case "CLOUD_SHARE":
+        return <CloudShareTab currentUser={menuUser} />;
+      case "GOV_SUPPORT":
+        return <GovSupportIntelTab currentUser={menuUser} />;
+      case "RENTAL_BIZ_DIR":
+        return <RentalBizDirectoryTab currentUser={menuUser} />;
+      case "OBSIDIAN_VAULT":
+        return <ObsidianVaultTab currentUser={menuUser} />;
+      default: {
+        const _exhaustive: never = menuKey;
+        return _exhaustive;
+      }
+    }
   };
 
   if (!isInitialized || (currentUser && !permsLoaded && effectiveRoleCode !== "ADMIN")) {
@@ -518,7 +1083,16 @@ export default function ErpMainPage() {
     currentCategoryConfig?.items.find((i) => i.key === activeMenu) ||
     visibleCategories.flatMap((c) => c.items).find((i) => i.key === activeMenu);
 
-  const isMenuAllowed = visibleCategories.some((c) => c.items.some((i) => i.key === activeMenu));
+  const canGoBack = canStepMenuBack(menuHistory);
+  const canGoForward = canStepMenuForward(menuHistory);
+  const prevEntry = getPrevMenuEntry(menuHistory);
+  const nextEntry = getNextMenuEntry(menuHistory);
+  const prevMenuLabel = prevEntry
+    ? CATEGORIES.flatMap((c) => c.items).find((i) => i.key === prevEntry.menu)?.label
+    : undefined;
+  const nextMenuLabel = nextEntry
+    ? CATEGORIES.flatMap((c) => c.items).find((i) => i.key === nextEntry.menu)?.label
+    : undefined;
 
   return (
     <div data-theme={theme} className="erp-app-container flex flex-col h-dvh w-screen overflow-hidden select-none">
@@ -619,11 +1193,7 @@ export default function ErpMainPage() {
                         return (
                           <button
                             key={item.key}
-                            onClick={() => {
-                              setActiveMenu(item.key);
-                              setActiveCategory(cat.key);
-                              setIsMobileSidebarOpen(false);
-                            }}
+                            onClick={() => navigateToMenu(item.key, cat.key)}
                             className={`erp-menu-item-btn flex items-center gap-2 w-full px-2.5 py-2 md:py-1.5 rounded text-xs text-left transition ${
                               isItemActive ? "item-active" : ""
                             }`}
@@ -666,14 +1236,39 @@ export default function ErpMainPage() {
         {/* Right Main Content Area */}
         <main className="erp-main-content flex-1 min-w-0 h-full flex flex-col overflow-hidden">
           {/* Current Active Tab Breadcrumb Bar */}
-          <div className="erp-breadcrumb-bar px-3 md:px-4 py-1.5 md:py-2 border-b flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2 text-xs min-w-0">
-              <span className="opacity-60 whitespace-nowrap">{currentCategoryConfig?.label}</span>
-              <span className="opacity-40">/</span>
-              <span className="font-bold flex items-center gap-1.5 truncate">
-                {currentMenuItem && <currentMenuItem.icon className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
-                <span className="truncate">{currentMenuItem?.label}</span>
-              </span>
+          <div className="erp-breadcrumb-bar px-3 md:px-4 py-1.5 md:py-2 border-b flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 text-xs min-w-0">
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  disabled={!canGoBack}
+                  onClick={handleGoBack}
+                  title={prevMenuLabel ? `이전 메뉴: ${prevMenuLabel}` : "이전 메뉴"}
+                  className="px-2 py-1 rounded border text-[11px] font-bold flex items-center gap-1 shrink-0 whitespace-nowrap transition erp-action-btn disabled:opacity-35 disabled:pointer-events-none"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline">이전 메뉴</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={!canGoForward}
+                  onClick={handleGoForward}
+                  title={nextMenuLabel ? `다음 메뉴: ${nextMenuLabel}` : "다음 메뉴"}
+                  className="px-2 py-1 rounded border text-[11px] font-bold flex items-center gap-1 shrink-0 whitespace-nowrap transition erp-action-btn disabled:opacity-35 disabled:pointer-events-none"
+                >
+                  <span className="hidden sm:inline">다음 메뉴</span>
+                  <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                </button>
+              </div>
+              <span className="h-3.5 w-px bg-[#b5a894] dark:bg-slate-700 shrink-0 mx-0.5" />
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="opacity-60 whitespace-nowrap">{currentCategoryConfig?.label}</span>
+                <span className="opacity-40">/</span>
+                <span className="font-bold flex items-center gap-1.5 truncate">
+                  {currentMenuItem && <currentMenuItem.icon className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                  <span className="truncate">{currentMenuItem?.label}</span>
+                </span>
+              </div>
             </div>
             <button
               type="button"
@@ -685,148 +1280,24 @@ export default function ErpMainPage() {
             </button>
           </div>
 
-          {/* Tab Content Body (Scrollable) */}
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+          {/* Tab Content Body (Keep-Alive Menu Panes) */}
+          <div className="flex-1 min-h-0 relative overflow-hidden">
             {!isMenuAllowed ? (
               <div className="p-8 text-center text-xs text-slate-500">
                 접근 권한이 부여된 메뉴가 없습니다. 관리자에게 권한 배정을 요청해 주십시오.
               </div>
             ) : (
-              <>
-                {activeMenu === "ORG" && <OrganizationTab currentUser={enrichedUser} />}
-                {activeMenu === "CORPORATE_DOCS" && (
-                  <CorporateDocumentTab currentUser={enrichedUser} selectedEntity={selectedEntity} />
-                )}
-                {activeMenu === "EMPLOYMENT_CONTRACT" && (
-                  <EmploymentContractTab currentUser={enrichedUser} />
-                )}
-                {activeMenu === "PERMISSIONS" && (
-                  <PermissionsTab
-                    currentUser={enrichedUser}
-                    onPermissionsChanged={fetchRolePermissions}
-                  />
-                )}
-                {activeMenu === "LEAVE_APPLY" && <LeaveApplyTab currentUser={enrichedUser} />}
-                {activeMenu === "LEAVE_MANAGE" && <LeaveManageTab currentUser={enrichedUser} />}
-                {activeMenu === "OT_MANAGE" && <OtManagementTab currentUser={enrichedUser} />}
-                {activeMenu === "EXPENSE_RECEIPT" && <ExpenseReceiptTab currentUser={enrichedUser} />}
-                {activeMenu === "WORK_RULES" && <WorkRulesTab currentUser={enrichedUser} />}
-                {activeMenu === "RETIREMENT_PENSION_GUIDE" && (
-                  <RetirementPensionGuideTab currentUser={enrichedUser} />
-                )}
-                {activeMenu === "APPROVAL_INBOX" && (
-                  <ApprovalInboxTab
-                    currentUser={enrichedUser}
-                    onOpenWorkImprovement={(reportId) => {
-                      setTargetWorkImprovementId(reportId);
-                      setActiveCategory("APPROVAL");
-                      setActiveMenu("WORK_IMPROVEMENT");
-                    }}
-                  />
-                )}
-                {activeMenu === "WORK_IMPROVEMENT" && (
-                  <WorkImprovementTab
-                    currentUser={enrichedUser}
-                    initialReportId={targetWorkImprovementId}
-                  />
-                )}
-                {activeMenu === "APPROVAL_RULES" && <ApprovalRulesTab currentUser={enrichedUser} />}
-                {activeMenu === "FINANCIAL_REPORT" && (
-                  <FinancialReportTab currentUser={enrichedUser} selectedEntity={selectedEntity} />
-                )}
-                {activeMenu === "BANK_MATCHING" && (
-                  <BankMatchingTab currentUser={enrichedUser} selectedEntity={selectedEntity} />
-                )}
-                {activeMenu === "PAYROLL" && <PayrollTab currentUser={enrichedUser} />}
-                {activeMenu === "ACCOUNTING_STANDARD" && (
-                  <div className="p-4">
-                    <AccountingStandardsTab />
-                  </div>
-                )}
-                {activeMenu === "GENERAL_ACCOUNTING_STANDARD" && (
-                  <div className="p-4">
-                    <GeneralAccountingStandardsTab />
-                  </div>
-                )}
-                {activeMenu === "TAX" && (
-                  <TaxInvoiceTab 
-                    currentUser={enrichedUser} 
-                    selectedEntity={selectedEntity}
-                    onSelectEntity={(e) => {
-                      setSelectedEntity(e);
-                      try {
-                        localStorage.setItem("dragonrpa_erp_entity", e);
-                      } catch (err) {}
-                    }}
-                  />
-                )}
-                {(activeMenu === "CUSTOMER" || activeMenu === "VENDOR") && (
-                  <PartnerManagementTab
-                    currentUser={enrichedUser}
-                    initialType={activeMenu === "VENDOR" ? "VENDOR" : "CUSTOMER"}
-                    onSelectTypeTab={(type) => {
-                      if (type === "CUSTOMER" || type === "VENDOR") {
-                        setActiveMenu(type);
-                        setActiveCategory("PARTNER");
-                      }
-                    }}
-                    onNavigateToTax={navigateToTax}
-                  />
-                )}
-                {activeMenu === "PRODUCT" && (
-                  <ProductManagementTab 
-                    currentUser={enrichedUser} 
-                    onNavigateToAsset={() => {
-                      setActiveCategory("ASSET");
-                      setActiveMenu("ASSET");
-                    }}
-                  />
-                )}
-                {activeMenu === "ASSET" && <AssetManagementTab currentUser={enrichedUser} />}
-                {activeMenu === "OUTBOUND_REG" && (
-                  <div className="p-4">
-                    <OutboundRegTab currentUser={enrichedUser} />
-                  </div>
-                )}
-                {activeMenu === "INBOUND_REG" && (
-                  <div className="p-4">
-                    <InboundRegTab currentUser={enrichedUser} />
-                  </div>
-                )}
-                {activeMenu === "TRADE" && (
-                  <TradeTab 
-                    currentUser={enrichedUser} 
-                    selectedEntity={selectedEntity}
-                    onNavigateToTax={navigateToTax} 
-                  />
-                )}
-                {activeMenu === "RENTAL" && (
-                  <RentalTab 
-                    currentUser={enrichedUser} 
-                    selectedEntity={selectedEntity}
-                    onNavigateToTax={navigateToTax} 
-                  />
-                )}
-                {activeMenu === "SERVICES" && (
-                  <ServiceTab 
-                    currentUser={enrichedUser} 
-                    selectedEntity={selectedEntity}
-                    onNavigateToTax={navigateToTax} 
-                  />
-                )}
-                {activeMenu === "CLOUD_SHARE" && (
-                  <CloudShareTab currentUser={enrichedUser} />
-                )}
-                {activeMenu === "GOV_SUPPORT" && (
-                  <GovSupportIntelTab currentUser={enrichedUser} />
-                )}
-                {activeMenu === "RENTAL_BIZ_DIR" && (
-                  <RentalBizDirectoryTab currentUser={enrichedUser} />
-                )}
-                {activeMenu === "OBSIDIAN_VAULT" && (
-                  <ObsidianVaultTab currentUser={enrichedUser} />
-                )}
-              </>
+              mountedMenus.map((menuKey) => (
+                <KeepAlivePane
+                  key={menuKey}
+                  menuKey={menuKey}
+                  isActive={activeMenu === menuKey}
+                  paneRef={(el) => {
+                    paneRefs.current[menuKey] = el;
+                  }}
+                  renderContent={renderMenuContent}
+                />
+              ))
             )}
           </div>
         </main>
@@ -872,11 +1343,7 @@ export default function ErpMainPage() {
             <button
               key={nav.key}
               type="button"
-              onClick={() => {
-                setActiveCategory(nav.cat);
-                setActiveMenu(nav.key);
-                setIsMobileSidebarOpen(false);
-              }}
+              onClick={() => navigateToMenu(nav.key, nav.cat)}
               className={`flex flex-col items-center justify-center py-2 px-1 gap-0.5 text-[10px] font-bold transition whitespace-nowrap ${
                 isActive
                   ? "bg-[#1d4ed8] text-white"
@@ -913,231 +1380,12 @@ export default function ErpMainPage() {
 
       {/* 메뉴 개인화 설정 모달 */}
       {showMenuPersonalizeModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#ebe5d8] dark:bg-slate-900 border-2 border-[#b5a894] dark:border-slate-700 rounded-lg shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh] overflow-hidden text-[#0f172a] dark:text-slate-100">
-            <div className="px-4 py-3 border-b border-[#b5a894] dark:border-slate-800 bg-[#dfd7c7] dark:bg-slate-950 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <SlidersHorizontal className="w-4 h-4 text-blue-700 dark:text-blue-400" />
-                <span className="text-xs font-bold">메뉴 개인화 설정</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowMenuPersonalizeModal(false)}
-                className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 text-xs">
-              {(() => {
-                const catOrder = menuPrefs.categoryOrder || [];
-                const orderedPermittedCats = [...permittedCategories].sort((a, b) => {
-                  const ia = catOrder.indexOf(a.key);
-                  const ib = catOrder.indexOf(b.key);
-                  return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-                });
-
-                const moveCategory = (catKey: ErpCategoryKey, dir: -1 | 1) => {
-                  const currentKeys = orderedPermittedCats.map((c) => c.key);
-                  const idx = currentKeys.indexOf(catKey);
-                  const targetIdx = idx + dir;
-                  if (idx < 0 || targetIdx < 0 || targetIdx >= currentKeys.length) return;
-                  const nextKeys = [...currentKeys];
-                  const [moved] = nextKeys.splice(idx, 1);
-                  nextKeys.splice(targetIdx, 0, moved);
-                  saveMenuPrefs({
-                    ...menuPrefs,
-                    categoryOrder: nextKeys,
-                  });
-                };
-
-                const moveItem = (catKey: ErpCategoryKey, items: MenuItem[], itemKey: ErpMenuKey, dir: -1 | 1) => {
-                  const currentKeys = items.map((i) => i.key);
-                  const idx = currentKeys.indexOf(itemKey);
-                  const targetIdx = idx + dir;
-                  if (idx < 0 || targetIdx < 0 || targetIdx >= currentKeys.length) return;
-                  const nextKeys = [...currentKeys];
-                  const [moved] = nextKeys.splice(idx, 1);
-                  nextKeys.splice(targetIdx, 0, moved);
-                  saveMenuPrefs({
-                    ...menuPrefs,
-                    itemOrder: {
-                      ...menuPrefs.itemOrder,
-                      [catKey]: nextKeys,
-                    },
-                  });
-                };
-
-                const toggleHideMenu = (itemKey: ErpMenuKey) => {
-                  const isHidden = menuPrefs.hiddenMenus.includes(itemKey);
-                  const nextHidden = isHidden
-                    ? menuPrefs.hiddenMenus.filter((k) => k !== itemKey)
-                    : [...menuPrefs.hiddenMenus, itemKey];
-                  saveMenuPrefs({
-                    ...menuPrefs,
-                    hiddenMenus: nextHidden,
-                  });
-                };
-
-                const toggleDefaultMenu = (itemKey: ErpMenuKey) => {
-                  saveMenuPrefs({
-                    ...menuPrefs,
-                    defaultMenu: menuPrefs.defaultMenu === itemKey ? undefined : itemKey,
-                  });
-                };
-
-                return orderedPermittedCats.map((cat, catIdx) => {
-                  const customItemOrder = menuPrefs.itemOrder?.[cat.key] || [];
-                  const sortedAllItems = [...cat.items].sort((a, b) => {
-                    const ia = customItemOrder.indexOf(a.key);
-                    const ib = customItemOrder.indexOf(b.key);
-                    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-                  });
-                  const GroupIcon = cat.icon;
-
-                  return (
-                    <div
-                      key={cat.key}
-                      className="rounded border border-[#b5a894] dark:border-slate-800 bg-[#f4efe4] dark:bg-slate-950 overflow-hidden"
-                    >
-                      <div className="px-3 py-2 bg-[#ded6c5] dark:bg-slate-900 border-b border-[#b5a894] dark:border-slate-800 flex items-center justify-between">
-                        <div className="flex items-center gap-2 font-bold">
-                          <GroupIcon className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
-                          <span>{cat.label}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            disabled={catIdx === 0}
-                            onClick={() => moveCategory(cat.key, -1)}
-                            className="p-1 rounded border border-[#b5a894] dark:border-slate-700 bg-[#ebe5d8] dark:bg-slate-800 disabled:opacity-30 hover:bg-[#d0c6b4]"
-                            title="그룹 위로 이동"
-                          >
-                            <ArrowUp className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={catIdx === orderedPermittedCats.length - 1}
-                            onClick={() => moveCategory(cat.key, 1)}
-                            className="p-1 rounded border border-[#b5a894] dark:border-slate-700 bg-[#ebe5d8] dark:bg-slate-800 disabled:opacity-30 hover:bg-[#d0c6b4]"
-                            title="그룹 아래로 이동"
-                          >
-                            <ArrowDown className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="divide-y divide-[#d0c6b4] dark:divide-slate-800">
-                        {sortedAllItems.map((item, itemIdx) => {
-                          const ItemIcon = item.icon;
-                          const isHidden = menuPrefs.hiddenMenus.includes(item.key);
-                          const isDefault = menuPrefs.defaultMenu === item.key;
-
-                          return (
-                            <div
-                              key={item.key}
-                              className={`px-3 py-2 flex items-center justify-between gap-2 ${
-                                isHidden ? "opacity-45 bg-black/5 dark:bg-white/5" : ""
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <ItemIcon className="w-3.5 h-3.5 shrink-0 text-[#475569] dark:text-slate-400" />
-                                <span className={`truncate font-medium ${isHidden ? "line-through" : ""}`}>
-                                  {item.label}
-                                </span>
-                                {isDefault && (
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                                    시작메뉴
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleDefaultMenu(item.key)}
-                                  className={`px-1.5 py-1 rounded border text-[10px] font-bold flex items-center gap-1 ${
-                                    isDefault
-                                      ? "bg-amber-500 text-white border-amber-600"
-                                      : "bg-[#ebe5d8] dark:bg-slate-800 border-[#b5a894] dark:border-slate-700 opacity-75 hover:opacity-100"
-                                  }`}
-                                  title="로그인 시 기본 시작 메뉴 지정"
-                                >
-                                  <Star className="w-3 h-3" />
-                                  <span>시작</span>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  disabled={itemIdx === 0}
-                                  onClick={() => moveItem(cat.key, sortedAllItems, item.key, -1)}
-                                  className="p-1 rounded border border-[#b5a894] dark:border-slate-700 bg-[#ebe5d8] dark:bg-slate-800 disabled:opacity-30 hover:bg-[#d0c6b4]"
-                                  title="메뉴 위로 이동"
-                                >
-                                  <ArrowUp className="w-3 h-3" />
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={itemIdx === sortedAllItems.length - 1}
-                                  onClick={() => moveItem(cat.key, sortedAllItems, item.key, 1)}
-                                  className="p-1 rounded border border-[#b5a894] dark:border-slate-700 bg-[#ebe5d8] dark:bg-slate-800 disabled:opacity-30 hover:bg-[#d0c6b4]"
-                                  title="메뉴 아래로 이동"
-                                >
-                                  <ArrowDown className="w-3 h-3" />
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => toggleHideMenu(item.key)}
-                                  className={`px-2 py-1 rounded border text-[10px] font-bold flex items-center gap-1 ${
-                                    isHidden
-                                      ? "bg-rose-600 text-white border-rose-700"
-                                      : "bg-[#ebe5d8] dark:bg-slate-800 border-[#b5a894] dark:border-slate-700 hover:bg-[#d0c6b4]"
-                                  }`}
-                                  title={isHidden ? "메뉴 표시" : "메뉴 숨김"}
-                                >
-                                  {isHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                                  <span>{isHidden ? "숨김" : "표시"}</span>
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-
-            <div className="px-4 py-3 border-t border-[#b5a894] dark:border-slate-800 bg-[#dfd7c7] dark:bg-slate-950 flex items-center justify-between shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  saveMenuPrefs({
-                    categoryOrder: CATEGORIES.map((c) => c.key),
-                    itemOrder: {},
-                    hiddenMenus: [],
-                    defaultMenu: undefined,
-                  });
-                }}
-                className="px-3 py-1.5 rounded border border-[#b5a894] dark:border-slate-700 bg-[#ebe5d8] dark:bg-slate-800 text-xs font-bold flex items-center gap-1.5 hover:bg-[#d0c6b4]"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>초기화</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowMenuPersonalizeModal(false)}
-                className="px-4 py-1.5 rounded bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold shadow"
-              >
-                닫기
-              </button>
-            </div>
-          </div>
-        </div>
+        <MenuPersonalizeModal
+          menuPrefs={menuPrefs}
+          permittedCategories={permittedCategories}
+          saveMenuPrefs={saveMenuPrefs}
+          onClose={() => setShowMenuPersonalizeModal(false)}
+        />
       )}
     </div>
   );

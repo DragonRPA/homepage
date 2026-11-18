@@ -1,70 +1,58 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { 
-  Layers, Plus, Search, RefreshCw, Download, Edit2, 
-  Trash2, X, Check, Eye, AlertCircle, Save, Package, 
-  Clock, DollarSign, Wrench, Shield, CheckCircle2, History,
-  Building2, MapPin, Calculator, Calendar,
-  ArrowUpDown, ArrowUp, ArrowDown
+import {
+  Layers,
+  Plus,
+  Search,
+  RefreshCw,
+  Download,
+  Check,
+  AlertCircle,
+  Package,
+  Clock,
+  DollarSign,
+  Wrench,
+  Shield,
+  CheckCircle2,
+  Calculator,
 } from "lucide-react";
-import { formatErpNumber, formatErpCurrency, formatErpQty, sortErpItems, SortDirection } from "@/lib/erpFormat";
+import {
+  formatErpNumber,
+  formatErpCurrency,
+  cleanErpNumber,
+  sortErpItems,
+  resolveDailyRentalFee,
+  matchHangulAny,
+  AttachedForkliftOption,
+  normalizeAttachedOptions,
+  normalizeItemClass,
+  addMonthsMinusOneDay,
+} from "@/lib/erpFormat";
+import { useErpTableSort } from "./SortableTh";
+import { SearchSelectOption } from "./SearchSelectCombobox";
+import { CatalogOptionItem } from "./ForkliftOptionAttachPanel";
+import {
+  AssetKpiStats,
+  AssetLog,
+  AssetManagementTabProps,
+  AssetRecord,
+  AssetSubTab,
+  computeNextAssetNo,
+  DepMatrixMode,
+  exportAssetsCsv,
+  ModelSummaryRow,
+  ModelSummaryTotals,
+  NewAssetFormState,
+} from "./assets/assetTypes";
+import { AssetSummaryTable, AssetDetailTable } from "./assets/AssetSummaryAndDetailTables";
+import { AssetDepreciationLedgerView } from "./assets/AssetDepreciationLedgerView";
+import { AssetDossierDrawer } from "./assets/AssetDossierDrawer";
+import { AssetAcquireModal } from "./assets/AssetAcquireModal";
 
-interface AssetRecord {
-  id: number;
-  assetNo: string;
-  rentalProductId: number;
-  modelCode: string;
-  modelName: string;
-  category: string;
-  manufacturer: string;
-  modelSpec: string;
-  serialNo: string;
-  ownerType: "OWNED" | "RENTED";
-  status: "AVAILABLE" | "RENTED" | "OUTBOUND_PENDING" | "REPAIRING" | "DISPOSED";
-  acquisitionDate: string;
-  disposedDate?: string;
-  acquisitionCost: number;
-  salvageValue: number;
-  usefulLifeYears: number;
-  usefulLifeMonths?: number;
-  depreciationMethod: string;
-  accumulatedDepreciation: number;
-  bookValue: number;
-  monthlyDepreciation: number;
-  cumulativeRevenue?: number;
-  cumulativeNetProfit?: number;
-  supplier: string | null;
-  renter: string | null;
-  currentCustomer: string | null;
-  currentSite: string | null;
-  contractNo: string | null;
-  customSpec: string | null;
-  memo: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface AssetLog {
-  id: number;
-  assetId: number;
-  assetNo: string;
-  eventType: string;
-  eventDate: string;
-  customerName: string | null;
-  siteName: string | null;
-  memo: string | null;
-  createdAt: string;
-}
-
-interface AssetManagementTabProps {
-  currentUser: any;
-  defaultFilterModel?: string;
-}
-
-export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({ 
+export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   currentUser,
-  defaultFilterModel 
+  defaultFilterModel,
 }) => {
   const isAdmin = currentUser?.role === "ADMIN" || currentUser?.loginId === "admin";
 
@@ -73,7 +61,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   const [loading, setLoading] = useState(false);
 
   // Sub-Tab State: 요약표 (SUMMARY) vs 상세목록 (DETAIL) vs 월별 감가상각 대장 (DEPRECIATION)
-  const [activeSubTab, setActiveSubTab] = useState<"SUMMARY" | "DETAIL" | "DEPRECIATION">("SUMMARY");
+  const [activeSubTab, setActiveSubTab] = useState<AssetSubTab>("SUMMARY");
 
   // Depreciation Ledger State
   const [depYear, setDepYear] = useState<string>("2026");
@@ -84,7 +72,7 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   const [depModelRows, setDepModelRows] = useState<any[]>([]);
   const [depSalesSeparation, setDepSalesSeparation] = useState<any | null>(null);
   const [depAllTimeSalesSeparation, setDepAllTimeSalesSeparation] = useState<any | null>(null);
-  const [depMatrixMode, setDepMatrixMode] = useState<"NET_PROFIT" | "REVENUE" | "DEPRECIATION">("NET_PROFIT");
+  const [depMatrixMode, setDepMatrixMode] = useState<DepMatrixMode>("NET_PROFIT");
   const [depLogStats, setDepLogStats] = useState<{ totalLogCount: number; lastSyncedAt: string | null }>({
     totalLogCount: 0,
     lastSyncedAt: null,
@@ -100,23 +88,30 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   const [selectedAsset, setSelectedAsset] = useState<AssetRecord | null>(null);
   const [isEditingDossier, setIsEditingDossier] = useState(false);
   const [editForm, setEditForm] = useState<Partial<AssetRecord>>({});
+  const [optionCatalog, setOptionCatalog] = useState<CatalogOptionItem[]>([]);
   const [assetLogs, setAssetLogs] = useState<AssetLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [newLogMemo, setNewLogMemo] = useState("");
 
   // Modal: Acquire / Register New Asset
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState({
+  const todayIso = new Date().toISOString().split("T")[0];
+  const [addForm, setAddForm] = useState<NewAssetFormState>({
     assetNo: "",
     qty: "1",
     rentalProductId: "",
     serialNo: "",
     ownerType: "OWNED",
-    acquisitionDate: new Date().toISOString().split("T")[0],
+    acquisitionDate: todayIso,
     acquisitionCost: "3200000",
     salvageValue: "0",
     usefulLifeYears: "4",
     usefulLifeMonths: "48",
+    operatingHours: "0",
+    warrantyStartDate: todayIso,
+    warrantyEndDate: addMonthsMinusOneDay(todayIso, 12),
+    warrantyHours: "2,000",
+    attachedOptions: [] as AttachedForkliftOption[],
     supplier: "(주)컴퓨존 B2B",
     renter: "",
     currentCustomer: "",
@@ -137,13 +132,15 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [assetRes, prodRes] = await Promise.all([
+      const [assetRes, prodRes, tradeRes] = await Promise.all([
         fetch("/api/erp/assets", { cache: "no-store" }),
-        fetch("/api/erp/products", { cache: "no-store" })
+        fetch("/api/erp/products", { cache: "no-store" }),
+        fetch("/api/erp/trade/products", { cache: "no-store" }).catch(() => null),
       ]);
 
       const assetData = await assetRes.json();
       const prodData = await prodRes.json();
+      const tradeData = tradeRes ? await tradeRes.json().catch(() => null) : null;
 
       if (assetData.success) {
         const loadedAssets: AssetRecord[] = assetData.assets || [];
@@ -153,12 +150,47 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
           return loadedAssets.find((a) => a.id === prev.id) || prev;
         });
       }
+      const catalogList: CatalogOptionItem[] = [];
       if (prodData.success) {
-        setProducts(prodData.products || []);
-        if (prodData.products.length > 0 && !addForm.rentalProductId) {
-          setAddForm((prev) => ({ ...prev, rentalProductId: prodData.products[0].id.toString() }));
+        const prods = prodData.products || [];
+        setProducts(prods);
+        if (prods.length > 0 && !addForm.rentalProductId) {
+          setAddForm((prev) => ({ ...prev, rentalProductId: prods[0].id.toString() }));
+        }
+        for (const p of prods) {
+          if (normalizeItemClass(p.itemClass || p.item_class, p.category) === "OPTION") {
+            catalogList.push({
+              id: p.id,
+              source: "RENTAL",
+              skuCode: p.modelCode || p.model_code || undefined,
+              name: p.modelName || p.model_name || p.name,
+              spec: p.spec || undefined,
+              unitPrice: 0,
+              installFee: Number(p.installFee ?? p.install_fee ?? 0),
+              monthlyAddonRate: Number(p.standardMonthlyRate ?? p.standard_monthly_rate ?? 0),
+              dailyAddonRate: Number(p.standardDailyRate ?? p.standard_daily_rate ?? 0),
+            });
+          }
         }
       }
+      if (tradeData?.success && Array.isArray(tradeData.products)) {
+        for (const p of tradeData.products) {
+          if (normalizeItemClass(p.item_class, p.category) === "OPTION") {
+            catalogList.push({
+              id: p.id,
+              source: "TRADE",
+              skuCode: p.sku_code || undefined,
+              name: p.name,
+              spec: p.spec || undefined,
+              unitPrice: Number(p.standard_price || 0),
+              installFee: Number(p.install_fee || 0),
+              monthlyAddonRate: Number(p.addon_monthly_rate || 0),
+              dailyAddonRate: Number(p.addon_daily_rate || 0),
+            });
+          }
+        }
+      }
+      setOptionCatalog(catalogList);
     } catch (err: any) {
       showToast("데이터를 불러오지 못했습니다: " + err.message, "error");
     } finally {
@@ -238,7 +270,12 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   const handleSelectAsset = (asset: AssetRecord) => {
     setSelectedAsset(asset);
     setIsEditingDossier(false);
-    setEditForm({ ...asset });
+    setEditForm({
+      ...asset,
+      attachedOptions: normalizeAttachedOptions(asset.attachedOptions),
+      warrantyStartDate: asset.warrantyStartDate ? String(asset.warrantyStartDate).slice(0, 10) : "",
+      warrantyEndDate: asset.warrantyEndDate ? String(asset.warrantyEndDate).slice(0, 10) : "",
+    });
     fetchAssetLogs(asset.assetNo, asset.id);
   };
 
@@ -246,6 +283,28 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
   const uniqueManufacturers = useMemo(() => {
     return Array.from(new Set(assets.map((a) => a.manufacturer).filter(Boolean)));
   }, [assets]);
+
+  const productComboboxOptions = useMemo<SearchSelectOption[]>(() => {
+    return products.map((p: any) => {
+      const monthly = Number(p.standardMonthlyRate ?? p.standard_monthly_rate ?? 0);
+      const daily = resolveDailyRentalFee(
+        monthly,
+        Number(p.standardDailyRate ?? p.standard_daily_rate ?? 0)
+      );
+      return {
+        value: String(p.id),
+        label: `${p.modelName} (${p.modelCode})`,
+        subLabel: [
+          p.manufacturer,
+          `월 ${formatErpNumber(monthly)}원`,
+          `일 ${formatErpNumber(daily)}원`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        searchKeywords: [p.modelName, p.modelCode, p.shortName, p.manufacturer],
+      };
+    });
+  }, [products]);
 
   // Filtered Assets
   const filteredAssets = useMemo(() => {
@@ -255,14 +314,20 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
       if (manufacturerFilter !== "ALL" && a.manufacturer !== manufacturerFilter) return false;
 
       if (searchTerm.trim()) {
-        const q = searchTerm.trim().toLowerCase();
-        const no = a.assetNo.toLowerCase();
-        const model = a.modelName.toLowerCase();
-        const sn = (a.serialNo || "").toLowerCase();
-        const cust = (a.currentCustomer || "").toLowerCase();
-        const site = (a.currentSite || "").toLowerCase();
-        const ctr = (a.contractNo || "").toLowerCase();
-        if (!no.includes(q) && !model.includes(q) && !sn.includes(q) && !cust.includes(q) && !site.includes(q) && !ctr.includes(q)) {
+        if (
+          !matchHangulAny(
+            [
+              a.assetNo,
+              a.modelName,
+              a.modelCode,
+              a.serialNo,
+              a.currentCustomer,
+              a.currentSite,
+              a.contractNo,
+            ],
+            searchTerm
+          )
+        ) {
           return false;
         }
       }
@@ -270,100 +335,23 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
     });
   }, [assets, statusFilter, ownerFilter, manufacturerFilter, searchTerm]);
 
-  // Sorting State
-  const [sortKey, setSortKey] = useState<string>("assetNo");
-  const [sortDir, setSortDir] = useState<SortDirection>("asc");
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
-
-  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
-    const isActive = sortKey === key;
-    return (
-      <th
-        onClick={() => handleSort(key)}
-        className={`py-1.5 px-2 cursor-pointer select-none hover:bg-slate-500/10 transition text-${align} whitespace-nowrap`}
-        title={`${label} 기준 정렬`}
-      >
-        <div className={`inline-flex items-center gap-1 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
-          <span>{label}</span>
-          <span className="shrink-0">
-            {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
-            ) : (
-              <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />
-            )}
-          </span>
-        </div>
-      </th>
-    );
-  };
+  // Sorting State (3단계: asc ➔ desc ➔ null 정렬안함)
+  const { sortKey, sortDir, handleSort } = useErpTableSort("assetNo", "asc");
 
   const sortedFilteredAssets = useMemo(() => {
     return sortErpItems(filteredAssets, sortKey, sortDir);
   }, [filteredAssets, sortKey, sortDir]);
 
-  // Summary Table Sorting State & Aggregation
-  const [summarySortKey, setSummarySortKey] = useState<string>("modelName");
-  const [summarySortDir, setSummarySortDir] = useState<SortDirection>("asc");
+  // Summary Table Sorting State & Aggregation (3단계)
+  const {
+    sortKey: summarySortKey,
+    sortDir: summarySortDir,
+    handleSort: handleSummarySort,
+  } = useErpTableSort("modelName", "asc");
 
-  const handleSummarySort = (key: string) => {
-    if (summarySortKey === key) {
-      setSummarySortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSummarySortKey(key);
-      setSummarySortDir("asc");
-    }
-  };
-
-  const renderSummarySortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
-    const isActive = summarySortKey === key;
-    return (
-      <th
-        onClick={() => handleSummarySort(key)}
-        className={`py-1.5 px-2 cursor-pointer select-none hover:bg-slate-500/10 transition text-${align} whitespace-nowrap`}
-        title={`${label} 기준 정렬`}
-      >
-        <div className={`inline-flex items-center gap-1 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
-          <span>{label}</span>
-          <span className="shrink-0">
-            {isActive ? (
-              summarySortDir === "asc" ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
-            ) : (
-              <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />
-            )}
-          </span>
-        </div>
-      </th>
-    );
-  };
-
-  // 모델별 수량 및 재무·수익 집계 (총수량, 임대가능, 임대중, 총취득원가, 누적상각/손실, 현재장부가, 누적렌탈매출, 누적순수익, 회수율)
-  const modelSummaryRows = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        key: string;
-        modelCode: string;
-        modelName: string;
-        totalQty: number;
-        disposedQty: number;
-        availableQty: number;
-        rentedQty: number;
-        grossAcquisitionCost: number;
-        accumulatedCost: number;
-        bookValue: number;
-        cumulativeRevenue: number;
-        cumulativeNetProfit: number;
-        recoveryRatePct: number;
-      }
-    >();
+  // 모델별 수량 및 재무·수익 집계
+  const modelSummaryRows = useMemo<ModelSummaryRow[]>(() => {
+    const map = new Map<string, ModelSummaryRow>();
 
     for (const a of assets) {
       const mCode = a.modelCode || "-";
@@ -414,18 +402,13 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
 
     let list = Array.from(map.values());
     if (searchTerm.trim()) {
-      const q = searchTerm.trim().toLowerCase();
-      list = list.filter(
-        (r) =>
-          r.modelName.toLowerCase().includes(q) ||
-          r.modelCode.toLowerCase().includes(q)
-      );
+      list = list.filter((r) => matchHangulAny([r.modelName, r.modelCode], searchTerm));
     }
 
     return sortErpItems(list, summarySortKey, summarySortDir);
   }, [assets, searchTerm, summarySortKey, summarySortDir]);
 
-  const summaryTotals = useMemo(() => {
+  const summaryTotals = useMemo<ModelSummaryTotals>(() => {
     let totalQty = 0;
     let disposedQty = 0;
     let availableQty = 0;
@@ -464,8 +447,8 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
     };
   }, [modelSummaryRows]);
 
-  // KPI Metrics (단일 패스 계산 - 폐기 자산은 현 가동 보유수량에서 제외하되 누적매출·누적순수익은 전 자산 합산)
-  const kpiStats = useMemo(() => {
+  // KPI Metrics
+  const kpiStats = useMemo<AssetKpiStats>(() => {
     const activeAssets = assets.filter((a) => a.status !== "DISPOSED");
     const totalCount = activeAssets.length;
     let ownedCount = 0;
@@ -518,6 +501,11 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
         body: JSON.stringify({
           id: selectedAsset.id,
           ...editForm,
+          operatingHours: cleanErpNumber(String(editForm.operatingHours ?? 0)),
+          warrantyHours: cleanErpNumber(String(editForm.warrantyHours ?? 2000)),
+          warrantyStartDate: editForm.warrantyStartDate || null,
+          warrantyEndDate: editForm.warrantyEndDate || null,
+          attachedOptions: normalizeAttachedOptions(editForm.attachedOptions),
         }),
       });
       const data = await res.json();
@@ -581,39 +569,10 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
     }
   };
 
-  // 자산 취득 시 자동채번 헬퍼: "DR" + yymm + 3-digit 순번 (예: DR2610001)
-  const computeNextAssetNo = (dateStr: string, assetList: AssetRecord[] = assets) => {
-    const cleanDate = (dateStr || new Date().toISOString().split("T")[0]).replace(/-/g, "");
-    const yymm = cleanDate.length >= 6 ? cleanDate.slice(2, 6) : new Date().toISOString().slice(2, 7).replace("-", "");
-    const prefix = `DR${yymm}`;
-    let maxSeq = 0;
-    for (const a of assetList) {
-      const no = String(a.assetNo || "").toUpperCase();
-      if (no.startsWith(prefix)) {
-        const suffix = no.slice(prefix.length).replace(/[^0-9]/g, "");
-        const n = parseInt(suffix, 10);
-        if (!isNaN(n) && n > maxSeq) maxSeq = n;
-      }
-    }
-    return `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
-  };
-
-  const getAssetNoRangePreview = (startNo: string, qtyStr: string, dateStr: string) => {
-    const count = Math.max(1, parseInt(qtyStr || "1", 10) || 1);
-    const baseNo = (startNo || "").trim() || computeNextAssetNo(dateStr);
-    if (count === 1) return baseNo;
-    const cleanDate = (dateStr || new Date().toISOString().split("T")[0]).replace(/-/g, "");
-    const yymm = cleanDate.length >= 6 ? cleanDate.slice(2, 6) : new Date().toISOString().slice(2, 7).replace("-", "");
-    const prefix = `DR${yymm}`;
-    const startSeq = parseInt(baseNo.slice(prefix.length).replace(/[^0-9]/g, ""), 10) || 1;
-    const endNo = `${prefix}${String(startSeq + count - 1).padStart(3, "0")}`;
-    return `${baseNo} ~ ${endNo} (총 ${count}대)`;
-  };
-
   // Handle Add New Asset
   const handleAddAsset = async (e: React.FormEvent) => {
     e.preventDefault();
-    const targetAssetNo = addForm.assetNo.trim() || computeNextAssetNo(addForm.acquisitionDate);
+    const targetAssetNo = addForm.assetNo.trim() || computeNextAssetNo(addForm.acquisitionDate, assets);
     const batchCount = Math.max(1, parseInt(addForm.qty || "1", 10) || 1);
     if (!addForm.rentalProductId) {
       showToast("제품 모델을 선택해 주십시오.", "error");
@@ -624,7 +583,18 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
       const res = await fetch("/api/erp/assets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...addForm, assetNo: targetAssetNo, qty: batchCount }),
+        body: JSON.stringify({
+          ...addForm,
+          assetNo: targetAssetNo,
+          qty: batchCount,
+          acquisitionCost: String(cleanErpNumber(addForm.acquisitionCost)),
+          salvageValue: String(cleanErpNumber(addForm.salvageValue)),
+          operatingHours: cleanErpNumber(addForm.operatingHours),
+          warrantyHours: cleanErpNumber(addForm.warrantyHours),
+          warrantyStartDate: addForm.warrantyStartDate || null,
+          warrantyEndDate: addForm.warrantyEndDate || null,
+          attachedOptions: addForm.attachedOptions,
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "자산 취득 등록 실패");
@@ -646,51 +616,10 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
 
   // Excel Export
   const handleExportExcel = () => {
-    if (assets.length === 0) {
+    if (!exportAssetsCsv(assets)) {
       showToast("내보낼 자산 데이터가 없습니다.", "error");
       return;
     }
-
-    const headers = [
-      "자산번호", "모델명", "모델코드", "제조사", "카테고리", 
-      "시리얼번호", "소유구분", "자산상태", "취득일자", "취득원가(원)", 
-      "잔존가치(원)", "내용연수(년)", "감가상각누계(원)", "현재장부가액(원)", 
-      "월감가상각비(원)", "누적렌탈매출(원)", "누적순수익(원)", "현재대여처", "배치현장", "계약번호", "특이사항"
-    ];
-
-    const rows = assets.map((a) => [
-      a.assetNo,
-      a.modelName,
-      a.modelCode,
-      a.manufacturer,
-      a.category,
-      a.serialNo || "-",
-      a.ownerType === "OWNED" ? "자사자산" : "외부임차",
-      a.status,
-      a.acquisitionDate ? String(a.acquisitionDate).slice(0, 10) : "-",
-      a.acquisitionCost,
-      a.salvageValue,
-      a.usefulLifeYears,
-      a.accumulatedDepreciation,
-      a.bookValue,
-      a.monthlyDepreciation,
-      a.cumulativeRevenue || 0,
-      a.cumulativeNetProfit || 0,
-      a.currentCustomer || "-",
-      a.currentSite || "-",
-      a.contractNo || "-",
-      a.memo || "-",
-    ]);
-
-    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.map((cell) => `"${cell}"`).join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", `자산종합대장_${new Date().toISOString().split("T")[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
     showToast("자산 종합 대장이 다운로드되었습니다.");
   };
 
@@ -974,1408 +903,84 @@ export const AssetManagementTab: React.FC<AssetManagementTabProps> = ({
 
       {/* 3. Central Body: High-Density Multi-Column Grid + Slide-over Dossier */}
       <div className="flex-1 flex min-h-0 overflow-hidden relative">
-        {/* Main Grid Table Area */}
         <div className="flex-1 overflow-auto">
           {activeSubTab === "SUMMARY" ? (
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="sticky top-0 z-10 select-none bg-[var(--bg-card)] border-b">
-                <tr>
-                  {renderSummarySortTh("제품 모델명", "modelName")}
-                  {renderSummarySortTh("모델코드", "modelCode")}
-                  {renderSummarySortTh("가동수량", "totalQty", "right")}
-                  {renderSummarySortTh("임대가능", "availableQty", "right")}
-                  {renderSummarySortTh("임대중", "rentedQty", "right")}
-                  {renderSummarySortTh("총취득원가", "grossAcquisitionCost", "right")}
-                  {renderSummarySortTh("누적상각·손실", "accumulatedCost", "right")}
-                  {renderSummarySortTh("현재장부가액", "bookValue", "right")}
-                  {renderSummarySortTh("누적렌탈매출", "cumulativeRevenue", "right")}
-                  {renderSummarySortTh("누적순수익(매출-상각)", "cumulativeNetProfit", "right")}
-                  {renderSummarySortTh("원가회수율", "recoveryRatePct", "right")}
-                </tr>
-              </thead>
-              <tbody>
-                {modelSummaryRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} className="py-10 text-center text-xs opacity-60">
-                      {loading ? "자산 요약표를 집계하는 중입니다..." : "집계된 모델 자산이 없습니다."}
-                    </td>
-                  </tr>
-                ) : (
-                  <>
-                    {modelSummaryRows.map((row) => (
-                      <tr
-                        key={row.key}
-                        onClick={() => {
-                          setSearchTerm(row.modelName);
-                          setActiveSubTab("DETAIL");
-                        }}
-                        className="cursor-pointer transition border-b hover:bg-black/5"
-                        title="클릭 시 해당 모델의 상세목록 조회"
-                      >
-                        <td className="py-1 px-2 font-semibold whitespace-nowrap">
-                          {row.modelName}
-                        </td>
-                        <td className="py-1 px-2 font-mono opacity-75 whitespace-nowrap">
-                          {row.modelCode}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono font-bold whitespace-nowrap">
-                          {formatErpQty(row.totalQty, "대")}
-                          {row.disposedQty > 0 && (
-                            <span className="text-[10px] text-amber-700 ml-1">(폐기{row.disposedQty})</span>
-                          )}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
-                          {formatErpQty(row.availableQty, "대")}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
-                          {formatErpQty(row.rentedQty, "대")}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono whitespace-nowrap">
-                          {formatErpCurrency(row.grossAcquisitionCost)}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono text-rose-700 whitespace-nowrap">
-                          -{formatErpCurrency(row.accumulatedCost)}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono font-semibold text-purple-800 whitespace-nowrap">
-                          {formatErpCurrency(row.bookValue)}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
-                          {row.cumulativeRevenue > 0 ? formatErpCurrency(row.cumulativeRevenue) : "₩0"}
-                        </td>
-                        <td className={`py-1 px-2 text-right font-mono font-bold whitespace-nowrap ${row.cumulativeNetProfit >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                          {row.cumulativeNetProfit >= 0
-                            ? `+${formatErpCurrency(row.cumulativeNetProfit)}`
-                            : formatErpCurrency(row.cumulativeNetProfit)}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono font-semibold whitespace-nowrap">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${row.recoveryRatePct >= 100 ? "bg-emerald-600/15 text-emerald-700" : "bg-amber-600/15 text-amber-700"}`}>
-                            {row.recoveryRatePct.toFixed(1)}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                    <tr className="bg-slate-500/10 font-bold border-t-2">
-                      <td className="py-1.5 px-2 whitespace-nowrap" colSpan={2}>
-                        합계 ({formatErpNumber(modelSummaryRows.length)}개 모델)
-                      </td>
-                      <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                        {formatErpQty(summaryTotals.totalQty, "대")}
-                        {summaryTotals.disposedQty > 0 && (
-                          <span className="text-[10px] text-amber-700 ml-1">(폐기{summaryTotals.disposedQty})</span>
-                        )}
-                      </td>
-                      <td className="py-1.5 px-2 text-right font-mono text-emerald-700 whitespace-nowrap">
-                        {formatErpQty(summaryTotals.availableQty, "대")}
-                      </td>
-                      <td className="py-1.5 px-2 text-right font-mono text-blue-700 whitespace-nowrap">
-                        {formatErpQty(summaryTotals.rentedQty, "대")}
-                      </td>
-                      <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                        {formatErpCurrency(summaryTotals.grossAcquisitionCost)}
-                      </td>
-                      <td className="py-1.5 px-2 text-right font-mono text-rose-700 whitespace-nowrap">
-                        -{formatErpCurrency(summaryTotals.accumulatedCost)}
-                      </td>
-                      <td className="py-1.5 px-2 text-right font-mono text-purple-800 whitespace-nowrap">
-                        {formatErpCurrency(summaryTotals.bookValue)}
-                      </td>
-                      <td className="py-1.5 px-2 text-right font-mono text-emerald-700 whitespace-nowrap">
-                        {formatErpCurrency(summaryTotals.cumulativeRevenue)}
-                      </td>
-                      <td className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${summaryTotals.cumulativeNetProfit >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                        {summaryTotals.cumulativeNetProfit >= 0
-                          ? `+${formatErpCurrency(summaryTotals.cumulativeNetProfit)}`
-                          : formatErpCurrency(summaryTotals.cumulativeNetProfit)}
-                      </td>
-                      <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600/15 text-emerald-700">
-                          {summaryTotals.recoveryRatePct.toFixed(1)}%
-                        </span>
-                      </td>
-                    </tr>
-                  </>
-                )}
-              </tbody>
-            </table>
+            <AssetSummaryTable
+              loading={loading}
+              modelSummaryRows={modelSummaryRows}
+              summaryTotals={summaryTotals}
+              summarySortKey={summarySortKey}
+              summarySortDir={summarySortDir}
+              onSummarySort={handleSummarySort}
+              onSelectModel={(modelName) => {
+                setSearchTerm(modelName);
+                setActiveSubTab("DETAIL");
+              }}
+            />
           ) : activeSubTab === "DEPRECIATION" ? (
-            <div className="p-2.5 flex flex-col gap-3 text-xs">
-              {/* 0) 매출세금계산서 기준 렌탈사업부 매출 유형 분리 (4대 매출 유형) */}
-              {depSalesSeparation?.categories && depSalesSeparation.categories.length > 0 && (
-                <div className="border rounded overflow-hidden">
-                  <div className="px-3 py-1.5 bg-slate-500/10 border-b flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 font-bold whitespace-nowrap">
-                      <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>렌탈 매출세금계산서 매출 유형 분리 ({depYear === "ALL" ? "전체 누적" : `${depYear}년`})</span>
-                    </div>
-                    <div className="text-[11px] font-mono opacity-75 whitespace-nowrap">
-                      전체 누적 렌탈 세금계산서 합계:{" "}
-                      {formatErpCurrency(depAllTimeSalesSeparation?.totalSupplyAmount || 0)} (
-                      {depAllTimeSalesSeparation?.totalInvoiceCount || 0}건)
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x">
-                    {depSalesSeparation.categories.map((cat: any) => {
-                      const allTimeCat = depAllTimeSalesSeparation?.categories?.find((x: any) => x.code === cat.code);
-                      const isOwnedRental = cat.code === "OWNED_ASSET_RENTAL";
-                      return (
-                        <div
-                          key={cat.code}
-                          className={`p-2.5 flex flex-col gap-1 ${
-                            isOwnedRental ? "bg-emerald-500/10" : ""
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-1 whitespace-nowrap">
-                            <span className={`font-bold ${isOwnedRental ? "text-emerald-800" : ""}`}>
-                              {cat.label}
-                            </span>
-                            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono border">
-                              {cat.invoiceCount}건 ({(cat.sharePct || 0).toFixed(1)}%)
-                            </span>
-                          </div>
-                          <div className="text-sm font-mono font-extrabold text-right whitespace-nowrap">
-                            {formatErpCurrency(cat.supplyAmount)}
-                          </div>
-                          <div className="text-[10px] opacity-75 truncate" title={cat.description}>
-                            {cat.description}
-                          </div>
-                          {depYear !== "ALL" && allTimeCat && (
-                            <div className="text-[10px] font-mono opacity-65 text-right whitespace-nowrap border-t pt-1 mt-0.5">
-                              전체 누적: {formatErpCurrency(allTimeCat.supplyAmount)} ({allTimeCat.invoiceCount}건)
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* 1) 월별 유형자산(임대자산) 가치 변동 · 월별 렌탈매출 · 월별 순수익 정산표 */}
-              <div className="border rounded overflow-hidden">
-                <div className="px-3 py-1.5 bg-slate-500/10 border-b flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 font-bold whitespace-nowrap">
-                    <Calculator className="w-3.5 h-3.5 text-purple-600" />
-                    <span>월별 유형자산 가치 변동 · 렌탈매출 · 순수익 정산표 ({depYear === "ALL" ? "전체기간" : `${depYear}년`})</span>
-                  </div>
-                  <div className="text-[11px] font-mono opacity-75 whitespace-nowrap">
-                    원장 적재: {formatErpNumber(depLogStats.totalLogCount)}건
-                    {depLogStats.lastSyncedAt ? ` | 최종 정산: ${String(depLogStats.lastSyncedAt).slice(0, 16)}` : ""}
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-[var(--bg-card)] border-b select-none">
-                      <tr>
-                        <th className="py-1.5 px-2 whitespace-nowrap">귀속연월</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">기초장부가액</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">당월취득원가 (+)</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">당월렌탈매출 (+)</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">당월감가상각비 (-)</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">파손·폐기손실 (-)</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">당월순수익 (매출-상각)</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">누적순수익</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">기말취득원가 (BS)</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">감가상각누계액 (BS)</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">기말장부가액 (BS)</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">가동수량</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {depLoading ? (
-                        <tr>
-                          <td colSpan={12} className="py-8 text-center opacity-60">
-                            감가상각 및 매출·수익 원장을 불러오는 중입니다...
-                          </td>
-                        </tr>
-                      ) : depRollForward.length === 0 ? (
-                        <tr>
-                          <td colSpan={12} className="py-8 text-center opacity-60">
-                            해당 연도에 집계된 감가상각 내역이 없습니다.
-                          </td>
-                        </tr>
-                      ) : (
-                        <>
-                          {depRollForward.map((r) => (
-                            <tr key={r.yearMonth} className="border-b hover:bg-black/5">
-                              <td className="py-1 px-2 font-mono font-bold whitespace-nowrap">{r.yearMonth}</td>
-                              <td className="py-1 px-2 text-right font-mono whitespace-nowrap">
-                                {r.beginningBookValue > 0 ? formatErpCurrency(r.beginningBookValue) : "-"}
-                              </td>
-                              <td className="py-1 px-2 text-right font-mono text-emerald-700 font-semibold whitespace-nowrap">
-                                {r.additionCost > 0 ? `+${formatErpCurrency(r.additionCost)}` : "-"}
-                              </td>
-                              <td className="py-1 px-2 text-right font-mono text-emerald-700 font-bold whitespace-nowrap">
-                                {r.monthlyRevenue > 0 ? `+${formatErpCurrency(r.monthlyRevenue)}` : "-"}
-                              </td>
-                              <td className="py-1 px-2 text-right font-mono text-rose-700 font-bold whitespace-nowrap">
-                                {r.depreciationExpense > 0 ? `-${formatErpCurrency(r.depreciationExpense)}` : "-"}
-                              </td>
-                              <td className="py-1 px-2 text-right font-mono text-amber-700 font-bold whitespace-nowrap">
-                                {r.disposalLoss > 0 ? `-${formatErpCurrency(r.disposalLoss)}` : "-"}
-                              </td>
-                              <td className={`py-1 px-2 text-right font-mono font-bold whitespace-nowrap ${(r.monthlyNetProfit || 0) >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                                {(r.monthlyNetProfit || 0) > 0
-                                  ? `+${formatErpCurrency(r.monthlyNetProfit)}`
-                                  : (r.monthlyNetProfit || 0) < 0
-                                  ? formatErpCurrency(r.monthlyNetProfit)
-                                  : "₩0"}
-                              </td>
-                              <td className={`py-1 px-2 text-right font-mono font-semibold whitespace-nowrap ${(r.cumulativeNetProfit || 0) >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                                {(r.cumulativeNetProfit || 0) > 0
-                                  ? `+${formatErpCurrency(r.cumulativeNetProfit)}`
-                                  : formatErpCurrency(r.cumulativeNetProfit || 0)}
-                              </td>
-                              <td className="py-1 px-2 text-right font-mono whitespace-nowrap">
-                                {r.endingGrossCost > 0 ? formatErpCurrency(r.endingGrossCost) : "-"}
-                              </td>
-                              <td className="py-1 px-2 text-right font-mono opacity-80 whitespace-nowrap">
-                                {r.endingAccumDepreciation > 0 ? `-${formatErpCurrency(r.endingAccumDepreciation)}` : "-"}
-                              </td>
-                              <td className="py-1 px-2 text-right font-mono font-bold text-purple-800 whitespace-nowrap">
-                                {r.endingBookValue > 0 ? formatErpCurrency(r.endingBookValue) : "₩0"}
-                              </td>
-                              <td className="py-1 px-2 text-right font-mono whitespace-nowrap">
-                                {formatErpQty(r.activeAssetCount, "대")}
-                              </td>
-                            </tr>
-                          ))}
-                          {(() => {
-                            const first = depRollForward[0];
-                            const last = depRollForward[depRollForward.length - 1];
-                            const sumAdd = depRollForward.reduce((s, x) => s + (x.additionCost || 0), 0);
-                            const sumRev = depRollForward.reduce((s, x) => s + (x.monthlyRevenue || 0), 0);
-                            const sumDep = depRollForward.reduce((s, x) => s + (x.depreciationExpense || 0), 0);
-                            const sumLoss = depRollForward.reduce((s, x) => s + (x.disposalLoss || 0), 0);
-                            const sumProfit = depRollForward.reduce((s, x) => s + (x.monthlyNetProfit || 0), 0);
-                            return (
-                              <tr className="bg-purple-500/10 font-bold border-t-2">
-                                <td className="py-1.5 px-2 whitespace-nowrap">기간 합계 / 기말 잔액</td>
-                                <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                                  {formatErpCurrency(first?.beginningBookValue || 0)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono text-emerald-700 whitespace-nowrap">
-                                  +{formatErpCurrency(sumAdd)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono text-emerald-700 whitespace-nowrap">
-                                  +{formatErpCurrency(sumRev)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono text-rose-700 whitespace-nowrap">
-                                  -{formatErpCurrency(sumDep)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono text-amber-700 whitespace-nowrap">
-                                  -{formatErpCurrency(sumLoss)}
-                                </td>
-                                <td className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${sumProfit >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                                  {sumProfit >= 0 ? `+${formatErpCurrency(sumProfit)}` : formatErpCurrency(sumProfit)}
-                                </td>
-                                <td className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${(last?.cumulativeNetProfit || 0) >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                                  {(last?.cumulativeNetProfit || 0) >= 0
-                                    ? `+${formatErpCurrency(last?.cumulativeNetProfit || 0)}`
-                                    : formatErpCurrency(last?.cumulativeNetProfit || 0)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                                  {formatErpCurrency(last?.endingGrossCost || 0)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                                  -{formatErpCurrency(last?.endingAccumDepreciation || 0)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono text-purple-800 whitespace-nowrap">
-                                  {formatErpCurrency(last?.endingBookValue || 0)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                                  {formatErpQty(last?.activeAssetCount || 0, "대")}
-                                </td>
-                              </tr>
-                            );
-                          })()}
-                        </>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* 2) 품목 모델별 취득원가 · 내용월수 · 감가상각 · 누적매출 · 순수익 명세표 */}
-              <div className="border rounded overflow-hidden">
-                <div className="px-3 py-1.5 bg-slate-500/10 border-b flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 font-bold whitespace-nowrap">
-                    <Layers className="w-3.5 h-3.5 text-blue-600" />
-                    <span>모델별 취득원가 · 감가상각 · 누적매출 · 순수익 명세 ({formatErpNumber(depModelRows.length)}개 모델)</span>
-                  </div>
-                  <span className="text-[11px] font-mono opacity-75 whitespace-nowrap">
-                    순수익 = 자사 렌탈자산 임대매출 - 감가상각비 - 파손·폐기손실
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-[var(--bg-card)] border-b select-none">
-                      <tr>
-                        <th className="py-1.5 px-2 whitespace-nowrap">모델명 (코드)</th>
-                        <th className="py-1.5 px-2 whitespace-nowrap">공급처</th>
-                        <th className="py-1.5 px-2 text-center whitespace-nowrap">취득일자</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">수량(가동/폐기)</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">총취득원가</th>
-                        <th className="py-1.5 px-2 text-center whitespace-nowrap">내용월수</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">당기렌탈매출</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">당기상각·손실</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">당기순수익</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">누적렌탈매출</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">누적상각·손실</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">기말장부가액</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">누적순수익</th>
-                        <th className="py-1.5 px-2 text-right whitespace-nowrap">원가회수율</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {depModelRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={14} className="py-8 text-center opacity-60">
-                            취득원가가 등록된 임대자산 모델이 없습니다.
-                          </td>
-                        </tr>
-                      ) : (
-                        <>
-                          {depModelRows.map((m) => {
-                            const periodCost = (m.periodDepreciationTotal || 0) + (m.periodDisposalLossTotal || 0);
-                            return (
-                              <tr
-                                key={m.modelKey}
-                                onClick={() => {
-                                  setSearchTerm(m.modelName);
-                                  setActiveSubTab("DETAIL");
-                                }}
-                                className="border-b hover:bg-black/5 cursor-pointer"
-                                title="클릭 시 해당 모델의 자산 상세목록 조회"
-                              >
-                                <td className="py-1 px-2 whitespace-nowrap">
-                                  <span className="font-bold">{m.modelName}</span>{" "}
-                                  <span className="text-[10px] font-mono opacity-60">({m.modelCode})</span>
-                                </td>
-                                <td className="py-1 px-2 whitespace-nowrap">{m.supplier}</td>
-                                <td className="py-1 px-2 text-center font-mono whitespace-nowrap">{m.acquisitionDate}</td>
-                                <td className="py-1 px-2 text-right font-mono whitespace-nowrap">
-                                  {m.totalQty}대 ({m.activeQty}/{m.disposedQty})
-                                </td>
-                                <td className="py-1 px-2 text-right font-mono font-semibold whitespace-nowrap">
-                                  {formatErpCurrency(m.grossAcquisitionCost)}
-                                </td>
-                                <td className="py-1 px-2 text-center font-mono whitespace-nowrap">
-                                  {m.usefulLifeMonths <= 1
-                                    ? "1개월(즉시)"
-                                    : m.usefulLifeMonths % 12 === 0
-                                    ? `${m.usefulLifeMonths / 12}년(${m.usefulLifeMonths}개월)`
-                                    : `${m.usefulLifeMonths}개월`}
-                                </td>
-                                <td className="py-1 px-2 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
-                                  {(m.periodRevenueTotal || 0) > 0 ? `+${formatErpCurrency(m.periodRevenueTotal)}` : "-"}
-                                </td>
-                                <td className="py-1 px-2 text-right font-mono font-bold text-rose-700 whitespace-nowrap">
-                                  {periodCost > 0 ? `-${formatErpCurrency(periodCost)}` : "-"}
-                                </td>
-                                <td className={`py-1 px-2 text-right font-mono font-bold whitespace-nowrap ${(m.periodNetProfitTotal || 0) >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                                  {(m.periodNetProfitTotal || 0) > 0
-                                    ? `+${formatErpCurrency(m.periodNetProfitTotal)}`
-                                    : (m.periodNetProfitTotal || 0) < 0
-                                    ? formatErpCurrency(m.periodNetProfitTotal)
-                                    : "₩0"}
-                                </td>
-                                <td className="py-1 px-2 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
-                                  {formatErpCurrency(m.cumulativeRevenue || 0)}
-                                </td>
-                                <td className="py-1 px-2 text-right font-mono opacity-80 text-rose-700 whitespace-nowrap">
-                                  -{formatErpCurrency(m.cumulativeTotalCost || 0)}
-                                </td>
-                                <td className="py-1 px-2 text-right font-mono font-semibold text-purple-800 whitespace-nowrap">
-                                  {formatErpCurrency(m.endingBookValue)}
-                                </td>
-                                <td className={`py-1 px-2 text-right font-mono font-bold whitespace-nowrap ${(m.cumulativeNetProfit || 0) >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                                  {(m.cumulativeNetProfit || 0) >= 0
-                                    ? `+${formatErpCurrency(m.cumulativeNetProfit)}`
-                                    : formatErpCurrency(m.cumulativeNetProfit)}
-                                </td>
-                                <td className="py-1 px-2 text-right font-mono whitespace-nowrap">
-                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${(m.recoveryRatePct || 0) >= 100 ? "bg-emerald-600/15 text-emerald-700" : "bg-amber-600/15 text-amber-700"}`}>
-                                    {(m.recoveryRatePct || 0).toFixed(1)}%
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                          {(() => {
-                            const totQty = depModelRows.reduce((s, x) => s + (x.totalQty || 0), 0);
-                            const totAct = depModelRows.reduce((s, x) => s + (x.activeQty || 0), 0);
-                            const totDisp = depModelRows.reduce((s, x) => s + (x.disposedQty || 0), 0);
-                            const totGross = depModelRows.reduce((s, x) => s + (x.grossAcquisitionCost || 0), 0);
-                            const totActGross = depModelRows.reduce((s, x) => s + (x.activeGrossCost || 0), 0);
-                            const totPeriodRev = depModelRows.reduce((s, x) => s + (x.periodRevenueTotal || 0), 0);
-                            const totPeriodDep = depModelRows.reduce((s, x) => s + (x.periodDepreciationTotal || 0), 0);
-                            const totPeriodLoss = depModelRows.reduce((s, x) => s + (x.periodDisposalLossTotal || 0), 0);
-                            const totPeriodProfit = depModelRows.reduce((s, x) => s + (x.periodNetProfitTotal || 0), 0);
-                            const totCumRev = depModelRows.reduce((s, x) => s + (x.cumulativeRevenue || 0), 0);
-                            const totCumCost = depModelRows.reduce((s, x) => s + (x.cumulativeTotalCost || 0), 0);
-                            const totEndBook = depModelRows.reduce((s, x) => s + (x.endingBookValue || 0), 0);
-                            const totCumProfit = depModelRows.reduce((s, x) => s + (x.cumulativeNetProfit || 0), 0);
-                            const totRecPct = totGross > 0 ? Number(((totCumRev / totGross) * 100).toFixed(1)) : 0;
-                            return (
-                              <tr className="bg-slate-500/10 font-bold border-t-2">
-                                <td className="py-1.5 px-2 whitespace-nowrap" colSpan={3}>
-                                  합계 (기말 가동자산 취득가액: {formatErpCurrency(totActGross)})
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                                  {totQty}대 ({totAct}/{totDisp})
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                                  {formatErpCurrency(totGross)}
-                                </td>
-                                <td className="py-1.5 px-2 text-center font-mono whitespace-nowrap">-</td>
-                                <td className="py-1.5 px-2 text-right font-mono text-emerald-700 whitespace-nowrap">
-                                  +{formatErpCurrency(totPeriodRev)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono text-rose-700 whitespace-nowrap">
-                                  -{formatErpCurrency(totPeriodDep + totPeriodLoss)}
-                                </td>
-                                <td className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${totPeriodProfit >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                                  {totPeriodProfit >= 0 ? `+${formatErpCurrency(totPeriodProfit)}` : formatErpCurrency(totPeriodProfit)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono text-emerald-700 whitespace-nowrap">
-                                  {formatErpCurrency(totCumRev)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono text-rose-700 whitespace-nowrap">
-                                  -{formatErpCurrency(totCumCost)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono text-purple-800 whitespace-nowrap">
-                                  {formatErpCurrency(totEndBook)}
-                                </td>
-                                <td className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${totCumProfit >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                                  {totCumProfit >= 0 ? `+${formatErpCurrency(totCumProfit)}` : formatErpCurrency(totCumProfit)}
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600/15 text-emerald-700">
-                                    {totRecPct.toFixed(1)}%
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })()}
-                        </>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* 3) 모델별 × 월별 렌탈매출 / 감가상각비 / 순수익 매트릭스 */}
-              {depMonths.length > 0 && depModelRows.length > 0 && (
-                <div className="border rounded overflow-hidden">
-                  <div className="px-3 py-1.5 bg-slate-500/10 border-b flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 font-bold whitespace-nowrap">
-                      <Calculator className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>
-                        모델별 월별 {depMatrixMode === "NET_PROFIT" ? "순수익(매출-상각)" : depMatrixMode === "REVENUE" ? "렌탈매출" : "감가상각·손실"} 집계표 ({depYear === "ALL" ? "전체기간" : `${depYear}년`})
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {[
-                        { key: "NET_PROFIT", label: "월별 순수익" },
-                        { key: "REVENUE", label: "월별 렌탈매출" },
-                        { key: "DEPRECIATION", label: "월별 상각·손실" },
-                      ].map((tab) => (
-                        <button
-                          key={tab.key}
-                          type="button"
-                          onClick={() => setDepMatrixMode(tab.key as any)}
-                          className={`h-6 px-2 rounded text-[11px] font-bold border whitespace-nowrap transition ${
-                            depMatrixMode === tab.key
-                              ? "bg-blue-600 text-white border-blue-700"
-                              : "hover:bg-black/5 opacity-75"
-                          }`}
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead className="bg-[var(--bg-card)] border-b select-none">
-                        <tr>
-                          <th className="py-1.5 px-2 whitespace-nowrap sticky left-0 bg-[var(--bg-card)] border-r">
-                            모델명 (코드)
-                          </th>
-                          {depMonths.map((ym) => (
-                            <th key={ym} className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                              {depYear === "ALL" ? ym : `${Number(ym.slice(5, 7))}월`}
-                            </th>
-                          ))}
-                          <th className="py-1.5 px-2 text-right font-mono whitespace-nowrap border-l">
-                            기간 합계
-                          </th>
-                          <th className="py-1.5 px-2 text-right font-mono whitespace-nowrap">
-                            전체 누적
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {depModelRows.map((m) => {
-                          const periodSum =
-                            depMatrixMode === "NET_PROFIT"
-                              ? m.periodNetProfitTotal || 0
-                              : depMatrixMode === "REVENUE"
-                              ? m.periodRevenueTotal || 0
-                              : (m.periodDepreciationTotal || 0) + (m.periodDisposalLossTotal || 0);
-                          const cumSum =
-                            depMatrixMode === "NET_PROFIT"
-                              ? m.cumulativeNetProfit || 0
-                              : depMatrixMode === "REVENUE"
-                              ? m.cumulativeRevenue || 0
-                              : m.cumulativeTotalCost || 0;
-                          return (
-                            <tr key={m.modelKey} className="border-b hover:bg-black/5">
-                              <td className="py-1 px-2 whitespace-nowrap sticky left-0 bg-[var(--bg-card)] border-r">
-                                <span className="font-bold">{m.modelName}</span>{" "}
-                                <span className="text-[10px] font-mono opacity-60">({m.modelCode})</span>
-                              </td>
-                              {depMonths.map((ym) => {
-                                const val =
-                                  depMatrixMode === "NET_PROFIT"
-                                    ? m.monthlyNetProfitMap?.[ym] || 0
-                                    : depMatrixMode === "REVENUE"
-                                    ? m.monthlyRevenueMap?.[ym] || 0
-                                    : (m.monthlyDepreciationMap?.[ym] || 0) + (m.monthlyDisposalLossMap?.[ym] || 0);
-                                return (
-                                  <td
-                                    key={ym}
-                                    className={`py-1 px-2 text-right font-mono whitespace-nowrap ${
-                                      val === 0
-                                        ? "opacity-30"
-                                        : depMatrixMode === "REVENUE"
-                                        ? "text-emerald-700 font-semibold"
-                                        : depMatrixMode === "DEPRECIATION"
-                                        ? "text-rose-700"
-                                        : val > 0
-                                        ? "text-blue-700 font-semibold"
-                                        : "text-rose-700 font-semibold"
-                                    }`}
-                                  >
-                                    {val === 0
-                                      ? "-"
-                                      : depMatrixMode === "NET_PROFIT" && val > 0
-                                      ? `+${formatErpCurrency(val)}`
-                                      : formatErpCurrency(val)}
-                                  </td>
-                                );
-                              })}
-                              <td
-                                className={`py-1 px-2 text-right font-mono font-bold whitespace-nowrap border-l ${
-                                  depMatrixMode === "REVENUE"
-                                    ? "text-emerald-700"
-                                    : depMatrixMode === "DEPRECIATION"
-                                    ? "text-rose-700"
-                                    : periodSum >= 0
-                                    ? "text-blue-700"
-                                    : "text-rose-700"
-                                }`}
-                              >
-                                {depMatrixMode === "NET_PROFIT" && periodSum > 0
-                                  ? `+${formatErpCurrency(periodSum)}`
-                                  : formatErpCurrency(periodSum)}
-                              </td>
-                              <td
-                                className={`py-1 px-2 text-right font-mono font-bold whitespace-nowrap ${
-                                  depMatrixMode === "REVENUE"
-                                    ? "text-emerald-700"
-                                    : depMatrixMode === "DEPRECIATION"
-                                    ? "text-rose-700"
-                                    : cumSum >= 0
-                                    ? "text-blue-700"
-                                    : "text-rose-700"
-                                }`}
-                              >
-                                {depMatrixMode === "NET_PROFIT" && cumSum > 0
-                                  ? `+${formatErpCurrency(cumSum)}`
-                                  : formatErpCurrency(cumSum)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
+            <AssetDepreciationLedgerView
+              depYear={depYear}
+              depLoading={depLoading}
+              depMonths={depMonths}
+              depRollForward={depRollForward}
+              depModelRows={depModelRows}
+              depSalesSeparation={depSalesSeparation}
+              depAllTimeSalesSeparation={depAllTimeSalesSeparation}
+              depMatrixMode={depMatrixMode}
+              onChangeDepMatrixMode={setDepMatrixMode}
+              depLogStats={depLogStats}
+              onDrilldownModel={(modelName) => {
+                setSearchTerm(modelName);
+                setActiveSubTab("DETAIL");
+              }}
+            />
           ) : (
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="sticky top-0 z-10 select-none bg-[var(--bg-card)] border-b">
-                <tr>
-                  {renderSortTh("자산번호", "assetNo")}
-                  {renderSortTh("제품 모델명", "modelName")}
-                  {renderSortTh("시리얼번호 (S/N)", "serialNo")}
-                  {renderSortTh("소유구분", "ownerType", "center")}
-                  {renderSortTh("현재상태", "status", "center")}
-                  {renderSortTh("현재 대여처 / 배치현장", "currentCustomer")}
-                  {renderSortTh("취득일자", "acquisitionDate", "right")}
-                  {renderSortTh("취득원가", "acquisitionCost", "right")}
-                  {renderSortTh("현재 장부가액", "bookValue", "right")}
-                  {renderSortTh("누적 렌탈매출", "cumulativeRevenue", "right")}
-                  {renderSortTh("누적 순수익", "cumulativeNetProfit", "right")}
-                  <th className="py-1.5 px-2 text-center whitespace-nowrap">관리</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedFilteredAssets.length === 0 ? (
-                  <tr>
-                    <td colSpan={12} className="py-10 text-center text-xs opacity-60">
-                      {loading ? "자산 대장을 불러오는 중입니다..." : "조회 조건에 일치하는 자산이 없습니다."}
-                    </td>
-                  </tr>
-                ) : (
-                  sortedFilteredAssets.map((a) => {
-                    const isSelected = selectedAsset?.id === a.id;
-                    const formattedDate = a.acquisitionDate ? String(a.acquisitionDate).slice(0, 10) : "-";
-                    return (
-                      <tr
-                        key={a.id}
-                        onClick={() => handleSelectAsset(a)}
-                        className={`cursor-pointer transition border-b ${
-                          isSelected ? "bg-blue-600/10 font-medium" : "hover:bg-black/5"
-                        }`}
-                      >
-                        <td className="py-1 px-2 font-mono font-bold text-blue-700 whitespace-nowrap">
-                          {a.assetNo}
-                        </td>
-                        <td className="py-1 px-2 whitespace-nowrap">
-                          <div className="inline-flex items-baseline gap-1.5">
-                            <span className="font-semibold">{a.modelName}</span>
-                            {a.modelCode && (
-                              <span className="text-[10px] opacity-60 font-mono">({a.modelCode})</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-1 px-2 font-mono opacity-80 whitespace-nowrap">
-                          {a.serialNo || "-"}
-                        </td>
-                        <td className="py-1 px-2 text-center whitespace-nowrap">
-                          <span
-                            className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${
-                              a.ownerType === "OWNED"
-                                ? "bg-emerald-600/10 text-emerald-700 border-emerald-600/30"
-                                : "bg-indigo-600/10 text-indigo-700 border-indigo-600/30"
-                            }`}
-                          >
-                            {a.ownerType === "OWNED" ? "자사자산" : "외부임차"}
-                          </span>
-                        </td>
-                        <td className="py-1 px-2 text-center whitespace-nowrap">
-                          <span
-                            className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                              a.status === "RENTED"
-                                ? "bg-blue-600 text-white"
-                                : a.status === "AVAILABLE"
-                                ? "bg-emerald-600 text-white"
-                                : a.status === "REPAIRING"
-                                ? "bg-amber-600 text-white"
-                                : a.status === "OUTBOUND_PENDING"
-                                ? "bg-sky-600 text-white"
-                                : "bg-slate-600 text-white"
-                            }`}
-                          >
-                            {a.status === "RENTED"
-                              ? "대여중"
-                              : a.status === "AVAILABLE"
-                              ? "임대가능"
-                              : a.status === "REPAIRING"
-                              ? "수리중"
-                              : a.status === "OUTBOUND_PENDING"
-                              ? "출고대기"
-                              : a.status}
-                          </span>
-                        </td>
-                        <td className="py-1 px-2 whitespace-nowrap max-w-xs truncate">
-                          {a.currentCustomer ? (
-                            <div className="inline-flex items-baseline gap-1.5 truncate">
-                              <span className="font-medium text-emerald-800 truncate">{a.currentCustomer}</span>
-                              {a.currentSite && (
-                                <span className="text-[10px] opacity-65 truncate">/ {a.currentSite}</span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="opacity-40">-</span>
-                          )}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono opacity-80 whitespace-nowrap">
-                          {formattedDate}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono whitespace-nowrap">
-                          {a.acquisitionCost > 0 ? formatErpCurrency(a.acquisitionCost) : "-"}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono font-bold text-purple-800 whitespace-nowrap">
-                          {a.bookValue > 0 ? formatErpCurrency(a.bookValue) : "₩0"}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
-                          {(a.cumulativeRevenue || 0) > 0 ? formatErpCurrency(a.cumulativeRevenue) : "₩0"}
-                        </td>
-                        <td className={`py-1 px-2 text-right font-mono font-bold whitespace-nowrap ${(a.cumulativeNetProfit || 0) >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                          {(a.cumulativeNetProfit || 0) >= 0
-                            ? `+${formatErpCurrency(a.cumulativeNetProfit || 0)}`
-                            : formatErpCurrency(a.cumulativeNetProfit || 0)}
-                        </td>
-                        <td className="py-1 px-2 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              onClick={() => handleSelectAsset(a)}
-                              className="px-1.5 py-0.5 rounded border text-[10px] hover:bg-black/5"
-                              title="상세 장부"
-                            >
-                              상세
-                            </button>
-                            {isAdmin && (
-                              <button
-                                onClick={() => handleDeleteAsset(a.id, a.assetNo)}
-                                className="p-0.5 rounded text-rose-600 hover:bg-rose-500/10"
-                                title="삭제"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+            <AssetDetailTable
+              loading={loading}
+              sortedFilteredAssets={sortedFilteredAssets}
+              selectedAssetId={selectedAsset?.id ?? null}
+              isAdmin={isAdmin}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              onSelectAsset={handleSelectAsset}
+              onDeleteAsset={handleDeleteAsset}
+            />
           )}
         </div>
 
         {/* 4. Slide-over Dossier Studio (마스터-디테일 & 360도 장부) */}
         {activeSubTab === "DETAIL" && selectedAsset && (
-          <aside className="w-[420px] border-l flex flex-col h-full shrink-0 shadow-lg overflow-hidden select-none bg-[var(--bg-card)]">
-            {/* Dossier Header */}
-            <div className="p-3 border-b flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <Layers className="w-4 h-4 text-blue-600 shrink-0" />
-                <div className="flex flex-col min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold font-mono text-blue-700 truncate">{selectedAsset.assetNo}</span>
-                    <span
-                      className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                        selectedAsset.status === "RENTED"
-                          ? "bg-blue-600 text-white"
-                          : selectedAsset.status === "AVAILABLE"
-                          ? "bg-emerald-600 text-white"
-                          : "bg-amber-600 text-white"
-                      }`}
-                    >
-                      {selectedAsset.status === "RENTED"
-                        ? "대여중"
-                        : selectedAsset.status === "AVAILABLE"
-                        ? "임대가능"
-                        : selectedAsset.status}
-                    </span>
-                  </div>
-                  <span className="text-[10px] opacity-70 truncate">{selectedAsset.modelName}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1">
-                {isEditingDossier ? (
-                  <button
-                    onClick={handleSaveDossier}
-                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold flex items-center gap-1 shadow-sm"
-                  >
-                    <Save className="w-3.5 h-3.5 text-white" />
-                    <span className="text-white">저장</span>
-                  </button>
-                ) : (
-                  isAdmin && (
-                    <button
-                      onClick={() => setIsEditingDossier(true)}
-                      className="px-2 py-1 rounded border text-xs font-semibold flex items-center gap-1 hover:opacity-80"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      <span>수정</span>
-                    </button>
-                  )
-                )}
-                <button
-                  onClick={() => setSelectedAsset(null)}
-                  className="p-1 rounded hover:bg-black/10 opacity-70"
-                  title="닫기"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Dossier Content Body */}
-            <div className="flex-1 p-3.5 overflow-y-auto flex flex-col gap-4 text-xs">
-              {/* Asset Information Form / Display */}
-              <div className="flex flex-col gap-2">
-                <span className="font-bold text-[11px] opacity-75 flex items-center gap-1">
-                  <Package className="w-3.5 h-3.5 text-blue-600" />
-                  <span>자산 식별 및 소유 속성</span>
-                </span>
-
-                {isEditingDossier ? (
-                  <div className="flex flex-col gap-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">자산 상태</label>
-                        <select
-                          value={editForm.status}
-                          onChange={(e) => setEditForm({ ...editForm, status: e.target.value as any })}
-                          className="h-7 px-2 border rounded text-xs font-semibold"
-                        >
-                          <option value="AVAILABLE">임대가능</option>
-                          <option value="RENTED">대여중</option>
-                          <option value="OUTBOUND_PENDING">출고대기</option>
-                          <option value="REPAIRING">정비/수리중</option>
-                          <option value="DISPOSED">폐기/매각</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">소유 구분</label>
-                        <select
-                          value={editForm.ownerType}
-                          onChange={(e) => setEditForm({ ...editForm, ownerType: e.target.value as any })}
-                          className="h-7 px-2 border rounded text-xs"
-                        >
-                          <option value="OWNED">자사자산</option>
-                          <option value="RENTED">외부임차</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">시리얼번호 (S/N)</label>
-                        <input
-                          type="text"
-                          value={editForm.serialNo || ""}
-                          onChange={(e) => setEditForm({ ...editForm, serialNo: e.target.value })}
-                          className="h-7 px-2 border rounded text-xs"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">계약번호</label>
-                        <input
-                          type="text"
-                          value={editForm.contractNo || ""}
-                          onChange={(e) => setEditForm({ ...editForm, contractNo: e.target.value })}
-                          className="h-7 px-2 border rounded text-xs"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">대여 고객사</label>
-                        <input
-                          type="text"
-                          value={editForm.currentCustomer || ""}
-                          onChange={(e) => setEditForm({ ...editForm, currentCustomer: e.target.value })}
-                          className="h-7 px-2 border rounded text-xs"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">배치 현장명</label>
-                        <input
-                          type="text"
-                          value={editForm.currentSite || ""}
-                          onChange={(e) => setEditForm({ ...editForm, currentSite: e.target.value })}
-                          className="h-7 px-2 border rounded text-xs"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-medium">특이사항 및 메모</label>
-                      <textarea
-                        value={editForm.memo || ""}
-                        onChange={(e) => setEditForm({ ...editForm, memo: e.target.value })}
-                        rows={2}
-                        className="p-1.5 border rounded text-xs"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-2.5 rounded border flex flex-col gap-1.5 font-mono text-[11px]">
-                    <div className="flex justify-between">
-                      <span className="opacity-60">소유 / 공급처</span>
-                      <span className="font-semibold">
-                        {selectedAsset.ownerType === "OWNED" ? "자사자산" : "외부임차"} ({selectedAsset.supplier || selectedAsset.renter || "본사"})
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="opacity-60">기물 시리얼 S/N</span>
-                      <span className="font-bold">{selectedAsset.serialNo || "-"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="opacity-60">현재 대여 고객사</span>
-                      <span className="text-emerald-800 font-bold">{selectedAsset.currentCustomer || "미배치 (창고보관)"}</span>
-                    </div>
-                    {selectedAsset.currentSite && (
-                      <div className="flex justify-between">
-                        <span className="opacity-60">배치 현장</span>
-                        <span>{selectedAsset.currentSite}</span>
-                      </div>
-                    )}
-                    {selectedAsset.contractNo && (
-                      <div className="flex justify-between">
-                        <span className="opacity-60">연결 계약번호</span>
-                        <span className="text-blue-700 font-bold">{selectedAsset.contractNo}</span>
-                      </div>
-                    )}
-                    {selectedAsset.customSpec && (
-                      <div className="flex justify-between">
-                        <span className="opacity-60">개별 커스텀 사양</span>
-                        <span>{selectedAsset.customSpec}</span>
-                      </div>
-                    )}
-                    {selectedAsset.memo && (
-                      <div className="border-t pt-1 mt-1 flex flex-col gap-0.5 font-sans">
-                        <span className="opacity-60">관리 메모</span>
-                        <span>{selectedAsset.memo}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Depreciation Calculator & Financial Audit */}
-              <div className="flex flex-col gap-2">
-                <span className="font-bold text-[11px] opacity-75 flex items-center gap-1">
-                  <Calculator className="w-3.5 h-3.5 text-purple-600" />
-                  <span>감가상각 정액법 실시간 회계 대차대조</span>
-                </span>
-
-                {isEditingDossier ? (
-                  <div className="p-2.5 rounded border flex flex-col gap-2 bg-purple-500/5 text-xs">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">취득일자</label>
-                        <input
-                          type="date"
-                          value={editForm.acquisitionDate ? String(editForm.acquisitionDate).slice(0, 10) : ""}
-                          onChange={(e) => setEditForm({ ...editForm, acquisitionDate: e.target.value })}
-                          className="h-7 px-2 border rounded text-xs font-mono"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">취득원가 (원)</label>
-                        <input
-                          type="number"
-                          value={editForm.acquisitionCost ?? 0}
-                          onChange={(e) => setEditForm({ ...editForm, acquisitionCost: Number(e.target.value || 0) })}
-                          className="h-7 px-2 border rounded text-xs font-mono text-right font-bold"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">내용연수 (년)</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={editForm.usefulLifeYears ?? 4}
-                          onChange={(e) => {
-                            const yrs = Math.max(1, parseInt(e.target.value || "1", 10));
-                            setEditForm({ ...editForm, usefulLifeYears: yrs, usefulLifeMonths: yrs * 12 });
-                          }}
-                          className="h-7 px-2 border rounded text-xs font-mono"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">내용월수 (개월)</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={editForm.usefulLifeMonths ?? (editForm.usefulLifeYears || 4) * 12}
-                          onChange={(e) => {
-                            const mos = Math.max(1, parseInt(e.target.value || "1", 10));
-                            setEditForm({
-                              ...editForm,
-                              usefulLifeMonths: mos,
-                              usefulLifeYears: Math.max(1, Math.ceil(mos / 12)),
-                            });
-                          }}
-                          className="h-7 px-2 border rounded text-xs font-mono font-bold text-purple-700"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium">잔존가치 (원)</label>
-                        <input
-                          type="number"
-                          min={0}
-                          value={editForm.salvageValue ?? 0}
-                          onChange={(e) => setEditForm({ ...editForm, salvageValue: Number(e.target.value || 0) })}
-                          className="h-7 px-2 border rounded text-xs font-mono text-right"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-2.5 rounded border flex flex-col gap-1.5 font-mono text-[11px] bg-purple-500/5">
-                    <div className="flex justify-between">
-                      <span className="opacity-60">취득일자 / 내용월수</span>
-                      <span>
-                        {selectedAsset.acquisitionDate ? String(selectedAsset.acquisitionDate).slice(0, 10) : "-"} (
-                        {(selectedAsset.usefulLifeMonths || selectedAsset.usefulLifeYears * 12) <= 1
-                          ? "1개월 전액상각"
-                          : `${selectedAsset.usefulLifeYears}년 / ${selectedAsset.usefulLifeMonths || selectedAsset.usefulLifeYears * 12}개월`}
-                        )
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="opacity-60">취득원가</span>
-                      <span className="font-bold">{formatErpCurrency(selectedAsset.acquisitionCost)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="opacity-60">잔존가치</span>
-                      <span>{formatErpCurrency(selectedAsset.salvageValue)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="opacity-60">월 감가상각비</span>
-                      <span className="text-rose-700 font-bold">{formatErpCurrency(selectedAsset.monthlyDepreciation)} / 월</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="opacity-60">감가상각 누계액</span>
-                      <span className="text-rose-700">{formatErpCurrency(selectedAsset.accumulatedDepreciation)}</span>
-                    </div>
-                    <div className="border-t pt-1 mt-1 flex justify-between text-xs">
-                      <span className="font-bold opacity-80">현재 잔존 장부가액</span>
-                      <span className="font-bold text-purple-800 font-mono">
-                        {formatErpCurrency(selectedAsset.bookValue)}
-                      </span>
-                    </div>
-                    <div className="border-t pt-1 mt-1 flex justify-between text-xs">
-                      <span className="font-bold opacity-80">누적 렌탈매출 기여액</span>
-                      <span className="font-bold text-emerald-700 font-mono">
-                        {formatErpCurrency(selectedAsset.cumulativeRevenue || 0)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="font-bold opacity-80">누적 순수익 (매출-상각)</span>
-                      <span className={`font-bold font-mono ${(selectedAsset.cumulativeNetProfit || 0) >= 0 ? "text-blue-700" : "text-rose-700"}`}>
-                        {(selectedAsset.cumulativeNetProfit || 0) >= 0
-                          ? `+${formatErpCurrency(selectedAsset.cumulativeNetProfit || 0)}`
-                          : formatErpCurrency(selectedAsset.cumulativeNetProfit || 0)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Lifecycle Audit History Timeline */}
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[11px] opacity-75 flex items-center gap-1">
-                    <History className="w-3.5 h-3.5 text-blue-600" />
-                    <span>자산 생애주기 통합 감사 이력 ({formatErpNumber(assetLogs.length)}건)</span>
-                  </span>
-                </div>
-
-                {/* Add Quick Maintenance Log Input */}
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="text"
-                    value={newLogMemo}
-                    onChange={(e) => setNewLogMemo(e.target.value)}
-                    placeholder="정비 조치 / 입출고 메모 입력"
-                    className="h-7 px-2 border rounded text-xs flex-1"
-                  />
-                  <button
-                    onClick={handleAddLog}
-                    disabled={!newLogMemo.trim()}
-                    className="h-7 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold disabled:opacity-50"
-                  >
-                    이력 기록
-                  </button>
-                </div>
-
-                {loadingLogs ? (
-                  <div className="p-3 text-center text-xs opacity-60 font-mono">이력 조회 중...</div>
-                ) : assetLogs.length === 0 ? (
-                  <div className="p-3 text-center border rounded text-xs opacity-60">등록된 이력이 없습니다.</div>
-                ) : (
-                  <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto">
-                    {assetLogs.map((log) => (
-                      <div key={log.id} className="p-2 rounded border flex flex-col gap-0.5 text-[11px]">
-                        <div className="flex items-center justify-between font-mono">
-                          <span
-                            className={`px-1 py-0.2 rounded text-[10px] font-bold ${
-                              log.eventType === "ACQUISITION"
-                                ? "bg-emerald-600 text-white"
-                                : log.eventType === "OUTBOUND"
-                                ? "bg-blue-600 text-white"
-                                : log.eventType === "INBOUND"
-                                ? "bg-teal-600 text-white"
-                                : log.eventType === "REPAIR"
-                                ? "bg-amber-600 text-white"
-                                : "bg-slate-600 text-white"
-                            }`}
-                          >
-                            {log.eventType === "ACQUISITION"
-                              ? "자산취득"
-                              : log.eventType === "OUTBOUND"
-                              ? "출고대여"
-                              : log.eventType === "INBOUND"
-                              ? "회수입고"
-                              : log.eventType === "REPAIR"
-                              ? "정비조치"
-                              : log.eventType}
-                          </span>
-                          <span className="opacity-60">{log.eventDate}</span>
-                        </div>
-                        <span className="font-sans leading-relaxed">{log.memo || "-"}</span>
-                        {log.customerName && (
-                          <span className="text-[10px] opacity-70">
-                            거래처: {log.customerName} {log.siteName ? `(${log.siteName})` : ""}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </aside>
+          <AssetDossierDrawer
+            selectedAsset={selectedAsset}
+            isAdmin={isAdmin}
+            isEditingDossier={isEditingDossier}
+            onStartEdit={() => setIsEditingDossier(true)}
+            onSaveDossier={handleSaveDossier}
+            onClose={() => setSelectedAsset(null)}
+            editForm={editForm}
+            setEditForm={setEditForm}
+            optionCatalog={optionCatalog}
+            assetLogs={assetLogs}
+            loadingLogs={loadingLogs}
+            newLogMemo={newLogMemo}
+            onChangeNewLogMemo={setNewLogMemo}
+            onAddLog={handleAddLog}
+          />
         )}
       </div>
 
       {/* 5. Modal: Acquire / Register New Asset */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-lg border p-5 shadow-2xl erp-login-card flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="flex items-center gap-2">
-                <Layers className="w-5 h-5 text-blue-600" />
-                <span className="font-bold text-sm">신규 자산 취득 등록</span>
-              </div>
-              <button onClick={() => setShowAddModal(false)} className="opacity-70 hover:opacity-100">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddAsset} className="flex flex-col gap-3 text-xs">
-              <div className="grid grid-cols-12 gap-3">
-                <div className="col-span-5 flex flex-col gap-1">
-                  <label className="font-semibold">시작 자산번호 (DR + yymm + 3자리) *</label>
-                  <input
-                    type="text"
-                    required
-                    value={addForm.assetNo}
-                    onChange={(e) => setAddForm({ ...addForm, assetNo: e.target.value })}
-                    placeholder="예: DR2610001"
-                    className="h-8 px-2.5 border rounded font-mono font-bold text-blue-700"
-                  />
-                </div>
-                <div className="col-span-2 flex flex-col gap-1">
-                  <label className="font-semibold">취득 수량 (대) *</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={200}
-                    required
-                    value={addForm.qty}
-                    onChange={(e) => setAddForm({ ...addForm, qty: e.target.value })}
-                    className="h-8 px-2 border rounded font-mono font-bold text-right text-emerald-700"
-                  />
-                </div>
-                <div className="col-span-5 flex flex-col gap-1">
-                  <label className="font-semibold">매핑 제품 모델 *</label>
-                  <select
-                    required
-                    value={addForm.rentalProductId}
-                    onChange={(e) => setAddForm({ ...addForm, rentalProductId: e.target.value })}
-                    className="h-8 px-2 border rounded font-medium"
-                  >
-                    <option value="">제품 모델을 선택하십시오</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.modelName} ({p.modelCode})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {parseInt(addForm.qty || "1", 10) > 1 && (
-                <div className="px-3 py-1.5 rounded bg-blue-500/10 border border-blue-500/30 text-[11px] font-mono flex items-center justify-between">
-                  <span className="font-semibold text-blue-700">
-                    일괄 채번 구간: {getAssetNoRangePreview(addForm.assetNo, addForm.qty, addForm.acquisitionDate)}
-                  </span>
-                  <span className="font-bold text-emerald-700">
-                    총 취득원가 합계: {formatErpCurrency((parseFloat(addForm.acquisitionCost || "0") || 0) * (parseInt(addForm.qty || "1", 10) || 1))}
-                  </span>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold">기물 시리얼 번호 (S/N, 다중 취득 시 쉼표 구분 가능)</label>
-                  <input
-                    type="text"
-                    value={addForm.serialNo}
-                    onChange={(e) => setAddForm({ ...addForm, serialNo: e.target.value })}
-                    placeholder={parseInt(addForm.qty || "1", 10) > 1 ? "예: SN-001, SN-002 (또는 공란)" : "예: SN-2026-9918"}
-                    className="h-8 px-2.5 border rounded"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold">소유 구분</label>
-                  <select
-                    value={addForm.ownerType}
-                    onChange={(e) => setAddForm({ ...addForm, ownerType: e.target.value })}
-                    className="h-8 px-2 border rounded font-bold"
-                  >
-                    <option value="OWNED">자사자산 (당사소유 취득)</option>
-                    <option value="RENTED">외부임차 (전대용 렌탈)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold">취득 일자</label>
-                  <input
-                    type="date"
-                    value={addForm.acquisitionDate}
-                    onChange={(e) => {
-                      const nextDate = e.target.value;
-                      const nextNo = computeNextAssetNo(nextDate, assets);
-                      setAddForm({ ...addForm, acquisitionDate: nextDate, assetNo: nextNo });
-                    }}
-                    className="h-8 px-2 border rounded"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold">대당 취득 원가 (원)</label>
-                  <input
-                    type="text"
-                    value={formatErpNumber(addForm.acquisitionCost)}
-                    onChange={(e) => {
-                      const raw = e.target.value.replace(/[^0-9]/g, "");
-                      setAddForm({
-                        ...addForm,
-                        acquisitionCost: raw,
-                        salvageValue: Math.round(parseFloat(raw || "0") * 0.1).toString(),
-                      });
-                    }}
-                    className="h-8 px-2.5 border rounded font-mono font-bold text-right"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold">대당 잔존 가치 (원)</label>
-                  <input
-                    type="text"
-                    value={formatErpNumber(addForm.salvageValue)}
-                    onChange={(e) => setAddForm({ ...addForm, salvageValue: e.target.value.replace(/[^0-9]/g, "") })}
-                    className="h-8 px-2.5 border rounded font-mono text-right"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold">내용연수 (년)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={addForm.usefulLifeYears}
-                    onChange={(e) => {
-                      const yrs = Math.max(1, parseInt(e.target.value || "1", 10));
-                      setAddForm({
-                        ...addForm,
-                        usefulLifeYears: String(yrs),
-                        usefulLifeMonths: String(yrs * 12),
-                      });
-                    }}
-                    className="h-8 px-2.5 border rounded font-mono"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold">내용월수 (개월)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={addForm.usefulLifeMonths}
-                    onChange={(e) => {
-                      const mos = Math.max(1, parseInt(e.target.value || "1", 10));
-                      setAddForm({
-                        ...addForm,
-                        usefulLifeMonths: String(mos),
-                        usefulLifeYears: String(Math.max(1, Math.ceil(mos / 12))),
-                      });
-                    }}
-                    className="h-8 px-2.5 border rounded font-mono font-bold text-purple-700"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-semibold">공급처 / 임차처 명칭</label>
-                  <input
-                    type="text"
-                    value={addForm.supplier}
-                    onChange={(e) => setAddForm({ ...addForm, supplier: e.target.value })}
-                    placeholder="예: (주)컴퓨존 B2B"
-                    className="h-8 px-2.5 border rounded"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="font-semibold">초기 대여 고객사 및 현장 (옵션)</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="text"
-                    value={addForm.currentCustomer}
-                    onChange={(e) => setAddForm({ ...addForm, currentCustomer: e.target.value })}
-                    placeholder="대여 고객사명 (미배치 시 공란)"
-                    className="h-8 px-2.5 border rounded"
-                  />
-                  <input
-                    type="text"
-                    value={addForm.currentSite}
-                    onChange={(e) => setAddForm({ ...addForm, currentSite: e.target.value })}
-                    placeholder="배치 현장명"
-                    className="h-8 px-2.5 border rounded"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="font-semibold">취득 메모 및 특이사항</label>
-                <textarea
-                  value={addForm.memo}
-                  onChange={(e) => setAddForm({ ...addForm, memo: e.target.value })}
-                  placeholder="보증기간, 초기 검수 상태, 설치 메모 등"
-                  rows={2}
-                  className="p-2 border rounded"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-3 py-1.5 rounded border text-xs hover:opacity-80"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-sm"
-                >
-                  {parseInt(addForm.qty || "1", 10) > 1
-                    ? `자산 ${addForm.qty}대 일괄 취득 확정`
-                    : "자산 취득 확정"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <AssetAcquireModal
+          assets={assets}
+          addForm={addForm}
+          setAddForm={setAddForm}
+          productComboboxOptions={productComboboxOptions}
+          optionCatalog={optionCatalog}
+          onSubmit={handleAddAsset}
+          onClose={() => setShowAddModal(false)}
+        />
       )}
     </div>
   );

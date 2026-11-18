@@ -4,6 +4,8 @@ import { getErpPool } from "@/lib/supabaseErp";
 import { encryptPii, decryptPii, hashPassword } from "@/lib/piiCrypto";
 import { putErpPrivateObject } from "@/lib/r2ErpVault";
 import { calculateAnnualLeaveEntitlement } from "@/lib/erpFormat";
+import { runSchemaInitOnce } from "@/lib/erpSchemaCache";
+import { requireMenuPermission, logPiiReadAudit } from "@/lib/erpRbacGuard";
 
 async function uploadDataUrlToR2IfNeeded(
   rawUrl: string | null | undefined,
@@ -31,78 +33,175 @@ async function uploadDataUrlToR2IfNeeded(
 }
 
 async function ensureEmploymentContractsTable(pool: any) {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS erp_employment_contracts (
-      id SERIAL PRIMARY KEY,
-      contract_no VARCHAR(50) UNIQUE NOT NULL,
-      contract_year VARCHAR(10) NOT NULL,
-      contract_type VARCHAR(20) NOT NULL DEFAULT 'NEW_HIRE',
-      status VARCHAR(20) NOT NULL DEFAULT 'SIGNED',
-      employee_id INTEGER REFERENCES erp_employees(id) ON DELETE SET NULL,
-      employee_name VARCHAR(100) NOT NULL,
-      employee_phone VARCHAR(50),
-      employee_address TEXT,
-      resident_reg_no TEXT,
-      employer_name VARCHAR(100) NOT NULL DEFAULT '주식회사 드래곤알피에이',
-      employer_phone VARCHAR(50) DEFAULT '010-9224-4097',
-      employer_address TEXT DEFAULT '서울 금천구 서부샛길 528, 547호',
-      employer_rep VARCHAR(50) DEFAULT '이정용',
-      start_date DATE NOT NULL,
-      end_date DATE,
-      workplace TEXT DEFAULT '서울시 금천구 벚꽃로278, SJ테크노빌 B155호',
-      job_description TEXT DEFAULT '주식회사 현대렌탈서비스의 렌탈자산 입/출고/배송 설치 등',
-      work_start_time VARCHAR(10) DEFAULT '09:00',
-      work_end_time VARCHAR(10) DEFAULT '18:00',
-      break_minutes INTEGER DEFAULT 60,
-      work_days VARCHAR(100) DEFAULT '매주 월~금요일 근무',
-      weekly_holiday VARCHAR(100) DEFAULT '주휴일 매주 토~일요일',
-      base_salary NUMERIC(15, 2) NOT NULL DEFAULT 0,
-      hourly_wage_note VARCHAR(100) DEFAULT '시급은 통상시급',
-      meal_allowance NUMERIC(15, 2) NOT NULL DEFAULT 200000,
-      vehicle_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
-      other_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
-      other_allowance_label VARCHAR(100) DEFAULT '',
-      pay_day INTEGER DEFAULT 10,
-      pay_method VARCHAR(200) DEFAULT '근로자 명의 예금통장에 입금',
-      contract_date DATE NOT NULL,
-      scan_file_name VARCHAR(255),
-      scan_file_url TEXT,
-      pledge_date DATE,
-      pledge_scan_name VARCHAR(255),
-      pledge_scan_url TEXT,
-      memo TEXT,
-      created_by VARCHAR(50) DEFAULT 'ADMIN',
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-  `);
+  await runSchemaInitOnce("erp_employment_contracts_schema_v1", async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_employment_contracts (
+        id SERIAL PRIMARY KEY,
+        contract_no VARCHAR(50) UNIQUE NOT NULL,
+        contract_year VARCHAR(10) NOT NULL,
+        contract_type VARCHAR(20) NOT NULL DEFAULT 'NEW_HIRE',
+        status VARCHAR(20) NOT NULL DEFAULT 'SIGNED',
+        employee_id INTEGER REFERENCES erp_employees(id) ON DELETE SET NULL,
+        employee_name VARCHAR(100) NOT NULL,
+        employee_phone VARCHAR(50),
+        employee_address TEXT,
+        resident_reg_no TEXT,
+        employer_name VARCHAR(100) NOT NULL DEFAULT '주식회사 드래곤알피에이',
+        employer_phone VARCHAR(50) DEFAULT '010-9224-4097',
+        employer_address TEXT DEFAULT '서울 금천구 서부샛길 528, 547호',
+        employer_rep VARCHAR(50) DEFAULT '이정용',
+        start_date DATE NOT NULL,
+        end_date DATE,
+        workplace TEXT DEFAULT '서울시 금천구 벚꽃로278, SJ테크노빌 B155호',
+        job_description TEXT DEFAULT '주식회사 현대렌탈서비스의 렌탈자산 입/출고/배송 설치 등',
+        work_start_time VARCHAR(10) DEFAULT '09:00',
+        work_end_time VARCHAR(10) DEFAULT '18:00',
+        break_minutes INTEGER DEFAULT 60,
+        work_days VARCHAR(100) DEFAULT '매주 월~금요일 근무',
+        weekly_holiday VARCHAR(100) DEFAULT '주휴일 매주 토~일요일',
+        base_salary NUMERIC(15, 2) NOT NULL DEFAULT 0,
+        hourly_wage_note VARCHAR(100) DEFAULT '시급은 통상시급',
+        meal_allowance NUMERIC(15, 2) NOT NULL DEFAULT 200000,
+        vehicle_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
+        other_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
+        other_allowance_label VARCHAR(100) DEFAULT '',
+        pay_day INTEGER DEFAULT 10,
+        pay_method VARCHAR(200) DEFAULT '근로자 명의 예금통장에 입금',
+        contract_date DATE NOT NULL,
+        scan_file_name VARCHAR(255),
+        scan_file_url TEXT,
+        pledge_date DATE,
+        pledge_scan_name VARCHAR(255),
+        pledge_scan_url TEXT,
+        memo TEXT,
+        created_by VARCHAR(50) DEFAULT 'ADMIN',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
 
-  await pool.query(`
-    ALTER TABLE erp_employment_contracts
-    ADD COLUMN IF NOT EXISTS resident_reg_no TEXT,
-    ADD COLUMN IF NOT EXISTS pledge_date DATE,
-    ADD COLUMN IF NOT EXISTS pledge_scan_name VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS pledge_scan_url TEXT;
-  `).catch(() => {});
+    await pool.query(`
+      ALTER TABLE erp_employment_contracts
+      ADD COLUMN IF NOT EXISTS resident_reg_no TEXT,
+      ADD COLUMN IF NOT EXISTS pledge_date DATE,
+      ADD COLUMN IF NOT EXISTS pledge_scan_name VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS pledge_scan_url TEXT;
+    `).catch(() => {});
 
-  await pool.query(`
-    ALTER TABLE erp_employees
-    ADD COLUMN IF NOT EXISTS resident_reg_no TEXT,
-    ADD COLUMN IF NOT EXISTS pledge_date DATE,
-    ADD COLUMN IF NOT EXISTS pledge_scan_name VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS pledge_scan_url TEXT;
-  `).catch(() => {});
+    await pool.query(`
+      ALTER TABLE erp_employees
+      ADD COLUMN IF NOT EXISTS resident_reg_no TEXT,
+      ADD COLUMN IF NOT EXISTS pledge_date DATE,
+      ADD COLUMN IF NOT EXISTS pledge_scan_name VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS pledge_scan_url TEXT;
+    `).catch(() => {});
+  });
 }
 
 export async function GET(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["employment_contract", "employment_contracts", "EMPLOYMENT_CONTRACT"],
+      "view"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const { searchParams } = new URL(request.url);
-    const year = searchParams.get("year") || "ALL";
-    const contractType = searchParams.get("contractType") || "ALL";
-    const employeeId = searchParams.get("employeeId") || "ALL";
+    const idParam = searchParams.get("id");
+    const includeFiles = searchParams.get("includeFiles") === "true";
 
     const pool = getErpPool();
     await ensureEmploymentContractsTable(pool);
+
+    // Fast path: 단건 근로계약서 및 스캔본 첨부파일 지연 로딩
+    if (idParam) {
+      const singleRes = await pool.query(
+        `SELECT
+          c.id,
+          c.contract_no as "contractNo",
+          c.contract_year as "contractYear",
+          c.contract_type as "contractType",
+          c.status,
+          c.employee_id as "employeeId",
+          c.employee_name as "employeeName",
+          COALESCE(c.employee_phone, e.phone, '') as "employeePhone",
+          COALESCE(c.employee_address, e.address, '') as "employeeAddress",
+          COALESCE(c.resident_reg_no, e.resident_reg_no, '') as "residentRegNo",
+          c.employer_name as "employerName",
+          c.employer_phone as "employerPhone",
+          c.employer_address as "employerAddress",
+          c.employer_rep as "employerRep",
+          c.start_date::text as "startDate",
+          c.end_date::text as "endDate",
+          c.workplace,
+          c.job_description as "jobDescription",
+          c.work_start_time as "workStartTime",
+          c.work_end_time as "workEndTime",
+          c.break_minutes as "breakMinutes",
+          c.work_days as "workDays",
+          c.weekly_holiday as "weeklyHoliday",
+          COALESCE(c.base_salary, 0)::numeric as "baseSalary",
+          COALESCE(c.hourly_wage_note, '시급은 통상시급') as "hourlyWageNote",
+          COALESCE(c.meal_allowance, 0)::numeric as "mealAllowance",
+          COALESCE(c.vehicle_allowance, 0)::numeric as "vehicleAllowance",
+          COALESCE(c.other_allowance, 0)::numeric as "otherAllowance",
+          COALESCE(c.other_allowance_label, '') as "otherAllowanceLabel",
+          COALESCE(c.pay_day, 10) as "payDay",
+          COALESCE(c.pay_method, '근로자 명의 예금통장에 입금') as "payMethod",
+          c.contract_date::text as "contractDate",
+          c.scan_file_name as "scanFileName",
+          c.scan_file_url as "scanFileUrl",
+          (c.scan_file_url IS NOT NULL AND c.scan_file_url <> '') as "hasScanFile",
+          COALESCE(c.pledge_date::text, e.pledge_date::text, c.start_date::text) as "pledgeDate",
+          COALESCE(c.pledge_scan_name, e.pledge_scan_name) as "pledgeScanName",
+          COALESCE(c.pledge_scan_url, e.pledge_scan_url) as "pledgeScanUrl",
+          (COALESCE(c.pledge_scan_url, e.pledge_scan_url) IS NOT NULL AND COALESCE(c.pledge_scan_url, e.pledge_scan_url) <> '') as "hasPledgeScan",
+          c.memo,
+          c.created_by as "createdBy",
+          c.created_at as "createdAt",
+          c.updated_at as "updatedAt",
+          e.employee_no as "employeeNo",
+          e.department,
+          e.position,
+          e.employment_status as "employmentStatus"
+        FROM erp_employment_contracts c
+        LEFT JOIN erp_employees e ON c.employee_id = e.id
+        WHERE c.id = $1
+        LIMIT 1`,
+        [Number(idParam)]
+      );
+      if (singleRes.rows.length === 0) {
+        return NextResponse.json({ success: false, error: "해당 근로계약서를 찾을 수 없습니다." }, { status: 404 });
+      }
+      const r = singleRes.rows[0];
+      const contract = {
+        ...r,
+        residentRegNo: decryptPii(r.residentRegNo),
+        baseSalary: Number(r.baseSalary || 0),
+        mealAllowance: Number(r.mealAllowance || 0),
+        vehicleAllowance: Number(r.vehicleAllowance || 0),
+        otherAllowance: Number(r.otherAllowance || 0),
+        totalMonthlyPay:
+          Number(r.baseSalary || 0) +
+          Number(r.mealAllowance || 0) +
+          Number(r.vehicleAllowance || 0) +
+          Number(r.otherAllowance || 0),
+      };
+      await logPiiReadAudit(request, guard.session, "erp_employment_contracts", {
+        count: 1,
+        isSingle: true,
+        contractId: contract.id,
+        employeeName: contract.employeeName,
+      });
+      return NextResponse.json({ success: true, contract });
+    }
+
+    const year = searchParams.get("year") || "ALL";
+    const contractType = searchParams.get("contractType") || "ALL";
+    const employeeId = searchParams.get("employeeId") || "ALL";
 
     const conditions: string[] = [];
     const params: any[] = [];
@@ -157,10 +256,12 @@ export async function GET(request: Request) {
         COALESCE(c.pay_method, '근로자 명의 예금통장에 입금') as "payMethod",
         c.contract_date::text as "contractDate",
         c.scan_file_name as "scanFileName",
-        c.scan_file_url as "scanFileUrl",
+        ${includeFiles ? `c.scan_file_url as "scanFileUrl",` : `CASE WHEN c.scan_file_url LIKE 'data:%' THEN NULL ELSE c.scan_file_url END as "scanFileUrl",`}
+        (c.scan_file_url IS NOT NULL AND c.scan_file_url <> '') as "hasScanFile",
         COALESCE(c.pledge_date::text, e.pledge_date::text, c.start_date::text) as "pledgeDate",
         COALESCE(c.pledge_scan_name, e.pledge_scan_name) as "pledgeScanName",
-        COALESCE(c.pledge_scan_url, e.pledge_scan_url) as "pledgeScanUrl",
+        ${includeFiles ? `COALESCE(c.pledge_scan_url, e.pledge_scan_url) as "pledgeScanUrl",` : `CASE WHEN COALESCE(c.pledge_scan_url, e.pledge_scan_url) LIKE 'data:%' THEN NULL ELSE COALESCE(c.pledge_scan_url, e.pledge_scan_url) END as "pledgeScanUrl",`}
+        (COALESCE(c.pledge_scan_url, e.pledge_scan_url) IS NOT NULL AND COALESCE(c.pledge_scan_url, e.pledge_scan_url) <> '') as "hasPledgeScan",
         c.memo,
         c.created_by as "createdBy",
         c.created_at as "createdAt",
@@ -190,6 +291,14 @@ export async function GET(request: Request) {
         Number(r.otherAllowance || 0),
     }));
 
+    if (contracts.length > 0) {
+      await logPiiReadAudit(request, guard.session, "erp_employment_contracts", {
+        count: contracts.length,
+        isSingle: false,
+        contractYear: year,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       contracts,
@@ -205,6 +314,15 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["employment_contract", "employment_contracts", "EMPLOYMENT_CONTRACT"],
+      "save"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const body = await request.json();
     const {
       contractNo,
@@ -308,7 +426,10 @@ export async function POST(request: Request) {
       const bSal = Number(baseSalary || 2800000);
       const mAll = Number(mealAllowance || 200000);
       const vAll = Number(vehicleAllowance || 0);
-      const hWage = Math.round(bSal / 209);
+      const hWage =
+        body.hourlyWage !== undefined && body.hourlyWage !== null && body.hourlyWage !== ""
+          ? Math.round(Number(String(body.hourlyWage).replace(/,/g, "")) || 0)
+          : 0;
       const autoGrant = calculateAnnualLeaveEntitlement(effStartDate).grantDays;
 
       const insEmp = await pool.query(
@@ -351,26 +472,23 @@ export async function POST(request: Request) {
       const bSal = Number(baseSalary || 0);
       const mAll = Number(mealAllowance || 0);
       const vAll = Number(vehicleAllowance || 0);
-      const hWage = bSal > 0 ? Math.round(bSal / 209) : 0;
 
       await pool.query(
         `UPDATE erp_employees
          SET
            base_salary = CASE WHEN $1 > 0 THEN $1 ELSE base_salary END,
-           hourly_wage = CASE WHEN $2 > 0 THEN $2 ELSE hourly_wage END,
-           meal_allowance = CASE WHEN $3 > 0 THEN $3 ELSE meal_allowance END,
-           vehicle_allowance = $4,
-           phone = COALESCE(NULLIF($5, ''), phone),
-           address = COALESCE(NULLIF($6, ''), address),
-           resident_reg_no = COALESCE(NULLIF($7, ''), resident_reg_no),
-           pledge_date = COALESCE($8::date, pledge_date),
-           pledge_scan_name = COALESCE(NULLIF($9, ''), pledge_scan_name),
-           pledge_scan_url = COALESCE(NULLIF($10, ''), pledge_scan_url),
+           meal_allowance = CASE WHEN $2 > 0 THEN $2 ELSE meal_allowance END,
+           vehicle_allowance = $3,
+           phone = COALESCE(NULLIF($4, ''), phone),
+           address = COALESCE(NULLIF($5, ''), address),
+           resident_reg_no = COALESCE(NULLIF($6, ''), resident_reg_no),
+           pledge_date = COALESCE($7::date, pledge_date),
+           pledge_scan_name = COALESCE(NULLIF($8, ''), pledge_scan_name),
+           pledge_scan_url = COALESCE(NULLIF($9, ''), pledge_scan_url),
            updated_at = NOW()
-         WHERE id = $11`,
+         WHERE id = $10`,
         [
           bSal,
-          hWage,
           mAll,
           vAll,
           employeePhone ? String(employeePhone).trim() : "",
@@ -466,6 +584,15 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["employment_contract", "employment_contracts", "EMPLOYMENT_CONTRACT"],
+      "save"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const body = await request.json();
     const {
       id,
@@ -611,26 +738,23 @@ export async function PUT(request: Request) {
       const bSal = Number(baseSalary || 0);
       const mAll = Number(mealAllowance || 0);
       const vAll = Number(vehicleAllowance || 0);
-      const hWage = bSal > 0 ? Math.round(bSal / 209) : 0;
 
       await pool.query(
         `UPDATE erp_employees
          SET
            base_salary = CASE WHEN $1 > 0 THEN $1 ELSE base_salary END,
-           hourly_wage = CASE WHEN $2 > 0 THEN $2 ELSE hourly_wage END,
-           meal_allowance = CASE WHEN $3 > 0 THEN $3 ELSE meal_allowance END,
-           vehicle_allowance = $4,
-           phone = COALESCE(NULLIF($5, ''), phone),
-           address = COALESCE(NULLIF($6, ''), address),
-           resident_reg_no = COALESCE(NULLIF($7, ''), resident_reg_no),
-           pledge_date = COALESCE($8::date, pledge_date),
-           pledge_scan_name = COALESCE(NULLIF($9, ''), pledge_scan_name),
-           pledge_scan_url = COALESCE(NULLIF($10, ''), pledge_scan_url),
+           meal_allowance = CASE WHEN $2 > 0 THEN $2 ELSE meal_allowance END,
+           vehicle_allowance = $3,
+           phone = COALESCE(NULLIF($4, ''), phone),
+           address = COALESCE(NULLIF($5, ''), address),
+           resident_reg_no = COALESCE(NULLIF($6, ''), resident_reg_no),
+           pledge_date = COALESCE($7::date, pledge_date),
+           pledge_scan_name = COALESCE(NULLIF($8, ''), pledge_scan_name),
+           pledge_scan_url = COALESCE(NULLIF($9, ''), pledge_scan_url),
            updated_at = NOW()
-         WHERE id = $11`,
+         WHERE id = $10`,
         [
           bSal,
-          hWage,
           mAll,
           vAll,
           employeePhone ? String(employeePhone).trim() : "",
@@ -659,6 +783,15 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const guard = await requireMenuPermission(
+      request,
+      ["employment_contract", "employment_contracts", "EMPLOYMENT_CONTRACT"],
+      "save"
+    );
+    if (!guard.authorized) {
+      return guard.response!;
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) {

@@ -3,8 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Users, UserPlus, RefreshCw, Calendar, CheckCircle2, XCircle, 
-  Clock, AlertCircle, Search, Edit2, Shield, FileText, Check, X,
-  ArrowUpDown, ArrowUp, ArrowDown
+  Clock, AlertCircle, Search, Edit2, Shield, FileText, Check, X
 } from "lucide-react";
 import { 
   formatErpNumber, 
@@ -12,11 +11,11 @@ import {
   formatErpQty, 
   formatErpLeaveDays,
   sortErpItems, 
-  SortDirection,
   LEAVE_TYPE_LIST,
   isNonDeductingLeaveType,
   getLeaveTypeLabel
 } from "@/lib/erpFormat";
+import { SortableTh, useErpTableSort } from "./SortableTh";
 
 interface EmployeeTabProps {
   currentUser: any;
@@ -73,7 +72,7 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
     setLoading(true);
     try {
       const [empRes, leaveRes] = await Promise.all([
-        fetch("/api/erp/employees", { cache: "no-store" }),
+        fetch("/api/erp/employees?includePii=1", { cache: "no-store" }),
         fetch("/api/erp/leaves", { cache: "no-store" })
       ]);
       const empData = await empRes.json();
@@ -106,48 +105,43 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
     });
   }, [employees, searchTerm, deptFilter, statusFilter]);
 
-  // Sorting State
-  const [sortKey, setSortKey] = useState<string>("employeeNo");
-  const [sortDir, setSortDir] = useState<SortDirection>("asc");
+  // Sorting State (3단계: asc ➔ desc ➔ null 정렬안함)
+  const { sortKey, sortDir, handleSort } = useErpTableSort("employeeNo", "asc");
+  const leaveSort = useErpTableSort("createdAt", "desc");
 
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
+  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => (
+    <SortableTh
+      label={label}
+      colKey={key}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onSort={handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-800"
+      iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+    />
+  );
 
-  const renderSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => {
-    const isActive = sortKey === key;
-    return (
-      <th
-        onClick={() => handleSort(key)}
-        className={`py-2.5 px-3 cursor-pointer select-none transition text-${align} whitespace-nowrap hover:bg-[#d0c6b4] dark:hover:bg-slate-800`}
-        title={`${label} 기준 정렬`}
-      >
-        <div className={`inline-flex items-center gap-1.5 ${align === "right" ? "justify-end w-full" : align === "center" ? "justify-center w-full" : "justify-start"}`}>
-          <span>{label}</span>
-          <span className="shrink-0">
-            {isActive ? (
-              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" /> : <ArrowDown className="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400 font-bold" />
-            ) : (
-              <ArrowUpDown className="w-3.5 h-3.5 opacity-30" />
-            )}
-          </span>
-        </div>
-      </th>
-    );
-  };
+  const renderLeaveSortTh = (label: string, key: string, align: "left" | "right" | "center" = "left") => (
+    <SortableTh
+      label={label}
+      colKey={key}
+      sortKey={leaveSort.sortKey}
+      sortDir={leaveSort.sortDir}
+      onSort={leaveSort.handleSort}
+      align={align}
+      className="py-2.5 px-3 hover:bg-[#d0c6b4] dark:hover:bg-slate-800"
+      iconClassName="w-3.5 h-3.5 text-[#1d4ed8] dark:text-blue-400"
+    />
+  );
 
   const sortedEmployees = useMemo(() => {
     return sortErpItems(filteredEmployees, sortKey, sortDir);
   }, [filteredEmployees, sortKey, sortDir]);
 
   const sortedLeaves = useMemo(() => {
-    return sortErpItems(leaves, sortKey, sortDir);
-  }, [leaves, sortKey, sortDir]);
+    return sortErpItems(leaves, leaveSort.sortKey, leaveSort.sortDir);
+  }, [leaves, leaveSort.sortKey, leaveSort.sortDir]);
 
   // Handle Add Employee
   const handleAddEmployee = async (e: React.FormEvent) => {
@@ -482,15 +476,15 @@ export const EmployeeTab: React.FC<EmployeeTabProps> = ({ currentUser }) => {
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-[#e2dbcd] text-[#0f172a] sticky top-0 border-b border-[#b5a894] font-semibold select-none z-10 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-800">
               <tr>
-                {renderSortTh("신청일", "createdAt")}
-                {renderSortTh("사원명", "employeeName")}
-                {renderSortTh("부서 / 직급", "department")}
-                {renderSortTh("연차 구분", "leaveType")}
-                {renderSortTh("기간", "startDate")}
-                {renderSortTh("차감일수", "deductedDays", "right")}
-                {renderSortTh("신청 사유", "reason")}
-                {renderSortTh("결재 상태", "status")}
-                {renderSortTh("결재자", "approverName")}
+                {renderLeaveSortTh("신청일", "createdAt")}
+                {renderLeaveSortTh("사원명", "employeeName")}
+                {renderLeaveSortTh("부서 / 직급", "department")}
+                {renderLeaveSortTh("연차 구분", "leaveType")}
+                {renderLeaveSortTh("기간", "startDate")}
+                {renderLeaveSortTh("차감일수", "deductedDays", "right")}
+                {renderLeaveSortTh("신청 사유", "reason")}
+                {renderLeaveSortTh("결재 상태", "status")}
+                {renderLeaveSortTh("결재자", "approverName")}
                 <th className="py-2.5 px-3 text-center">결재 조치</th>
               </tr>
             </thead>

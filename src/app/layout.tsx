@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import ClientSecurityGuard from "@/components/security/ClientSecurityGuard";
 
 export const viewport: Viewport = {
   themeColor: "#2563eb",
@@ -167,6 +168,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen flex flex-col bg-slate-950 text-slate-100 antialiased selection:bg-blue-600 selection:text-white">
+        <ClientSecurityGuard />
         {children}
       </body>
     </html>

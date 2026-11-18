@@ -1,6 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool } from "@/lib/supabaseErp";
+import { decryptPii, encryptPii } from "@/lib/piiCrypto";
+import { runSchemaInitOnce } from "@/lib/erpSchemaCache";
 
 const SEED_ORIGINAL_CONTENTS: Record<string, string> = {
   "2026년 중소기업 스마트서비스 지원사업 (AI·RPA·클라우드 솔루션 구축 및 고도화)": `[공고원문 요약본 - 중소벤처기업부 공고 / 전담기관: 중소기업기술정보진흥원(TIPA)]
@@ -125,55 +127,62 @@ const SEED_ORIGINAL_CONTENTS: Record<string, string> = {
 };
 
 async function ensureGovSupportTables(pool: any) {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS erp_gov_support_items (
-      id SERIAL PRIMARY KEY,
-      category VARCHAR(32) NOT NULL DEFAULT 'SUPPORT',
-      agency VARCHAR(120) NOT NULL DEFAULT '정부기관',
-      title VARCHAR(300) NOT NULL,
-      region VARCHAR(80) DEFAULT '전국',
-      target_audience VARCHAR(200) DEFAULT '중소·벤처기업',
-      support_amount VARCHAR(150) DEFAULT '공고문 참조',
-      start_date VARCHAR(40),
-      end_date VARCHAR(40),
-      dday_label VARCHAR(40),
-      fit_score INTEGER NOT NULL DEFAULT 85,
-      status VARCHAR(32) NOT NULL DEFAULT 'DISCOVERED',
-      summary TEXT,
-      eligibility_detail TEXT,
-      action_plan TEXT,
-      original_content TEXT,
-      source_url TEXT,
-      keywords TEXT,
-      is_bookmarked BOOLEAN NOT NULL DEFAULT false,
-      memo TEXT,
-      published_date VARCHAR(40),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
+  await runSchemaInitOnce("erp_gov_support_schema_v2", async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_gov_support_items (
+        id SERIAL PRIMARY KEY,
+        category VARCHAR(32) NOT NULL DEFAULT 'SUPPORT',
+        agency VARCHAR(120) NOT NULL DEFAULT '정부기관',
+        title VARCHAR(300) NOT NULL,
+        region VARCHAR(80) DEFAULT '전국',
+        target_audience VARCHAR(200) DEFAULT '중소·벤처기업',
+        support_amount VARCHAR(150) DEFAULT '공고문 참조',
+        start_date VARCHAR(40),
+        end_date VARCHAR(40),
+        dday_label VARCHAR(40),
+        fit_score INTEGER NOT NULL DEFAULT 85,
+        status VARCHAR(32) NOT NULL DEFAULT 'DISCOVERED',
+        summary TEXT,
+        eligibility_detail TEXT,
+        action_plan TEXT,
+        original_content TEXT,
+        source_url TEXT,
+        keywords TEXT,
+        is_bookmarked BOOLEAN NOT NULL DEFAULT false,
+        memo TEXT,
+        published_date VARCHAR(40),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
 
-  await pool.query(`
-    ALTER TABLE erp_gov_support_items
-    ADD COLUMN IF NOT EXISTS original_content TEXT;
-  `);
+    await pool.query(`
+      ALTER TABLE erp_gov_support_items
+      ADD COLUMN IF NOT EXISTS original_content TEXT;
+    `);
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS erp_ai_intel_settings (
-      id INTEGER PRIMARY KEY DEFAULT 1,
-      gemini_api_key TEXT,
-      gemini_model VARCHAR(80) NOT NULL DEFAULT 'gemini-2.5-pro',
-      company_profile TEXT NOT NULL DEFAULT '주식회사 드래곤알피에이 (IT/RPA 업무자동화 솔루션, AI ERP 개발, IT장비/디스플레이/노트북/복합기/TV 렌탈 및 구축 운영용역 전문 법인, 서울 금천구 가산디지털단지 소재 중소기업)',
-      interest_keywords TEXT NOT NULL DEFAULT '스마트서비스, 클라우드 바우처, AI 바우처, RPA 자동화, 중소기업 R&D, 디지털 전환(DX), 서비스형 SW(SaaS), 고용창출장려금, 청년일자리도약장려금, 조달청 나라장터 렌탈/임차 공고, 마이스(MICE)/전시 디스플레이 렌탈 트렌드',
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_ai_intel_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        gemini_api_key TEXT,
+        groq_api_key TEXT,
+        gemini_model VARCHAR(80) NOT NULL DEFAULT 'gemini-2.5-pro',
+        company_profile TEXT NOT NULL DEFAULT '주식회사 드래곤알피에이 (IT/RPA 업무자동화 솔루션, AI ERP 개발, IT장비/디스플레이/노트북/복합기/TV 렌탈 및 구축 운영용역 전문 법인, 서울 금천구 가산디지털단지 소재 중소기업)',
+        interest_keywords TEXT NOT NULL DEFAULT '스마트서비스, 클라우드 바우처, AI 바우처, RPA 자동화, 중소기업 R&D, 디지털 전환(DX), 서비스형 SW(SaaS), 고용창출장려금, 청년일자리도약장려금, 조달청 나라장터 렌탈/임차 공고, 마이스(MICE)/전시 디스플레이 렌탈 트렌드',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
 
-  await pool.query(`
-    INSERT INTO erp_ai_intel_settings (id)
-    VALUES (1)
-    ON CONFLICT (id) DO NOTHING;
-  `);
+    await pool.query(`
+      ALTER TABLE erp_ai_intel_settings
+      ADD COLUMN IF NOT EXISTS groq_api_key TEXT;
+    `);
+
+    await pool.query(`
+      INSERT INTO erp_ai_intel_settings (id)
+      VALUES (1)
+      ON CONFLICT (id) DO NOTHING;
+    `);
 
   // 초기 기본 시드 데이터 (최초 0건일 때 실무 활용도가 높은 주요 정부지원사업·뉴스·트렌드 제공)
   const countRes = await pool.query(`SELECT COUNT(*)::int AS cnt FROM erp_gov_support_items`);
@@ -374,15 +383,16 @@ async function ensureGovSupportTables(pool: any) {
     }
   } else {
     // 기존 시드 데이터 중 original_content가 비어 있는 항목 자동 보강
-    for (const [seedTitle, seedOrig] of Object.entries(SEED_ORIGINAL_CONTENTS)) {
-      await pool.query(
-        `UPDATE erp_gov_support_items
-         SET original_content = $1
-         WHERE title = $2 AND (original_content IS NULL OR original_content = '')`,
-        [seedOrig, seedTitle]
-      );
+      for (const [seedTitle, seedOrig] of Object.entries(SEED_ORIGINAL_CONTENTS)) {
+        await pool.query(
+          `UPDATE erp_gov_support_items
+           SET original_content = $1
+           WHERE title = $2 AND (original_content IS NULL OR original_content = '')`,
+          [seedOrig, seedTitle]
+        );
+      }
     }
-  }
+  });
 }
 
 function maskApiKey(key: string | null | undefined): string {
@@ -601,7 +611,7 @@ export async function GET(request: Request) {
 
     const sRow = settingsRes.rows[0] || {};
     const envKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY || "";
-    const storedKey = sRow.gemini_api_key || "";
+    const storedKey = decryptPii(sRow.gemini_api_key || "");
     const activeKey = storedKey || envKey;
 
     return NextResponse.json({
@@ -638,10 +648,13 @@ export async function POST(request: Request) {
       const { geminiApiKey, geminiModel, companyProfile, interestKeywords } = body;
       const currentRes = await pool.query(`SELECT gemini_api_key FROM erp_ai_intel_settings WHERE id = 1`);
       const existingKey = currentRes.rows[0]?.gemini_api_key || null;
+      const rawNewKey = geminiApiKey !== undefined && geminiApiKey !== null ? String(geminiApiKey).trim() : "";
       const nextKey =
-        geminiApiKey !== undefined && geminiApiKey !== null && String(geminiApiKey).trim() !== ""
-          ? String(geminiApiKey).trim()
-          : existingKey;
+        rawNewKey && !rawNewKey.includes("****")
+          ? encryptPii(rawNewKey)
+          : existingKey
+          ? encryptPii(decryptPii(existingKey))
+          : null;
 
       await pool.query(
         `UPDATE erp_ai_intel_settings
@@ -790,7 +803,7 @@ export async function POST(request: Request) {
       const sRow = settingsRes.rows[0] || {};
       const apiKey =
         (body.tempApiKey && String(body.tempApiKey).trim()) ||
-        sRow.gemini_api_key ||
+        decryptPii(sRow.gemini_api_key || "") ||
         process.env.GEMINI_API_KEY ||
         process.env.GOOGLE_AI_API_KEY ||
         "";

@@ -43,6 +43,21 @@ export interface MonthlyTotal {
   nonOp: number;
 }
 
+export interface UnsettledInvoiceBreakdownItem {
+  id: number;
+  invoiceNo: string;
+  entityType: "CORP" | "INDIVIDUAL";
+  issueDate: string;
+  customerName: string;
+  itemName: string;
+  supplyAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+  settledAmount: number;
+  unpaidAmount: number;
+  settlementStatus: string;
+}
+
 export interface StatementsData {
   bs: {
     assets: {
@@ -50,6 +65,7 @@ export interface StatementsData {
       cashCorp: number;
       cashIndiv: number;
       accountsReceivable: number;
+      accountsReceivableItems?: UnsettledInvoiceBreakdownItem[];
       vatPrepaid: number;
       currentAssets: number;
       leaseDeposit?: number;
@@ -60,6 +76,7 @@ export interface StatementsData {
     };
     liabilities: {
       accountsPayable: number;
+      accountsPayableItems?: UnsettledInvoiceBreakdownItem[];
       withholdingTaxPayable: number;
       vatTaxPayable: number;
       corporateTaxPayable: number;

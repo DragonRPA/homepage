@@ -1,6 +1,7 @@
 "use client";
 
-import React from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   Scale,
   TrendingUp,
@@ -10,7 +11,7 @@ import {
   Save,
 } from "lucide-react";
 import { formatErpCurrency, formatErpInputNumber, cleanErpNumber } from "@/lib/erpFormat";
-import type { StatementsData } from "./financialReportTypes";
+import type { StatementsData, UnsettledInvoiceBreakdownItem } from "./financialReportTypes";
 
 interface FinancialStatementsBoardProps {
   statements: StatementsData;
@@ -36,6 +37,15 @@ interface FinancialStatementsBoardProps {
   onOpenStandardModal: (keyOrSubAccount: string, fallbackMajor?: string) => void;
 }
 
+interface HoverPopoverState {
+  kind: "AR" | "AP";
+  left: number;
+  top?: number;
+  bottom?: number;
+  width: number;
+  maxHeight: number;
+}
+
 export const FinancialStatementsBoard: React.FC<FinancialStatementsBoardProps> = ({
   statements,
   year,
@@ -59,6 +69,83 @@ export const FinancialStatementsBoard: React.FC<FinancialStatementsBoardProps> =
   onSaveRemarkAndTax,
   onOpenStandardModal,
 }) => {
+  const arItems: UnsettledInvoiceBreakdownItem[] = statements.bs.assets.accountsReceivableItems ?? [];
+  const apItems: UnsettledInvoiceBreakdownItem[] = statements.bs.liabilities.accountsPayableItems ?? [];
+
+  const [hoverPopover, setHoverPopover] = useState<HoverPopoverState | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+
+  const cancelCloseTimer = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleClosePopover = useCallback(() => {
+    cancelCloseTimer();
+    closeTimerRef.current = setTimeout(() => {
+      setHoverPopover(null);
+    }, 140);
+  }, [cancelCloseTimer]);
+
+  const closePopoverImmediately = useCallback(() => {
+    cancelCloseTimer();
+    setHoverPopover(null);
+  }, [cancelCloseTimer]);
+
+  const openHoverPopover = useCallback(
+    (kind: "AR" | "AP", el: HTMLElement) => {
+      cancelCloseTimer();
+      const rect = el.getBoundingClientRect();
+      const width = Math.min(660, window.innerWidth - 24);
+      const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const placeAbove = spaceBelow < 260 && spaceAbove > spaceBelow;
+
+      setHoverPopover({
+        kind,
+        left,
+        width,
+        maxHeight: Math.max(180, (placeAbove ? spaceAbove : spaceBelow) - 18),
+        ...(placeAbove
+          ? { bottom: Math.max(12, window.innerHeight - rect.top + 6) }
+          : { top: Math.max(12, rect.bottom + 6) }),
+      });
+    },
+    [cancelCloseTimer]
+  );
+
+  useEffect(() => {
+    if (!hoverPopover) return;
+    const handleScroll = (e: Event) => {
+      if (popoverRef.current && e.target instanceof Node && popoverRef.current.contains(e.target)) {
+        return;
+      }
+      closePopoverImmediately();
+    };
+    const handleResize = () => closePopoverImmediately();
+    window.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("scroll", handleScroll, true);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [hoverPopover, closePopoverImmediately]);
+
+  useEffect(() => {
+    return () => cancelCloseTimer();
+  }, [cancelCloseTimer]);
+
+  const activePopoverItems = hoverPopover?.kind === "AR" ? arItems : apItems;
+  const activePopoverTotal =
+    hoverPopover?.kind === "AR"
+      ? statements.bs.assets.accountsReceivable
+      : statements.bs.liabilities.accountsPayable;
+  const isArPopover = hoverPopover?.kind === "AR";
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
       {/* ① 재무상태표 (BS - Balance Sheet) */}
@@ -105,12 +192,27 @@ export const FinancialStatementsBoard: React.FC<FinancialStatementsBoardProps> =
                 </div>
               )}
               <div
-                onDoubleClick={() => onOpenStandardModal("BS_AR")}
-                title="더블클릭: 중소기업회계기준 제8조·제36조·제40조(매출채권·미수금) 설명"
+                onMouseEnter={(e) => openHoverPopover("AR", e.currentTarget)}
+                onMouseLeave={scheduleClosePopover}
+                onDoubleClick={() => {
+                  closePopoverImmediately();
+                  onOpenStandardModal("BS_AR");
+                }}
                 className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap cursor-pointer hover:bg-[#ebe5d8] dark:hover:bg-slate-900 select-none"
               >
-                <span>· 매출채권 (미수금)</span>
-                <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
+                <span className="flex items-center gap-1">
+                  <span>· 매출채권 (미수금)</span>
+                  {arItems.length > 0 && (
+                    <span className="text-[10px] font-mono text-[#1d4ed8] dark:text-blue-400">
+                      ({arItems.length}건)
+                    </span>
+                  )}
+                </span>
+                <span
+                  className={`font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right ${
+                    arItems.length > 0 ? "underline decoration-dotted underline-offset-2" : ""
+                  }`}
+                >
                   {formatErpCurrency(statements.bs.assets.accountsReceivable)}
                 </span>
               </div>
@@ -183,12 +285,27 @@ export const FinancialStatementsBoard: React.FC<FinancialStatementsBoardProps> =
                 </span>
               </div>
               <div
-                onDoubleClick={() => onOpenStandardModal("BS_AP")}
-                title="더블클릭: 중소기업회계기준 제15조·제41조(매입채무·미지급금) 설명"
+                onMouseEnter={(e) => openHoverPopover("AP", e.currentTarget)}
+                onMouseLeave={scheduleClosePopover}
+                onDoubleClick={() => {
+                  closePopoverImmediately();
+                  onOpenStandardModal("BS_AP");
+                }}
                 className="py-1 pl-4 pr-2 flex items-center justify-between text-xs text-[#334155] dark:text-slate-300 border-b border-dotted border-[#d5cbb8]/80 dark:border-slate-800/80 whitespace-nowrap cursor-pointer hover:bg-[#ebe5d8] dark:hover:bg-slate-900 select-none"
               >
-                <span>· 매입채무 (미지급금)</span>
-                <span className="font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right">
+                <span className="flex items-center gap-1">
+                  <span>· 매입채무 (미지급금)</span>
+                  {apItems.length > 0 && (
+                    <span className="text-[10px] font-mono text-[#dc2626] dark:text-rose-400">
+                      ({apItems.length}건)
+                    </span>
+                  )}
+                </span>
+                <span
+                  className={`font-mono tabular-nums font-semibold text-[#0f172a] dark:text-slate-100 text-right ${
+                    apItems.length > 0 ? "underline decoration-dotted underline-offset-2" : ""
+                  }`}
+                >
                   {formatErpCurrency(statements.bs.liabilities.accountsPayable)}
                 </span>
               </div>
@@ -612,6 +729,128 @@ export const FinancialStatementsBoard: React.FC<FinancialStatementsBoardProps> =
           </div>
         </div>
       </div>
+
+      {/* 매출채권(미수금) / 매입채무(미지급금) 마우스오버 상세 내역 팝오버 */}
+      {hoverPopover &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            onMouseEnter={cancelCloseTimer}
+            onMouseLeave={scheduleClosePopover}
+            style={{
+              position: "fixed",
+              left: `${hoverPopover.left}px`,
+              width: `${hoverPopover.width}px`,
+              maxHeight: `${hoverPopover.maxHeight}px`,
+              ...(hoverPopover.top !== undefined ? { top: `${hoverPopover.top}px` } : {}),
+              ...(hoverPopover.bottom !== undefined ? { bottom: `${hoverPopover.bottom}px` } : {}),
+            }}
+            className="z-[9999] flex flex-col bg-[#f4efe4] dark:bg-slate-900 border-2 border-[#b5a894] dark:border-slate-700 rounded shadow-2xl overflow-hidden text-[#0f172a] dark:text-slate-100"
+          >
+            {/* 상단 헤더 바 */}
+            <div className="shrink-0 bg-[#e2dbcd] dark:bg-slate-800 px-3 py-1.5 border-b border-[#b5a894] dark:border-slate-700 flex items-center justify-between gap-2">
+              <span className="text-xs font-bold whitespace-nowrap">
+                {isArPopover
+                  ? `매출채권 미수금 내역 (${activePopoverItems.length}건)`
+                  : `매입채무 미지급금 내역 (${activePopoverItems.length}건)`}
+              </span>
+              <span
+                className={`text-xs font-mono font-extrabold tabular-nums whitespace-nowrap ${
+                  isArPopover
+                    ? "text-[#1d4ed8] dark:text-blue-400"
+                    : "text-[#dc2626] dark:text-rose-400"
+                }`}
+              >
+                {isArPopover ? "미수합계 " : "미지급합계 "}
+                {formatErpCurrency(activePopoverTotal)}
+              </span>
+            </div>
+
+            {/* 본문 영역 */}
+            {activePopoverItems.length === 0 ? (
+              <div className="px-3 py-3 text-center text-xs text-[#64748b] dark:text-slate-400">
+                {isArPopover ? "미수 내역 없음" : "미지급 내역 없음"}
+              </div>
+            ) : (
+              <div className="flex-1 min-h-0 max-h-64 overflow-y-auto overflow-x-auto">
+                <table className="text-[11px] w-full border-collapse">
+                  <thead className="sticky top-0 bg-[#ebe5d8] dark:bg-slate-800/95 border-b border-[#b5a894] dark:border-slate-700 text-[#334155] dark:text-slate-300 font-bold">
+                    <tr>
+                      <th className="py-1.5 px-2 text-left whitespace-nowrap">작성일자</th>
+                      <th className="py-1.5 px-2 text-left whitespace-nowrap">거래처명</th>
+                      <th className="py-1.5 px-2 text-left whitespace-nowrap">품목</th>
+                      <th className="py-1.5 px-2 text-right whitespace-nowrap">합계금액</th>
+                      <th className="py-1.5 px-2 text-right whitespace-nowrap">
+                        {isArPopover ? "기수납액" : "기지급액"}
+                      </th>
+                      <th className="py-1.5 px-2 text-right whitespace-nowrap">
+                        {isArPopover ? "미수잔액" : "미지급잔액"}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#d5cbb8] dark:divide-slate-800">
+                    {activePopoverItems.map((item) => (
+                      <tr
+                        key={item.id}
+                        className="hover:bg-[#ebe5d8]/70 dark:hover:bg-slate-800/40"
+                      >
+                        <td className="py-1.5 px-2 font-mono whitespace-nowrap">
+                          {item.issueDate}
+                        </td>
+                        <td className="py-1.5 px-2 max-w-[140px] truncate font-semibold whitespace-nowrap">
+                          {entityFilter === "ALL" && (
+                            <span
+                              className={`mr-1 px-1 py-0.5 rounded text-[9px] font-bold ${
+                                item.entityType === "CORP"
+                                  ? "bg-[#dbeafe] text-[#1e40af] dark:bg-blue-500/20 dark:text-blue-300"
+                                  : "bg-[#fef3c7] text-[#92400e] dark:bg-amber-500/20 dark:text-amber-300"
+                              }`}
+                            >
+                              {item.entityType === "CORP" ? "법인" : "개인"}
+                            </span>
+                          )}
+                          <span>{item.customerName}</span>
+                        </td>
+                        <td className="py-1.5 px-2 max-w-[190px] truncate whitespace-nowrap">
+                          {item.itemName}
+                        </td>
+                        <td className="py-1.5 px-2 text-right font-mono tabular-nums whitespace-nowrap">
+                          {formatErpCurrency(item.totalAmount)}
+                        </td>
+                        <td className="py-1.5 px-2 text-right font-mono tabular-nums whitespace-nowrap">
+                          {item.settledAmount > 0 ? (
+                            <span className="text-[#047857] dark:text-emerald-400 font-semibold">
+                              {formatErpCurrency(item.settledAmount)}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td
+                          className={`py-1.5 px-2 text-right font-mono tabular-nums font-bold whitespace-nowrap ${
+                            isArPopover
+                              ? "text-[#1d4ed8] dark:text-blue-400"
+                              : "text-[#dc2626] dark:text-rose-400"
+                          }`}
+                        >
+                          {formatErpCurrency(item.unpaidAmount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* 하단 푸터 바 */}
+            <div className="shrink-0 bg-[#e2dbcd]/80 dark:bg-slate-800/80 px-3 py-1 border-t border-[#c4b6a0] dark:border-slate-700 flex items-center justify-between text-[10px] text-[#475569] dark:text-slate-400 whitespace-nowrap">
+              <span>부가세 포함 청구합계 기준</span>
+              <span>더블클릭: 회계기준 상세</span>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

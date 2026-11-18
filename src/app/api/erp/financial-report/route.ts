@@ -35,6 +35,7 @@ import {
   classifyBankTxAccount,
   isVatInclusiveBankExpense,
 } from "./financialReportEngine";
+import type { UnsettledInvoiceBreakdownItem } from "@/app/erp/components/financial-report/financialReportTypes";
 export type { FinancialDetailItem, ParsedTaxPaymentRow };
 
 async function ensureFinancialReportSchema(pool: any) {
@@ -338,6 +339,32 @@ export async function GET(request: Request) {
     // 채권(매출 미수금) / 채무(매입 미지급금) 집계 (BS용)
     let accountsReceivable = 0;
     let accountsPayable = 0;
+    const accountsReceivableItems: UnsettledInvoiceBreakdownItem[] = [];
+    const accountsPayableItems: UnsettledInvoiceBreakdownItem[] = [];
+
+    const toUnsettledBreakdownItem = (
+      row: any,
+      ent: "CORP" | "INDIVIDUAL",
+      supply: number,
+      vat: number,
+      total: number,
+      reconciled: number,
+      remain: number,
+      fallbackItemName: string
+    ): UnsettledInvoiceBreakdownItem => ({
+      id: Number(row.id),
+      invoiceNo: row.invoice_no || `INV-${row.id}`,
+      entityType: ent,
+      issueDate: String(row.issue_date || "").slice(0, 10),
+      customerName: row.customer_name || "-",
+      itemName: row.item_name || row.memo || fallbackItemName,
+      supplyAmount: supply,
+      vatAmount: vat,
+      totalAmount: total,
+      settledAmount: reconciled,
+      unpaidAmount: remain,
+      settlementStatus: row.settlement_status || "UNPAID",
+    });
 
     // 3. 세금계산서 분류 적재 (예정/미수금 포함 정상 처리 가정)
     for (const row of invRes.rows) {
@@ -351,6 +378,11 @@ export async function GET(request: Request) {
 
       if (row.io_type === "SALE") {
         accountsReceivable += remain;
+        if (remain > 0) {
+          accountsReceivableItems.push(
+            toUnsettledBreakdownItem(row, ent, supply, vat, total, reconciled, remain, "매출 세금계산서")
+          );
+        }
         let subAccount = "운영·유지보수 용역매출";
         let rentalTypeBadge = "";
         if (row.domain_type === "RENTAL") {
@@ -389,6 +421,11 @@ export async function GET(request: Request) {
         });
       } else {
         accountsPayable += remain;
+        if (remain > 0) {
+          accountsPayableItems.push(
+            toUnsettledBreakdownItem(row, ent, supply, vat, total, reconciled, remain, "매입 세금계산서")
+          );
+        }
         const isCapex = isCapitalizedAssetPurchaseInvoice(
           row.customer_name || "",
           row.item_name || "",
@@ -1252,6 +1289,7 @@ export async function GET(request: Request) {
         cashCorp: cashEndingCorp,
         cashIndiv: cashEndingIndiv,
         accountsReceivable,
+        accountsReceivableItems,
         vatPrepaid,
         currentAssets,
         leaseDeposit,
@@ -1262,6 +1300,7 @@ export async function GET(request: Request) {
       },
       liabilities: {
         accountsPayable,
+        accountsPayableItems,
         withholdingTaxPayable: endWthTaxPayable,
         vatTaxPayable,
         corporateTaxPayable: endCorpTaxPayable,

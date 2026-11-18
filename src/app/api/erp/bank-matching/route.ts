@@ -703,9 +703,7 @@ export async function GET(request: Request) {
     if (accountNo && accountNo !== "ALL") {
       params.push(accountNo);
       conditions.push(`account_no = $${params.length}`);
-    }
-
-    if (entityType && entityType !== "ALL") {
+    } else if (entityType && entityType !== "ALL") {
       params.push(entityType);
       conditions.push(`entity_type = $${params.length}`);
     }
@@ -852,8 +850,11 @@ export async function GET(request: Request) {
     }
 
     const excludedClosedCount = accountStatus.reduce((acc, item) => {
-      if (accountNo && accountNo !== "ALL" && item.accountNo !== accountNo) return acc;
-      if (entityType && entityType !== "ALL" && item.entityType !== entityType) return acc;
+      if (accountNo && accountNo !== "ALL") {
+        if (item.accountNo !== accountNo) return acc;
+      } else if (entityType && entityType !== "ALL") {
+        if (item.entityType !== entityType) return acc;
+      }
       return acc + Number(item.closedCount || 0);
     }, 0);
 

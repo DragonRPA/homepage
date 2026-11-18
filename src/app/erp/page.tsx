@@ -942,6 +942,12 @@ export default function ErpMainPage() {
           <BankMatchingTab
             currentUser={menuUser}
             selectedEntity={selectedEntity}
+            onSelectEntity={(e) => {
+              setSelectedEntity(e);
+              try {
+                localStorage.setItem("dragonrpa_erp_entity", e);
+              } catch (err) {}
+            }}
             isActive={activeMenu === "BANK_MATCHING"}
           />
         );

@@ -43,6 +43,7 @@ import { BankMatchModal } from "./bank-matching/BankMatchModal";
 export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
   currentUser,
   selectedEntity = "ALL",
+  onSelectEntity,
   isActive = true,
 }) => {
   const today = new Date().toISOString().substring(0, 10);
@@ -57,7 +58,13 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
   const [matchStatus, setMatchStatus] = useState<
     "UNCLOSED" | "ALL" | "MATCHED" | "UNMATCHED" | "PAYROLL" | "INVOICE"
   >("UNCLOSED");
-  const [accountFilter, setAccountFilter] = useState("ALL");
+  const [accountFilter, setAccountFilter] = useState<string>(() =>
+    selectedEntity === "CORP"
+      ? "478-081383-04-018"
+      : selectedEntity === "INDIVIDUAL"
+      ? "140-129404-04-018"
+      : "ALL"
+  );
   const [search, setSearch] = useState("");
   const prevActiveRef = useRef(isActive);
 
@@ -243,6 +250,19 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     }, 0);
   }, [filteredModalInvoices, selectedInvoiceIds]);
 
+  const handleAccountFilterChange = (nextAccountNo: string) => {
+    setAccountFilter(nextAccountNo);
+    if (!onSelectEntity) return;
+    if (nextAccountNo === "ALL") {
+      onSelectEntity("ALL");
+      return;
+    }
+    const accMeta = accountStatus.find((a) => a.accountNo === nextAccountNo);
+    const isIndiv =
+      accMeta?.entityType === "INDIVIDUAL" || nextAccountNo.includes("140");
+    onSelectEntity(isIndiv ? "INDIVIDUAL" : "CORP");
+  };
+
   const fetchTransactions = async () => {
     setLoading(true);
     try {
@@ -256,9 +276,6 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
       });
       if (accountFilter !== "ALL") {
         params.set("accountNo", accountFilter);
-      }
-      if (selectedEntity !== "ALL") {
-        params.set("entityType", selectedEntity);
       }
       const res = await fetch(`/api/erp/bank-matching?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
@@ -276,7 +293,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
 
   useEffect(() => {
     fetchTransactions();
-  }, [startDate, endDate, transType, txChannel, matchStatus, accountFilter, selectedEntity]);
+  }, [startDate, endDate, transType, txChannel, matchStatus, accountFilter]);
 
   // 타 메뉴 이동 후 재진입 시 기마감 내역을 기본 제외한 최신 미마감 상태로 복귀
   useEffect(() => {
@@ -908,7 +925,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
             </label>
             <select
               value={accountFilter}
-              onChange={(e) => setAccountFilter(e.target.value)}
+              onChange={(e) => handleAccountFilterChange(e.target.value)}
               className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1.5 rounded focus:outline-none focus:border-[#1d4ed8] font-medium whitespace-nowrap dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 max-w-[210px] sm:max-w-none truncate"
             >
               <option value="ALL">전체 계좌</option>
@@ -1011,7 +1028,7 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
                 key={acc.accountNo}
                 type="button"
                 onClick={() =>
-                  setAccountFilter((prev) => (prev === acc.accountNo ? "ALL" : acc.accountNo))
+                  handleAccountFilterChange(accountFilter === acc.accountNo ? "ALL" : acc.accountNo)
                 }
                 className={`inline-flex items-center gap-2 px-2.5 py-1 rounded border text-[11px] whitespace-nowrap transition ${
                   isSelected

@@ -31,6 +31,7 @@ export interface BankTransaction {
 export interface BankMatchingTabProps {
   currentUser: any;
   selectedEntity?: "ALL" | "CORP" | "INDIVIDUAL";
+  onSelectEntity?: (entity: "ALL" | "CORP" | "INDIVIDUAL") => void;
   isActive?: boolean;
 }
 

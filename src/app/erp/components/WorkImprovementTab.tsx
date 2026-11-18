@@ -22,6 +22,14 @@ import {
   Check,
   RotateCcw,
 } from "lucide-react";
+import {
+  ApprovalDepartmentLike,
+  getEffectiveApprovalRank,
+  isCeoEmployee,
+  isDepartmentHeadEmployee,
+  resolveWorkImprovementApprovalLine,
+  validateApprovalLineNoInversion,
+} from "@/lib/erpApprovalLine";
 
 export interface NumberedItemsMap {
   currentProcGroup: string[];
@@ -80,8 +88,11 @@ interface EmployeeOption {
   employeeNo: string;
   name: string;
   department: string;
+  departmentId?: number | null;
   position: string;
   duty?: string;
+  role?: string;
+  roleCode?: string;
   tierLevel?: number;
 }
 
@@ -122,55 +133,58 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-function createBlankReport(currentUser: any, employees: EmployeeOption[]): WorkImprovementReport {
-  // 대표이사를 제외한 부서장(팀장/부장/과장) 후보 우선 선정 (부서장 전결 원칙)
-  const nonCeoEmployees = employees.filter(
-    (e) => !e.duty?.includes("대표") && !e.position?.includes("대표")
-  );
-  const deptHeadCandidate =
-    nonCeoEmployees.find(
+function createBlankReport(
+  currentUser: any,
+  employees: EmployeeOption[],
+  departments: ApprovalDepartmentLike[] = []
+): WorkImprovementReport {
+  const matchedAuthor =
+    employees.find(
       (e) =>
-        e.department === currentUser?.department &&
-        (e.duty?.includes("팀장") ||
-          e.duty?.includes("부서장") ||
-          e.position?.includes("부장") ||
-          e.position?.includes("팀장"))
+        (currentUser?.id && Number(e.id) === Number(currentUser.id)) ||
+        (currentUser?.name && e.name === currentUser.name)
     ) ||
-    nonCeoEmployees.find(
-      (e) =>
-        e.duty?.includes("팀장") ||
-        e.duty?.includes("부서장") ||
-        e.position?.includes("부장") ||
-        e.position?.includes("팀장")
-    ) ||
-    nonCeoEmployees[0] ||
-    employees[0];
+    (currentUser
+      ? {
+          id: currentUser.id || 0,
+          employeeNo: currentUser.employeeNo || "",
+          name: currentUser.name || "",
+          department: currentUser.department || "렌탈운영팀",
+          departmentId: currentUser.departmentId ?? null,
+          position: currentUser.position || "담당",
+          duty: currentUser.duty || "",
+          role: currentUser.role || "",
+          roleCode: currentUser.roleCode || "",
+          tierLevel: currentUser.tierLevel ?? currentUser.tier_level ?? 0,
+        }
+      : null);
 
-  const reviewerCandidate =
-    nonCeoEmployees.find(
-      (e) =>
-        e.department === currentUser?.department &&
-        e.id !== deptHeadCandidate?.id &&
-        (e.position?.includes("과장") || e.position?.includes("차장") || (e.tierLevel && e.tierLevel >= 1))
-    ) || deptHeadCandidate;
+  const { reviewer, approver, autoApprove } = resolveWorkImprovementApprovalLine(
+    matchedAuthor,
+    employees,
+    departments
+  );
+
+  const authorIsCeo = isCeoEmployee(matchedAuthor);
 
   return {
     summaryTarget: "",
     summaryDate: getTodayIso(),
-    department: currentUser?.department || "렌탈운영팀",
+    department: currentUser?.department || matchedAuthor?.department || "렌탈운영팀",
     improveTypes: ["업무 효율화 / 자동화"],
     authorId: currentUser?.id ? Number(currentUser.id) : null,
     roleAuthor: currentUser?.duty || currentUser?.position || "담당",
     nameAuthor: currentUser?.name || "",
-    reviewerId: reviewerCandidate ? Number(reviewerCandidate.id) : null,
-    roleReviewer: reviewerCandidate?.duty || reviewerCandidate?.position || "팀장",
-    nameReviewer: reviewerCandidate?.name || "",
+    reviewerId: reviewer && Number(reviewer.id) > 0 ? Number(reviewer.id) : null,
+    roleReviewer:
+      reviewer?.duty || reviewer?.position || (autoApprove ? "부서장" : "팀장"),
+    nameReviewer: reviewer?.name || "",
     statusReviewer: "대기중",
     dateReviewer: getTodayDot(),
     commentReviewer: "",
-    approverId: deptHeadCandidate ? Number(deptHeadCandidate.id) : null,
-    roleApprover: "부서장",
-    nameApprover: deptHeadCandidate?.name || "",
+    approverId: approver && Number(approver.id) > 0 ? Number(approver.id) : null,
+    roleApprover: authorIsCeo ? "전결" : "부서장",
+    nameApprover: approver?.name || "",
     statusApprover: "대기중",
     dateApprover: getTodayDot(),
     commentApprover: "",
@@ -194,8 +208,9 @@ export const WorkImprovementTab: React.FC<{
 }> = ({ currentUser, initialReportId }) => {
   const [reports, setReports] = useState<WorkImprovementReport[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [departments, setDepartments] = useState<ApprovalDepartmentLike[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(initialReportId || null);
-  const [form, setForm] = useState<WorkImprovementReport>(() => createBlankReport(currentUser, []));
+  const [form, setForm] = useState<WorkImprovementReport>(() => createBlankReport(currentUser, [], []));
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
@@ -225,8 +240,10 @@ export const WorkImprovementTab: React.FC<{
 
       const list: WorkImprovementReport[] = data.reports || [];
       const empList: EmployeeOption[] = data.employees || [];
+      const deptList: ApprovalDepartmentLike[] = data.departments || [];
       setReports(list);
       setEmployees(empList);
+      setDepartments(deptList);
 
       const targetId = keepSelectionId !== undefined ? keepSelectionId : selectedId;
       if (targetId) {
@@ -243,7 +260,7 @@ export const WorkImprovementTab: React.FC<{
         setForm(list[0]);
       } else {
         setSelectedId(null);
-        setForm(createBlankReport(currentUser, empList));
+        setForm(createBlankReport(currentUser, empList, deptList));
       }
     } catch (err: any) {
       showToast(err.message, "error");
@@ -258,7 +275,7 @@ export const WorkImprovementTab: React.FC<{
 
   const handleNewReport = () => {
     setSelectedId(null);
-    setForm(createBlankReport(currentUser, employees));
+    setForm(createBlankReport(currentUser, employees, departments));
     showToast("신규 업무개선활동 보고서 양식이 준비되었습니다.");
   };
 
@@ -463,12 +480,72 @@ export const WorkImprovementTab: React.FC<{
     showToast(`${added.length}개의 첨부파일이 추가되었습니다.`);
   };
 
+  const resolveEmployeeByInput = (
+    nameValue?: string | null,
+    fallbackId?: number | null
+  ): EmployeeOption | null => {
+    const trimmed = String(nameValue || "").trim();
+    if (trimmed) {
+      return employees.find((e) => e.name === trimmed) || null;
+    }
+    if (fallbackId) {
+      return employees.find((e) => Number(e.id) === Number(fallbackId)) || null;
+    }
+    return null;
+  };
+
   // DB 저장 및 결재 상신
   const handleSaveToServer = async (submitApproval = true) => {
     if (!form.summaryTarget.trim()) {
       showToast("개선 대상 업무명(1-가. 대상)을 입력해주세요.", "error");
       return;
     }
+
+    if (employees.length > 0) {
+      const authorEmp =
+        resolveEmployeeByInput(form.nameAuthor, form.authorId) ||
+        (currentUser?.id ? employees.find((e) => Number(e.id) === Number(currentUser.id)) : null);
+      const reviewerEmp = form.nameReviewer.trim()
+        ? resolveEmployeeByInput(form.nameReviewer)
+        : null;
+      const approverEmp = form.nameApprover.trim()
+        ? resolveEmployeeByInput(form.nameApprover)
+        : null;
+
+      if (form.nameReviewer.trim() && !reviewerEmp) {
+        showToast(
+          /대표/.test(form.nameReviewer)
+            ? "대표이사는 검토자로 지정할 수 없습니다. (부서장 전결 정책)"
+            : `검토자('${form.nameReviewer}')를 재직 사원 목록에서 선택해주세요.`,
+          "error"
+        );
+        return;
+      }
+      if (form.nameApprover.trim() && !approverEmp) {
+        showToast(
+          /대표/.test(form.nameApprover)
+            ? "대표이사는 승인자(전결권자)로 지정할 수 없습니다. 소속 부서장을 지정하세요."
+            : `승인자('${form.nameApprover}')를 재직 사원 목록에서 선택해주세요.`,
+          "error"
+        );
+        return;
+      }
+
+      const check = validateApprovalLineNoInversion({
+        author: authorEmp,
+        reviewer: reviewerEmp,
+        approver: approverEmp,
+        roleAuthor: form.roleAuthor,
+        roleReviewer: form.roleReviewer,
+        roleApprover: form.roleApprover,
+        departments,
+      });
+      if (!check.valid) {
+        showToast(check.error || "결재선 역전 오류를 확인해주세요.", "error");
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const isEdit = Boolean(selectedId);
@@ -494,7 +571,7 @@ export const WorkImprovementTab: React.FC<{
 
       showToast(
         submitApproval
-          ? "업무개선활동 보고서가 저장 및 전자결재함에 연동되었습니다."
+          ? data.message || "업무개선활동 보고서가 저장 및 전자결재함에 연동되었습니다."
           : "업무개선활동 보고서가 임시저장되었습니다."
       );
     } catch (err: any) {
@@ -814,6 +891,59 @@ export const WorkImprovementTab: React.FC<{
     );
   };
 
+  const authorEmpForForm =
+    resolveEmployeeByInput(form.nameAuthor, form.authorId) ||
+    (form.authorId ? employees.find((e) => Number(e.id) === Number(form.authorId)) || null : null);
+  const approverEmpForForm = resolveEmployeeByInput(form.nameApprover, form.approverId);
+  const authorRankForForm = getEffectiveApprovalRank(authorEmpForForm, form.roleAuthor);
+  const approverRankForForm = approverEmpForForm
+    ? getEffectiveApprovalRank(approverEmpForForm, form.roleApprover)
+    : 7;
+
+  const currentUserEmp =
+    employees.find((e) => Number(e.id) === Number(currentUser?.id)) || currentUser;
+  const currentUserIsCeo = isCeoEmployee(currentUserEmp);
+  const currentUserIsDeptHead =
+    !currentUserIsCeo && isDepartmentHeadEmployee(currentUserEmp, departments);
+  const currentUserRank = getEffectiveApprovalRank(currentUserEmp);
+  const isSelfReport = Boolean(
+    currentUser?.id && form.authorId && Number(currentUser.id) === Number(form.authorId)
+  );
+
+  const canActReviewer =
+    Boolean(selectedId) &&
+    !currentUserIsCeo &&
+    !(form.statusApprover === "최종승인" && !currentUserIsDeptHead) &&
+    ((Number(currentUser?.id) === Number(form.reviewerId) && !isSelfReport) ||
+      (currentUserIsDeptHead && !isSelfReport && currentUserRank >= authorRankForForm));
+
+  const canActApprover =
+    Boolean(selectedId) &&
+    !currentUserIsCeo &&
+    (Number(currentUser?.id) === Number(form.approverId) ||
+      (currentUserIsDeptHead && currentUserRank >= authorRankForForm)) &&
+    (!isSelfReport || currentUserIsDeptHead);
+
+  const reviewerCandidates = employees.filter((emp) => {
+    if (isCeoEmployee(emp)) return false;
+    const empRank = getEffectiveApprovalRank(emp);
+    if (isCeoEmployee(authorEmpForForm)) return false;
+    if (empRank > approverRankForForm) return false;
+    if (authorEmpForForm && isDepartmentHeadEmployee(authorEmpForForm, departments)) {
+      return Number(emp.id) === Number(authorEmpForForm.id);
+    }
+    return (
+      empRank > authorRankForForm ||
+      (approverEmpForForm && Number(emp.id) === Number(approverEmpForForm.id))
+    );
+  });
+
+  const approverCandidates = employees.filter((emp) => {
+    if (isCeoEmployee(emp)) return false;
+    if (!isDepartmentHeadEmployee(emp, departments)) return false;
+    return getEffectiveApprovalRank(emp) >= authorRankForForm;
+  });
+
   return (
     <div className="flex flex-col min-h-full md:h-full bg-[#ebe5d8] text-[#0f172a] dark:bg-slate-950 dark:text-slate-100 md:overflow-hidden font-sans">
       {/* Toast 알림 */}
@@ -1067,7 +1197,18 @@ export const WorkImprovementTab: React.FC<{
                       <input
                         type="text"
                         value={form.nameAuthor}
-                        onChange={(e) => setForm({ ...form, nameAuthor: e.target.value })}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const matched = employees.find((emp) => emp.name === val.trim());
+                          setForm({
+                            ...form,
+                            nameAuthor: val,
+                            authorId: matched ? matched.id : null,
+                            roleAuthor: matched
+                              ? matched.duty || matched.position || form.roleAuthor
+                              : form.roleAuthor,
+                          });
+                        }}
                         placeholder="작성자 성명"
                         className="w-full text-center font-bold text-xs bg-transparent focus:outline-none"
                       />
@@ -1080,28 +1221,24 @@ export const WorkImprovementTab: React.FC<{
                     <td className="border border-[#cbd5e0] dark:border-slate-700 p-1.5 align-middle">
                       <input
                         type="text"
-                        list="erp-emp-list"
+                        list="erp-reviewer-emp-list"
                         value={form.nameReviewer}
                         onChange={(e) => {
                           const val = e.target.value;
-                          const matched = employees.find((emp) => emp.name === val);
+                          const matched = employees.find((emp) => emp.name === val.trim());
                           setForm({
                             ...form,
                             nameReviewer: val,
-                            reviewerId: matched ? matched.id : form.reviewerId,
-                            roleReviewer:
-                              matched?.duty || matched?.position || form.roleReviewer,
+                            reviewerId: matched ? matched.id : null,
+                            roleReviewer: matched
+                              ? matched.duty || matched.position || form.roleReviewer
+                              : form.roleReviewer,
                           });
                         }}
                         placeholder="검토자 성명"
                         className="w-full text-center font-bold text-xs bg-transparent focus:outline-none"
                       />
-                      {Boolean(selectedId) &&
-                      (Number(currentUser?.id) === Number(form.reviewerId) ||
-                        String(currentUser?.role || "").toUpperCase() === "MANAGER" ||
-                        String(currentUser?.roleCode || "").toUpperCase() === "MANAGER" ||
-                        String(currentUser?.role || "").toUpperCase() === "ADMIN") &&
-                      Number(currentUser?.id) !== Number(form.authorId) ? (
+                      {canActReviewer ? (
                         <select
                           value={form.statusReviewer}
                           onChange={(e) =>
@@ -1138,27 +1275,22 @@ export const WorkImprovementTab: React.FC<{
                     <td className="border border-[#cbd5e0] dark:border-slate-700 p-1.5 align-middle">
                       <input
                         type="text"
-                        list="erp-emp-list"
+                        list="erp-approver-emp-list"
                         value={form.nameApprover}
                         onChange={(e) => {
                           const val = e.target.value;
-                          const matched = employees.find((emp) => emp.name === val);
+                          const matched = employees.find((emp) => emp.name === val.trim());
                           setForm({
                             ...form,
                             nameApprover: val,
-                            approverId: matched ? matched.id : form.approverId,
+                            approverId: matched ? matched.id : null,
                             roleApprover: "부서장",
                           });
                         }}
                         placeholder="부서장 성명"
                         className="w-full text-center font-bold text-xs bg-transparent focus:outline-none"
                       />
-                      {Boolean(selectedId) &&
-                      (Number(currentUser?.id) === Number(form.approverId) ||
-                        String(currentUser?.role || "").toUpperCase() === "MANAGER" ||
-                        String(currentUser?.roleCode || "").toUpperCase() === "MANAGER" ||
-                        String(currentUser?.role || "").toUpperCase() === "ADMIN") &&
-                      Number(currentUser?.id) !== Number(form.authorId) ? (
+                      {canActApprover ? (
                         <select
                           value={form.statusApprover}
                           onChange={(e) =>
@@ -1193,10 +1325,17 @@ export const WorkImprovementTab: React.FC<{
                   </tr>
                 </tbody>
               </table>
-              <datalist id="erp-emp-list">
-                {employees.map((emp) => (
+              <datalist id="erp-reviewer-emp-list">
+                {reviewerCandidates.map((emp) => (
                   <option key={emp.id} value={emp.name}>
-                    {emp.department} {emp.position}
+                    {emp.department} {emp.duty || emp.position}
+                  </option>
+                ))}
+              </datalist>
+              <datalist id="erp-approver-emp-list">
+                {approverCandidates.map((emp) => (
+                  <option key={emp.id} value={emp.name}>
+                    {emp.department} {emp.duty || emp.position} (부서장)
                   </option>
                 ))}
               </datalist>
@@ -1608,16 +1747,8 @@ export const WorkImprovementTab: React.FC<{
                 Boolean(form.commentReviewer?.trim()) ||
                 Boolean(form.commentApprover?.trim());
 
-              const isDecisionMaker =
-                Boolean(selectedId) &&
-                (Number(currentUser?.id) === Number(form.reviewerId) ||
-                  Number(currentUser?.id) === Number(form.approverId) ||
-                  String(currentUser?.role || "").toUpperCase() === "MANAGER" ||
-                  String(currentUser?.roleCode || "").toUpperCase() === "MANAGER" ||
-                  String(currentUser?.role || "").toUpperCase() === "ADMIN") &&
-                Number(currentUser?.id) !== Number(form.authorId);
-
-              const showFeedbackSection = Boolean(selectedId) && (hasDecisionFeedback || isDecisionMaker);
+              const showFeedbackSection =
+                Boolean(selectedId) && (hasDecisionFeedback || canActReviewer || canActApprover);
 
               if (!showFeedbackSection) return null;
 
@@ -1643,7 +1774,7 @@ export const WorkImprovementTab: React.FC<{
                         <input
                           type="text"
                           value={form.dateReviewer}
-                          readOnly={!isDecisionMaker}
+                          readOnly={!canActReviewer}
                           onChange={(e) =>
                             setForm({ ...form, dateReviewer: e.target.value })
                           }
@@ -1653,20 +1784,20 @@ export const WorkImprovementTab: React.FC<{
                       </div>
                       <textarea
                         value={form.commentReviewer}
-                        readOnly={!isDecisionMaker}
+                        readOnly={!canActReviewer}
                         onChange={(e) =>
                           setForm({ ...form, commentReviewer: e.target.value })
                         }
                         rows={3}
                         placeholder={
-                          isDecisionMaker
+                          canActReviewer
                             ? "검토 의견 또는 보완 요청 사항을 기재하세요."
                             : "등록된 검토 의견이 없습니다."
                         }
                         className="w-full text-xs leading-relaxed p-2 rounded border border-transparent focus:border-[#2c5282] bg-white/70 dark:bg-slate-900 focus:outline-none resize-y"
                       />
-                      {/* 검토자 원클릭 결재 버튼 (결재권자에게만 노출) */}
-                      {isDecisionMaker && (
+                      {/* 검토자 원클릭 결재 버튼 (검토권자/부서장에게만 노출, 대표이사 제외) */}
+                      {canActReviewer && (
                         <div className="print:hidden flex items-center justify-end gap-1.5 mt-2 pt-2 border-t border-[#e2e8f0] dark:border-slate-700">
                           <button
                             type="button"
@@ -1706,7 +1837,7 @@ export const WorkImprovementTab: React.FC<{
                         <input
                           type="text"
                           value={form.dateApprover}
-                          readOnly={!isDecisionMaker}
+                          readOnly={!canActApprover}
                           onChange={(e) =>
                             setForm({ ...form, dateApprover: e.target.value })
                           }
@@ -1716,20 +1847,20 @@ export const WorkImprovementTab: React.FC<{
                       </div>
                       <textarea
                         value={form.commentApprover}
-                        readOnly={!isDecisionMaker}
+                        readOnly={!canActApprover}
                         onChange={(e) =>
                           setForm({ ...form, commentApprover: e.target.value })
                         }
                         rows={3}
                         placeholder={
-                          isDecisionMaker
+                          canActApprover
                             ? "최종 승인 의견 또는 반려 사유를 기재하세요."
                             : "등록된 승인 의견이 없습니다."
                         }
                         className="w-full text-xs leading-relaxed p-2 rounded border border-transparent focus:border-[#2c5282] bg-white/70 dark:bg-slate-900 focus:outline-none resize-y"
                       />
-                      {/* 승인자 원클릭 결재 버튼 (결재권자에게만 노출) */}
-                      {isDecisionMaker && (
+                      {/* 승인자 원클릭 결재 버튼 (오직 부서장 전결권자에게만 노출) */}
+                      {canActApprover && (
                         <div className="print:hidden flex items-center justify-end gap-1.5 mt-2 pt-2 border-t border-[#e2e8f0] dark:border-slate-700">
                           <button
                             type="button"

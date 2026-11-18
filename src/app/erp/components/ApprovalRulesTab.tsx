@@ -180,20 +180,20 @@ export const ApprovalRulesTab: React.FC<{ currentUser: any }> = ({ currentUser }
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-[11px]">
-            <span className="px-2 py-1 rounded bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300">
-              <strong className="text-[#1d4ed8] dark:text-blue-400">Tier 1:</strong> 팀원 (일반 기안)
+            <span className="px-2 py-1 rounded bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300 whitespace-nowrap">
+              <strong className="text-[#1d4ed8] dark:text-blue-400">Tier 1:</strong> 대리 (실무 검토)
             </span>
-            <span className="px-2 py-1 rounded bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300">
-              <strong className="text-[#047857] dark:text-emerald-400">Tier 2:</strong> 팀장 (1차 승인)
+            <span className="px-2 py-1 rounded bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300 whitespace-nowrap">
+              <strong className="text-[#047857] dark:text-emerald-400">Tier 2:</strong> 과장·파트장 (중간 검토)
             </span>
-            <span className="px-2 py-1 rounded bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300">
-              <strong className="text-[#b45309] dark:text-amber-400">Tier 3:</strong> 부서장 (중간 승인)
+            <span className="px-2 py-1 rounded bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300 whitespace-nowrap">
+              <strong className="text-[#b45309] dark:text-amber-400">Tier 3:</strong> 차장 (선임 검토)
             </span>
-            <span className="px-2 py-1 rounded bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300">
-              <strong className="text-[#6d28d9] dark:text-purple-400">Tier 4:</strong> 본부장/임원 (총괄 승인)
+            <span className="px-2 py-1 rounded bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300 whitespace-nowrap">
+              <strong className="text-[#6d28d9] dark:text-purple-400">Tier 4:</strong> 부서장·팀장 (전결)
             </span>
-            <span className="px-2 py-1 rounded bg-[#ebe5d8] border border-[#b5a894] text-[#0f172a] dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300">
-              <strong className="text-[#dc2626] dark:text-rose-400">Tier 5:</strong> 대표이사 (전결 마감)
+            <span className="px-2 py-1 rounded bg-[#fef2f2] border border-[#fecaca] text-[#991b1b] dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300 whitespace-nowrap">
+              <strong>대표이사:</strong> 결재 제외 (부서장 전결)
             </span>
           </div>
         </div>
@@ -231,18 +231,19 @@ export const ApprovalRulesTab: React.FC<{ currentUser: any }> = ({ currentUser }
                     <td className="py-2.5 px-3 whitespace-nowrap">
                       {isAdmin ? (
                         <select
-                          value={r.requiredTier}
+                          value={Math.min(4, Math.max(1, r.requiredTier || 4))}
                           onChange={(e) => handleChange(rule.id, "requiredTier", parseInt(e.target.value))}
                           className="bg-[#f4efe4] border border-[#b5a894] text-xs text-[#0f172a] px-2 py-1 rounded focus:outline-none focus:border-[#1d4ed8] font-semibold dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200"
                         >
-                          <option value={1}>Tier 1 (팀원)</option>
-                          <option value={2}>Tier 2 (팀장)</option>
-                          <option value={3}>Tier 3 (부서장)</option>
-                          <option value={4}>Tier 4 (본부장/임원)</option>
-                          <option value={5}>Tier 5 (대표이사)</option>
+                          <option value={1}>Tier 1 (대리)</option>
+                          <option value={2}>Tier 2 (과장·파트장)</option>
+                          <option value={3}>Tier 3 (차장)</option>
+                          <option value={4}>Tier 4 (부서장·팀장 전결)</option>
                         </select>
                       ) : (
-                        <span className="font-bold text-[#1d4ed8] dark:text-blue-400">Tier {r.requiredTier}</span>
+                        <span className="font-bold text-[#1d4ed8] dark:text-blue-400">
+                          Tier {Math.min(4, r.requiredTier || 4)}
+                        </span>
                       )}
                     </td>
                     <td className="py-2.5 px-3 text-center whitespace-nowrap">

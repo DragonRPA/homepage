@@ -6,6 +6,7 @@ import {
   RefreshCw, User, Calendar, ShieldCheck, ChevronRight
 } from "lucide-react";
 import { formatErpNumber } from "@/lib/erpFormat";
+import { isCeoEmployee, isDepartmentHeadEmployee } from "@/lib/erpApprovalLine";
 
 interface ApprovalStep {
   stepId: number;
@@ -43,6 +44,8 @@ export const ApprovalInboxTab: React.FC<{
   onOpenWorkImprovement?: (reportId: number) => void;
 }> = ({ currentUser, onOpenWorkImprovement }) => {
   const isAdmin = currentUser?.role === "ADMIN" || currentUser?.loginId === "admin";
+  const isCeo = isCeoEmployee(currentUser);
+  const isDeptHead = !isCeo && isDepartmentHeadEmployee(currentUser);
   const currentUserId = currentUser?.id;
 
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
@@ -54,6 +57,7 @@ export const ApprovalInboxTab: React.FC<{
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectComment, setRejectComment] = useState("");
   const [targetRejectReq, setTargetRejectReq] = useState<ApprovalRequest | null>(null);
+  const [targetRejectStepId, setTargetRejectStepId] = useState<number | null>(null);
 
   const [toastMessage, setToastMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const showToast = (text: string, type: "success" | "error" = "success") => {
@@ -65,7 +69,8 @@ export const ApprovalInboxTab: React.FC<{
     setLoading(true);
     try {
       let url = `/api/erp/approvals?status=${statusFilter}`;
-      if (!isAdmin && currentUserId) {
+      // 대표이사는 전사 결재 대기함에서 제외(본인 관련 건만 조회), 이력 탭은 전사 열람 가능
+      if (currentUserId && (!isAdmin || (isCeo && statusFilter === "PENDING"))) {
         url += `&userId=${currentUserId}`;
       }
       const res = await fetch(url, { cache: "no-store" });
@@ -91,24 +96,71 @@ export const ApprovalInboxTab: React.FC<{
 
   useEffect(() => {
     fetchInbox();
-  }, [statusFilter]);
+  }, [statusFilter, currentUserId]);
+
+  const getStepActionContext = (req: ApprovalRequest | null) => {
+    if (!req || req.status !== "PENDING" || isCeo || !currentUserId) {
+      return {
+        canAct: false,
+        isReviewerTurnOnly: false,
+        targetStepId: undefined as number | undefined,
+      };
+    }
+    const isRequesterSelf = Number(req.requesterId) === Number(currentUserId);
+    if (isRequesterSelf) {
+      return { canAct: false, isReviewerTurnOnly: false, targetStepId: undefined };
+    }
+    const steps = req.steps || [];
+    const pendingSteps = steps.filter((st) => st.status === "PENDING");
+    const currentPendingStep = pendingSteps[0] || null;
+    const finalStep = steps[steps.length - 1] || null;
+    const isMultiStep = steps.length > 1;
+
+    const canActAsCurrentStep = Boolean(
+      currentPendingStep && Number(currentPendingStep.approverId) === Number(currentUserId)
+    );
+    const canActAsFinalDeptHead = Boolean(
+      isDeptHead &&
+        finalStep &&
+        (Number(finalStep.approverId) === Number(currentUserId) || !isRequesterSelf)
+    );
+
+    if (!canActAsCurrentStep && !canActAsFinalDeptHead) {
+      return { canAct: false, isReviewerTurnOnly: false, targetStepId: undefined };
+    }
+
+    const isReviewerTurnOnly = Boolean(
+      isMultiStep && canActAsCurrentStep && !canActAsFinalDeptHead
+    );
+    const targetStepId = canActAsFinalDeptHead
+      ? finalStep?.stepId
+      : currentPendingStep?.stepId;
+
+    return { canAct: true, isReviewerTurnOnly, targetStepId };
+  };
 
   const handleApprove = async (req: ApprovalRequest) => {
-    if (!confirm(`[${req.title}] 결재를 최종 승인하시겠습니까?`)) return;
+    const ctx = getStepActionContext(req);
+    if (!ctx.canAct) return;
+    const confirmMsg = ctx.isReviewerTurnOnly
+      ? `[${req.title}] 1단계 검토를 승인하시겠습니까?`
+      : `[${req.title}] 결재를 최종 승인하시겠습니까?`;
+    if (!confirm(confirmMsg)) return;
     try {
       const res = await fetch("/api/erp/approvals", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           requestId: req.id,
+          stepId: ctx.targetStepId,
           action: "APPROVE",
-          approverId: currentUserId || 1,
+          approverId: currentUserId,
         }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "결재 승인 실패");
 
-      showToast("결재가 승인되었습니다.");
+      showToast(data.message || "결재가 승인되었습니다.");
       await fetchInbox();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -127,17 +179,19 @@ export const ApprovalInboxTab: React.FC<{
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           requestId: targetRejectReq.id,
+          stepId: targetRejectStepId || undefined,
           action: "REJECT",
-          approverId: currentUserId || 1,
+          approverId: currentUserId,
           comment: rejectComment.trim(),
         }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "결재 반려 실패");
 
-      showToast("결재가 반려 처리되었습니다.");
+      showToast(data.message || "결재가 반려 처리되었습니다.");
       setRejectModalOpen(false);
       setRejectComment("");
+      setTargetRejectStepId(null);
       await fetchInbox();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -293,31 +347,40 @@ export const ApprovalInboxTab: React.FC<{
                   </h3>
                 </div>
 
-                  {/* 결재 권한이 있는 결재자(step.approverId === currentUserId) 또는 최고관리자만 결재 버튼 표시 (기안자 본인은 대기만 가능) */}
-                  {selectedRequest.status === "PENDING" &&
-                    (isAdmin ||
-                      selectedRequest.steps?.some((st) => Number(st.approverId) === Number(currentUserId))) &&
-                    Number(selectedRequest.requesterId) !== Number(currentUserId) && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          setTargetRejectReq(selectedRequest);
-                          setRejectComment("");
-                          setRejectModalOpen(true);
-                        }}
-                        className="px-3 py-1.5 bg-[#fef2f2] hover:bg-[#fee2e2] text-[#991b1b] text-xs font-bold rounded border border-[#fecaca] transition"
-                      >
-                        반려
-                      </button>
-                      <button
-                        onClick={() => handleApprove(selectedRequest)}
-                        className="px-4 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1 shadow transition"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>승인</span>
-                      </button>
-                    </div>
-                  )}
+                  {/* 대표이사 결재 제외 안내 또는 현 단계 결재권자 액션 버튼 */}
+                  {(() => {
+                    if (isCeo) {
+                      return (
+                        <span className="px-2.5 py-1 rounded bg-[#f4efe4] text-[#475569] border border-[#b5a894] text-[11px] font-bold whitespace-nowrap">
+                          부서장 전결 (열람 전용)
+                        </span>
+                      );
+                    }
+                    const actionCtx = getStepActionContext(selectedRequest);
+                    if (!actionCtx.canAct) return null;
+                    return (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setTargetRejectReq(selectedRequest);
+                            setTargetRejectStepId(actionCtx.targetStepId || null);
+                            setRejectComment("");
+                            setRejectModalOpen(true);
+                          }}
+                          className="px-3 py-1.5 bg-[#fef2f2] hover:bg-[#fee2e2] text-[#991b1b] text-xs font-bold rounded border border-[#fecaca] transition whitespace-nowrap"
+                        >
+                          {actionCtx.isReviewerTurnOnly ? "보완 요청" : "반려"}
+                        </button>
+                        <button
+                          onClick={() => handleApprove(selectedRequest)}
+                          className="px-4 py-1.5 bg-[#047857] hover:bg-[#065f46] text-white text-xs font-bold rounded flex items-center gap-1 shadow transition whitespace-nowrap"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>{actionCtx.isReviewerTurnOnly ? "검토 승인" : "승인"}</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
               </div>
 
               {/* Body */}

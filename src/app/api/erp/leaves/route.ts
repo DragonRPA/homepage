@@ -6,116 +6,11 @@ import {
   getLeaveTypeLabel,
   calculateWeekdayCount,
 } from "@/lib/erpFormat";
-
-/**
- * 연차 신청자의 소속 부서장(팀장)을 결재자로 산출하며, 부서장 본인이 상신하는 경우 대표이사 결재 없이 본인 전결(자동 승인)로 처리
- * - 일반 부서원(예: 박종환, 김승지)이 상신 -> 소속 부서(렌탈운영팀)의 부서장(장종순) 배정 (autoApprove: false)
- * - 부서장 본인(예: 장종순) 또는 대표이사가 상신 -> 본인 전결 처리 (autoApprove: true)
- */
-async function resolveLeaveApprover(
-  pool: any,
-  requesterEmpId: number
-): Promise<{ approverId: number; autoApprove: boolean }> {
-  const empRes = await pool.query(
-    `SELECT e.id, e.name, e.role, e.role_code, e.duty, e.position, e.tier_level,
-            e.department_id, COALESCE(d.dept_name, e.department, '') AS dept_name,
-            d.manager_name, d.parent_id
-     FROM erp_employees e
-     LEFT JOIN erp_departments d ON e.department_id = d.id OR (e.department_id IS NULL AND e.department = d.dept_name)
-     WHERE e.id = $1
-     LIMIT 1`,
-    [requesterEmpId]
-  );
-
-  if (empRes.rows.length > 0) {
-    const reqEmp = empRes.rows[0];
-    const reqName = String(reqEmp.name || "").trim();
-    const deptId = reqEmp.department_id;
-    const deptName = String(reqEmp.dept_name || "").trim();
-    const deptManagerName = String(reqEmp.manager_name || "").trim();
-    const duty = String(reqEmp.duty || "").trim();
-    const pos = String(reqEmp.position || "").trim();
-    const role = String(reqEmp.role || "").toUpperCase();
-    const roleCode = String(reqEmp.role_code || "").toUpperCase();
-    const tierLevel = Number(reqEmp.tier_level || 0);
-
-    // 1. 소속 부서에 지정된 부서장(manager_name)이 있는 경우 우선 매칭 (대표이사가 아닌 실무 부서장 우선)
-    if (deptManagerName && !deptManagerName.includes("대표이사")) {
-      const mgrByName = await pool.query(
-        `SELECT id FROM erp_employees WHERE name = $1 AND employment_status = 'ACTIVE' LIMIT 1`,
-        [deptManagerName]
-      );
-      if (mgrByName.rows.length > 0) {
-        const mgrId = Number(mgrByName.rows[0].id);
-        return {
-          approverId: mgrId,
-          autoApprove: mgrId === requesterEmpId,
-        };
-      }
-    }
-
-    // 2. 동일 부서 내 직책(팀장/부서장/본부장/실장) 또는 역할(MANAGER) 보유자를 탐색 (대표이사 제외)
-    if (deptId || deptName) {
-      const deptHeadRes = await pool.query(
-        `SELECT id FROM erp_employees
-         WHERE employment_status = 'ACTIVE'
-           AND position NOT LIKE '%대표%'
-           AND COALESCE(duty, '') NOT LIKE '%대표%'
-           AND (
-             ($1::int IS NOT NULL AND department_id = $1::int)
-             OR ($2 <> '' AND department = $2)
-           )
-           AND (
-             role = 'MANAGER' OR role_code = 'MANAGER'
-             OR duty LIKE '%팀장%' OR duty LIKE '%부서장%' OR duty LIKE '%본부장%' OR duty LIKE '%실장%'
-             OR position LIKE '%팀장%' OR position LIKE '%부서장%' OR position LIKE '%부장%'
-           )
-         ORDER BY tier_level DESC, id ASC
-         LIMIT 1`,
-        [deptId ? Number(deptId) : null, deptName]
-      );
-      if (deptHeadRes.rows.length > 0) {
-        const mgrId = Number(deptHeadRes.rows[0].id);
-        return {
-          approverId: mgrId,
-          autoApprove: mgrId === requesterEmpId,
-        };
-      }
-    }
-
-    // 3. 신청자 본인이 부서장(팀장/부장)인 경우 본인 전결
-    const isDeptHeadSelf =
-      role === "MANAGER" ||
-      roleCode === "MANAGER" ||
-      tierLevel >= 3 ||
-      /팀장|부서장|본부장|실장/.test(duty) ||
-      /팀장|부서장|부장/.test(pos);
-
-    if (isDeptHeadSelf && !pos.includes("대표") && !duty.includes("대표")) {
-      return { approverId: requesterEmpId, autoApprove: true };
-    }
-  }
-
-  // 4. 부서 내 팀장이 없는 경우 전사 부서장(MANAGER, 예: 장종순) 탐색 (대표이사 제외)
-  const fallbackMgrRes = await pool.query(
-    `SELECT id FROM erp_employees
-     WHERE employment_status = 'ACTIVE'
-       AND position NOT LIKE '%대표%'
-       AND COALESCE(duty, '') NOT LIKE '%대표%'
-       AND (role = 'MANAGER' OR role_code = 'MANAGER' OR duty LIKE '%팀장%' OR position LIKE '%부장%')
-     ORDER BY tier_level DESC, id ASC
-     LIMIT 1`
-  );
-  if (fallbackMgrRes.rows.length > 0) {
-    const mgrId = Number(fallbackMgrRes.rows[0].id);
-    return {
-      approverId: mgrId,
-      autoApprove: mgrId === requesterEmpId,
-    };
-  }
-
-  return { approverId: requesterEmpId, autoApprove: true };
-}
+import { isCeoEmployee } from "@/lib/erpApprovalLine";
+import {
+  loadOrgApprovalContext,
+  resolveServerDepartmentHeadApprover,
+} from "@/lib/erpApprovalServer";
 
 // GET: List all leave requests
 export async function GET() {
@@ -190,7 +85,10 @@ export async function POST(request: Request) {
     }
 
     const pool = getErpPool();
-    const { approverId, autoApprove } = await resolveLeaveApprover(pool, Number(employeeId));
+    const { approverId, autoApprove } = await resolveServerDepartmentHeadApprover(
+      pool,
+      Number(employeeId)
+    );
     const initialStatus = autoApprove ? "APPROVED" : "PENDING";
     const nowIso = new Date().toISOString();
 
@@ -336,11 +234,34 @@ export async function PATCH(request: Request) {
       );
     }
 
+    const pool = getErpPool();
+    const ctx = await loadOrgApprovalContext(pool);
+    const actorEmp = ctx.employees.find((e) => Number(e.id) === Number(approverId)) || null;
+    if (isCeoEmployee(actorEmp)) {
+      return NextResponse.json(
+        { error: "대표이사는 결재 제외 대상입니다. 소속 부서장 전결로 운영됩니다." },
+        { status: 403 }
+      );
+    }
+
+    const leaveRowRes = await pool.query(
+      `SELECT employee_id FROM erp_leave_requests WHERE id = $1 LIMIT 1`,
+      [Number(requestId)]
+    );
+    let finalApproverId = Number(approverId);
+    if (leaveRowRes.rows.length > 0) {
+      const resolved = await resolveServerDepartmentHeadApprover(
+        pool,
+        Number(leaveRowRes.rows[0].employee_id)
+      );
+      finalApproverId = resolved.approverId;
+    }
+
     const nextStatus = action === "APPROVE" ? "APPROVED" : "REJECTED";
     const now = new Date().toISOString();
     const updateData: any = {
       status: nextStatus,
-      approver_id: approverId,
+      approver_id: finalApproverId,
       approved_at: now,
       reject_reason: action === "REJECT" ? rejectReason || "결재자 반려" : null,
     };
@@ -358,15 +279,14 @@ export async function PATCH(request: Request) {
 
     // 연동된 결재함 상태도 동기화
     try {
-      const pool = getErpPool();
       const apprRes = await pool.query(
         `UPDATE erp_approval_requests SET status = $1 WHERE target_table = 'erp_leave_requests' AND target_id = $2 RETURNING id`,
         [nextStatus, requestId]
       );
       if (apprRes.rows.length > 0) {
         await pool.query(
-          `UPDATE erp_approval_steps SET status = $1, acted_at = $2 WHERE request_id = $3`,
-          [nextStatus, now, apprRes.rows[0].id]
+          `UPDATE erp_approval_steps SET status = $1, approver_id = $2, acted_at = $3 WHERE request_id = $4`,
+          [nextStatus, finalApproverId, now, apprRes.rows[0].id]
         );
       }
     } catch {}

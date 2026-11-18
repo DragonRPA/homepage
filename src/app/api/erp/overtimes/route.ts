@@ -2,115 +2,11 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getErpPool, supabaseErp } from "@/lib/supabaseErp";
 import { calculateOvertimeBreakdown } from "@/lib/erpFormat";
-
-/**
- * 초과근무 신청자의 소속 부서장(팀장)을 결재자로 산출하며, 부서장 본인이 상신하는 경우 대표이사 결재 없이 본인 전결(자동 승인)로 처리
- * - 일반 부서원(예: 박종환, 김승지)이 상신 -> 소속 부서(렌탈운영팀)의 부서장(장종순) 배정 (autoApprove: false)
- * - 부서장 본인(예: 장종순)이 상신 -> 부서장 전결 처리 (autoApprove: true)
- */
-async function resolveOvertimeApprover(
-  pool: any,
-  requesterEmpId: number
-): Promise<{ approverId: number; autoApprove: boolean }> {
-  const empRes = await pool.query(
-    `SELECT e.id, e.name, e.role, e.role_code, e.duty, e.position, e.tier_level,
-            e.department_id, COALESCE(d.dept_name, e.department, '') AS dept_name,
-            d.manager_name, d.parent_id
-     FROM erp_employees e
-     LEFT JOIN erp_departments d ON e.department_id = d.id OR (e.department_id IS NULL AND e.department = d.dept_name)
-     WHERE e.id = $1
-     LIMIT 1`,
-    [requesterEmpId]
-  );
-
-  if (empRes.rows.length > 0) {
-    const reqEmp = empRes.rows[0];
-    const deptId = reqEmp.department_id;
-    const deptName = String(reqEmp.dept_name || "").trim();
-    const deptManagerName = String(reqEmp.manager_name || "").trim();
-    const duty = String(reqEmp.duty || "").trim();
-    const pos = String(reqEmp.position || "").trim();
-    const role = String(reqEmp.role || "").toUpperCase();
-    const roleCode = String(reqEmp.role_code || "").toUpperCase();
-    const tierLevel = Number(reqEmp.tier_level || 0);
-
-    // 1. 소속 부서에 지정된 부서장(manager_name)이 있는 경우 우선 매칭 (대표이사가 아닌 실무 부서장 우선)
-    if (deptManagerName && !deptManagerName.includes("대표이사")) {
-      const mgrByName = await pool.query(
-        `SELECT id FROM erp_employees WHERE name = $1 AND employment_status = 'ACTIVE' LIMIT 1`,
-        [deptManagerName]
-      );
-      if (mgrByName.rows.length > 0) {
-        const mgrId = Number(mgrByName.rows[0].id);
-        return {
-          approverId: mgrId,
-          autoApprove: mgrId === requesterEmpId,
-        };
-      }
-    }
-
-    // 2. 동일 부서 내 직책(팀장/부서장/본부장/실장) 또는 역할(MANAGER) 보유자를 탐색 (대표이사 제외)
-    if (deptId || deptName) {
-      const deptHeadRes = await pool.query(
-        `SELECT id FROM erp_employees
-         WHERE employment_status = 'ACTIVE'
-           AND position NOT LIKE '%대표%'
-           AND COALESCE(duty, '') NOT LIKE '%대표%'
-           AND (
-             ($1::int IS NOT NULL AND department_id = $1::int)
-             OR ($2 <> '' AND department = $2)
-           )
-           AND (
-             role = 'MANAGER' OR role_code = 'MANAGER'
-             OR duty LIKE '%팀장%' OR duty LIKE '%부서장%' OR duty LIKE '%본부장%' OR duty LIKE '%실장%'
-             OR position LIKE '%팀장%' OR position LIKE '%부서장%' OR position LIKE '%부장%'
-           )
-         ORDER BY tier_level DESC, id ASC
-         LIMIT 1`,
-        [deptId ? Number(deptId) : null, deptName]
-      );
-      if (deptHeadRes.rows.length > 0) {
-        const mgrId = Number(deptHeadRes.rows[0].id);
-        return {
-          approverId: mgrId,
-          autoApprove: mgrId === requesterEmpId,
-        };
-      }
-    }
-
-    // 3. 신청자 본인이 부서장(팀장/부장)인 경우 본인 전결
-    const isDeptHeadSelf =
-      role === "MANAGER" ||
-      roleCode === "MANAGER" ||
-      tierLevel >= 3 ||
-      /팀장|부서장|본부장|실장/.test(duty) ||
-      /팀장|부서장|부장/.test(pos);
-
-    if (isDeptHeadSelf && !pos.includes("대표") && !duty.includes("대표")) {
-      return { approverId: requesterEmpId, autoApprove: true };
-    }
-  }
-
-  // 4. 전사 부서장(MANAGER / 팀장 / 부장, 예: 장종순) 탐색 (대표이사 제외)
-  const fallbackMgrRes = await pool.query(
-    `SELECT id FROM erp_employees
-     WHERE employment_status = 'ACTIVE'
-       AND position NOT LIKE '%대표%'
-       AND COALESCE(duty, '') NOT LIKE '%대표%'
-       AND (role = 'MANAGER' OR role_code = 'MANAGER' OR duty LIKE '%팀장%' OR position LIKE '%부장%')
-     ORDER BY tier_level DESC, id ASC
-     LIMIT 1`
-  );
-  if (fallbackMgrRes.rows.length > 0) {
-    const mgrId = Number(fallbackMgrRes.rows[0].id);
-    return {
-      approverId: mgrId,
-      autoApprove: mgrId === requesterEmpId,
-    };
-  }
-
-  return { approverId: requesterEmpId, autoApprove: true };
-}
+import { isCeoEmployee } from "@/lib/erpApprovalLine";
+import {
+  loadOrgApprovalContext,
+  resolveServerDepartmentHeadApprover,
+} from "@/lib/erpApprovalServer";
 
 // GET: 초과근무 목록 조회
 export async function GET(request: Request) {
@@ -287,7 +183,7 @@ export async function POST(request: Request) {
       customOtPay !== undefined && Number(customOtPay) >= 0 ? Math.round(Number(customOtPay)) : calc.otPay;
 
     // 부서장 전결/결재자 산출 (부서원은 부서장에게 상신, 부서장 본인이거나 부서장이 즉시승인 시 부서장 명의로 승인)
-    const resolved = await resolveOvertimeApprover(pool, Number(employeeId));
+    const resolved = await resolveServerDepartmentHeadApprover(pool, Number(employeeId));
     const effectiveApproverId = resolved.approverId;
     const effectiveAutoApprove = Boolean(autoApprove) || resolved.autoApprove;
     const initialStatus = effectiveAutoApprove ? "APPROVED" : "PENDING";
@@ -411,11 +307,23 @@ export async function PATCH(request: Request) {
     const now = new Date().toISOString();
 
     const pool = getErpPool();
+    const ctx = await loadOrgApprovalContext(pool);
+    const actorEmp = ctx.employees.find((e) => Number(e.id) === Number(approverId)) || null;
+    if (isCeoEmployee(actorEmp)) {
+      return NextResponse.json(
+        { error: "대표이사는 결재 제외 대상입니다. 소속 부서장 전결로 운영됩니다." },
+        { status: 403 }
+      );
+    }
+
     let finalApproverId = Number(approverId);
     try {
       const otRes = await pool.query(`SELECT employee_id, approver_id FROM erp_overtimes WHERE id = $1 LIMIT 1`, [Number(id)]);
       if (otRes.rows.length > 0) {
-        const resolved = await resolveOvertimeApprover(pool, Number(otRes.rows[0].employee_id));
+        const resolved = await resolveServerDepartmentHeadApprover(
+          pool,
+          Number(otRes.rows[0].employee_id)
+        );
         finalApproverId = resolved.approverId;
       }
     } catch {}

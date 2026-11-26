@@ -464,7 +464,19 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
     }
   };
 
-  // 단건 또는 다건 계정과목 즉시 지정 정리
+  const getEffectiveRowAccountSubject = (t: BankTransaction): string => {
+    if (rowAccountMap[t.id]) return rowAccountMap[t.id];
+    const rec = recommendAccountSubjectForTx(t);
+    if (rec) return rec;
+    const dir = t.depositAmount > 0 ? "DEPOSIT" : "WITHDRAWAL";
+    return (
+      STANDARD_ACCOUNT_SUBJECTS.find(
+        (s) => s.direction === dir || s.direction === "BOTH"
+      )?.label || ""
+    );
+  };
+
+  // 단건 또는 다건 단일 계정과목 즉시 지정 정리
   const handleAssignAccountSubject = async (ids: number[], subjectLabel: string, customMemo?: string) => {
     if (ids.length === 0 || !subjectLabel.trim()) {
       showToast("거래내역과 지정할 계정과목을 선택해 주십시오.", "error");
@@ -490,7 +502,63 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
         for (const id of ids) next.delete(id);
         return next;
       });
+      setRowAccountMap((prev) => {
+        const next = { ...prev };
+        for (const id of ids) delete next[id];
+        return next;
+      });
       setMatchModalOpen(false);
+      await fetchTransactions();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  // 다중 선택된 거래내역을 각 행의 추천 또는 수동 변경 계정과목대로 일괄 확정
+  const handleAssignPerRowAccountSubjects = async (ids: number[]) => {
+    if (ids.length === 0) {
+      showToast("정리할 거래내역을 선택해 주십시오.", "error");
+      return;
+    }
+    const txById = new Map(transactions.map((t) => [t.id, t]));
+    const items = ids
+      .map((txId) => {
+        const tx = txById.get(txId);
+        if (!tx) return null;
+        const accountSubject = getEffectiveRowAccountSubject(tx).trim();
+        if (!accountSubject) return null;
+        return { id: txId, accountSubject };
+      })
+      .filter((it): it is { id: number; accountSubject: string } => it !== null);
+
+    if (items.length === 0) {
+      showToast("선택된 거래의 추천·지정 계정과목을 확인할 수 없습니다.", "error");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/erp/bank-matching", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "BATCH_ASSIGN_ACCOUNT",
+          items,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "일괄 계정과목 지정 실패");
+
+      showToast(data.message || "행별 추천·지정 계정과목 일괄 정리가 완료되었습니다.");
+      setSelectedTxIds((prev) => {
+        const next = new Set(prev);
+        for (const it of items) next.delete(it.id);
+        return next;
+      });
+      setRowAccountMap((prev) => {
+        const next = { ...prev };
+        for (const it of items) delete next[it.id];
+        return next;
+      });
       await fetchTransactions();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -1011,8 +1079,16 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleAssignPerRowAccountSubjects(Array.from(selectedTxIds))}
+              className="px-3 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white font-bold text-xs shadow-xs whitespace-nowrap"
+            >
+              선택 {selectedTxIds.size}건 추천·지정 계정 일괄 확정
+            </button>
+            <span className="text-[#b5a894] hidden sm:inline">|</span>
             <span className="font-bold text-[11px] text-[#334155] dark:text-slate-300 whitespace-nowrap">
-              일괄 계정과목 지정:
+              단일 계정 덮어쓰기:
             </span>
             <select
               value={batchAccountSubject}
@@ -1030,9 +1106,9 @@ export const BankMatchingTab: React.FC<BankMatchingTabProps> = ({
               onClick={() =>
                 handleAssignAccountSubject(Array.from(selectedTxIds), batchAccountSubject)
               }
-              className="px-3 py-1 rounded bg-[#1d4ed8] hover:bg-[#1e40af] text-white font-bold text-xs shadow-xs whitespace-nowrap"
+              className="px-2.5 py-1 rounded bg-[#334155] hover:bg-[#1e293b] text-white font-bold text-xs shadow-xs whitespace-nowrap"
             >
-              선택 {selectedTxIds.size}건 계정과목 일괄 확정
+              동일 계정 적용
             </button>
           </div>
         </div>

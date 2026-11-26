@@ -578,12 +578,71 @@ export async function PATCH(request: Request) {
 
   try {
     const body = await request.json();
-    const { id, ids, action, matchedType, matchedId, accountSubject, invoiceIds, forceComplete, settleReason, memo } = body;
+    const {
+      id,
+      ids,
+      items,
+      action,
+      matchedType,
+      matchedId,
+      accountSubject,
+      invoiceIds,
+      forceComplete,
+      settleReason,
+      memo,
+    } = body;
 
     await client.query("BEGIN");
 
-    // 1. BATCH_ASSIGN_ACCOUNT: 통장 미매칭 입출금 1~N건에 계정과목을 지정하여 미결 정리
+    // 1. BATCH_ASSIGN_ACCOUNT: 통장 미매칭 입출금 1~N건에 행별 추천·지정 계정과목 또는 단일 계정과목을 일괄 지정
     if (action === "BATCH_ASSIGN_ACCOUNT") {
+      if (Array.isArray(items) && items.length > 0) {
+        const normalizedItems = items
+          .map((it: any) => ({
+            id: Number(it?.id),
+            accountSubject: String(it?.accountSubject || "").trim(),
+            memo: it?.memo && String(it.memo).trim() ? String(it.memo).trim() : null,
+          }))
+          .filter((it: { id: number; accountSubject: string; memo: string | null }) => it.id > 0 && it.accountSubject.length > 0);
+
+        if (normalizedItems.length === 0) {
+          await client.query("ROLLBACK");
+          return NextResponse.json(
+            { error: "정리할 거래내역과 각 행의 계정과목을 선택해 주십시오." },
+            { status: 400 }
+          );
+        }
+
+        const itemIds = normalizedItems.map((it) => it.id);
+        const itemSubjects = normalizedItems.map((it) => it.accountSubject);
+        const itemMemos = normalizedItems.map((it) => it.memo);
+
+        await client.query(
+          `UPDATE erp_bank_transactions AS t
+           SET is_matched = true,
+               matched_type = 'ACCOUNT_SUBJECT',
+               matched_id = v.account_subject,
+               memo = COALESCE(v.memo, t.memo),
+               matched_at = NOW()
+           FROM unnest($1::bigint[], $2::text[], $3::text[]) AS v(id, account_subject, memo)
+           WHERE t.id = v.id`,
+          [itemIds, itemSubjects, itemMemos]
+        );
+
+        const distinctSubjects = new Set(itemSubjects).size;
+        const { newlyClosedAccounts } = await syncBankAccountClosingState(client);
+        await client.query("COMMIT");
+        const closedSuffix = newlyClosedAccounts.length > 0 ? " (전건 매칭 완료 · 대사 마감 확정)" : "";
+        return NextResponse.json({
+          success: true,
+          count: normalizedItems.length,
+          distinctSubjects,
+          newlyClosed: newlyClosedAccounts.length > 0,
+          newlyClosedAccounts,
+          message: `선택한 통장 내역 ${normalizedItems.length}건을 각 추천·지정 계정과목(${distinctSubjects}종)으로 정리 완료했습니다.${closedSuffix}`,
+        });
+      }
+
       const targetIds: number[] = Array.isArray(ids)
         ? ids.map((n: any) => Number(n)).filter((n: number) => n > 0)
         : id
